@@ -578,6 +578,8 @@
     'app-butce.html',
     'app-sohbet.html',
     'app-ajanda.html',
+    'app-rapor-personel.html',
+    'app-rapor-gorev.html',
     'app-dokuman.html',
     'app-toplanti.html',
     'app-panel-bildirimler.html',
