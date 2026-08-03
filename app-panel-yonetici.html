@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yönetici Paneli — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="panel" data-screen="yonetici">
+<div id="yonetici"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var mount = document.getElementById('yonetici');
+  if(!mount) return;
+
+  /* =================================================================
+     0. KAPSAM, YETKİ VE ORTAK SÖZLÜK
+     Referans tarih daima DB.today (new Date() kullanılmaz).
+     Bu ekran menüde yalnız sahip · genelmudur · sistem · operasyon
+     rollerine açıktır (shell.js SECTIONS.panel → roles). Doğrudan URL
+     ile gelen diğer roller için sayfa içinde ayrıca maskeleme uygulanır.
+     ================================================================= */
+  var T = DB.today;
+  var YONETIM = ['sahip','genelmudur','sistem','operasyon'];
+  var rol = GV.session ? GV.session.rol : 'stajyer';
+  var canFin = GV.perm.can('finans');          /* para KPI ve grafikleri */
+  var canHR  = GV.perm.can('personelRapor');   /* personel bloğu         */
+
+  var KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  var AYK = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+
+  function days(d){ return F.days(d); }
+  function acikGorev(t){ return KAPALI.indexOf(t.durum) === -1; }
+  function gecikenGorev(t){ return acikGorev(t) && !!t.termin && days(t.termin) < 0; }
+  function kalanEfor(t){ return Math.max(0, (t.tahminiSure || 0) - (t.gercekSure || 0)); }
+  function aktifProje(p){ return p.durum !== 'Teslim' && !p.arsiv; }
+  function acikAday(l){ return ['Kazanıldı','Kaybedildi','Beklemeye alındı'].indexOf(l.asama) === -1; }
+  function acikDestek(t){ return ['Kapandı','Çözüldü'].indexOf(t.durum) === -1; }
+  function acikFatura(i){ return i.durum !== 'Ödendi'; }
+  function ay(iso){ return String(iso).slice(0, 7); }
+  function ayEtiket(ym){ var p = ym.split('-'); return AYK[parseInt(p[1], 10) - 1] + ' ' + p[0].slice(2); }
+  function toplam(list, fn){ return list.reduce(function(s, x){ return s + (fn(x) || 0); }, 0); }
+  function oran(a, b){ return b ? Math.round(a * 100 / b) : 0; }
+
+  /* Para maskesi — finans yetkisi yoksa değer gösterilmez (CLAUDE.md / §5) */
+  function para(v){ return canFin ? F.money(v) : '<span class="cell-mask">••••••</span>'; }
+  function paraK(v){ return canFin ? F.moneyK(v) : '<span class="cell-mask">••••••</span>'; }
+
+  function cu(kod){ return DB.customers.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function pr(kod){ return DB.projects.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function musteriAd(kod){ var c = cu(kod); return c ? c.kisa : (kod || '—'); }
+
+  /* =================================================================
+     1. MARKUP YARDIMCILARI — yalnız kayıtlı ortak sınıflar kullanılır
+     ================================================================= */
+  function kpi(c){
+    var inner =
+      '<div class="kpi-ico">' + ico(c.icon || 'i-chart-bar','ic-lg') + '</div>' +
+      '<div class="kpi-body"><div class="kpi-num">' + c.value + '</div>' +
+      '<div class="kpi-lbl">' + esc(c.label) + '</div>' +
+      (c.meta ? '<div class="kpi-meta' + (c.metaTone ? ' is-' + c.metaTone : '') + '">' +
+        (c.metaIcon ? ico(c.metaIcon,'ic-sm') : '') + c.meta + '</div>' : '') + '</div>';
+    return c.href
+      ? '<a class="kpi' + (c.tone ? ' is-' + c.tone : '') + '" href="' + c.href + '">' + inner + '</a>'
+      : '<div class="kpi' + (c.tone ? ' is-' + c.tone : '') + '">' + inner + '</div>';
+  }
+  /* KPI şeridi dörtlü satırlara bölünür — .kpi-grid 4 kolonludur */
+  function kpiGrid(cards){
+    var out = '', i;
+    cards = cards.filter(Boolean);
+    for(i = 0; i < cards.length; i += 4){
+      out += '<div class="kpi-grid">' + cards.slice(i, i + 4).map(kpi).join('') + '</div>';
+    }
+    return out;
+  }
+
+  function card(c){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(c.icon || 'i-list') + esc(c.title) + '</h2>' +
+      (c.sub ? '<div class="gc-sub">' + esc(c.sub) + '</div>' : '') + '</div>' +
+      (c.link ? '<div class="gc-head-acts"><a class="btn btn-ghost btn-sm" href="' + c.link + '">' +
+        esc(c.linkLabel || 'Tümü') + ' ' + ico('i-arrow-right','ic-sm') + '</a></div>' : '') +
+      '</div>' +
+      '<div class="gc-body' + (c.flush === false ? '' : ' flush') + '">' + c.body + '</div></section>';
+  }
+
+  /* ≤760px'de .gv-tablewrap gizlenir; .is-mobilescroll ile tablo mobilde de okunur kalır */
+  function table(head, rows, empty){
+    if(!rows.length) return GV.empty(empty);
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head.map(function(h){
+        return '<th' + (h.cls ? ' class="' + h.cls + '"' : '') + '>' + esc(h.label) + '</th>';
+      }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+  }
+  function tr(cells, cls){
+    return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' + cells.map(function(c){
+      return '<td' + (c.cls ? ' class="' + c.cls + '"' : '') + '>' + c.html + '</td>';
+    }).join('') + '</tr>';
+  }
+  function link(href, main, sub){
+    return '<a class="cell-main" href="' + href + '">' + esc(main) + '</a>' +
+      (sub ? '<span class="cell-sub">' + esc(sub) + '</span>' : '');
+  }
+  function charts(items, single){
+    items = items.filter(Boolean);
+    if(!items.length) return '';
+    return '<div class="gv-charts' + (single ? ' is-single' : '') + '">' + items.map(function(c){
+      return '<div class="gv-chartcard"><h3>' + esc(c.title) + '</h3>' +
+        (c.sub ? '<span class="gv-ch-sub">' + esc(c.sub) + '</span>' : '') +
+        c.html + (c.legend ? GV.chart.legend(c.legend) : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
+  /* =================================================================
+     2. TÜRETİLMİŞ ÖLÇÜLER — hepsi koleksiyonlardan hesaplanır,
+        hiçbir sayı sabit yazılmaz (lessons L-08).
+     ================================================================= */
+  var gorevler    = DB.tasks;
+  var acikIsler   = gorevler.filter(acikGorev);
+  var gecikenIs   = gorevler.filter(gecikenGorev);
+  var projeler    = DB.projects.filter(aktifProje);
+  var adaylar     = DB.leads.filter(acikAday);
+  var talepler    = DB.tickets.filter(acikDestek);
+  var faturalar   = DB.invoices;
+  var acikFaturalar = faturalar.filter(acikFatura);
+  var odenmis     = faturalar.filter(function(i){ return i.durum === 'Ödendi'; });
+  var gecikenOdeme = DB.payments.filter(function(p){ return p.durum === 'Gecikti'; });
+  var siparisler  = DB.orders;
+  var kapasite    = DB.capacity;
+
+  /* Finans */
+  var faturalanan  = toplam(faturalar, function(i){ return i.toplam; });
+  var tahsilEdilen = toplam(odenmis, function(i){ return i.toplam; });
+  var bekleyenAlacak = toplam(acikFaturalar, function(i){ return i.toplam; });
+  var gecikenAlacak  = toplam(gecikenOdeme, function(p){ return p.tutar; });
+  var tahsilatOrani  = oran(tahsilEdilen, faturalanan);
+  var gidenSiparis   = toplam(siparisler.filter(function(o){ return o.durum === 'Teslim alındı'; }),
+                              function(o){ return o.toplam; });
+  var acikSiparis    = toplam(siparisler.filter(function(o){ return o.durum !== 'Teslim alındı'; }),
+                              function(o){ return o.toplam; });
+  /* Varsayım: nakit pozisyonu = tahsil edilen fatura − teslim alınmış sipariş gideri */
+  var nakit = tahsilEdilen - gidenSiparis;
+
+  /* Satış */
+  function olasilik(asama){
+    var st = DB.pipelineStages.filter(function(x){ return x.key === asama; })[0];
+    return st ? st.olasilik : 0;
+  }
+  var pipeline = toplam(adaylar, function(l){ return l.butce; });
+  var agirlikli = Math.round(toplam(adaylar, function(l){ return l.butce * olasilik(l.asama) / 100; }));
+
+  /* Proje */
+  var saglikli = projeler.filter(function(p){ return p.saglik === 'İyi'; }).length;
+  var riskliProje = projeler.filter(function(p){ return p.saglik === 'Riskli'; }).length;
+  var projeSaglikOrani = oran(saglikli, projeler.length);
+  var butceAsan = projeler.filter(function(p){ return p.gerceklesenMaliyet > p.butce; });
+  var butceAsim = toplam(butceAsan, function(p){ return p.gerceklesenMaliyet - p.butce; });
+
+  /* Personel */
+  var ortDoluluk = kapasite.length ? Math.round(toplam(kapasite, function(c){ return c.doluluk; }) / kapasite.length) : 0;
+  var asiriYuklu = kapasite.filter(function(c){ return c.doluluk >= 95; }).length;
+  var bosKapasite = toplam(kapasite, function(c){ return Math.max(0, c.kapasite - c.planlanan); });
+
+  /* İş ve destek */
+  var gecikenOran = oran(gecikenIs.length, acikIsler.length);
+  var slaRiski = talepler.filter(function(t){ return t.slaDurum === 'Risk altında'; }).length;
+
+  /* Karar kuyruğu — DB.approvals + modüllerden türetilen bekleyenler birleşir */
+  function onayKaydi(kayit){
+    return DB.approvals.filter(function(a){ return a.kayit === kayit && a.durum === 'Bekliyor'; })[0] || null;
+  }
+  function kararSatiri(o){
+    var a = o.onay;
+    return {
+      kod:o.kod, tur:o.tur, baslik:o.baslik, kayit:o.kayit,
+      tutar:o.tutar != null ? o.tutar : (a ? a.tutar : null),
+      tarih:o.tarih || (a ? a.tarih : null),
+      talepEden:o.talepEden || (a ? a.talepEden : null),
+      onaylayan:o.onaylayan || (a ? a.onaylayan : null),
+      aciliyet:o.aciliyet || (a ? a.aciliyet : 'Orta'),
+      link:o.link || (a ? a.link : 'app-panel-onaylar.html')
+    };
+  }
+  var kararlar = []
+    .concat(DB.purchases.filter(function(p){ return p.durum === 'Onay bekliyor'; }).map(function(p){
+      return kararSatiri({ kod:p.kod, tur:'Satın alma', baslik:p.urun, kayit:p.kod, tutar:p.tahminiMaliyet,
+        tarih:p.olusturma, talepEden:p.talepEden, aciliyet:p.oncelik, onay:onayKaydi(p.kod),
+        link:'app-satinalma.html' }); }))
+    .concat(DB.quotes.filter(function(q){ return q.icOnay === 'Bekliyor'; }).map(function(q){
+      return kararSatiri({ kod:q.kod, tur:'Teklif iç onayı', baslik:q.firma + ' teklifi', kayit:q.kod,
+        tutar:q.toplam, tarih:q.tarih, talepEden:q.hazirlayan, onay:onayKaydi(q.kod),
+        link:'app-teklif.html' }); }))
+    .concat(DB.leaves.filter(function(l){ return l.durum === 'Onay bekliyor'; }).map(function(l){
+      return kararSatiri({ kod:l.kod, tur:'İzin', baslik:l.tur + ' — ' + l.gun + ' gün', kayit:l.kod,
+        tutar:null, tarih:l.talepTarihi, talepEden:l.personel, onaylayan:l.onaylayan,
+        onay:onayKaydi(l.kod), link:'app-izin.html' }); }))
+    .concat(DB.timesheets.filter(function(t){ return t.durum === 'Onay bekliyor'; }).map(function(t){
+      return kararSatiri({ kod:t.kod, tur:'Timesheet', baslik:t.hafta + ' — ' + F.hours(t.toplam), kayit:t.kod,
+        tutar:null, tarih:t.bitis, talepEden:t.personel, onaylayan:t.onaylayan,
+        onay:onayKaydi(t.kod), link:'app-zaman.html' }); }));
+  var kararKodlari = kararlar.map(function(k){ return k.kayit; });
+  var digerKararlar = DB.approvals.filter(function(a){
+    return a.durum === 'Bekliyor' && kararKodlari.indexOf(a.kayit) === -1;
+  }).map(function(a){
+    return kararSatiri({ kod:a.kod, tur:a.tur, baslik:a.baslik, kayit:a.kayit, tutar:a.tutar,
+      tarih:a.tarih, talepEden:a.talepEden, onaylayan:a.onaylayan, aciliyet:a.aciliyet,
+      onay:a, link:a.link });
+  });
+  kararlar = kararlar.concat(digerKararlar).sort(function(a, b){
+    var p = ['Kritik','Yüksek','Orta','Düşük'];
+    var d = p.indexOf(a.aciliyet) - p.indexOf(b.aciliyet);
+    return d !== 0 ? d : String(a.tarih || '').localeCompare(String(b.tarih || ''));
+  });
+  var kararTutari = toplam(kararlar, function(k){ return k.tutar; });
+
+  /* =================================================================
+     3. SAYFA
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Ana Panel', title:'Yönetici Paneli',
+    sub:'Şirket sağlık tablosu — eğilim, karşılaştırma ve risk yoğunlaşması · referans tarih ' + F.date(T),
+    actions:[
+      { label:'Günlük Panel', icon:'i-gauge', href:'app-panel.html' },
+      { label:'Rapor Merkezi', icon:'i-chart-bar', href:'app-rapor.html' },
+      { label:'Bekleyen Onaylar', icon:'i-stamp', cls:'btn-acc', href:'app-panel-onaylar.html' }
+    ]
+  });
+
+  try{
+    mount.innerHTML = build();
+  }catch(err){
+    mount.innerHTML = GV.errorState({ title:'Yönetici paneli yüklenemedi', desc:String(err.message || err) });
+    var rt = mount.querySelector('[data-retry]');
+    if(rt) rt.addEventListener('click', function(){ location.reload(); });
+  }
+
+  function build(){
+    return notices() + kpiSerit() + trendGrafik() + karsilastirmaGrafik() +
+           riskBloklari() + personelBlok() + kararBekleyenler();
+  }
+
+  /* -----------------------------------------------------------------
+     3a. KAPSAM VE YETKİ UYARILARI
+     ----------------------------------------------------------------- */
+  function notices(){
+    var out = '';
+    if(YONETIM.indexOf(rol) === -1){
+      out += GV.notice({ tone:'warn', title:'Bu ekran yönetim rolleri içindir',
+        text:'Yönetici Paneli menüde yalnız Şirket Sahibi, Genel Müdür, Sistem Yöneticisi ve Operasyon ' +
+             'Yöneticisi rollerine açıktır. ' + DB.roleName(rol) + ' rolüyle açtığınız için içeriğin bir ' +
+             'bölümü yetkinize göre kısıtlandı.',
+        actions:[{ label:'Ana Panele dön', href:'app-panel.html' }] });
+    }
+    if(!canFin){
+      out += GV.notice({ tone:'neutral', title:'Finansal değerler maskelendi',
+        text:'Finans yetkiniz olmadığı için ciro, tahsilat, pipeline ve alacak tutarları gizlendi; ' +
+             'para grafikleri adet eksenine düşürüldü.' });
+    }
+    if(!canHR){
+      out += GV.notice({ tone:'neutral', title:'Personel yükü bloğu gizlendi',
+        text:'Personel raporu yetkiniz olmadığı için doluluk, kapasite ve kişi bazlı iş yükü tabloları ' +
+             'bu ekranda gösterilmiyor.' });
+    }
+    return out ? '<div class="u-mb-8">' + out + '</div>' : '';
+  }
+
+  /* -----------------------------------------------------------------
+     3b. ÜST ŞERİT — şirketin sağlık göstergeleri
+     ----------------------------------------------------------------- */
+  function kpiSerit(){
+    return kpiGrid([
+      { label:'Faturalanan ciro', icon:'i-wallet', tone:'ok', href:'app-fatura.html',
+        value:canFin ? F.moneyK(faturalanan) : F.num(faturalar.length),
+        meta:canFin ? F.num(faturalar.length) + ' fatura · tahsil ' + F.moneyK(tahsilEdilen)
+                    : 'Tutarlar yetkinize kapalı', metaTone:'flat' },
+      { label:'Tahsilat oranı', icon:'i-percent', tone:tahsilatOrani >= 70 ? 'ok' : tahsilatOrani >= 45 ? 'warn' : 'danger',
+        href:'app-tahsilat.html', value:F.pct(tahsilatOrani),
+        meta:F.num(gecikenOdeme.length) + ' gecikmiş tahsilat · ' + paraK(gecikenAlacak), metaTone:'down' },
+      { label:'Açık pipeline değeri', icon:'i-funnel', tone:'info', href:'app-pipeline.html',
+        value:canFin ? F.moneyK(pipeline) : F.num(adaylar.length),
+        meta:canFin ? 'Ağırlıklı ' + F.moneyK(agirlikli) + ' · ' + F.num(adaylar.length) + ' açık fırsat'
+                    : F.num(adaylar.length) + ' açık fırsat', metaTone:'flat' },
+      { label:'Aktif proje sağlığı', icon:'i-briefcase',
+        tone:projeSaglikOrani >= 70 ? 'ok' : projeSaglikOrani >= 40 ? 'warn' : 'danger',
+        href:'app-proje.html', value:F.pct(projeSaglikOrani),
+        meta:F.num(saglikli) + ' / ' + F.num(projeler.length) + ' sağlıklı · ' + F.num(riskliProje) + ' riskli',
+        metaTone:riskliProje ? 'down' : 'up' },
+
+      canHR ? { label:'Personel doluluğu', icon:'i-users',
+        tone:ortDoluluk >= 95 ? 'danger' : ortDoluluk >= 85 ? 'warn' : 'ok', href:'app-kapasite.html',
+        value:F.pct(ortDoluluk),
+        meta:F.num(asiriYuklu) + ' kişi kritik · ' + F.hours(bosKapasite) + ' boş kapasite',
+        metaTone:asiriYuklu ? 'down' : 'flat' } : null,
+      { label:'Geciken iş oranı', icon:'i-alert', tone:gecikenOran >= 25 ? 'danger' : gecikenOran >= 10 ? 'warn' : 'ok',
+        href:'app-gorev.html?t=geciken', value:F.pct(gecikenOran),
+        meta:F.num(gecikenIs.length) + ' / ' + F.num(acikIsler.length) + ' açık iş gecikti', metaTone:'down' },
+      { label:'Açık destek ve SLA riski', icon:'i-support', tone:slaRiski ? 'warn' : 'info',
+        href:'app-destek.html', value:F.num(talepler.length),
+        meta:F.num(slaRiski) + ' kayıt SLA riskinde', metaTone:slaRiski ? 'down' : 'flat' },
+      { label:'Nakit pozisyonu', icon:'i-trend-up', tone:nakit > 0 ? 'ok' : 'danger',
+        href:'app-butce.html', value:canFin ? F.moneyK(nakit) : '<span class="cell-mask">••••••</span>',
+        meta:canFin ? 'Bekleyen alacak ' + F.moneyK(bekleyenAlacak) + ' · açık sipariş ' + F.moneyK(acikSiparis)
+                    : F.num(acikFaturalar.length) + ' açık fatura', metaTone:'flat' }
+    ]);
+  }
+
+  /* -----------------------------------------------------------------
+     3c. AYLIK GELİR EĞİLİMİ — gerçekleşen (tahsilat) vs planlanan (vade)
+     Finans yetkisi yoksa aynı eğilim fatura adedi ekseninde çizilir.
+     ----------------------------------------------------------------- */
+  function aylar(){
+    var hepsi = [];
+    faturalar.forEach(function(i){
+      if(i.tarih) hepsi.push(ay(i.tarih));
+      if(i.vade) hepsi.push(ay(i.vade));
+      if(i.odemeTarihi) hepsi.push(ay(i.odemeTarihi));
+    });
+    hepsi.sort();
+    if(!hepsi.length) return [];
+    var bas = hepsi[0], son = hepsi[hepsi.length - 1], out = [];
+    var y = parseInt(bas.slice(0,4), 10), m = parseInt(bas.slice(5,7), 10);
+    var sy = parseInt(son.slice(0,4), 10), sm = parseInt(son.slice(5,7), 10);
+    while(y < sy || (y === sy && m <= sm)){
+      out.push(y + '-' + (m < 10 ? '0' + m : m));
+      m++; if(m > 12){ m = 1; y++; }
+    }
+    return out;
+  }
+
+  function trendGrafik(){
+    var ays = aylar();
+    if(ays.length < 2){
+      return card({ title:'Aylık Gelir Eğilimi', icon:'i-trend-up', flush:false,
+        body:GV.empty({ icon:'i-chart-bar', title:'Eğilim çizilemedi',
+          desc:'Eğilim grafiği için en az iki farklı aya ait fatura kaydı gerekiyor.' }) });
+    }
+    function tahsil(m){
+      var g = odenmis.filter(function(i){ return i.odemeTarihi && ay(i.odemeTarihi) === m; });
+      return canFin ? toplam(g, function(i){ return i.toplam; }) : g.length;
+    }
+    function plan(m){
+      var g = faturalar.filter(function(i){ return i.vade && ay(i.vade) === m; });
+      return canFin ? toplam(g, function(i){ return i.toplam; }) : g.length;
+    }
+    var s1 = ays.map(tahsil), s2 = ays.map(plan);
+    var html = GV.chart.line([{ values:s1 }, { values:s2 }], ays.map(ayEtiket),
+      { money:canFin, label:'Aylık gelir eğilimi', height:250 });
+    var leg = [
+      { label:'Gerçekleşen tahsilat', value:s1.reduce(function(a, b){ return a + b; }, 0) },
+      { label:'Vadesine göre planlanan', value:s2.reduce(function(a, b){ return a + b; }, 0) }
+    ];
+    return charts([{ title:'Aylık Gelir Eğilimi',
+      sub:canFin ? 'gerçekleşen tahsilat ile vade planının aylık karşılaştırması (₺)'
+                 : 'finans yetkisi yok — eksen fatura adedine düşürüldü',
+      html:html, legend:leg }], true);
+  }
+
+  /* -----------------------------------------------------------------
+     3d. KARŞILAŞTIRMA GRAFİKLERİ
+     ----------------------------------------------------------------- */
+  function karsilastirmaGrafik(){
+    /* Departman iş yükü — tahmini ve gerçekleşen efor */
+    var depMap = {};
+    gorevler.forEach(function(t){
+      if(!t.dep) return;
+      if(!depMap[t.dep]) depMap[t.dep] = { tahmini:0, gercek:0, acik:0, geciken:0 };
+      depMap[t.dep].tahmini += t.tahminiSure || 0;
+      depMap[t.dep].gercek  += t.gercekSure || 0;
+      if(acikGorev(t)) depMap[t.dep].acik++;
+      if(gecikenGorev(t)) depMap[t.dep].geciken++;
+    });
+    var depData = Object.keys(depMap).map(function(k){
+      var d = DB.dep(k);
+      return { label:d ? d.kisa : k, value:depMap[k].tahmini, value2:depMap[k].gercek,
+               t:depMap[k].tahmini + depMap[k].gercek };
+    }).sort(function(a, b){ return b.t - a.t; }).slice(0, 8);
+    var depKart = depData.length ? { title:'Departman İş Yükü', sub:'saat · tahmini ve gerçekleşen efor',
+      html:GV.chart.bar(depData, { label:'Departman iş yükü' }),
+      legend:[{ label:'Tahmini efor', value:toplam(depData, function(d){ return d.value; }) },
+              { label:'Gerçekleşen efor', value:toplam(depData, function(d){ return d.value2; }) }] } : null;
+
+    /* Proje sağlık dağılımı */
+    var sag = {}, sagOrder = [];
+    projeler.forEach(function(p){
+      var k = p.saglik || 'Belirsiz';
+      if(!(k in sag)){ sag[k] = 0; sagOrder.push(k); }
+      sag[k]++;
+    });
+    var sagData = sagOrder.map(function(k){ return { label:k, value:sag[k] }; });
+    var sagKart = sagData.length ? { title:'Proje Sağlık Dağılımı', sub:'aktif projeler',
+      html:GV.chart.donut(sagData, { center:String(projeler.length), centerSub:'aktif proje', label:'Proje sağlığı' }),
+      legend:sagData } : null;
+
+    /* Satış hunisi — kapanış öncesi aşamalar */
+    var huni = DB.pipelineStages.filter(function(st){ return st.sira <= 12; }).map(function(st){
+      var g = adaylar.filter(function(l){ return l.asama === st.key; });
+      return { label:st.key.length > 12 ? st.key.slice(0, 11) + '…' : st.key, value:g.length,
+               deger:toplam(g, function(l){ return l.butce; }) };
+    }).filter(function(d){ return d.value > 0; });
+    var huniKart = huni.length ? { title:'Satış Hunisi', sub:'aşama başına açık fırsat adedi',
+      html:GV.chart.bar(huni, { label:'Satış hunisi' }),
+      legend:[{ label:'Açık fırsat', value:adaylar.length },
+              { label:canFin ? 'Ağırlıklı değer (₺B)' : 'Aşama sayısı',
+                value:canFin ? Math.round(agirlikli / 1000) : huni.length }] } : null;
+
+    /* Müşteri bazlı açık alacak yoğunlaşması */
+    var alacak = {}, alacakOrder = [];
+    acikFaturalar.forEach(function(i){
+      if(!(i.musteri in alacak)){ alacak[i.musteri] = { tutar:0, adet:0 }; alacakOrder.push(i.musteri); }
+      alacak[i.musteri].tutar += i.toplam;
+      alacak[i.musteri].adet++;
+    });
+    var alacakData = alacakOrder.map(function(k){
+      var ad = musteriAd(k);
+      return { label:ad.length > 12 ? ad.slice(0, 11) + '…' : ad,
+               value:canFin ? alacak[k].tutar : alacak[k].adet,
+               tone:alacak[k].tutar >= 200000 ? 'danger' : '' };
+    }).sort(function(a, b){ return b.value - a.value; }).slice(0, 8);
+    var alacakKart = alacakData.length ? { title:'Açık Alacak Yoğunlaşması',
+      sub:canFin ? '₺ · müşteri bazlı ödenmemiş fatura' : 'açık fatura adedi (tutar yetkinize kapalı)',
+      html:GV.chart.bar(alacakData, { money:canFin, label:'Açık alacak' }) } : null;
+
+    return '<div class="u-mt-8">' + charts([depKart, sagKart, huniKart, alacakKart]) + '</div>';
+  }
+
+  /* -----------------------------------------------------------------
+     3e. RİSK YOĞUNLAŞMASI — müşteri ve proje
+     Skorlar tamamen mevcut kayıtlardan türetilir (lessons L-08).
+     ----------------------------------------------------------------- */
+  function musteriRisk(){
+    return DB.customers.filter(function(c){ return !c.arsiv; }).map(function(c){
+      var gecikmis = gecikenOdeme.filter(function(p){ return p.musteri === c.kod; });
+      var gecikmisTutar = toplam(gecikmis, function(p){ return p.tutar; });
+      var gecikmeGun = gecikmis.reduce(function(m, p){ return Math.max(m, p.gecikmeGun || 0); }, 0);
+      var acikTutar = toplam(acikFaturalar.filter(function(i){ return i.musteri === c.kod; }),
+                             function(i){ return i.toplam; });
+      var destek = talepler.filter(function(t){ return t.musteri === c.kod; });
+      var sla = destek.filter(function(t){ return t.slaDurum === 'Risk altında'; }).length;
+      var gecikenIsi = gecikenIs.filter(function(t){ return t.musteri === c.kod; }).length;
+      var revizyon = toplam(gorevler.filter(function(t){ return t.musteri === c.kod; }),
+                            function(t){ return t.revizyon; });
+
+      var s = 0;
+      s += c.risk === 'Yüksek' ? 25 : c.risk === 'Orta' ? 12 : 0;
+      s += c.durum === 'Riskli' ? 15 : 0;
+      if(c.memnuniyet != null && c.memnuniyet < 4) s += Math.round((4 - c.memnuniyet) * 12);
+      if(gecikmeGun > 0) s += Math.min(25, 10 + Math.round(gecikmeGun / 4));
+      s += Math.min(12, sla * 8);
+      s += Math.min(12, gecikenIsi * 6);
+      s += Math.min(10, revizyon * 2);
+
+      return { c:c, skor:Math.min(100, s), gecikmisTutar:gecikmisTutar, gecikmeGun:gecikmeGun,
+               acikTutar:acikTutar, destek:destek.length, sla:sla, gecikenIsi:gecikenIsi, revizyon:revizyon };
+    }).filter(function(r){ return r.skor > 0; })
+      .sort(function(a, b){ return b.skor - a.skor; }).slice(0, 5);
+  }
+
+  function projeBaski(){
+    return projeler.map(function(p){
+      var gecikme = p.planlananBitis && days(p.planlananBitis) < 0 ? -days(p.planlananBitis) : 0;
+      var toplamGun = p.baslangic && p.planlananBitis
+        ? Math.max(1, F.days(p.planlananBitis, p.baslangic)) : null;
+      var gecenGun = p.baslangic ? Math.max(0, F.days(T, p.baslangic)) : null;
+      var takvim = (toplamGun && gecenGun != null)
+        ? Math.min(100, Math.round(gecenGun * 100 / toplamGun)) : null;
+      var sapma = takvim == null ? 0 : takvim - (p.ilerleme || 0);
+      var butceAsimi = Math.max(0, (p.gerceklesenMaliyet || 0) - (p.butce || 0));
+      var gecikenIsi = gecikenIs.filter(function(t){ return t.proje === p.kod; }).length;
+      var baski = gecikme * 2 + Math.max(0, sapma) + (butceAsimi > 0 ? 15 : 0) + gecikenIsi * 4 +
+                  (p.saglik === 'Riskli' ? 20 : p.saglik === 'Dikkat' ? 8 : 0);
+      return { p:p, gecikme:gecikme, sapma:sapma, takvim:takvim, butceAsimi:butceAsimi,
+               gecikenIsi:gecikenIsi, baski:baski };
+    }).sort(function(a, b){ return b.baski - a.baski; }).slice(0, 5);
+  }
+
+  function riskBloklari(){
+    var mus = musteriRisk();
+    var prj = projeBaski();
+
+    var musKart = card({
+      title:'Risk Yoğunlaşması — Müşteriler', icon:'i-alert-circle',
+      sub:'Ödeme gecikmesi, memnuniyet, SLA ve geciken iş birlikte puanlandı',
+      link:'app-musteri.html', linkLabel:'Müşteriler',
+      body:table(
+        [{ label:'Müşteri' }, { label:'Risk skoru' }, { label:'Gecikmiş alacak', cls:'num' },
+         { label:'Memnuniyet', cls:'num' }, { label:'Sorumlu' }],
+        mus.map(function(r){
+          return tr([
+            { html:link('app-musteri-detay.html?id=' + r.c.kod, r.c.kisa,
+                r.c.sektor + ' · ' + (r.gecikenIsi ? r.gecikenIsi + ' geciken iş' : 'geciken iş yok') +
+                (r.sla ? ' · ' + r.sla + ' SLA riski' : '')) },
+            { html:GV.progress(r.skor, { tone:r.skor >= 70 ? 'danger' : r.skor >= 40 ? 'warn' : '' }) },
+            { html:r.gecikmisTutar
+                ? '<span class="cell-money u-danger">' + para(r.gecikmisTutar) + '</span>' +
+                  '<span class="cell-sub">' + F.num(r.gecikmeGun) + ' gün</span>'
+                : '<span class="u-faint">—</span>', cls:'num' },
+            { html:r.c.memnuniyet != null
+                ? '<span class="u-num ' + (r.c.memnuniyet < 3.5 ? 'u-danger' : 'u-ok') + '">' +
+                  F.num(r.c.memnuniyet, 1) + ' / 5</span>'
+                : '<span class="u-faint">—</span>', cls:'num' },
+            { html:GV.user(r.c.sorumlu, { sm:true }) }
+          ], r.skor >= 70 ? 'is-late' : '');
+        }),
+        { icon:'i-check-circle', title:'Risk yoğunlaşması yok',
+          desc:'Hiçbir müşteride ödeme, memnuniyet veya teslim kaynaklı risk sinyali bulunmuyor.' })
+    });
+
+    var prjKart = card({
+      title:'Gecikme Baskısı — Projeler', icon:'i-briefcase',
+      sub:'Takvim ilerlemesi ile gerçek ilerleme arasındaki fark esas alındı',
+      link:'app-proje.html', linkLabel:'Projeler',
+      body:table(
+        [{ label:'Proje' }, { label:'İlerleme' }, { label:'Plan sapması', cls:'num' },
+         { label:'Geciken iş', cls:'num' }, { label:'Sağlık' }],
+        prj.map(function(r){
+          return tr([
+            { html:link('app-proje-detay.html?id=' + r.p.kod, r.p.ad,
+                musteriAd(r.p.musteri) + ' · ' +
+                (r.gecikme ? F.num(r.gecikme) + ' gün gecikti' : 'teslim ' + F.dateShort(r.p.planlananBitis)) +
+                (r.butceAsimi ? ' · bütçe aşımı' : '')) },
+            { html:GV.progress(r.p.ilerleme) },
+            { html:r.sapma > 0
+                ? '<span class="u-num u-danger">' + F.num(Math.round(r.sapma)) + ' puan geride</span>'
+                : '<span class="u-num u-ok">plan içinde</span>', cls:'num' },
+            { html:r.gecikenIsi
+                ? '<span class="u-num u-danger">' + F.num(r.gecikenIsi) + '</span>'
+                : '<span class="u-faint">0</span>', cls:'num' },
+            { html:GV.badge(r.p.saglik) }
+          ], r.gecikme ? 'is-late' : '');
+        }),
+        { icon:'i-check-circle', title:'Aktif proje yok',
+          desc:'Şu an takip edilen açık proje bulunmuyor.' })
+    });
+
+    return '<div class="gv-grid gv-grid-2 u-mt-8">' + musKart + prjKart + '</div>';
+  }
+
+  /* -----------------------------------------------------------------
+     3f. YÜK YOĞUNLAŞMASI — personel (personelRapor yetkisi zorunlu)
+     ----------------------------------------------------------------- */
+  function personelBlok(){
+    if(!canHR) return '';
+    var rows = kapasite.slice().sort(function(a, b){ return b.doluluk - a.doluluk; }).slice(0, 5)
+      .map(function(c){
+        var acik = acikIsler.filter(function(t){ return t.sorumlu === c.personel; });
+        var gec  = gecikenIs.filter(function(t){ return t.sorumlu === c.personel; });
+        var ts   = DB.timesheets.filter(function(t){ return t.personel === c.personel && t.durum === 'Onay bekliyor'; });
+        var e    = DB.emp(c.personel);
+        return tr([
+          { html:GV.user(c.personel, { sm:true }) },
+          { html:esc(e ? e.depAd : '—') },
+          { html:GV.progress(c.doluluk, { tone:c.doluluk >= 95 ? 'danger' : c.doluluk >= 85 ? 'warn' : '' }) },
+          { html:'<span class="u-num">' + F.num(c.planlanan) + ' / ' + F.num(c.kapasite) + ' sa</span>', cls:'num' },
+          { html:'<span class="u-num">' + F.num(acik.length) + '</span>' +
+                 '<span class="cell-sub">' + F.hours(toplam(acik, kalanEfor)) + ' kalan efor</span>', cls:'num' },
+          { html:gec.length ? '<span class="u-num u-danger">' + F.num(gec.length) + '</span>'
+                            : '<span class="u-faint">0</span>', cls:'num' },
+          { html:c.izin ? '<span class="u-num u-warn">' + F.num(c.izin) + ' gün</span>'
+                        : '<span class="u-faint">—</span>', cls:'num' },
+          { html:ts.length ? GV.badge('Onay bekliyor') : '<span class="u-faint">—</span>' }
+        ], c.doluluk >= 95 ? 'is-late' : '');
+      });
+
+    return '<div class="u-mt-8">' + card({
+      title:'Yük Yoğunlaşması — Personel', icon:'i-users',
+      sub:'Haftalık kapasiteye göre en yüklü 5 kişi · ortalama doluluk %' + F.num(ortDoluluk),
+      link:'app-kapasite.html', linkLabel:'Kapasite',
+      body:table(
+        [{ label:'Personel' }, { label:'Departman' }, { label:'Doluluk' },
+         { label:'Planlanan / Kapasite', cls:'num' }, { label:'Açık iş', cls:'num' },
+         { label:'Geciken', cls:'num' }, { label:'İzin', cls:'num' }, { label:'Timesheet' }],
+        rows,
+        { icon:'i-users', title:'Kapasite kaydı yok',
+          desc:'Haftalık kapasite planı girilmemiş; doluluk hesaplanamıyor.' })
+    }) + '</div>';
+  }
+
+  /* -----------------------------------------------------------------
+     3g. KARAR BEKLEYENLER — satın alma · teklif · izin · timesheet
+     ve diğer modüllerin bekleyen onayları tek listede
+     ----------------------------------------------------------------- */
+  function kararBekleyenler(){
+    function say(tur){ return kararlar.filter(function(k){ return k.tur === tur; }).length; }
+    var ozet = [
+      say('Satın alma') + ' satın alma',
+      say('Teklif iç onayı') + ' teklif',
+      say('İzin') + ' izin',
+      say('Timesheet') + ' timesheet'
+    ].join(' · ') + (digerKararlar.length ? ' · ' + digerKararlar.length + ' diğer' : '');
+
+    var rows = kararlar.map(function(k){
+      var bekleme = k.tarih ? Math.max(0, -days(k.tarih)) : null;
+      return tr([
+        { html:link(k.link, k.baslik, k.kayit) },
+        { html:'<span class="tag">' + esc(k.tur) + '</span>' },
+        { html:k.tutar != null ? '<span class="cell-money">' + para(k.tutar) + '</span>'
+                               : '<span class="u-faint">—</span>', cls:'num' },
+        { html:GV.user(k.talepEden, { sm:true }) },
+        { html:GV.user(k.onaylayan, { sm:true }) },
+        { html:bekleme == null ? '<span class="u-faint">—</span>'
+            : '<span class="u-num ' + (bekleme > 7 ? 'u-danger' : bekleme > 3 ? 'u-warn' : '') + '">' +
+              F.num(bekleme) + ' gün</span>' +
+              '<span class="cell-sub">' + F.dateShort(k.tarih) + '</span>', cls:'num' },
+        { html:GV.pri(k.aciliyet) }
+      ], (bekleme != null && bekleme > 7) || k.aciliyet === 'Kritik' ? 'is-late' : '');
+    });
+
+    return '<div class="u-mt-8">' + card({
+      title:'Karar Bekleyenler', icon:'i-stamp',
+      sub:kararlar.length + ' karar sizi bekliyor — ' + ozet +
+          (canFin && kararTutari ? ' · toplam ' + F.moneyK(kararTutari) : ''),
+      link:'app-panel-onaylar.html', linkLabel:'Onay kuyruğu',
+      body:table(
+        [{ label:'Karar konusu' }, { label:'Tür' }, { label:'Tutar', cls:'num' },
+         { label:'Talep eden' }, { label:'Onaylayan' }, { label:'Bekleme', cls:'num' },
+         { label:'Aciliyet' }],
+        rows,
+        { icon:'i-check-circle', title:'Karar kuyruğu temiz',
+          desc:'Satın alma, teklif, izin ve timesheet tarafında onayınızı bekleyen kayıt yok.' })
+    }) + '</div>';
+  }
+});
+</script>
+</body>
+</html>
