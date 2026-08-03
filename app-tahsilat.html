@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Tahsilatlar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="finans" data-screen="tahsilat">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* Vadeye kalan gün — referans tarih DB.today */
+  function kalan(x){ return F.days(x.vade); }
+  function empAd(kod){ var e = DB.emp(kod); return e ? e.ad : (kod || ''); }
+
+  GV.pageHead({ eyebrow:'Finans', title:'Tahsilatlar',
+    actions:[{ label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
+             { label:'Sözleşmeler', icon:'i-file-check', href:'app-sozlesme.html' },
+             { label:'Yeni Fatura', icon:'i-plus', cls:'btn-acc', href:'app-fatura-form.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'tahsilat', key:'kod', source:function(){ return DB.payments; },
+    exportName:'tahsilatlar', exportTitle:'Tahsilat ve Gecikme Takibi', pageSize:10,
+    search:{ placeholder:'Tahsilat no, fatura, müşteri veya son aksiyon ara',
+             fields:['kod','fatura','musteriAd','durum','sonAksiyon'] },
+    defaultSort:'vade', defaultDir:'asc',
+    kpis:[
+      { label:'Bekleyen tahsilat', icon:'i-wallet', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum !== 'Ödendi'; })
+          .reduce(function(s,x){ return s + x.tutar; }, 0) : 0; } },
+      { label:'Geciken tutar', icon:'i-alert-circle', tone:'warn', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum === 'Gecikti'; })
+          .reduce(function(s,x){ return s + x.tutar; }, 0) : 0; } },
+      { label:'Geciken kayıt', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Gecikti'; }).length; } },
+      { label:'Ortalama gecikme', icon:'i-hourglass', tone:'warn',
+        format:function(v){ return F.num(v) + ' gün'; },
+        calc:function(a){
+          var g = a.filter(function(x){ return x.gecikmeGun > 0; });
+          if(!g.length) return 0;
+          return Math.round(g.reduce(function(s,x){ return s + x.gecikmeGun; }, 0) / g.length); } }
+    ],
+    tabs:[
+      { key:'geciken', label:'Gecikenler', icon:'i-alert', filter:function(x){ return x.gecikmeGun > 0; } },
+      { key:'yaklasan', label:'Vadesi Yaklaşan (15 gün)', icon:'i-hourglass', filter:function(x){
+          var k = kalan(x); return x.durum !== 'Ödendi' && x.gecikmeGun === 0 && k >= 0 && k <= 15; } },
+      { key:'bekleyen', label:'Bekleyenler', icon:'i-clock', filter:function(x){ return x.durum === 'Bekliyor'; } },
+      { key:'tahsil', label:'Tahsil Edilenler', icon:'i-check-circle', filter:function(x){ return x.durum === 'Ödendi'; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'kod', label:'Tahsilat', width:'17%', locked:true, cellClass:'cell-wrap',
+        render:function(x){ return '<a class="cell-main" href="app-tahsilat-detay.html?id=' + x.kod + '">' + x.kod + '</a>' +
+          '<span class="cell-sub">' + esc(x.musteriAd) + '</span>'; } },
+      { key:'fatura', label:'Fatura', render:function(x){
+          return '<a class="cell-code" href="app-fatura-detay.html?id=' + x.fatura + '">' + x.fatura + '</a>'; } },
+      { key:'musteri', label:'Müşteri', cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-musteri-detay.html?id=' + x.musteri + '">' + esc(x.musteriAd) + '</a>' +
+                 '<span class="cell-code">' + x.musteri + '</span>'; },
+        exportValue:function(x){ return x.musteriAd; } },
+      { key:'tutar', label:'Tutar', cellClass:'num', render:function(x){
+          return canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '<span class="cell-mask">••••••</span>'; },
+        exportValue:function(x){ return canFinans ? x.tutar : ''; } },
+      { key:'vade', label:'Vade', render:function(x){
+          return GV.dateCell(x.vade, { done:x.durum === 'Ödendi' }); } },
+      { key:'gecikmeGun', label:'Gecikme', cellClass:'num', render:function(x){
+          return x.gecikmeGun > 0
+            ? '<span class="u-num u-danger u-b">' + F.num(x.gecikmeGun) + ' gün</span>'
+            : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return x.gecikmeGun || 0; } },
+      { key:'sorumlu', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu, { sm:true }); },
+        exportValue:function(x){ return empAd(x.sorumlu); } },
+      { key:'sonAksiyon', label:'Son aksiyon', width:'20%', cellClass:'cell-wrap', sortable:false, render:function(x){
+          return '<span class="cell-main">' + esc(x.sonAksiyon) + '</span>' +
+                 '<span class="cell-sub">' + F.date(x.sonAksiyonTarihi) + '</span>'; } },
+      { key:'sonAksiyonTarihi', label:'Son aksiyon tarihi', visible:false, render:function(x){
+          return x.sonAksiyonTarihi ? '<span class="cell-date">' + F.date(x.sonAksiyonTarihi) + '</span>'
+                                    : '<span class="u-faint">—</span>'; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[
+      { key:'durum', label:'Tahsilat durumu', type:'multi', options:['Gecikti','Bekliyor','Ödendi'] },
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'sorumlu', label:'Sorumlu', type:'select',
+        options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'vade', label:'Vade tarihi', type:'daterange' },
+      { key:'gecikmeAralik', label:'Gecikme süresi', type:'select',
+        options:[{ value:'1-15', label:'1–15 gün' }, { value:'16-30', label:'16–30 gün' }, { value:'30+', label:'30 günden fazla' }],
+        test:function(x, v){
+          var g = x.gecikmeGun || 0;
+          if(v === '1-15') return g >= 1 && g <= 15;
+          if(v === '16-30') return g >= 16 && g <= 30;
+          return g > 30; } },
+      { key:'sonAksiyonTarihi', label:'Son aksiyon tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return x.gecikmeGun > 30 ? 'is-late' : ''; },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-tahsilat-detay.html?id=' + x.kod + '">' + x.kod + '</a>' +
+        (canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '<span class="cell-mask">••••••</span>') + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + x.fatura + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
+        (x.gecikmeGun > 0 ? '<span class="tag">' + F.num(x.gecikmeGun) + ' gün gecikme</span>' : '') + '</span>' +
+        GV.dateCell(x.vade, { done:x.durum === 'Ödendi' }) + '</div>';
+    },
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Tahsilatı aç', href:function(x){ return 'app-tahsilat-detay.html?id=' + x.kod; } },
+      { key:'hatirlat', icon:'i-send', label:'Hatırlatma gönder', run:function(x, refresh){
+          if(x.durum === 'Ödendi'){ GV.toast('Bu tahsilat zaten kapandı, hatırlatma gerekmiyor.', 'info'); return; }
+          GV.confirm({ title:'Ödeme hatırlatması gönder',
+            text:x.musteriAd + ' firmasına ' + x.fatura + ' numaralı fatura için ödeme hatırlatması e-postası gönderilecek.',
+            okLabel:'Gönder' }).then(function(ok){
+              if(!ok) return;
+              x.sonAksiyon = 'Ödeme hatırlatması gönderildi';
+              x.sonAksiyonTarihi = DB.today;
+              GV.toast(x.kod + ' için hatırlatma gönderildi', 'ok'); refresh(); }); } },
+      { key:'tahsil', icon:'i-check', label:'Tahsil edildi işaretle', run:function(x, refresh){
+          if(!canFinans){ GV.toast('Finans kaydı güncelleme yetkiniz yok.', 'danger'); return; }
+          if(x.durum === 'Ödendi'){ GV.toast('Bu tahsilat zaten tahsil edilmiş.', 'info'); return; }
+          GV.confirm({ title:'Tahsil edildi olarak işaretle',
+            text:F.money(x.tutar) + ' tutarındaki tahsilat kapatılacak ve gecikme takibinden çıkacak.',
+            okLabel:'Tahsil edildi' }).then(function(ok){
+              if(!ok) return;
+              x.durum = 'Ödendi'; x.gecikmeGun = 0;
+              x.sonAksiyon = 'Tahsil edildi'; x.sonAksiyonTarihi = DB.today;
+              GV.toast(x.kod + ' tahsil edildi olarak işaretlendi', 'ok'); refresh(); }); } }
+    ],
+    bulk:[
+      { key:'hatirlat', label:'Toplu hatırlatma', icon:'i-send',
+        confirm:'{n} tahsilat için müşterilere ödeme hatırlatması gönderilecek.',
+        run:function(ids){
+          var n = 0;
+          ids.forEach(function(id){
+            var x = DB.payments.filter(function(p){ return p.kod === id; })[0];
+            if(x && x.durum !== 'Ödendi'){ x.sonAksiyon = 'Ödeme hatırlatması gönderildi'; x.sonAksiyonTarihi = DB.today; n++; }
+          });
+          GV.toast(n + ' tahsilat için hatırlatma gönderildi', 'ok'); } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+    emptyState:{ icon:'i-wallet', title:'Bu görünümde tahsilat yok',
+      desc:'Kesilen faturalar vade tarihiyle birlikte burada tahsilat takibine düşer.' }
+  });
+
+});
+</script>
+</body>
+</html>

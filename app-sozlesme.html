@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sözleşmeler — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="finans" data-screen="sozlesme">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* ---- türetilmiş yardımcılar (canonical veri üzerinden) ---- */
+  var kalan     = function(x){ return x.bitis ? F.days(x.bitis) : null; };
+  var bitmis    = function(x){ return x.durum === 'Tamamlandı' || x.durum === 'İptal'; };
+  var gecikmis  = function(x){ return x.durum === 'Gecikti' || (!bitmis(x) && kalan(x) != null && kalan(x) < 0); };
+  var yaklasan  = function(x){
+    if(!x.yenileme || !x.yenilemeTarihi) return false;
+    var d = F.days(x.yenilemeTarihi);
+    return d >= 0 && d <= 90;
+  };
+  var TUTAR_ARALIK = { '250 B ₺ altı':[0, 250000], '250 B – 500 B ₺':[250000, 500000],
+                       '500 B – 1 M ₺':[500000, 1000000], '1 M ₺ üzeri':[1000000, Infinity] };
+  var yilEkle   = function(iso){ return iso ? (Number(String(iso).slice(0,4)) + 1) + String(iso).slice(4) : iso; };
+  var tutarCell = function(x){
+    return canFinans ? '<span class="cell-money">' + F.money(x.tutar, x.doviz === 'TRY' ? '₺' : x.doviz) + '</span>'
+                     : '<span class="cell-mask">••••••</span>';
+  };
+  var yenile = function(x){
+    x.bitis = yilEkle(x.bitis);
+    if(x.yenilemeTarihi) x.yenilemeTarihi = yilEkle(x.yenilemeTarihi);
+    x.durum = 'Aktif';
+  };
+
+  GV.pageHead({ eyebrow:'Finans', title:'Sözleşmeler',
+    actions:[{ label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
+             { label:'Yeni Sözleşme', icon:'i-plus', cls:'btn-acc', href:'app-sozlesme-form.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'sozlesme', key:'kod', source:function(){ return DB.contracts; },
+    exportName:'sozlesmeler', exportTitle:'Müşteri Sözleşmeleri', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Sözleşme no, başlık, müşteri veya proje ara',
+             fields:['kod','ad','musteriAd','musteri','teklif','proje','durum'] },
+    defaultSort:'bitis', defaultDir:'asc',
+    kpis:[
+      { label:'Toplam sözleşme bedeli', icon:'i-wallet', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + (x.tutar || 0); }, 0) : 0; } },
+      { label:'Aktif sözleşme', icon:'i-file-check', tone:'ok',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Aktif'; }).length; } },
+      { label:'Yenilemesi yaklaşan (90 gün)', icon:'i-refresh', tone:'warn',
+        calc:function(a){ return a.filter(yaklasan).length; } },
+      { label:'Süresi geçmiş / gecikmiş', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(gecikmis).length; } }
+    ],
+    tabs:[
+      { key:'aktif', label:'Aktif', icon:'i-file-check', filter:function(x){ return x.durum === 'Aktif'; } },
+      { key:'yenilenecek', label:'Yenilenecek', icon:'i-refresh', filter:function(x){ return x.yenileme === true; } },
+      { key:'yaklasan', label:'Yenilemesi Yaklaşan', icon:'i-hourglass', filter:yaklasan },
+      { key:'tamam', label:'Tamamlanan', icon:'i-check-circle', filter:function(x){ return x.durum === 'Tamamlandı'; } },
+      { key:'gecikti', label:'Gecikti', icon:'i-alert', filter:gecikmis },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'kod', label:'Sözleşme', width:'24%', locked:true, cellClass:'cell-wrap',
+        render:function(x){ return '<a class="cell-main" href="app-sozlesme-detay.html?id=' + x.kod + '">' + x.kod + '</a>' +
+          '<span class="cell-sub">' + esc(x.ad) + '</span>'; } },
+      { key:'musteriAd', label:'Müşteri', render:function(x){
+          return '<a class="cell-main" href="app-musteri-detay.html?id=' + x.musteri + '">' + esc(x.musteriAd) + '</a>' +
+                 '<span class="cell-code">' + x.musteri + '</span>'; } },
+      { key:'teklif', label:'Teklif', render:function(x){
+          return x.teklif ? '<a class="cell-code" href="app-teklif-detay.html?id=' + x.teklif + '">' + x.teklif + '</a>'
+                          : '<span class="u-faint">Teklifsiz</span>'; } },
+      { key:'proje', label:'Proje', render:function(x){
+          return x.proje ? '<a class="cell-code" href="app-proje-detay.html?id=' + x.proje + '">' + x.proje + '</a>'
+                         : '<span class="u-faint">—</span>'; } },
+      { key:'tutar', label:'Sözleşme bedeli', cellClass:'num', render:tutarCell,
+        exportValue:function(x){ return canFinans ? x.tutar : ''; } },
+      { key:'imzaTarihi', label:'İmza tarihi', render:function(x){
+          return x.imzaTarihi ? '<span class="cell-date">' + F.date(x.imzaTarihi) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'baslangic', label:'Başlangıç', render:function(x){
+          return x.baslangic ? '<span class="cell-date">' + F.date(x.baslangic) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'bitis', label:'Bitiş', sortValue:function(x){ return x.bitis || ''; }, render:function(x){
+          if(!x.bitis) return '<span class="u-faint">—</span>';
+          var d = kalan(x);
+          return GV.dateCell(x.bitis, { done:bitmis(x) }) +
+            (bitmis(x) ? '' : '<span class="cell-sub ' + (d < 0 ? 'u-danger' : d <= 45 ? 'u-warn' : '') + '">' + F.rel(x.bitis) + '</span>'); },
+        exportValue:function(x){ return x.bitis || ''; } },
+      { key:'odemePlani', label:'Ödeme planı', visible:false, render:function(x){
+          return x.odemePlani ? '<span class="cell-sub">' + esc(x.odemePlani) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'garanti', label:'Garanti', visible:false, render:function(x){
+          return x.garanti && x.garanti !== '—' ? '<span class="tag">' + esc(x.garanti) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'yenileme', label:'Yenileme', render:function(x){
+          if(!x.yenileme) return '<span class="u-faint">Yok</span>';
+          return '<span class="badge ' + (yaklasan(x) ? 'is-warn' : 'is-info') + ' no-dot">Yenilenecek</span>' +
+                 (x.yenilemeTarihi ? '<span class="cell-sub">' + F.dateShort(x.yenilemeTarihi) + '</span>' : ''); },
+        exportValue:function(x){ return x.yenileme ? ('Evet' + (x.yenilemeTarihi ? ' · ' + x.yenilemeTarihi : '')) : 'Hayır'; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[
+      { key:'durum', label:'Sözleşme durumu', type:'multi', options:['Aktif','Tamamlandı','Gecikti'] },
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'yenileme', label:'Yenileme', type:'select', options:['Evet','Hayır'],
+        test:function(x, v){ return v === 'Evet' ? x.yenileme === true : x.yenileme !== true; } },
+      { key:'bitis', label:'Bitiş tarihi', type:'daterange' },
+      { key:'tutarAralik', label:'Sözleşme bedeli', type:'select', options:Object.keys(TUTAR_ARALIK),
+        test:function(x, v){
+          var r = TUTAR_ARALIK[v];
+          return !!r && (x.tutar || 0) >= r[0] && (x.tutar || 0) < r[1]; } },
+      { key:'projeBag', label:'Proje bağlantısı', type:'select', options:['Projeye bağlı','Projesiz'],
+        test:function(x, v){ return v === 'Projeye bağlı' ? !!x.proje : !x.proje; } }
+    ],
+    rowClass:function(x){ return gecikmis(x) ? 'is-late' : ''; },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-sozlesme-detay.html?id=' + x.kod + '">' + x.kod + '</a>' +
+        (canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '') + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + esc(x.ad) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
+        (x.yenileme ? '<span class="badge is-info no-dot">Yenilenecek</span>' : '') + '</span>' +
+        (x.bitis ? '<span class="cell-sub">' + F.rel(x.bitis) + '</span>' : '') + '</div>';
+    },
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-sozlesme-detay.html?id=' + x.kod + '">' + esc(x.ad) + '</a>' +
+        '<div class="cell-sub">' + esc(x.musteriAd) + '</div></div>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + x.kod + '</span>' +
+        (x.proje ? '<span>' + x.proje + '</span>' : '') +
+        '<span>' + (x.bitis ? F.dateShort(x.bitis) : '—') + '</span></div>' +
+        '<div class="gv-rcard-foot">' + tutarCell(x) +
+        (x.yenileme ? '<span class="badge is-info no-dot">Yenilenecek</span>' : '<span class="u-faint">Yenilemesiz</span>') + '</div>';
+    },
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Sözleşmeyi aç', href:function(x){ return 'app-sozlesme-detay.html?id=' + x.kod; } },
+      { key:'fatura', icon:'i-receipt', label:'Faturaları gör', href:function(x){ return 'app-fatura.html?sozlesme=' + x.kod; } },
+      { key:'yenile', icon:'i-refresh', label:'Yenile', run:function(x, refresh){
+          if(!GV.perm.can('duzenle')){ GV.toast('Sözleşme güncelleme yetkiniz yok.', 'danger'); return; }
+          if(!x.yenileme){ GV.toast('Bu sözleşme yenilemeye kapalı — önce yenileme koşulu tanımlanmalı.', 'warn'); return; }
+          GV.confirm({ title:'Sözleşmeyi yenile',
+            text:x.kod + ' bitiş tarihi ' + F.date(x.bitis) + ' → ' + F.date(yilEkle(x.bitis)) +
+                 ' olarak bir yıl uzatılacak ve durum Aktif yapılacak.',
+            okLabel:'Yenile' }).then(function(ok){
+              if(!ok) return;
+              yenile(x);
+              GV.toast(x.kod + ' bir yıl yenilendi', 'ok'); refresh(); }); } }
+    ],
+    bulk:[
+      { key:'yenile', label:'Toplu Yenile', icon:'i-refresh',
+        confirm:'Seçili {n} sözleşme bir yıl uzatılacak. Yenilemeye kapalı kayıtlar atlanır.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Sözleşme güncelleme yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.contracts.forEach(function(c){
+            if(ids.indexOf(c.kod) !== -1 && c.yenileme){ yenile(c); n++; }
+          });
+          GV.toast(n ? (n + ' sözleşme yenilendi' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hiçbiri yenilemeye açık değil', n ? 'ok' : 'warn');
+        } },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'Seçili {n} sözleşme arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Arşivleme yetkiniz yok.', 'danger'); return; }
+          DB.contracts.forEach(function(c){ if(ids.indexOf(c.kod) !== -1) c.aktif = false; });
+          GV.toast(ids.length + ' sözleşme arşivlendi', 'ok');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+    emptyState:{ icon:'i-file-check', title:'Bu görünümde sözleşme yok',
+      desc:'Kazanılan teklifler sözleşmeye dönüştüğünde burada listelenir; faturalar ve ödeme planı sözleşmeye bağlanır.',
+      action:'<a class="btn btn-acc" href="app-sozlesme-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Sözleşme</a>' }
+  });
+
+});
+</script>
+</body>
+</html>
