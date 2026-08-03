@@ -549,7 +549,11 @@
     'app-musteri-yetkili.html',
     'app-musteri-iletisim.html',
     'app-istalebi.html',
-    'app-destek.html'
+    'app-destek.html',
+    'app-izin.html',
+    'app-zaman.html',
+    'app-kapasite.html',
+    'app-performans.html'
   ];
   GV.built = BUILT;
 
