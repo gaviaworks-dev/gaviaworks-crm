@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Personel Raporları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="rapor" data-screen="raporpersonel">
+<div id="rapor"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, T = DB.today;
+  var S = GV.session || {};
+  var host = document.getElementById('rapor');
+  if(!host) return;
+
+  GV.pageHead({
+    eyebrow:'Raporlar', title:'Personel Raporları',
+    sub:'Görev, iş yükü, zaman, kapasite, performans, izin, eğitim ve varlık eksenlerinde 13 rapor',
+    actions:[
+      { label:'Personel', icon:'i-users', href:'app-personel.html' },
+      { label:'Kapasite', icon:'i-chart-bar', href:'app-kapasite.html' },
+      { label:'Performans', icon:'i-award', cls:'btn-acc', href:'app-performans.html' }
+    ]
+  });
+
+  /* ---- Yetki kapısı: personel raporu = rapor + personel verisi yetkisi ---- */
+  if(!GV.perm.can('personelRapor')){
+    host.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-lock', title:'Personel raporlarına erişim yetkiniz yok',
+      desc:(S.rolAd || 'Bu rol') + ' rolü personel verisi içeren raporları görüntüleyemez. ' +
+           'Erişim gerekiyorsa sistem yöneticinizden yetki talep edin.',
+      action:'<a class="btn btn-acc" href="app-panel.html">Ana Panele Dön</a>'
+    }) + '</div>';
+    return;
+  }
+
+  /* =================================================================
+     YETKİ — maaş/ücret maskeleme ve görüş kapsamı
+     ================================================================= */
+  var canMaas   = GV.perm.can('maas');
+  var canFinans = GV.perm.can('finans');
+  var gorScope  = GV.perm.scope('gor');          /* tum | departman | proje | kendi */
+  var MASK = '<span class="cell-mask">••••••</span>';
+
+  function ucret(v){ return canMaas ? '<span class="cell-money">' + F.money(v) + '</span>' : MASK; }
+  function para(v){ return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>' : MASK; }
+
+  function seeEmp(kod){
+    if(!kod) return false;
+    if(gorScope === 'kendi') return kod === S.emp;
+    if(gorScope === 'departman'){ var e = DB.emp(kod); return !!e && e.dep === S.dep; }
+    return true;                                  /* tum · proje */
+  }
+
+  var EMPS = DB.employees.filter(function(e){ return seeEmp(e.kod); });
+  var DEPS = DB.departments.filter(function(d){
+    if(gorScope === 'tum' || gorScope === 'proje') return d.aktif;
+    return d.kod === S.dep;
+  });
+
+  /* =================================================================
+     ORTAK YARDIMCILAR
+     ================================================================= */
+  function ext(o, add){
+    var r = {}, k;
+    for(k in o) if(Object.prototype.hasOwnProperty.call(o, k)) r[k] = o[k];
+    for(k in add) if(Object.prototype.hasOwnProperty.call(add, k)) r[k] = add[k];
+    return r;
+  }
+  function emp(k){ return DB.emp(k) || {}; }
+  function ini(k){ return (emp(k).ini) || String(k || '—').slice(-3); }
+  function empAd(k){ return emp(k).ad || k || '—'; }
+  function depAd(k){ return emp(k).depAd || '—'; }
+  function num(v){ return '<span class="u-num">' + F.num(v) + '</span>'; }
+  function sa(v){ return '<span class="u-num">' + F.hours(v) + '</span>'; }
+  function empCell(k){
+    var e = emp(k);
+    return '<a class="cell-main" href="app-personel-detay.html?id=' + esc(k) + '">' + esc(e.ad || k) + '</a>' +
+           '<span class="cell-sub">' + esc(e.pozisyon || DB.roleName(e.rol) || '—') + '</span>';
+  }
+
+  var KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  function acikMi(t){ return KAPALI.indexOf(t.durum) === -1; }
+  function gecikenMi(t){ return acikMi(t) && !!t.termin && t.termin < T; }
+  function zamanindaMi(t){ return t.durum === 'Tamamlandı' && (!t.termin || !t.tamamlanma || t.tamamlanma <= t.termin); }
+
+  function projeAd(k){
+    var p = DB.projects.filter(function(x){ return x.kod === k; })[0];
+    return p ? p.ad : (k || '—');
+  }
+  function projedeMi(kod, prj){
+    if(!prj) return true;
+    var p = DB.projects.filter(function(x){ return x.kod === prj; })[0];
+    if(!p) return false;
+    if(p.pm === kod || (p.ekip || []).indexOf(kod) !== -1) return true;
+    var g = DB.tasks.filter(function(t){ return t.proje === prj && t.sorumlu === kod; }).length;
+    var z = DB.timelogs.filter(function(x){ return x.proje === prj && x.personel === kod; }).length;
+    return (g + z) > 0;
+  }
+
+  /* Ortak filtre eşleştiricileri */
+  function kisiOK(f, kod){
+    if(!seeEmp(kod)) return false;
+    if(f.personel && kod !== f.personel) return false;
+    if(f.dep && emp(kod).dep !== f.dep) return false;
+    if(f.proje && !projedeMi(kod, f.proje)) return false;
+    return true;
+  }
+  function tarihOK(f, iso){ return !f.tarih || (!!iso && iso >= f.tarih); }
+  function durumOK(f, v){ return !f.durum || v === f.durum; }
+
+  function dagilim(rows, pick){
+    var map = {}, out = [];
+    rows.forEach(function(r){ var k = pick(r) || '—'; map[k] = (map[k] || 0) + 1; });
+    Object.keys(map).forEach(function(k){ out.push({ label:k, value:map[k] }); });
+    return out.sort(function(a, b){ return b.value - a.value; });
+  }
+  function toplamla(rows, pick){ return rows.reduce(function(s, r){ return s + (pick(r) || 0); }, 0); }
+  function ortalama(rows, pick){
+    var v = rows.filter(function(r){ return pick(r) != null; });
+    return v.length ? Math.round(toplamla(v, pick) / v.length) : 0;
+  }
+
+  /* Personel bazlı grafik serisi: [{label:ini, value, value2}] */
+  function kisiSeri(rows, kodPick, vPick, v2Pick){
+    var map = {}, order = [];
+    rows.forEach(function(r){
+      var k = kodPick(r);
+      if(!map[k]){ map[k] = { label:ini(k), value:0, value2:0 }; order.push(k); }
+      map[k].value += (vPick(r) || 0);
+      if(v2Pick) map[k].value2 += (v2Pick(r) || 0);
+    });
+    return order.map(function(k){
+      var d = map[k];
+      if(!v2Pick) delete d.value2;
+      return d;
+    });
+  }
+
+  var DURUMLAR = ['Aktif','Pasif','Atandı','Devam ediyor','Kontrol bekliyor','Onay bekliyor',
+                  'Revizede','Engellendi','Tamamlandı','Onaylandı','Reddedildi','Bekliyor',
+                  'Planlandı','Açık','İade edildi','Serviste'];
+
+  /* =================================================================
+     TÜRETİLMİŞ SATIRLAR
+     ================================================================= */
+  function gorevleri(kod){ return DB.tasks.filter(function(t){ return t.sorumlu === kod; }); }
+  function zamanlari(kod){ return DB.timelogs.filter(function(x){ return x.personel === kod; }); }
+  function kapasitesi(kod){ return DB.capacity.filter(function(c){ return c.personel === kod; })[0] || null; }
+  function egitimleri(kod){ return DB.trainings.filter(function(g){ return (g.katilimci || []).indexOf(kod) !== -1; }); }
+  function projeleri(kod){
+    return DB.projects.filter(function(p){ return p.pm === kod || (p.ekip || []).indexOf(kod) !== -1; });
+  }
+
+  function genelSatir(e){
+    var g = gorevleri(e.kod), z = zamanlari(e.kod), c = kapasitesi(e.kod);
+    var tamam = g.filter(function(t){ return t.durum === 'Tamamlandı'; });
+    return {
+      kod:e.kod, ad:e.ad, ini:e.ini, pozisyon:e.pozisyon, dep:e.dep, depAd:e.depAd,
+      rolAd:DB.roleName(e.rol), calismaTuru:e.calismaTuru, girisTarihi:e.girisTarihi,
+      lokasyon:e.lokasyon, gorev:g.length, acik:g.filter(acikMi).length,
+      geciken:g.filter(gecikenMi).length, tamam:tamam.length,
+      zamaninda:tamam.length ? Math.round(tamam.filter(zamanindaMi).length / tamam.length * 100) : null,
+      saat:toplamla(z, function(x){ return x.sure; }),
+      faturaSaat:toplamla(z.filter(function(x){ return x.faturalanabilir; }), function(x){ return x.sure; }),
+      kapasite:c ? c.kapasite : null, planlanan:c ? c.planlanan : null,
+      doluluk:c ? c.doluluk : e.doluluk, proje:projeleri(e.kod).length,
+      izinBakiye:e.izinBakiye, egitim:egitimleri(e.kod).length,
+      maas:e.maas, saatlikUcret:e.saatlikUcret != null ? e.saatlikUcret : null,
+      durum:e.aktif ? 'Aktif' : 'Pasif'
+    };
+  }
+
+  function isYukuSatir(e){
+    var g = gorevleri(e.kod).filter(acikMi), c = kapasitesi(e.kod);
+    var kalan = g.reduce(function(s, t){ return s + Math.max(0, (t.tahminiSure || 0) - (t.gercekSure || 0)); }, 0);
+    return {
+      kod:e.kod, ad:e.ad, ini:e.ini, dep:e.dep, depAd:e.depAd, pozisyon:e.pozisyon,
+      acik:g.length, kritik:g.filter(function(t){ return t.oncelik === 'Kritik' || t.oncelik === 'Yüksek'; }).length,
+      geciken:g.filter(gecikenMi).length,
+      engellenen:g.filter(function(t){ return t.durum === 'Engellendi'; }).length,
+      kalanSaat:Math.round(kalan * 10) / 10,
+      kapasite:c ? c.kapasite : null, planlanan:c ? c.planlanan : null,
+      musait:c ? Math.max(0, c.kapasite - c.planlanan) : null,
+      doluluk:c ? c.doluluk : e.doluluk,
+      durum:e.aktif ? 'Aktif' : 'Pasif'
+    };
+  }
+
+  function katkiSatirlari(){
+    var out = [], map = {};
+    function slot(pk, prj){
+      var id = pk + '|' + prj;
+      if(!map[id]){
+        map[id] = { kod:id, personel:pk, ad:empAd(pk), ini:ini(pk), dep:emp(pk).dep, depAd:depAd(pk),
+                    proje:prj, projeAd:projeAd(prj), gorev:0, tamam:0, saat:0, faturaSaat:0,
+                    rolu:'Ekip üyesi', durum:'Aktif' };
+        out.push(map[id]);
+      }
+      return map[id];
+    }
+    DB.tasks.forEach(function(t){
+      if(!t.sorumlu || !t.proje) return;
+      var s = slot(t.sorumlu, t.proje);
+      s.gorev++; if(t.durum === 'Tamamlandı') s.tamam++;
+    });
+    DB.timelogs.forEach(function(x){
+      if(!x.personel || !x.proje) return;
+      var s = slot(x.personel, x.proje);
+      s.saat += x.sure; if(x.faturalanabilir) s.faturaSaat += x.sure;
+    });
+    out.forEach(function(s){
+      var p = DB.projects.filter(function(x){ return x.kod === s.proje; })[0];
+      if(p){
+        s.durum = p.durum;
+        s.rolu = p.pm === s.personel ? 'Proje yöneticisi'
+               : p.teknikSorumlu === s.personel ? 'Teknik sorumlu'
+               : (p.ekip || []).indexOf(s.personel) !== -1 ? 'Ekip üyesi' : 'Katkı veren';
+      }
+      s.oran = s.gorev ? Math.round(s.tamam / s.gorev * 100) : 0;
+      s.saat = Math.round(s.saat * 10) / 10;
+      s.faturaSaat = Math.round(s.faturaSaat * 10) / 10;
+    });
+    return out;
+  }
+
+  function donemBas(donem){
+    var m = /^(\d{4})-Q([1-4])$/.exec(donem || '');
+    if(!m) return null;
+    return m[1] + '-' + ['01','04','07','10'][+m[2] - 1] + '-01';
+  }
+
+  function performansSatir(p){
+    var e = emp(p.personel), c = kapasitesi(p.personel);
+    var eg = egitimleri(p.personel);
+    var puanlar = [p.ozDegerlendirme, p.yoneticiDegerlendirme, p.pmDegerlendirme].filter(function(v){ return v != null; });
+    return ext(p, {
+      ad:e.ad || p.personel, ini:e.ini || '—', dep:e.dep, depAd:e.depAd || '—', pozisyon:e.pozisyon || '—',
+      donemBas:donemBas(p.donem),
+      ortalama:puanlar.length ? Math.round(puanlar.reduce(function(s, v){ return s + v; }, 0) / puanlar.length * 10) / 10 : null,
+      doluluk:c ? c.doluluk : (e.doluluk != null ? e.doluluk : null),
+      projeKatki:projeleri(p.personel).length,
+      egitimSayisi:eg.length,
+      egitimSaat:toplamla(eg, function(g){ return g.sure; }),
+      egitimIhtiyacMetin:(p.egitimIhtiyaci && p.egitimIhtiyaci.length) ? p.egitimIhtiyaci.join(', ') : '—'
+    });
+  }
+
+  function surucuSatirlari(){
+    var out = [], map = {};
+    function slot(pk){
+      if(!map[pk]){
+        map[pk] = { kod:pk, personel:pk, ad:empAd(pk), ini:ini(pk), dep:emp(pk).dep, depAd:depAd(pk),
+                    araclar:[], plakalar:'—', aracDurum:'—', yakitKayit:0, litre:0, yakitTutar:0,
+                    cezaAdet:0, cezaTutar:0, kaza:0, sonYakit:null, km:0 };
+        out.push(map[pk]);
+      }
+      return map[pk];
+    }
+    DB.vehicles.forEach(function(v){
+      [v.anaSurucu, v.yedekSurucu].forEach(function(pk, i){
+        if(!pk) return;
+        var s = slot(pk);
+        s.araclar.push(v.plaka + (i ? ' (yedek)' : ''));
+        s.aracDurum = v.durum;
+        if(i === 0) s.km += (v.guncelKm || 0);
+      });
+    });
+    DB.fuelLogs.forEach(function(y){
+      if(!y.surucu) return;
+      var s = slot(y.surucu);
+      s.yakitKayit++; s.litre += y.litre; s.yakitTutar += y.tutar;
+      if(!s.sonYakit || y.tarih > s.sonYakit) s.sonYakit = y.tarih;
+      if(s.araclar.indexOf(y.arac) === -1 && !s.araclar.length) s.araclar.push(y.arac);
+    });
+    DB.fines.forEach(function(c){
+      if(!c.surucu) return;
+      var s = slot(c.surucu); s.cezaAdet++; s.cezaTutar += c.tutar;
+    });
+    DB.accidents.forEach(function(k){
+      if(!k.surucu) return;
+      slot(k.surucu).kaza++;
+    });
+    out.forEach(function(s){
+      s.plakalar = s.araclar.length ? s.araclar.join(' · ') : '—';
+      s.litre = Math.round(s.litre * 10) / 10;
+      s.ortLitreFiyat = s.litre ? Math.round(s.yakitTutar / s.litre) : 0;
+      s.durum = s.aracDurum;
+    });
+    return out;
+  }
+
+  function zimmetSatirlari(){
+    return DB.assignments.map(function(z){
+      var d = DB.assets.filter(function(x){ return x.kod === z.demirbas; })[0] || {};
+      return ext(z, {
+        ad:empAd(z.personel), ini:ini(z.personel), dep:emp(z.personel).dep, depAd:depAd(z.personel),
+        kategori:d.kategori || '—', marka:d.marka || '—', model:d.model || '—',
+        deger:d.alisFiyati != null ? d.alisFiyati : 0, demirbasDurum:d.durum || '—',
+        garantiBit:d.garantiBit || null
+      });
+    });
+  }
+
+  function egitimSatirlari(){
+    var out = [];
+    DB.trainings.forEach(function(g){
+      (g.katilimci || []).forEach(function(pk){
+        out.push({
+          kod:g.kod + '·' + pk, egitim:g.kod, ad:g.ad, personel:pk, personelAd:empAd(pk), ini:ini(pk),
+          dep:emp(pk).dep, depAd:depAd(pk), tur:g.tur, saglayici:g.saglayici,
+          baslangic:g.baslangic, bitis:g.bitis, sure:g.sure, maliyet:g.maliyet,
+          kisiMaliyet:Math.round(g.maliyet / Math.max(1, (g.katilimci || []).length)),
+          sertifika:g.sertifika, durum:g.durum
+        });
+      });
+    });
+    return out;
+  }
+
+  function haftaIzinSaati(pk, bas, bit){
+    var g = 0;
+    DB.leaves.forEach(function(l){
+      if(l.personel !== pk || l.durum !== 'Onaylandı') return;
+      if(l.bitis < bas || l.baslangic > bit) return;
+      g += l.gun;
+    });
+    return g * 8;
+  }
+
+  function timesheetSatir(t){
+    return ext(t, {
+      ad:empAd(t.personel), ini:ini(t.personel), dep:emp(t.personel).dep, depAd:depAd(t.personel),
+      izinSaat:haftaIzinSaati(t.personel, t.baslangic, t.bitis),
+      fazlaOran:t.toplam ? Math.round(t.fazla / t.toplam * 100) : 0,
+      eksikOran:t.toplam ? Math.round(t.eksik / (t.toplam + t.eksik) * 100) : 0
+    });
+  }
+
+  /* =================================================================
+     RAPOR TANIMLARI
+     ================================================================= */
+  var bosFiltre = { icon:'i-filter-x', title:'Bu filtreyle kayıt yok',
+                    desc:'Tarih, departman, personel, proje veya durum filtresini gevşetmeyi deneyin.' };
+
+  GV.report({
+    mount:'#rapor', id:'raporpersonel',
+    filters:[
+      { key:'tarih', label:'Başlangıç tarihi', type:'date' },
+      { key:'dep', label:'Departman', type:'select', all:'Tüm departmanlar',
+        options:DEPS.map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'personel', label:'Personel', type:'select', all:'Tüm personel',
+        options:EMPS.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'proje', label:'Proje', type:'select', all:'Tüm projeler',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'durum', label:'Durum', type:'select', all:'Tüm durumlar', options:DURUMLAR }
+    ],
+    reports:[
+
+      /* ---------- 1 · PERSONEL GENEL RAPORU -------------------------- */
+      { key:'genel', label:'Personel genel raporu', icon:'i-users', group:'Genel',
+        title:'Personel Genel Raporu',
+        desc:'Kadro, görev yükü, çalışılan saat, kapasite kullanımı, proje sayısı ve izin bakiyesi tek tabloda. ' +
+             'Ücret alanları yalnızca maaş yetkisi olan rollere açıktır.',
+        rows:function(f){
+          return EMPS.filter(function(e){
+            if(!kisiOK(f, e.kod)) return false;
+            if(!tarihOK(f, e.girisTarihi)) return false;
+            if(!durumOK(f, e.aktif ? 'Aktif' : 'Pasif')) return false;
+            return true;
+          }).map(genelSatir);
+        },
+        kpis:[
+          { label:'Personel', icon:'i-users', calc:function(r){ return r.length; } },
+          { label:'Açık görev', icon:'i-tasks', tone:'info', calc:function(r){ return toplamla(r, function(x){ return x.acik; }); } },
+          { label:'Geciken görev', icon:'i-alert', tone:'danger', calc:function(r){ return toplamla(r, function(x){ return x.geciken; }); } },
+          { label:'Ortalama doluluk', icon:'i-gauge', tone:'accent', format:function(v){ return '%' + v; },
+            calc:function(r){ return ortalama(r, function(x){ return x.doluluk; }); } }
+        ],
+        charts:function(r){
+          var dep = dagilim(r, function(x){ return x.depAd; });
+          return [
+            { title:'Kişi bazlı kapasite kullanımı', sub:'planlanan saat (koyu) · haftalık kapasite (açık)', wide:true,
+              html:GV.chart.bar(r.map(function(x){
+                return { label:x.ini, value:x.planlanan || 0, value2:x.kapasite || 0,
+                         tone:x.doluluk >= 95 ? 'danger' : x.doluluk >= 85 ? 'warn' : '' };
+              })) },
+            { title:'Departman dağılımı', html:GV.chart.donut(dep, { center:String(r.length), centerSub:'personel' }), legend:dep }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-genel-rapor', exportTitle:'Personel Genel Raporu',
+          search:{ placeholder:'Personel ara', fields:['kod','ad','pozisyon','depAd','rolAd'] },
+          defaultSort:'acik', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Personel', width:'20%', locked:true, render:function(x){ return empCell(x.kod); },
+              sortValue:function(x){ return x.ad; }, exportValue:function(x){ return x.ad; } },
+            { key:'depAd', label:'Departman', render:function(x){ return esc(x.depAd); } },
+            { key:'rolAd', label:'Rol', render:function(x){ return esc(x.rolAd); } },
+            { key:'girisTarihi', label:'Giriş', render:function(x){ return '<span class="cell-date">' + F.date(x.girisTarihi) + '</span>'; } },
+            { key:'acik', label:'Açık görev', cellClass:'num', render:function(x){ return num(x.acik); } },
+            { key:'geciken', label:'Geciken', cellClass:'num', render:function(x){
+                return x.geciken ? '<span class="badge is-danger">' + x.geciken + '</span>' : num(0); } },
+            { key:'tamam', label:'Tamamlanan', cellClass:'num', render:function(x){ return num(x.tamam); } },
+            { key:'zamaninda', label:'Zamanında', cellClass:'num', render:function(x){
+                return x.zamaninda == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + F.pct(x.zamaninda) + '</span>'; } },
+            { key:'saat', label:'Çalışılan', cellClass:'num', render:function(x){ return sa(x.saat); } },
+            { key:'proje', label:'Proje', cellClass:'num', render:function(x){ return num(x.proje); } },
+            { key:'doluluk', label:'Doluluk', width:'12%', render:function(x){
+                return GV.progress(x.doluluk, { tone:x.doluluk >= 95 ? 'danger' : x.doluluk >= 85 ? 'warn' : 'ok' }); } },
+            { key:'izinBakiye', label:'İzin bakiye', cellClass:'num', render:function(x){ return '<span class="u-num">' + x.izinBakiye + ' gün</span>'; } },
+            { key:'egitim', label:'Eğitim', cellClass:'num', visible:false, render:function(x){ return num(x.egitim); } },
+            { key:'maas', label:'Ücret', cellClass:'num', render:function(x){
+                return x.maas ? ucret(x.maas) : (x.saatlikUcret ? (canMaas ? '<span class="cell-money">' + F.money(x.saatlikUcret) + '/sa</span>' : MASK) : '<span class="u-faint">—</span>'); },
+              exportValue:function(x){ return canMaas ? x.maas : '••••••'; } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + x.acik + ' açık</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.depAd) + ' · ' + esc(x.pozisyon || '') + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Doluluk: %' + x.doluluk + '</span><span>Çalışılan: ' + F.hours(x.saat) + '</span>' +
+                   '<span>Geciken: ' + x.geciken + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 2 · GÖREV RAPORU ----------------------------------- */
+      { key:'gorev', label:'Görev raporu', icon:'i-tasks', group:'Görev ve Katkı',
+        title:'Personel Görev Raporu',
+        desc:'Sorumlusu personel olan görevlerin durum, öncelik, termin ve süre kırılımı. ' +
+             'Görev adedi tek başına performans göstergesi değildir — tahmini/gerçek süre ve revizyon sayısıyla birlikte okunur.',
+        rows:function(f){
+          return DB.tasks.filter(function(t){
+            if(!t.sorumlu || !kisiOK(f, t.sorumlu)) return false;
+            if(f.proje && t.proje !== f.proje) return false;
+            if(!tarihOK(f, t.baslangic)) return false;
+            if(!durumOK(f, t.durum)) return false;
+            return true;
+          }).map(function(t){
+            return ext(t, {
+              sorumluAd:empAd(t.sorumlu), ini:ini(t.sorumlu), depAd:depAd(t.sorumlu),
+              projeAd:t.proje ? projeAd(t.proje) : '—',
+              gecikme:gecikenMi(t) ? Math.abs(F.days(t.termin)) : 0,
+              sapma:(t.tahminiSure ? Math.round(((t.gercekSure || 0) - t.tahminiSure) / t.tahminiSure * 100) : null)
+            });
+          });
+        },
+        kpis:[
+          { label:'Görev', icon:'i-tasks', calc:function(r){ return r.length; } },
+          { label:'Açık', icon:'i-play', tone:'info', calc:function(r){ return r.filter(acikMi).length; } },
+          { label:'Geciken', icon:'i-alert', tone:'danger', calc:function(r){ return r.filter(gecikenMi).length; } },
+          { label:'Zamanında tamamlama', icon:'i-check-circle', tone:'ok', format:function(v){ return '%' + v; },
+            calc:function(r){
+              var t = r.filter(function(x){ return x.durum === 'Tamamlandı'; });
+              return t.length ? Math.round(t.filter(zamanindaMi).length / t.length * 100) : 0;
+            } }
+        ],
+        charts:function(r){
+          var dur = dagilim(r, function(x){ return x.durum; });
+          return [
+            { title:'Kişi bazlı görev ve gecikme', sub:'toplam görev (koyu) · geciken (açık)', wide:true,
+              html:GV.chart.bar(kisiSeri(r, function(x){ return x.sorumlu; }, function(){ return 1; },
+                                          function(x){ return gecikenMi(x) ? 1 : 0; })) },
+            { title:'Durum dağılımı', html:GV.chart.donut(dur, { center:String(r.length), centerSub:'görev' }), legend:dur }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-gorev-rapor', exportTitle:'Personel Görev Raporu',
+          search:{ placeholder:'Görev ara', fields:['kod','baslik','sorumluAd','projeAd'] },
+          defaultSort:'termin', defaultDir:'asc',
+          columns:[
+            { key:'kod', label:'Görev', width:'24%', locked:true, cellClass:'cell-wrap', render:function(x){
+                return '<a class="cell-main" href="app-gorev-detay.html?id=' + esc(x.kod) + '">' + esc(x.kod) + '</a>' +
+                       '<span class="cell-sub">' + esc(x.baslik) + '</span>'; } },
+            { key:'sorumluAd', label:'Sorumlu', render:function(x){ return esc(x.sorumluAd) + '<span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'projeAd', label:'Proje', render:function(x){ return esc(x.projeAd); } },
+            { key:'tur', label:'Tür', visible:false, render:function(x){ return esc(x.tur); } },
+            { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
+            { key:'termin', label:'Termin', render:function(x){
+                return '<span class="cell-date' + (gecikenMi(x) ? ' is-late' : '') + '">' + F.date(x.termin) + '</span>'; } },
+            { key:'tahminiSure', label:'Tahmini', cellClass:'num', render:function(x){ return sa(x.tahminiSure); } },
+            { key:'gercekSure', label:'Gerçek', cellClass:'num', render:function(x){ return sa(x.gercekSure); } },
+            { key:'sapma', label:'Süre sapması', cellClass:'num', render:function(x){
+                if(x.sapma == null) return '<span class="u-faint">—</span>';
+                return '<span class="u-num' + (x.sapma > 20 ? ' u-danger' : '') + '">' + (x.sapma > 0 ? '+' : '') + x.sapma + '%</span>'; } },
+            { key:'revizyon', label:'Revizyon', cellClass:'num', render:function(x){ return num(x.revizyon); } },
+            { key:'ilerleme', label:'İlerleme', width:'12%', render:function(x){ return GV.progress(x.ilerleme); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kod) + '</span>' +
+                   '<span class="u-num">' + F.hours(x.gercekSure) + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.baslik) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>' + esc(x.sorumluAd) + '</span><span>Termin: ' + F.date(x.termin) + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + GV.pri(x.oncelik) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 3 · İŞ YÜKÜ RAPORU --------------------------------- */
+      { key:'isyuku', label:'İş yükü raporu', icon:'i-layers', group:'Görev ve Katkı',
+        title:'İş Yükü Raporu',
+        desc:'Kişi başına düşen açık görev, kalan tahmini efor ve haftalık kapasite karşılaştırması. ' +
+             'Aşırı yüklenme ve boşta kalan kapasite birlikte görülür.',
+        rows:function(f){
+          return EMPS.filter(function(e){
+            if(!kisiOK(f, e.kod)) return false;
+            if(!durumOK(f, e.aktif ? 'Aktif' : 'Pasif')) return false;
+            return true;
+          }).map(isYukuSatir).filter(function(x){ return x.acik > 0 || x.planlanan; });
+        },
+        kpis:[
+          { label:'Açık görev', icon:'i-tasks', calc:function(r){ return toplamla(r, function(x){ return x.acik; }); } },
+          { label:'Kalan efor', icon:'i-hourglass', tone:'info', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.kalanSaat; }); } },
+          { label:'Aşırı yüklü kişi', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(x){ return x.doluluk >= 95; }).length; } },
+          { label:'Müsait kapasite', icon:'i-check-circle', tone:'ok', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.musait; }); } }
+        ],
+        charts:function(r){
+          var band = [
+            { label:'Aşırı yüklü (≥95)', value:r.filter(function(x){ return x.doluluk >= 95; }).length },
+            { label:'Yoğun (85–94)', value:r.filter(function(x){ return x.doluluk >= 85 && x.doluluk < 95; }).length },
+            { label:'Normal (75–84)', value:r.filter(function(x){ return x.doluluk >= 75 && x.doluluk < 85; }).length },
+            { label:'Müsait (<75)', value:r.filter(function(x){ return x.doluluk < 75; }).length }
+          ].filter(function(x){ return x.value; });
+          return [
+            { title:'Kalan efor ve müsait kapasite', sub:'kalan tahmini efor (koyu) · müsait kapasite (açık) · saat', wide:true,
+              html:GV.chart.bar(r.map(function(x){
+                return { label:x.ini, value:x.kalanSaat, value2:x.musait || 0,
+                         tone:x.doluluk >= 95 ? 'danger' : '' };
+              })) },
+            { title:'Doluluk bandı', html:GV.chart.donut(band, { center:String(r.length), centerSub:'kişi' }), legend:band }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-isyuku-rapor', exportTitle:'İş Yükü Raporu',
+          search:{ placeholder:'Personel ara', fields:['kod','ad','depAd','pozisyon'] },
+          defaultSort:'doluluk', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Personel', width:'22%', locked:true, render:function(x){ return empCell(x.kod); },
+              sortValue:function(x){ return x.ad; }, exportValue:function(x){ return x.ad; } },
+            { key:'depAd', label:'Departman', render:function(x){ return esc(x.depAd); } },
+            { key:'acik', label:'Açık görev', cellClass:'num', render:function(x){ return num(x.acik); } },
+            { key:'kritik', label:'Kritik/Yüksek', cellClass:'num', render:function(x){
+                return x.kritik ? '<span class="badge is-warn">' + x.kritik + '</span>' : num(0); } },
+            { key:'geciken', label:'Geciken', cellClass:'num', render:function(x){
+                return x.geciken ? '<span class="badge is-danger">' + x.geciken + '</span>' : num(0); } },
+            { key:'engellenen', label:'Engellenen', cellClass:'num', visible:false, render:function(x){ return num(x.engellenen); } },
+            { key:'kalanSaat', label:'Kalan efor', cellClass:'num', render:function(x){ return sa(x.kalanSaat); } },
+            { key:'kapasite', label:'Kapasite', cellClass:'num', render:function(x){ return x.kapasite == null ? '<span class="u-faint">—</span>' : sa(x.kapasite); } },
+            { key:'planlanan', label:'Planlanan', cellClass:'num', render:function(x){ return x.planlanan == null ? '<span class="u-faint">—</span>' : sa(x.planlanan); } },
+            { key:'musait', label:'Müsait', cellClass:'num', render:function(x){ return x.musait == null ? '<span class="u-faint">—</span>' : sa(x.musait); } },
+            { key:'doluluk', label:'Doluluk', width:'14%', render:function(x){
+                return GV.progress(x.doluluk, { tone:x.doluluk >= 95 ? 'danger' : x.doluluk >= 85 ? 'warn' : 'ok' }); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">%' + x.doluluk + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.depAd) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Açık: ' + x.acik + '</span><span>Geciken: ' + x.geciken + '</span>' +
+                   '<span>Kalan: ' + F.hours(x.kalanSaat) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 4 · PROJE KATKI RAPORU ------------------------------ */
+      { key:'katki', label:'Proje katkı raporu', icon:'i-briefcase', group:'Görev ve Katkı',
+        title:'Proje Katkı Raporu',
+        desc:'Personel × proje kırılımında görev sayısı, tamamlama oranı, harcanan ve faturalanabilir saat. ' +
+             'Katkı; adet değil, projedeki rol ve harcanan efor üzerinden okunur.',
+        rows:function(f){
+          return katkiSatirlari().filter(function(x){
+            if(!kisiOK(f, x.personel)) return false;
+            if(f.proje && x.proje !== f.proje) return false;
+            if(!durumOK(f, x.durum)) return false;
+            if(f.tarih){
+              var p = DB.projects.filter(function(y){ return y.kod === x.proje; })[0];
+              if(!p || p.baslangic < f.tarih) return false;
+            }
+            return true;
+          });
+        },
+        kpis:[
+          { label:'Katkı kaydı', icon:'i-layers', calc:function(r){ return r.length; } },
+          { label:'Toplam efor', icon:'i-clock', tone:'info', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.saat; }); } },
+          { label:'Faturalanabilir', icon:'i-wallet', tone:'ok', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.faturaSaat; }); } },
+          { label:'Görev', icon:'i-tasks', tone:'accent', calc:function(r){ return toplamla(r, function(x){ return x.gorev; }); } }
+        ],
+        charts:function(r){
+          var kisi = kisiSeri(r, function(x){ return x.personel; }, function(x){ return x.saat; });
+          var prj = {};
+          r.forEach(function(x){
+            if(!prj[x.proje]) prj[x.proje] = { label:x.proje.slice(-3), value:0, value2:0 };
+            prj[x.proje].value += x.saat; prj[x.proje].value2 += x.faturaSaat;
+          });
+          var prjArr = Object.keys(prj).map(function(k){ return prj[k]; });
+          return [
+            { title:'Proje bazlı efor', sub:'harcanan saat (koyu) · faturalanabilir (açık)', wide:true,
+              html:GV.chart.bar(prjArr) },
+            { title:'Kişi bazlı efor payı', sub:'saat',
+              html:GV.chart.donut(kisi, { center:F.num(Math.round(toplamla(r, function(x){ return x.saat; }))), centerSub:'saat' }),
+              legend:kisi }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-projekatki-rapor', exportTitle:'Proje Katkı Raporu',
+          search:{ placeholder:'Personel veya proje ara', fields:['ad','projeAd','proje','rolu'] },
+          defaultSort:'saat', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Personel', width:'18%', locked:true, render:function(x){ return empCell(x.personel); },
+              sortValue:function(x){ return x.ad; }, exportValue:function(x){ return x.ad; } },
+            { key:'projeAd', label:'Proje', width:'24%', cellClass:'cell-wrap', render:function(x){
+                return '<span class="cell-main">' + esc(x.projeAd) + '</span><span class="cell-sub">' + esc(x.proje) + '</span>'; } },
+            { key:'rolu', label:'Projedeki rol', render:function(x){ return esc(x.rolu); } },
+            { key:'gorev', label:'Görev', cellClass:'num', render:function(x){ return num(x.gorev); } },
+            { key:'tamam', label:'Tamamlanan', cellClass:'num', render:function(x){ return num(x.tamam); } },
+            { key:'oran', label:'Tamamlama', width:'12%', render:function(x){ return GV.progress(x.oran); } },
+            { key:'saat', label:'Harcanan', cellClass:'num', render:function(x){ return sa(x.saat); } },
+            { key:'faturaSaat', label:'Faturalanabilir', cellClass:'num', render:function(x){ return sa(x.faturaSaat); } },
+            { key:'depAd', label:'Departman', visible:false, render:function(x){ return esc(x.depAd); } },
+            { key:'durum', label:'Proje durumu', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + F.hours(x.saat) + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.projeAd) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>' + esc(x.rolu) + '</span><span>Görev: ' + x.gorev + '</span>' +
+                   '<span>Tamamlama: %' + x.oran + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 5 · ZAMAN RAPORU ------------------------------------ */
+      { key:'zaman', label:'Zaman raporu', icon:'i-clock', group:'Zaman ve Kapasite',
+        title:'Zaman Raporu',
+        desc:'Girilen zaman kayıtlarının kişi, gün, proje ve faturalanabilirlik kırılımı. Onay durumu kayıt bazında izlenir.',
+        rows:function(f){
+          return DB.timelogs.filter(function(x){
+            if(!kisiOK(f, x.personel)) return false;
+            if(f.proje && x.proje !== f.proje) return false;
+            if(!tarihOK(f, x.tarih)) return false;
+            if(!durumOK(f, x.onay)) return false;
+            return true;
+          }).map(function(x){
+            return ext(x, { ad:empAd(x.personel), ini:ini(x.personel), depAd:depAd(x.personel),
+                            projeAd:x.proje ? projeAd(x.proje) : '—', durum:x.onay });
+          });
+        },
+        kpis:[
+          { label:'Zaman kaydı', icon:'i-timer', calc:function(r){ return r.length; } },
+          { label:'Toplam saat', icon:'i-clock', tone:'accent', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.sure; }); } },
+          { label:'Faturalanabilir', icon:'i-wallet', tone:'ok', format:F.hours,
+            calc:function(r){ return toplamla(r.filter(function(x){ return x.faturalanabilir; }), function(x){ return x.sure; }); } },
+          { label:'Onay bekleyen', icon:'i-hourglass', tone:'warn',
+            calc:function(r){ return r.filter(function(x){ return x.onay === 'Bekliyor'; }).length; } }
+        ],
+        charts:function(r){
+          var gunler = [];
+          r.forEach(function(x){ if(gunler.indexOf(x.tarih) === -1) gunler.push(x.tarih); });
+          gunler.sort();
+          var toplam = gunler.map(function(g){
+            return toplamla(r.filter(function(x){ return x.tarih === g; }), function(x){ return x.sure; });
+          });
+          var fatura = gunler.map(function(g){
+            return toplamla(r.filter(function(x){ return x.tarih === g && x.faturalanabilir; }), function(x){ return x.sure; });
+          });
+          return [
+            { title:'Günlük çalışılan saat', sub:'toplam ve faturalanabilir', wide:true,
+              html:gunler.length
+                ? GV.chart.line([{ name:'Toplam', values:toplam }, { name:'Faturalanabilir', values:fatura }],
+                                gunler.map(function(g){ return F.date(g).slice(0, 5); }))
+                : GV.chart.bar([{ label:'—', value:0 }]) },
+            { title:'Kişi bazlı saat', sub:'toplam (koyu) · faturalanabilir (açık)',
+              html:GV.chart.bar(kisiSeri(r, function(x){ return x.personel; },
+                                          function(x){ return x.sure; },
+                                          function(x){ return x.faturalanabilir ? x.sure : 0; })) }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-zaman-rapor', exportTitle:'Personel Zaman Raporu',
+          search:{ placeholder:'Zaman kaydı ara', fields:['kod','ad','aciklama','gorev','projeAd'] },
+          defaultSort:'tarih', defaultDir:'desc',
+          columns:[
+            { key:'tarih', label:'Tarih', locked:true, render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+            { key:'ad', label:'Personel', render:function(x){
+                return '<span class="cell-main">' + esc(x.ad) + '</span><span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'gorev', label:'Görev', render:function(x){
+                return x.gorev ? '<a class="cell-main" href="app-gorev-detay.html?id=' + esc(x.gorev) + '">' + esc(x.gorev) + '</a>' : '<span class="u-faint">—</span>'; } },
+            { key:'projeAd', label:'Proje', render:function(x){ return esc(x.projeAd); } },
+            { key:'aciklama', label:'Açıklama', width:'22%', cellClass:'cell-wrap', render:function(x){ return esc(x.aciklama); } },
+            { key:'sure', label:'Süre', cellClass:'num', render:function(x){ return sa(x.sure); } },
+            { key:'faturalanabilir', label:'Faturalanabilir', render:function(x){
+                return GV.badge(x.faturalanabilir ? 'Evet' : 'Hayır', x.faturalanabilir ? 'is-ok' : 'is-neutral'); } },
+            { key:'durum', label:'Onay', render:function(x){ return GV.badge(x.onay); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + F.hours(x.sure) + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.aciklama) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>' + F.date(x.tarih) + '</span><span>' + esc(x.projeAd) + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.onay) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 6 · KAPASİTE RAPORU --------------------------------- */
+      { key:'kapasite', label:'Kapasite raporu', icon:'i-gauge', group:'Zaman ve Kapasite',
+        title:'Kapasite Raporu',
+        desc:'Haftalık kapasite, planlanan efor, izin kaynaklı kayıp ve kalan müsait saat. Planlama kararlarının girdisidir.',
+        rows:function(f){
+          return DB.capacity.filter(function(c){
+            if(!kisiOK(f, c.personel)) return false;
+            if(!durumOK(f, (emp(c.personel).aktif ? 'Aktif' : 'Pasif'))) return false;
+            return true;
+          }).map(function(c){
+            var e = emp(c.personel);
+            return ext(c, {
+              kod:c.personel, ad:e.ad || c.personel, ini:e.ini || '—', depAd:e.depAd || '—',
+              pozisyon:e.pozisyon || '—', musait:Math.max(0, c.kapasite - c.planlanan),
+              izinSaat:c.izin * 8, durum:e.aktif ? 'Aktif' : 'Pasif',
+              band:c.doluluk >= 95 ? 'Aşırı yüklü' : c.doluluk >= 85 ? 'Yoğun' : c.doluluk >= 75 ? 'Normal' : 'Müsait'
+            });
+          });
+        },
+        kpis:[
+          { label:'Toplam kapasite', icon:'i-gauge', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.kapasite; }); } },
+          { label:'Planlanan', icon:'i-calendar-check', tone:'accent', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.planlanan; }); } },
+          { label:'Müsait', icon:'i-check-circle', tone:'ok', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.musait; }); } },
+          { label:'Ortalama doluluk', icon:'i-trend-up', tone:'info', format:function(v){ return '%' + v; },
+            calc:function(r){ return ortalama(r, function(x){ return x.doluluk; }); } }
+        ],
+        charts:function(r){
+          var band = dagilim(r, function(x){ return x.band; });
+          return [
+            { title:'Planlanan efora karşı kapasite', sub:'planlanan (koyu) · haftalık kapasite (açık) · saat', wide:true,
+              html:GV.chart.bar(r.map(function(x){
+                return { label:x.ini, value:x.planlanan, value2:x.kapasite,
+                         tone:x.doluluk >= 95 ? 'danger' : x.doluluk >= 85 ? 'warn' : 'ok' };
+              })) },
+            { title:'Doluluk bandı', html:GV.chart.donut(band, { center:String(r.length), centerSub:'kişi' }), legend:band }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-kapasite-rapor', exportTitle:'Kapasite Raporu',
+          search:{ placeholder:'Personel ara', fields:['kod','ad','depAd','pozisyon'] },
+          defaultSort:'doluluk', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Personel', width:'22%', locked:true, render:function(x){ return empCell(x.personel); },
+              sortValue:function(x){ return x.ad; }, exportValue:function(x){ return x.ad; } },
+            { key:'depAd', label:'Departman', render:function(x){ return esc(x.depAd); } },
+            { key:'kapasite', label:'Kapasite', cellClass:'num', render:function(x){ return sa(x.kapasite); } },
+            { key:'planlanan', label:'Planlanan', cellClass:'num', render:function(x){ return sa(x.planlanan); } },
+            { key:'musait', label:'Müsait', cellClass:'num', render:function(x){ return sa(x.musait); } },
+            { key:'izin', label:'İzin', cellClass:'num', render:function(x){ return '<span class="u-num">' + x.izin + ' gün</span>'; } },
+            { key:'izinSaat', label:'İzin saati', cellClass:'num', visible:false, render:function(x){ return sa(x.izinSaat); } },
+            { key:'doluluk', label:'Doluluk', width:'16%', render:function(x){
+                return GV.progress(x.doluluk, { tone:x.doluluk >= 95 ? 'danger' : x.doluluk >= 85 ? 'warn' : 'ok' }); } },
+            { key:'band', label:'Değerlendirme', render:function(x){
+                return GV.badge(x.band, x.band === 'Aşırı yüklü' ? 'is-danger' : x.band === 'Yoğun' ? 'is-warn' :
+                                        x.band === 'Müsait' ? 'is-info' : 'is-ok'); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">%' + x.doluluk + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.depAd) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Kapasite: ' + F.hours(x.kapasite) + '</span>' +
+                   '<span>Planlanan: ' + F.hours(x.planlanan) + '</span><span>Müsait: ' + F.hours(x.musait) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 7 · FAZLA MESAİ RAPORU ------------------------------ */
+      { key:'mesai', label:'Fazla mesai raporu', icon:'i-trend-up', group:'Zaman ve Kapasite',
+        title:'Fazla Mesai Raporu',
+        desc:'Haftalık timesheet kayıtlarında kapasitenin üzerinde geçen saatler. Süreklilik gösteren fazla mesai, ' +
+             'kapasite planlaması gözden geçirilmesi gereken bir uyarıdır.',
+        rows:function(f){
+          return DB.timesheets.filter(function(t){
+            if(!t.fazla) return false;
+            if(!kisiOK(f, t.personel)) return false;
+            if(!tarihOK(f, t.baslangic)) return false;
+            if(!durumOK(f, t.durum)) return false;
+            return true;
+          }).map(timesheetSatir);
+        },
+        kpis:[
+          { label:'Fazla mesai kaydı', icon:'i-timer', calc:function(r){ return r.length; } },
+          { label:'Toplam fazla saat', icon:'i-trend-up', tone:'warn', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.fazla; }); } },
+          { label:'Etkilenen personel', icon:'i-users', tone:'info',
+            calc:function(r){
+              var s = []; r.forEach(function(x){ if(s.indexOf(x.personel) === -1) s.push(x.personel); });
+              return s.length;
+            } },
+          { label:'Onay bekleyen', icon:'i-hourglass', tone:'purple',
+            calc:function(r){ return r.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length; } }
+        ],
+        charts:function(r){
+          var dur = dagilim(r, function(x){ return x.durum; });
+          return [
+            { title:'Kişi bazlı fazla mesai', sub:'fazla saat (koyu) · toplam çalışma (açık)', wide:true,
+              html:GV.chart.bar(r.map(function(x){ return { label:x.ini, value:x.fazla, value2:x.toplam, tone:'warn' }; })) },
+            { title:'Onay durumu', html:GV.chart.donut(dur, { center:String(r.length), centerSub:'kayıt' }), legend:dur }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-fazlamesai-rapor', exportTitle:'Fazla Mesai Raporu',
+          search:{ placeholder:'Timesheet ara', fields:['kod','ad','hafta','depAd'] },
+          defaultSort:'fazla', defaultDir:'desc',
+          columns:[
+            { key:'kod', label:'Timesheet', locked:true, render:function(x){
+                return '<span class="cell-main">' + esc(x.kod) + '</span><span class="cell-sub">' + esc(x.hafta) + '</span>'; } },
+            { key:'ad', label:'Personel', render:function(x){
+                return '<span class="cell-main">' + esc(x.ad) + '</span><span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'baslangic', label:'Dönem', render:function(x){
+                return '<span class="cell-date">' + F.date(x.baslangic) + ' – ' + F.date(x.bitis) + '</span>'; } },
+            { key:'toplam', label:'Toplam', cellClass:'num', render:function(x){ return sa(x.toplam); } },
+            { key:'faturalanabilir', label:'Faturalanabilir', cellClass:'num', render:function(x){ return sa(x.faturalanabilir); } },
+            { key:'fazla', label:'Fazla mesai', cellClass:'num', render:function(x){
+                return '<span class="badge is-warn">' + F.hours(x.fazla) + '</span>'; } },
+            { key:'fazlaOran', label:'Fazla oranı', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.pct(x.fazlaOran) + '</span>'; } },
+            { key:'onaylayan', label:'Onaylayan', render:function(x){ return esc(empAd(x.onaylayan)); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + F.hours(x.fazla) + ' fazla</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.hafta) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Toplam: ' + F.hours(x.toplam) + '</span><span>Oran: %' + x.fazlaOran + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:{ icon:'i-timer', title:'Fazla mesai kaydı yok',
+                       desc:'Seçili filtrelerde kapasitenin üzerinde çalışma kaydı bulunmuyor.' }
+        }
+      },
+
+      /* ---------- 8 · EKSİK ÇALIŞMA RAPORU ---------------------------- */
+      { key:'eksik', label:'Eksik çalışma raporu', icon:'i-hourglass', group:'Zaman ve Kapasite',
+        title:'Eksik Çalışma Raporu',
+        desc:'Haftalık kapasitenin altında kalan çalışma saatleri, aynı haftadaki onaylı izinlerle birlikte gösterilir. ' +
+             'İzinle açıklanan eksik saat performans göstergesi değildir.',
+        rows:function(f){
+          return DB.timesheets.filter(function(t){
+            if(!t.eksik) return false;
+            if(!kisiOK(f, t.personel)) return false;
+            if(!tarihOK(f, t.baslangic)) return false;
+            if(!durumOK(f, t.durum)) return false;
+            return true;
+          }).map(timesheetSatir).map(function(x){
+            return ext(x, { aciklanan:Math.min(x.eksik, x.izinSaat), aciklanmayan:Math.max(0, x.eksik - x.izinSaat) });
+          });
+        },
+        kpis:[
+          { label:'Eksik çalışma kaydı', icon:'i-hourglass', calc:function(r){ return r.length; } },
+          { label:'Toplam eksik saat', icon:'i-trend-down', tone:'danger', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.eksik; }); } },
+          { label:'İzinle açıklanan', icon:'i-calendar-check', tone:'ok', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.aciklanan; }); } },
+          { label:'Açıklanmayan', icon:'i-alert', tone:'warn', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.aciklanmayan; }); } }
+        ],
+        charts:function(r){
+          var dur = dagilim(r, function(x){ return x.durum; });
+          return [
+            { title:'Eksik saat ve izin karşılığı', sub:'eksik saat (koyu) · aynı haftadaki izin saati (açık)', wide:true,
+              html:GV.chart.bar(r.map(function(x){ return { label:x.ini, value:x.eksik, value2:x.izinSaat, tone:'danger' }; })) },
+            { title:'Onay durumu', html:GV.chart.donut(dur, { center:String(r.length), centerSub:'kayıt' }), legend:dur }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-eksikcalisma-rapor', exportTitle:'Eksik Çalışma Raporu',
+          search:{ placeholder:'Timesheet ara', fields:['kod','ad','hafta','depAd'] },
+          defaultSort:'eksik', defaultDir:'desc',
+          columns:[
+            { key:'kod', label:'Timesheet', locked:true, render:function(x){
+                return '<span class="cell-main">' + esc(x.kod) + '</span><span class="cell-sub">' + esc(x.hafta) + '</span>'; } },
+            { key:'ad', label:'Personel', render:function(x){
+                return '<span class="cell-main">' + esc(x.ad) + '</span><span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'baslangic', label:'Dönem', render:function(x){
+                return '<span class="cell-date">' + F.date(x.baslangic) + ' – ' + F.date(x.bitis) + '</span>'; } },
+            { key:'toplam', label:'Çalışılan', cellClass:'num', render:function(x){ return sa(x.toplam); } },
+            { key:'eksik', label:'Eksik', cellClass:'num', render:function(x){
+                return '<span class="badge is-danger">' + F.hours(x.eksik) + '</span>'; } },
+            { key:'izinSaat', label:'İzin saati', cellClass:'num', render:function(x){ return sa(x.izinSaat); } },
+            { key:'aciklanmayan', label:'Açıklanmayan', cellClass:'num', render:function(x){
+                return x.aciklanmayan ? '<span class="badge is-warn">' + F.hours(x.aciklanmayan) + '</span>' : GV.badge('Tamam'); } },
+            { key:'eksikOran', label:'Eksik oranı', cellClass:'num', visible:false, render:function(x){ return '<span class="u-num">' + F.pct(x.eksikOran) + '</span>'; } },
+            { key:'onaylayan', label:'Onaylayan', render:function(x){ return esc(empAd(x.onaylayan)); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + F.hours(x.eksik) + ' eksik</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.hafta) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Çalışılan: ' + F.hours(x.toplam) + '</span>' +
+                   '<span>İzin: ' + F.hours(x.izinSaat) + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:{ icon:'i-hourglass', title:'Eksik çalışma kaydı yok',
+                       desc:'Seçili filtrelerde kapasitenin altında kalan hafta bulunmuyor.' }
+        }
+      },
+
+      /* ---------- 9 · PERFORMANS RAPORU ------------------------------- */
+      { key:'performans', label:'Performans raporu', icon:'i-award', group:'Performans ve Gelişim',
+        title:'Performans Raporu — Çok Eksenli',
+        desc:'Performans; zamanında teslim, revizyon oranı, kalite sonucu, müşteri geri bildirimi, kapasite kullanımı, ' +
+             'proje katkısı, eğitim yatırımı ve üç ayrı değerlendirici puanının birlikte okunmasıyla ele alınır. ' +
+             'Görev adedi tek başına ölçüt değildir. Bu ekran karar desteği sağlar — otomatik değerlendirme değildir; ' +
+             'nihai değerlendirme yöneticinin ve İK sürecinin sorumluluğundadır.',
+        rows:function(f){
+          return DB.performance.filter(function(p){
+            if(!kisiOK(f, p.personel)) return false;
+            if(!durumOK(f, p.durum)) return false;
+            if(f.tarih){
+              var b = donemBas(p.donem);
+              if(!b || b < f.tarih) return false;
+            }
+            return true;
+          }).map(performansSatir);
+        },
+        kpis:[
+          { label:'Değerlendirme', icon:'i-clipboard-check', calc:function(r){ return r.length; } },
+          { label:'Ort. zamanında teslim', icon:'i-check-circle', tone:'ok', format:function(v){ return '%' + v; },
+            calc:function(r){ return ortalama(r, function(x){ return x.zamanindaTeslim; }); } },
+          { label:'Ort. revizyon oranı', icon:'i-refresh', tone:'warn', format:function(v){ return '%' + v; },
+            calc:function(r){ return ortalama(r, function(x){ return x.revizyonOrani; }); } },
+          { label:'Ort. kalite puanı', icon:'i-award', tone:'accent', format:function(v){ return v ? v + ' / 5' : '—'; },
+            calc:function(r){
+              var v = r.filter(function(x){ return x.kaliteSonucu != null; });
+              return v.length ? Math.round(toplamla(v, function(x){ return x.kaliteSonucu; }) / v.length * 10) / 10 : 0;
+            } }
+        ],
+        charts:function(r){
+          var ok = r.filter(function(x){ return x.zamanindaTeslim != null; });
+          var puanli = r.filter(function(x){ return x.ozDegerlendirme != null; });
+          return [
+            { title:'Zamanında teslim ve revizyon oranı', sub:'zamanında teslim % (koyu) · revizyon oranı % (açık)', wide:true,
+              html:GV.chart.bar(ok.length
+                ? ok.map(function(x){ return { label:x.ini, value:x.zamanindaTeslim, value2:x.revizyonOrani || 0, tone:'ok' }; })
+                : [{ label:'—', value:0 }]) },
+            { title:'Değerlendirici ekseni', sub:'öz · yönetici · proje yöneticisi puanları (5 üzerinden)', wide:true,
+              html:puanli.length
+                ? GV.chart.line([
+                    { name:'Öz değerlendirme', values:puanli.map(function(x){ return x.ozDegerlendirme; }) },
+                    { name:'Yönetici', values:puanli.map(function(x){ return x.yoneticiDegerlendirme; }) },
+                    { name:'Proje yöneticisi', values:puanli.map(function(x){ return x.pmDegerlendirme; }) }
+                  ], puanli.map(function(x){ return x.ini; }), { area:false })
+                : GV.chart.bar([{ label:'—', value:0 }]),
+              legend:[{ label:'Öz değerlendirme', value:puanli.length },
+                      { label:'Yönetici', value:puanli.length },
+                      { label:'Proje yöneticisi', value:puanli.length }] }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-performans-rapor', exportTitle:'Performans Raporu',
+          search:{ placeholder:'Değerlendirme ara', fields:['kod','ad','donem','depAd','gelisimPlani'] },
+          defaultSort:'donem', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Personel', width:'16%', locked:true, render:function(x){ return empCell(x.personel); },
+              sortValue:function(x){ return x.ad; }, exportValue:function(x){ return x.ad; } },
+            { key:'donem', label:'Dönem', render:function(x){ return '<span class="u-num">' + esc(x.donem) + '</span>'; } },
+            { key:'ozDegerlendirme', label:'Öz', cellClass:'num', render:function(x){ return x.ozDegerlendirme == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.ozDegerlendirme + '</span>'; } },
+            { key:'yoneticiDegerlendirme', label:'Yönetici', cellClass:'num', render:function(x){ return x.yoneticiDegerlendirme == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.yoneticiDegerlendirme + '</span>'; } },
+            { key:'pmDegerlendirme', label:'PM', cellClass:'num', render:function(x){ return x.pmDegerlendirme == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.pmDegerlendirme + '</span>'; } },
+            { key:'ortalama', label:'Ortalama', cellClass:'num', render:function(x){
+                return x.ortalama == null ? '<span class="u-faint">—</span>' : '<span class="cell-main">' + x.ortalama + ' / 5</span>'; } },
+            { key:'zamanindaTeslim', label:'Zamanında', width:'11%', render:function(x){
+                return x.zamanindaTeslim == null ? '<span class="u-faint">—</span>'
+                     : GV.progress(x.zamanindaTeslim, { tone:x.zamanindaTeslim >= 90 ? 'ok' : x.zamanindaTeslim >= 80 ? 'warn' : 'danger' }); } },
+            { key:'revizyonOrani', label:'Revizyon', cellClass:'num', render:function(x){
+                if(x.revizyonOrani == null) return '<span class="u-faint">—</span>';
+                return GV.badge('%' + x.revizyonOrani, x.revizyonOrani <= 10 ? 'is-ok' : x.revizyonOrani <= 15 ? 'is-warn' : 'is-danger'); } },
+            { key:'gorevSayisi', label:'Görev', cellClass:'num', render:function(x){ return x.gorevSayisi == null ? '<span class="u-faint">—</span>' : num(x.gorevSayisi); } },
+            { key:'kaliteSonucu', label:'Kalite', cellClass:'num', render:function(x){ return x.kaliteSonucu == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.kaliteSonucu + '</span>'; } },
+            { key:'musteriGeriBildirim', label:'Müşteri', cellClass:'num', render:function(x){ return x.musteriGeriBildirim == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.musteriGeriBildirim + '</span>'; } },
+            { key:'doluluk', label:'Kapasite', cellClass:'num', render:function(x){ return x.doluluk == null ? '<span class="u-faint">—</span>' : '<span class="u-num">%' + x.doluluk + '</span>'; } },
+            { key:'projeKatki', label:'Proje', cellClass:'num', render:function(x){ return num(x.projeKatki); } },
+            { key:'egitimSaat', label:'Eğitim', cellClass:'num', render:function(x){ return sa(x.egitimSaat); } },
+            { key:'ekipCalismasi', label:'Ekip', cellClass:'num', visible:false, render:function(x){ return x.ekipCalismasi == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.ekipCalismasi + '</span>'; } },
+            { key:'iletisim', label:'İletişim', cellClass:'num', visible:false, render:function(x){ return x.iletisim == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + x.iletisim + '</span>'; } },
+            { key:'egitimIhtiyacMetin', label:'Eğitim ihtiyacı', width:'14%', cellClass:'cell-wrap', visible:false, render:function(x){ return esc(x.egitimIhtiyacMetin); } },
+            { key:'gelisimPlani', label:'Gelişim planı', width:'16%', cellClass:'cell-wrap', render:function(x){ return esc(x.gelisimPlani || '—'); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + (x.ortalama == null ? '—' : x.ortalama + ' / 5') + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.donem) + ' · ' + esc(x.depAd) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Zamanında: ' + (x.zamanindaTeslim == null ? '—' : '%' + x.zamanindaTeslim) + '</span>' +
+                   '<span>Revizyon: ' + (x.revizyonOrani == null ? '—' : '%' + x.revizyonOrani) + '</span>' +
+                   '<span>Eğitim: ' + F.hours(x.egitimSaat) + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 10 · EĞİTİM RAPORU ---------------------------------- */
+      { key:'egitim', label:'Eğitim raporu', icon:'i-graduation', group:'Performans ve Gelişim',
+        title:'Eğitim Raporu',
+        desc:'Katılımcı bazında eğitim programları, süre, sertifika ve kişi başına düşen maliyet. ' +
+             'Maliyet alanı finans yetkisi gerektirir.',
+        rows:function(f){
+          return egitimSatirlari().filter(function(x){
+            if(!kisiOK(f, x.personel)) return false;
+            if(!tarihOK(f, x.baslangic)) return false;
+            if(!durumOK(f, x.durum)) return false;
+            return true;
+          });
+        },
+        kpis:[
+          { label:'Katılım kaydı', icon:'i-graduation', calc:function(r){ return r.length; } },
+          { label:'Toplam saat', icon:'i-clock', tone:'accent', format:F.hours,
+            calc:function(r){ return toplamla(r, function(x){ return x.sure; }); } },
+          { label:'Sertifikalı', icon:'i-award', tone:'ok',
+            calc:function(r){ return r.filter(function(x){ return x.sertifika; }).length; } },
+          { label:'Toplam maliyet', icon:'i-wallet', tone:'info',
+            format:function(v){ return canFinans ? F.moneyK(v) : '••••••'; },
+            calc:function(r){ return toplamla(r, function(x){ return x.kisiMaliyet; }); } }
+        ],
+        charts:function(r){
+          var tur = dagilim(r, function(x){ return x.tur; });
+          return [
+            { title:'Kişi bazlı eğitim saati', sub:'saat', wide:true,
+              html:GV.chart.bar(kisiSeri(r, function(x){ return x.personel; }, function(x){ return x.sure; })) },
+            { title:'Eğitim türü dağılımı', html:GV.chart.donut(tur, { center:String(r.length), centerSub:'katılım' }), legend:tur }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-egitim-rapor', exportTitle:'Personel Eğitim Raporu',
+          search:{ placeholder:'Eğitim ara', fields:['egitim','ad','personelAd','saglayici','tur'] },
+          defaultSort:'baslangic', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Eğitim', width:'24%', locked:true, cellClass:'cell-wrap', render:function(x){
+                return '<span class="cell-main">' + esc(x.ad) + '</span><span class="cell-sub">' + esc(x.egitim) + '</span>'; } },
+            { key:'personelAd', label:'Katılımcı', render:function(x){
+                return '<span class="cell-main">' + esc(x.personelAd) + '</span><span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'tur', label:'Tür', render:function(x){ return esc(x.tur); } },
+            { key:'saglayici', label:'Sağlayıcı', render:function(x){ return esc(x.saglayici); } },
+            { key:'baslangic', label:'Başlangıç', render:function(x){ return '<span class="cell-date">' + F.date(x.baslangic) + '</span>'; } },
+            { key:'bitis', label:'Bitiş', render:function(x){ return '<span class="cell-date">' + F.date(x.bitis) + '</span>'; } },
+            { key:'sure', label:'Süre', cellClass:'num', render:function(x){ return sa(x.sure); } },
+            { key:'kisiMaliyet', label:'Kişi maliyeti', cellClass:'num', render:function(x){ return para(x.kisiMaliyet); },
+              exportValue:function(x){ return canFinans ? x.kisiMaliyet : '••••••'; } },
+            { key:'sertifika', label:'Sertifika', render:function(x){
+                return GV.badge(x.sertifika ? 'Var' : 'Yok', x.sertifika ? 'is-ok' : 'is-neutral'); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.personelAd) + '</span>' +
+                   '<span class="u-num">' + F.hours(x.sure) + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.ad) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>' + esc(x.tur) + '</span><span>' + F.date(x.baslangic) + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 11 · İZİN RAPORU ------------------------------------ */
+      { key:'izin', label:'İzin raporu', icon:'i-calendar-check', group:'Özlük',
+        title:'İzin Raporu',
+        desc:'İzin talepleri, kullanılan gün, kalan bakiye, vekil ataması ve çakışma durumu.',
+        rows:function(f){
+          return DB.leaves.filter(function(l){
+            if(!kisiOK(f, l.personel)) return false;
+            if(!tarihOK(f, l.baslangic)) return false;
+            if(!durumOK(f, l.durum)) return false;
+            return true;
+          }).map(function(l){
+            var e = emp(l.personel);
+            return ext(l, { ad:e.ad || l.personel, ini:e.ini || '—', depAd:e.depAd || '—',
+                            bakiye:e.izinBakiye != null ? e.izinBakiye : 0,
+                            vekilAd:l.vekil ? empAd(l.vekil) : '—',
+                            onaylayanAd:empAd(l.onaylayan) });
+          });
+        },
+        kpis:[
+          { label:'İzin talebi', icon:'i-calendar-check', calc:function(r){ return r.length; } },
+          { label:'Toplam gün', icon:'i-calendar', tone:'accent', format:function(v){ return v + ' gün'; },
+            calc:function(r){ return toplamla(r, function(x){ return x.gun; }); } },
+          { label:'Onay bekleyen', icon:'i-hourglass', tone:'warn',
+            calc:function(r){ return r.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length; } },
+          { label:'Çakışmalı', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(x){ return x.cakisma; }).length; } }
+        ],
+        charts:function(r){
+          var tur = dagilim(r, function(x){ return x.tur; });
+          var kisi = {}, sira = [];
+          r.forEach(function(x){
+            if(!kisi[x.personel]){ kisi[x.personel] = { label:x.ini, value:0, value2:x.bakiye }; sira.push(x.personel); }
+            kisi[x.personel].value += x.gun;
+          });
+          return [
+            { title:'Kişi bazlı izin ve bakiye', sub:'talep edilen gün (koyu) · kalan bakiye (açık)', wide:true,
+              html:GV.chart.bar(sira.map(function(k){ return kisi[k]; })) },
+            { title:'İzin türü dağılımı', html:GV.chart.donut(tur, { center:String(r.length), centerSub:'talep' }), legend:tur }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-izin-rapor', exportTitle:'Personel İzin Raporu',
+          search:{ placeholder:'İzin ara', fields:['kod','ad','tur','gerekce','depAd'] },
+          defaultSort:'baslangic', defaultDir:'desc',
+          columns:[
+            { key:'kod', label:'İzin', locked:true, render:function(x){
+                return '<span class="cell-main">' + esc(x.kod) + '</span><span class="cell-sub">' + esc(x.tur) + '</span>'; } },
+            { key:'ad', label:'Personel', render:function(x){
+                return '<span class="cell-main">' + esc(x.ad) + '</span><span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'baslangic', label:'Başlangıç', render:function(x){ return '<span class="cell-date">' + F.date(x.baslangic) + '</span>'; } },
+            { key:'bitis', label:'Bitiş', render:function(x){ return '<span class="cell-date">' + F.date(x.bitis) + '</span>'; } },
+            { key:'gun', label:'Gün', cellClass:'num', render:function(x){ return '<span class="u-num">' + x.gun + '</span>'; } },
+            { key:'bakiye', label:'Kalan bakiye', cellClass:'num', render:function(x){ return '<span class="u-num">' + x.bakiye + ' gün</span>'; } },
+            { key:'vekilAd', label:'Vekil', render:function(x){ return esc(x.vekilAd); } },
+            { key:'gerekce', label:'Gerekçe', width:'18%', cellClass:'cell-wrap', visible:false, render:function(x){ return esc(x.gerekce); } },
+            { key:'cakisma', label:'Çakışma', render:function(x){
+                return x.cakisma ? '<span class="badge is-danger">Var</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'onaylayanAd', label:'Onaylayan', render:function(x){ return esc(x.onaylayanAd); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span class="u-num">' + x.gun + ' gün</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.tur) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>' + F.date(x.baslangic) + ' – ' + F.date(x.bitis) + '</span>' +
+                   '<span>Bakiye: ' + x.bakiye + ' gün</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 12 · ZİMMET RAPORU ---------------------------------- */
+      { key:'zimmet', label:'Zimmet raporu', icon:'i-package', group:'Varlık ve Filo',
+        title:'Zimmet Raporu',
+        desc:'Personele teslim edilen demirbaşlar, teslim/iade tarihleri, personel onayı ve hasar kayıtları. ' +
+             'Demirbaş değeri finans yetkisi gerektirir.',
+        rows:function(f){
+          return zimmetSatirlari().filter(function(z){
+            if(!kisiOK(f, z.personel)) return false;
+            if(!tarihOK(f, z.teslimTarihi)) return false;
+            if(!durumOK(f, z.durum)) return false;
+            return true;
+          });
+        },
+        kpis:[
+          { label:'Zimmet kaydı', icon:'i-package', calc:function(r){ return r.length; } },
+          { label:'Zimmetli personel', icon:'i-users', tone:'info',
+            calc:function(r){
+              var s = []; r.forEach(function(x){ if(x.durum === 'Aktif' && s.indexOf(x.personel) === -1) s.push(x.personel); });
+              return s.length;
+            } },
+          { label:'Toplam değer', icon:'i-wallet', tone:'accent',
+            format:function(v){ return canFinans ? F.moneyK(v) : '••••••'; },
+            calc:function(r){ return toplamla(r, function(x){ return x.deger; }); } },
+          { label:'Onay bekleyen', icon:'i-hourglass', tone:'warn',
+            calc:function(r){ return r.filter(function(x){ return x.personelOnay === 'Bekliyor'; }).length; } }
+        ],
+        charts:function(r){
+          var kat = dagilim(r, function(x){ return x.kategori; });
+          return [
+            canFinans
+              ? { title:'Kişi bazlı zimmet değeri', sub:'demirbaş alış bedeli toplamı', wide:true,
+                  html:GV.chart.bar(kisiSeri(r, function(x){ return x.personel; }, function(x){ return x.deger; }), { money:true }) }
+              : { title:'Kişi bazlı zimmet adedi', sub:'tutar alanları yetki gerektirir', wide:true,
+                  html:GV.chart.bar(kisiSeri(r, function(x){ return x.personel; }, function(){ return 1; })) },
+            { title:'Kategori dağılımı', html:GV.chart.donut(kat, { center:String(r.length), centerSub:'zimmet' }), legend:kat }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-zimmet-rapor', exportTitle:'Personel Zimmet Raporu',
+          search:{ placeholder:'Zimmet ara', fields:['kod','ad','demirbas','marka','model','kategori'] },
+          defaultSort:'teslimTarihi', defaultDir:'desc',
+          columns:[
+            { key:'kod', label:'Zimmet', locked:true, render:function(x){
+                return '<span class="cell-main">' + esc(x.kod) + '</span><span class="cell-sub">' + esc(x.demirbas) + '</span>'; } },
+            { key:'ad', label:'Personel', render:function(x){
+                return '<span class="cell-main">' + esc(x.ad) + '</span><span class="cell-sub">' + esc(x.depAd) + '</span>'; } },
+            { key:'kategori', label:'Demirbaş', width:'18%', render:function(x){
+                return '<span class="cell-main">' + esc(x.kategori) + '</span><span class="cell-sub">' + esc(x.marka + ' ' + x.model) + '</span>'; } },
+            { key:'teslimTarihi', label:'Teslim', render:function(x){ return '<span class="cell-date">' + F.date(x.teslimTarihi) + '</span>'; } },
+            { key:'iadeTarihi', label:'İade', render:function(x){
+                return x.iadeTarihi ? '<span class="cell-date">' + F.date(x.iadeTarihi) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'deger', label:'Değer', cellClass:'num', render:function(x){ return para(x.deger); },
+              exportValue:function(x){ return canFinans ? x.deger : '••••••'; } },
+            { key:'personelOnay', label:'Personel onayı', render:function(x){ return GV.badge(x.personelOnay); } },
+            { key:'hasar', label:'Hasar', width:'16%', cellClass:'cell-wrap', render:function(x){
+                return x.hasar ? '<span class="badge is-warn">' + esc(x.hasar) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'garantiBit', label:'Garanti bitiş', visible:false, render:function(x){
+                return x.garantiBit ? '<span class="cell-date">' + F.date(x.garantiBit) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span>' + (canFinans ? F.money(x.deger) : '••••••') + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.kategori + ' · ' + x.marka + ' ' + x.model) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Teslim: ' + F.date(x.teslimTarihi) + '</span>' +
+                   '<span>Onay: ' + esc(x.personelOnay) + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      },
+
+      /* ---------- 13 · ARAÇ KULLANIM RAPORU --------------------------- */
+      { key:'arac', label:'Araç kullanım raporu', icon:'i-car', group:'Varlık ve Filo',
+        title:'Araç Kullanım Raporu',
+        desc:'Sürücü bazında tahsisli araçlar, yakıt tüketimi, trafik cezaları ve kaza kayıtları. ' +
+             'Tutar alanları finans yetkisi gerektirir.',
+        rows:function(f){
+          return surucuSatirlari().filter(function(s){
+            if(!kisiOK(f, s.personel)) return false;
+            if(!tarihOK(f, s.sonYakit)) return false;
+            if(!durumOK(f, s.durum)) return false;
+            return true;
+          });
+        },
+        kpis:[
+          { label:'Sürücü', icon:'i-users', calc:function(r){ return r.length; } },
+          { label:'Toplam litre', icon:'i-fuel', tone:'info', format:function(v){ return F.num(v, 1) + ' lt'; },
+            calc:function(r){ return Math.round(toplamla(r, function(x){ return x.litre; }) * 10) / 10; } },
+          { label:'Yakıt tutarı', icon:'i-wallet', tone:'accent',
+            format:function(v){ return canFinans ? F.moneyK(v) : '••••••'; },
+            calc:function(r){ return toplamla(r, function(x){ return x.yakitTutar; }); } },
+          { label:'Ceza', icon:'i-alert', tone:'danger',
+            calc:function(r){ return toplamla(r, function(x){ return x.cezaAdet; }); } }
+        ],
+        charts:function(r){
+          var litre = r.filter(function(x){ return x.litre > 0; })
+                       .map(function(x){ return { label:x.ini, value:x.litre }; });
+          return [
+            canFinans
+              ? { title:'Sürücü bazlı yakıt ve ceza tutarı', sub:'yakıt (koyu) · ceza (açık)', wide:true,
+                  html:GV.chart.bar(r.map(function(x){
+                    return { label:x.ini, value:x.yakitTutar, value2:x.cezaTutar, tone:x.cezaAdet ? 'warn' : '' };
+                  }), { money:true }) }
+              : { title:'Sürücü bazlı yakıt tüketimi', sub:'litre · tutar alanları yetki gerektirir', wide:true,
+                  html:GV.chart.bar(r.map(function(x){
+                    return { label:x.ini, value:x.litre, tone:x.cezaAdet ? 'warn' : '' };
+                  })) },
+            { title:'Yakıt payı', sub:'litre',
+              html:GV.chart.donut(litre.length ? litre : [{ label:'Kayıt yok', value:1 }],
+                                  { center:F.num(Math.round(toplamla(r, function(x){ return x.litre; }))), centerSub:'litre' }),
+              legend:litre }
+          ];
+        },
+        table:{
+          key:'kod', pageSize:10, archive:false, exportName:'personel-arackullanim-rapor', exportTitle:'Araç Kullanım Raporu',
+          search:{ placeholder:'Sürücü veya plaka ara', fields:['kod','ad','plakalar','depAd'] },
+          defaultSort:'yakitTutar', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Sürücü', width:'20%', locked:true, render:function(x){ return empCell(x.personel); },
+              sortValue:function(x){ return x.ad; }, exportValue:function(x){ return x.ad; } },
+            { key:'depAd', label:'Departman', render:function(x){ return esc(x.depAd); } },
+            { key:'plakalar', label:'Araç', width:'16%', cellClass:'cell-wrap', render:function(x){ return esc(x.plakalar); } },
+            { key:'yakitKayit', label:'Yakıt kaydı', cellClass:'num', render:function(x){ return num(x.yakitKayit); } },
+            { key:'litre', label:'Litre', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.num(x.litre, 1) + '</span>'; } },
+            { key:'yakitTutar', label:'Yakıt tutarı', cellClass:'num', render:function(x){ return para(x.yakitTutar); },
+              exportValue:function(x){ return canFinans ? x.yakitTutar : '••••••'; } },
+            { key:'ortLitreFiyat', label:'Ort. litre', cellClass:'num', visible:false, render:function(x){ return para(x.ortLitreFiyat); },
+              exportValue:function(x){ return canFinans ? x.ortLitreFiyat : '••••••'; } },
+            { key:'cezaAdet', label:'Ceza', cellClass:'num', render:function(x){
+                return x.cezaAdet ? '<span class="badge is-warn">' + x.cezaAdet + '</span>' : num(0); } },
+            { key:'cezaTutar', label:'Ceza tutarı', cellClass:'num', render:function(x){ return para(x.cezaTutar); },
+              exportValue:function(x){ return canFinans ? x.cezaTutar : '••••••'; } },
+            { key:'kaza', label:'Kaza', cellClass:'num', render:function(x){
+                return x.kaza ? '<span class="badge is-danger">' + x.kaza + '</span>' : num(0); } },
+            { key:'sonYakit', label:'Son yakıt', render:function(x){
+                return x.sonYakit ? '<span class="cell-date">' + F.date(x.sonYakit) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'durum', label:'Araç durumu', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+                   '<span>' + (canFinans ? F.money(x.yakitTutar) : '••••••') + '</span></div>' +
+                   '<div class="gv-mrow-code">' + esc(x.plakalar) + '</div>' +
+                   '<div class="gv-mrow-meta"><span>Litre: ' + F.num(x.litre, 1) + '</span><span>Ceza: ' + x.cezaAdet + '</span>' +
+                   '<span>Kaza: ' + x.kaza + '</span></div>' +
+                   '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+          },
+          emptyState:bosFiltre
+        }
+      }
+
+    ]
+  });
+});
+</script>
+</body>
+</html>
