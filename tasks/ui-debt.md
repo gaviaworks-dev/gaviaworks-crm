@@ -53,3 +53,33 @@ tablo satırında kuruluyor.
 satırına hem mobil karta basılacak (ikinci markup yazılmayacak — components.md kuralı). Mobilde
 aksiyonlar ya kart altında şerit ya da tek bir "…" menüsü olacak; tıklama alanı en az 44 px.
 Referanstan yalnız yerleşim/davranış alınacak, renk projenin token'larından gelecek.
+
+---
+
+## UID-03 · Kare görsel (thumbnail) sınıfı bileşen katmanında yok
+
+**Nerede:** Logo, profil fotoğrafı, ürün/varlık görseli gösteren her yer.
+
+**Sorun:** `ui.css`'te kare görsel sınıfı yok. Mevcut tek avatar sınıfı `.gv-user-ava` **yuvarlak**.
+`app-ayar-sirket.html` logo önizlemesini bu sınıfla kurmak zorunda kaldı ve `background-size:cover`
+iki özelliği **inline** vermek durumunda kaldı.
+
+**Kural hatırlatması (CLAUDE.md):** Kare görsel `img` ile değil, `div + background-image: cover/center`
+ile kurulur.
+
+**Çözüm (kapanış fazında):** `.gv-thumb` (kare, `background-size:cover; background-position:center`,
+token'lı köşe yarıçapı, `is-sm/is-md/is-lg` boyutları) bileşen katmanına eklenecek ve inline stil
+kullanan yerler ona çevrilecek. Boş durumda baş harf/ikon düşüşü de aynı sınıfta tanımlanacak.
+
+---
+
+## UID-04 · `GV.upload` dosyanın kendisini geri vermiyor
+
+**Nerede:** `GV.upload({onChange})` — logo ve profil fotoğrafı önizlemesi gereken her ekran.
+
+**Sorun:** `onChange` yalnız `{ad, boyut}` veriyor; gerçek `File` nesnesi dışarı çıkmıyor.
+Önizleme yapmak isteyen ekran mount üzerine **capture fazlı `change` dinleyicisi** takmak
+zorunda kalıyor (`app-ayar-sirket.html` bunu yaptı) — bileşenin iç işleyişine sızan bir çözüm.
+
+**Çözüm (kapanış fazında):** `GV.upload`'a `onFile(file, meta)` geri çağrısı eklenecek ve
+istenirse bileşen önizlemeyi kendisi basacak (`.gv-thumb` ile — bkz. UID-03).
