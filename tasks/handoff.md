@@ -4,7 +4,7 @@
 > edebilmesi için yazıldı. Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/components.md`.
 > `PROMPT.md` mutlak kaynaktır; `CLAUDE.md` proje kurallarıdır.
 
-**Güncelleme:** 2026-08-03 (2. oturum) · **51 ekran canlıda** · Wave 11 (Raporlama) tamamlanmak üzere.
+**Güncelleme:** 2026-08-04 (2. oturum sonu) · **59 ekran canlıda** · Wave 11 tamam · Wave 12 %75.
 
 ---
 
@@ -16,22 +16,34 @@
 | Aktif branch | `main` (doğrudan main'e çalışılıyor) |
 | Yarım kalan ekran | **YOK** — üretimdeki her ekran QA'den geçip commit edilir |
 
-### 2. oturumda eklenenler (15 ekran)
+### 2. oturumda eklenenler (23 ekran)
 ```
 FİNANS      app-sozlesme · app-fatura · app-tahsilat · app-butce
 İŞ BİRLİĞİ  app-sohbet (sohbetten görev oluşturma, 16 alanlı devir)
 AJANDA      app-ajanda (ay/hafta/gün, 8 olay kaynağı)
 RAPOR       app-rapor (merkez, 99 rapor kataloğu) · app-rapor-musteri (14) ·
             app-rapor-personel (13) · app-rapor-gorev (19) · app-rapor-referans (10) ·
-            app-rapor-filo (19) · app-rapor-finans (16)
+            app-rapor-filo (19) · app-rapor-finans (16) · app-rapor-proje (12)   ← Wave 11 TAMAM
+AYARLAR     app-ayar-yetki (27 rol × 15 modül × 19 eksen) · app-ayar-otomasyon (22 kural,
+            kuru çalıştırma) · app-ayar-bildirim (31 tip × 7 kanal) · app-ayar-log (append-only) ·
+            app-ayar-kullanici · app-ayar-entegrasyon · app-ayar-rol · app-ayar-departman ·
+            app-ayar-profil
 ```
-Üretimde (bu oturum bitmeden gelebilir): `app-rapor-proje` · `app-ayar-yetki` · `app-ayar-otomasyon`.
+**Wave 12'de kalan 3 ekran** (bu oturumda üretime verildi, sonucu doğrulanmadıysa önce onu bitir):
+`app-ayar-sirket` · `app-ayar-onay` · `app-ayar-arsiv`.
 
 ### Ortak katmana 2. oturumda eklenenler
 - **`GV.report(cfg)`** — Wave 11'in tamamının dayandığı rapor iskeleti (components.md §5b).
 - **`GV.upload(cfg)`** — form dışında da çalışan bağımsız dosya yükleme alanı.
 - **`GV.pageHead`** aksiyonlarında `run(ev, btn)` desteği (href'siz aksiyon artık sahte buton değil).
 - **`GV.perm.can('musteriRapor' | 'personelRapor')`** — türetilmiş rapor yetki eksenleri (assumptions V-13).
+- **`SCREEN_PERM` (shell.js)** — ekran seviyesinde yetki kapısı. Ayarlar bölümü artık **tüm rollere**
+  açık (herkes kendi profilini yönetir), yönetim ekranları bu haritayla kapatılır ve menüde gizlenir
+  (assumptions V-22). Yeni bir hassas ekran eklerken bu haritaya da yaz.
+- **`gv:ready` yalnız yetki kapısı açıkken tetiklenir**; kapalıyken `gv:denied` gider (lessons L-07).
+- **`GV.notice({tone,title,text,actions})`** — satır içi bilgi/uyarı bloğu.
+- **`GV.list` → `search.extra(row)`** — kayıtta kod tutulup ekranda ad gösterilen alanlar için
+  türetilmiş arama metni.
 - `GV.chart.bar` → `value2` ile karşılaştırma çubuğu + `money:true` ekseni; `bar/line/donut` boş veride
   kendiliğinden boş durum basar (artık çökmez).
 - `GV.badge(v,'is-ok')` açık ton geçersen sözlüğü ezer; sözlüğe proje sağlığı ve finans durumları eklendi.
@@ -46,7 +58,11 @@ Rapor ekranları üç çelişki ortaya çıkardı, **kaynağında** düzeltildi:
    faturası olup tahsilatı olmayan `FTR-2026-031` için `THS-2026-047` eklendi (assumptions V-17).
 2. `KOM-2026-004` ve `KOM-2025-006` müşteri kartındakinden farklı yönlendireni gösteriyordu → müşteri
    kaydı komisyona hizalandı, yönlendiren kartı tutarları `DB.commissions`'tan türetildi.
-3. `projeSayisi` **ömür boyu** sayaçtır (DB.projects yalnız güncel projeleri tutar) — bilinçli istisna.
+3. Departman kartındaki `personel` sayısı kadro kayıtlarıyla uyuşmuyordu (8 departman) → türetildi.
+4. `projeSayisi` **ömür boyu** sayaçtır (DB.projects yalnız güncel projeleri tutar) — bilinçli istisna.
+
+**Tarama script'leri her wave sonunda koşulur:** `canon2.js` (müşteri kartı ↔ işlem verisi) ·
+`canon3.js` (fatura ↔ tahsilat) · `ref.js` (komisyon ↔ yönlendiren) · `gate.js` (tüm ekranlar × 5 rol).
 
 ## 2. ORTAK KATMANIN MEVCUT DURUMU
 
@@ -94,7 +110,7 @@ Excel/CSV/PDF/yazdır · tablo/kart/kanban görünüm · boş-yüklenme-hata dur
 URL senkronu (`?t=&q=&p=&s=&d=&v=&arsiv=&f_*`) · mobil kart listesi (aynı veriden).
 
 ### `assets/js/shell.js` — shell motoru — TAM
-`SECTIONS` (15 rail bölümü + menü kalemleri) · `RAIL_ORDER` · `SEC_BY_ROLE` (28 rol) ·
+`SECTIONS` (15 rail bölümü + menü kalemleri) · `RAIL_ORDER` · `SEC_BY_ROLE` (27 rol) ·
 oturum (`sessionStorage`, URL `?role=` yalnız ilk seçimde) · `GV.perm` (can/scope/sec/item/mask) ·
 `counters()` (sayaçlar mock veriden türetilir, sabit sayı yok) · rail/menü/üstbar/breadcrumb
 render · menü aç-kapa · **yetki kapısı → 403 ekranı** · `BUILT` registry + `markWip()` +
@@ -104,7 +120,7 @@ MutationObserver · `buildSkeleton()` · `GV.pageHead()` · SVG sprite enjeksiyo
 7 rol varyantı: `sahip · satis · pm · personel · ik · satinalma · musteri`.
 
 ### `assets/data/*.js` — canonical mock veri
-`org` (16 personel, 21 departman, 28 rol, yetki matrisi) · `crm` (lead, müşteri, yetkili,
+`org` (16 personel, 21 departman, 27 rol, yetki matrisi) · `crm` (lead, müşteri, yetkili,
 referans, komisyon, ön analiz, teklif, teklif kalemi, iletişim) · `work` (proje, modül,
 milestone, sprint, 25 görev, alt görev, bağımlılık, iş talebi, hata, test, teslim,
 değişiklik talebi, onay kuyruğu, aktivite) · `ops` (demirbaş, zimmet, araç + bakım/muayene/
