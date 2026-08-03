@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Arşiv — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="arsiv">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+
+  var ME      = (GV.shell.session() || {}).emp || 'EMP-001';
+  var ROL     = GV.perm.role();
+  var rolAd   = DB.roleName(ROL);
+  var canEdit = GV.perm.can('duzenle');                                   /* §5 — geri alma */
+  var canDel  = GV.perm.can('sil') && (ROL === 'sahip' || ROL === 'sistem'); /* §23 — kalıcı silme */
+  var canExp  = GV.perm.can('disaAktar');
+
+  /* Saklama politikası (§23 "veri saklama politikası") — prototip varsayımı:
+     arşivlenmiş kayıt 365 gün geri alınabilir, sonrasında kalıcı silme kuyruğuna düşer. */
+  var SAKLAMA = 365;
+  var L = null;
+
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Arşiv',
+    actions:[
+      { label:'Log Kayıtları', icon:'i-list',  href:'app-ayar-log.html' },
+      { label:'Departmanlar',  icon:'i-users', href:'app-ayar-departman.html' }
+    ]
+  });
+
+  /* =================================================================
+     KAYNAK HARİTASI
+     Arşiv ekranının kendi koleksiyonu YOKTUR. Satırlar, modül
+     koleksiyonlarındaki `arsiv:true` / `aktif:false` / `durum:'Arşivlendi'`
+     kayıtlarından TÜRETİLİR. Türetilen hiçbir alan veriye yazılmaz (L-08);
+     her satır kaynak kaydın kendisine `ref` ile bağlıdır.
+
+     tarih()      → arşivlenme tarihi veride yok; kaydın "kapandığı" tarih
+                    alanı kullanılır, hangi alan olduğu tarihAlan'da yazılıdır.
+     kisi()       → arşivleyen kullanıcı veride yok; kaydın son sorumlusu
+                    kullanılır (kolon alt satırında açıkça belirtilir).
+     ================================================================= */
+  function depYonetici(kod){ var d = DB.dep(kod); return d ? d.yonetici : null; }
+  function musteri(kod){ return DB.customers.filter(function(c){ return c.kod === kod; })[0] || null; }
+  function musteriSorumlu(kod){ var m = musteri(kod); return m ? m.sorumlu : null; }
+  function musteriAd(kod){ var m = musteri(kod); return m ? m.kisa : (kod || '—'); }
+  function refSorumlu(kod){
+    var r = DB.referrers.filter(function(x){ return x.kod === kod; })[0];
+    return r ? r.sorumlu : null;
+  }
+
+  var KAYNAKLAR = [
+    { koleksiyon:'customers', modul:'Müşteri', tur:'Müşteri kaydı', ikon:'i-building',
+      href:function(x){ return 'app-musteri.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.unvan; },
+      tarih:function(x){ return x.sonIletisim; }, tarihAlan:'Son iletişim tarihi (sonIletisim)',
+      kisi:function(x){ return x.sorumlu; },
+      bilgi:function(x){ return x.sektor + ' · toplam ciro ' + F.moneyK(x.toplamCiro) +
+        ' · ' + x.projeSayisi + ' proje'; } },
+
+    { koleksiyon:'contacts', modul:'Müşteri', tur:'Müşteri yetkilisi', ikon:'i-user',
+      href:function(x){ return 'app-musteri-yetkili.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.ad; },
+      tarih:function(){ return null; }, tarihAlan:'Kayıtta tarih alanı yok',
+      kisi:function(x){ return musteriSorumlu(x.musteri); },
+      bilgi:function(x){ return x.pozisyon + ' · ' + musteriAd(x.musteri); } },
+
+    { koleksiyon:'referrers', modul:'Satış', tur:'Yönlendiren', ikon:'i-percent',
+      href:function(x){ return 'app-referans.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.ad; },
+      tarih:function(x){ return x.sonYonlendirme; }, tarihAlan:'Son yönlendirme tarihi (sonYonlendirme)',
+      kisi:function(x){ return x.sorumlu; },
+      bilgi:function(x){ return x.tur + ' · ' + x.yonlendirme + ' yönlendirme · ' +
+        x.kazanilan + ' kazanılan'; } },
+
+    { koleksiyon:'quotes', modul:'Satış', tur:'Teklif', ikon:'i-quote',
+      href:function(x){ return 'app-teklif.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.firma + ' teklifi (v' + x.versiyon + ')'; },
+      tarih:function(x){ return x.gecerlilik; }, tarihAlan:'Geçerlilik bitişi (gecerlilik)',
+      kisi:function(x){ return x.hazirlayan; },
+      bilgi:function(x){ return x.durum + ' · ' + F.money(x.toplam) + ' · ' + x.kalemSayisi + ' kalem'; } },
+
+    { koleksiyon:'commissions', modul:'Satış', tur:'Komisyon hakedişi', ikon:'i-wallet',
+      href:function(x){ return 'app-komisyon.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.kisi + ' · ' + x.firma; },
+      tarih:function(x){ return x.odemeTarihi || x.hakedisTarihi; }, tarihAlan:'Ödeme tarihi (odemeTarihi)',
+      kisi:function(x){ return refSorumlu(x.referans); },
+      bilgi:function(x){ return x.durum + ' · ' + F.money(x.tutar) + ' · %' + x.oran; } },
+
+    { koleksiyon:'projects', modul:'Proje', tur:'Proje', ikon:'i-briefcase',
+      href:function(x){ return 'app-proje.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.ad; },
+      tarih:function(x){ return x.gercekBitis || x.sonGuncelleme; }, tarihAlan:'Gerçek bitiş tarihi (gercekBitis)',
+      kisi:function(x){ return x.pm; },
+      bilgi:function(x){ return x.musteriAd + ' · ' + x.durum + ' · ' + F.moneyK(x.sozlesmeTutari); } },
+
+    { koleksiyon:'tasks', modul:'Görev', tur:'Görev', ikon:'i-tasks',
+      href:function(x){ return 'app-gorev-detay.html?id=' + x.kod; },
+      baslik:function(x){ return x.baslik; },
+      tarih:function(x){ return x.tamamlanma || x.termin; }, tarihAlan:'Tamamlanma tarihi (tamamlanma)',
+      kisi:function(x){ return x.olusturan; },
+      bilgi:function(x){ return x.tur + ' · ' + DB.depName(x.dep) + ' · ' + x.gercekSure + ' saat'; } },
+
+    { koleksiyon:'assets', modul:'Varlık', tur:'Demirbaş', ikon:'i-package',
+      href:function(x){ return 'app-demirbas.html?q=' + x.kod + '&arsiv=1'; },
+      baslik:function(x){ return x.marka + ' ' + x.model; },
+      tarih:function(x){ return x.iadeTarihi; }, tarihAlan:'Depoya iade tarihi (iadeTarihi)',
+      kisi:function(x){ return depYonetici(x.dep); },
+      bilgi:function(x){ return x.kategori + ' · ' + x.durum + ' · ' + x.lokasyon; } },
+
+    { koleksiyon:'departments', modul:'Ayarlar', tur:'Departman', ikon:'i-users',
+      href:function(x){ return 'app-ayar-departman.html?q=' + x.kod; },
+      baslik:function(x){ return x.ad; },
+      tarih:function(){ return null; }, tarihAlan:'Kayıtta tarih alanı yok',
+      kisi:function(x){ return x.yonetici; },
+      bilgi:function(x){ return 'Yönetici: ' + DB.empName(x.yonetici); } }
+  ];
+
+  var MODUL_SIRA = ['Müşteri','Satış','Proje','Görev','Varlık','Ayarlar'];
+  var MODUL_IKON = { 'Müşteri':'i-building', 'Satış':'i-percent', 'Proje':'i-briefcase',
+                     'Görev':'i-tasks', 'Varlık':'i-package', 'Ayarlar':'i-settings' };
+
+  /* ---- kayıt yaşı ve saklama süresi ---- */
+  function yas(t){ var d = F.days(t); return d == null ? null : -d; }
+  function geriAlinabilir(t){ var y = yas(t); return y == null || y <= SAKLAMA; }
+
+  /* ---- birleşik arşiv listesi (TÜRETİLMİŞ) ---- */
+  function arsivSatirlari(){
+    var out = [];
+    KAYNAKLAR.forEach(function(k){
+      (DB[k.koleksiyon] || []).forEach(function(r){
+        var arsivli = r.arsiv === true || r.durum === 'Arşivlendi';
+        var pasif   = r.aktif === false;
+        if(!arsivli && !pasif) return;
+        var t = k.tarih(r);
+        out.push({
+          id:k.koleksiyon + ':' + r.kod,
+          kod:r.kod,
+          baslik:k.baslik(r) || r.kod,
+          modul:k.modul,
+          tur:k.tur,
+          ikon:k.ikon,
+          koleksiyon:'DB.' + k.koleksiyon,
+          dizi:DB[k.koleksiyon],
+          href:k.href(r),
+          arsivTarihi:t || null,
+          arsivKaynak:k.tarihAlan,
+          arsivYas:yas(t),
+          arsivleyen:k.kisi(r) || null,
+          arsivDurum:arsivli ? 'Arşivlendi' : 'Pasif',
+          geri:geriAlinabilir(t) ? 'Geri alınabilir' : 'Saklama süresi doldu',
+          bilgi:k.bilgi(r),
+          ref:r
+        });
+      });
+    });
+    return out;
+  }
+
+  function arsivleyenAd(kod){ var e = DB.emp(kod); return e ? e.ad : '—'; }
+  function kayitHref(x){ return GV.isBuilt(x.href) ? x.href : null; }
+
+  /* =================================================================
+     GERİ ALMA — hangi alanların değişeceği tek yerden türetilir
+     ================================================================= */
+  function degisiklikler(x){
+    var r = x.ref, d = [];
+    if(r.arsiv === true)      d.push({ alan:'arsiv',  ad:'Arşiv işareti', eski:'Arşivde',    yeni:'Arşivde değil', uygula:function(){ r.arsiv = false; } });
+    if(r.aktif === false)     d.push({ alan:'aktif',  ad:'Aktiflik',      eski:'Pasif',      yeni:'Aktif',         uygula:function(){ r.aktif = true; } });
+    if(r.durum === 'Pasif')      d.push({ alan:'durum', ad:'Durum', eski:'Pasif',      yeni:'Aktif',       uygula:function(){ r.durum = 'Aktif'; } });
+    if(r.durum === 'Arşivlendi') d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:'Tamamlandı',  uygula:function(){ r.durum = 'Tamamlandı'; } });
+    return d;
+  }
+
+  function degisiklikTablosu(d){
+    return '<dl class="gv-dl">' + d.map(function(c){
+      return '<div><dt>' + esc(c.ad) + '</dt><dd>' +
+        '<span class="u-faint">' + esc(c.eski) + '</span> ' + ico('i-arrow-right','ic-sm') +
+        ' <b>' + esc(c.yeni) + '</b></dd></div>';
+    }).join('') + '</dl>';
+  }
+
+  /* Log satırı — §23 "eski ve yeni değerlerin kaydı".
+     Zaman damgası DB.today ekseninden yazılır (mock veri sabit tarihlidir),
+     IP prototipte üretilmediği için boş bırakılır. */
+  function logKaydi(islem, kayit, eski, yeni){
+    DB.logs.unshift({
+      kod:'LOG-' + (88300 + DB.logs.length), tarih:DB.today + 'T00:00',
+      kisi:ME, islem:islem, kayit:kayit, modul:'Arşiv', ip:'—', eski:eski, yeni:yeni
+    });
+  }
+
+  function geriAl(x){
+    if(!canEdit){ GV.toast('Arşivden geri alma yetkiniz yok', 'danger'); return; }
+    var d = degisiklikler(x);
+    if(!d.length){ GV.toast('Bu kayıtta geri alınacak arşiv işareti yok', 'info'); return; }
+
+    var suresiDolmus = x.geri !== 'Geri alınabilir';
+    GV.confirm({
+      title:'Arşivden geri alınsın mı?',
+      text:x.kod + ' · ' + x.baslik,
+      tone:suresiDolmus ? 'danger' : 'warn',
+      okLabel:'Geri Al', cancelLabel:'Vazgeç',
+      body:'<p class="u-sm u-muted">Kayıt arşivden çıkar ve <b>' + esc(x.modul) +
+             '</b> listesinde yeniden görünür. Aşağıdaki alanlar değişir:</p>' +
+           degisiklikTablosu(d) +
+           (suresiDolmus
+             ? GV.notice({ tone:'warn', icon:'i-hourglass', title:'Saklama süresi dolmuş kayıt',
+                 text:'Bu kayıt ' + x.arsivYas + ' gündür arşivde; saklama süresi ' + SAKLAMA +
+                      ' gün. Geri alma yine de yapılabilir, ancak işlem log kaydına düşer.' })
+             : '')
+    }).then(function(ok){
+      if(!ok) return;
+      d.forEach(function(c){
+        c.uygula();
+        logKaydi('Arşivden geri aldı · ' + c.ad + ' alanını değiştirdi', x.kod, c.eski, c.yeni);
+      });
+      GV.toast(x.kod + ' arşivden geri alındı', 'ok');
+      if(L) L.refresh();
+    });
+  }
+
+  /* =================================================================
+     KALICI SİLME — iki aşamalı onay (2. aşamada kod yazarak doğrulama)
+     ================================================================= */
+  function bagliKayitSayisi(x){
+    var n = 0, kod = x.kod;
+    Object.keys(DB).forEach(function(k){
+      var a = DB[k];
+      if(!Array.isArray(a)) return;
+      a.forEach(function(o){
+        if(!o || typeof o !== 'object' || o === x.ref) return;
+        var hit = Object.keys(o).some(function(f){
+          var v = o[f];
+          if(Array.isArray(v)) return v.indexOf(kod) !== -1;
+          return v === kod;
+        });
+        if(hit) n++;
+      });
+    });
+    return n;
+  }
+
+  function yazarakOnay(x){
+    return new Promise(function(resolve){
+      GV.modal({
+        title:'Kalıcı silme · ikinci onay', tone:'danger', size:'sm', icon:'i-alert',
+        text:'Onaylamak için kayıt kodunu aynen yazın.',
+        body:'<div class="field"><label for="gvSilKod">Kayıt kodu</label>' +
+               '<input type="text" class="inp" id="gvSilKod" autocomplete="off" spellcheck="false" placeholder="' + esc(x.kod) + '">' +
+             '</div>' +
+             '<p class="u-sm u-muted u-mt-4">' + esc('Bu işlem kaydı ' + x.koleksiyon +
+               ' koleksiyonundan çıkarır. Geri alınamaz; yalnız log kaydında izi kalır.') + '</p>',
+        actions:[
+          { label:'Vazgeç', cls:'btn-line', onClick:function(){ resolve(false); } },
+          { label:'Kalıcı Olarak Sil', cls:'btn-danger', close:false, onClick:function(close, el){
+              var v = (el.querySelector('#gvSilKod').value || '').trim();
+              if(v !== x.kod){
+                GV.toast('Kayıt kodu eşleşmedi — silme yapılmadı', 'danger');
+                return false;
+              }
+              close(); resolve(true); return false;
+            } }
+        ]
+      });
+    });
+  }
+
+  function kaliciSil(x){
+    if(!canDel){ GV.toast('Kalıcı silme yetkiniz yok', 'danger'); return; }
+    var bagli = bagliKayitSayisi(x);
+
+    GV.confirm({
+      title:'Kayıt kalıcı olarak silinsin mi?',
+      text:x.kod + ' · ' + x.baslik,
+      tone:'danger', okLabel:'Devam Et', cancelLabel:'Vazgeç',
+      body:GV.notice({ tone:'danger', icon:'i-alert', title:'Bu işlem geri alınamaz',
+             text:'Kayıt ' + x.koleksiyon + ' koleksiyonundan tamamen çıkarılır. Arşivden geri alma ' +
+                  'seçeneği bu işlemden sonra kullanılamaz.' }) +
+           '<dl class="gv-dl">' +
+             '<div><dt>Modül</dt><dd>' + esc(x.modul) + ' · ' + esc(x.tur) + '</dd></div>' +
+             '<div><dt>Arşiv durumu</dt><dd>' + GV.badge(x.arsivDurum, x.arsivDurum === 'Arşivlendi' ? 'is-neutral' : 'is-warn') + '</dd></div>' +
+             '<div><dt>Arşivde kalma süresi</dt><dd>' + (x.arsivYas == null ? '<span class="u-faint">Bilinmiyor</span>' : x.arsivYas + ' gün') + '</dd></div>' +
+             '<div><dt>Bu kaydı referans alan satır</dt><dd>' + bagli + ' kayıt</dd></div>' +
+           '</dl>' +
+           (bagli ? '<p class="u-sm u-muted">' + esc('Bağlı ' + bagli + ' kayıt bu prototipte silinmez; ' +
+             'gerçek sistemde ilişkisel bütünlük kuralı (cascade / kısıtla) sunucu tarafında uygulanır.') + '</p>' : '')
+    }).then(function(ok){
+      if(!ok) return null;
+      return yazarakOnay(x);
+    }).then(function(ok){
+      if(!ok) return;
+      var i = x.dizi.indexOf(x.ref);
+      if(i === -1){ GV.toast('Kayıt zaten silinmiş', 'info'); if(L) L.refresh(); return; }
+      x.dizi.splice(i, 1);
+      logKaydi('Arşivdeki kaydı kalıcı sildi', x.kod, x.baslik + ' (' + x.koleksiyon + ')', '(silindi)');
+      GV.toast(x.kod + ' kalıcı olarak silindi', 'danger');
+      if(L) L.refresh();
+    });
+  }
+
+  /* =================================================================
+     KAYIT GÖRÜNTÜLEME — kaynak kaydın tüm alanları, salt okunur
+     ================================================================= */
+  var LBL = {
+    kod:'Kayıt kodu', unvan:'Unvan', kisa:'Kısa ad', ad:'Ad', baslik:'Başlık', sektor:'Sektör',
+    buyukluk:'Çalışan sayısı', durum:'Durum', risk:'Risk', sorumlu:'Sorumlu', kaynak:'Kaynak',
+    referans:'Yönlendiren', tel:'Telefon', eposta:'E-posta', web:'Web', adres:'Adres',
+    vergiNo:'Vergi no', vergiDairesi:'Vergi dairesi', ilkKayit:'İlk kayıt',
+    sonIletisim:'Son iletişim', sonrakiAksiyon:'Sonraki aksiyon', sonrakiTarih:'Sonraki tarih',
+    projeSayisi:'Proje sayısı', aktifProje:'Aktif proje', toplamCiro:'Toplam ciro',
+    bekleyenTahsilat:'Bekleyen tahsilat', memnuniyet:'Memnuniyet', aktif:'Aktif mi',
+    arsiv:'Arşivde mi', etiketler:'Etiketler', musteri:'Müşteri', pozisyon:'Pozisyon',
+    birincil:'Birincil yetkili', karar:'Karar verici', tur:'Tür', firma:'Firma',
+    yonlendirme:'Yönlendirme', kazanilan:'Kazanılan', kaybedilen:'Kaybedilen', ciro:'Ciro',
+    donusum:'Dönüşüm (%)', sonYonlendirme:'Son yönlendirme', komisyonModeli:'Komisyon modeli',
+    komisyonOrani:'Komisyon oranı (%)', sabitBedel:'Sabit bedel', hakedis:'Hakediş',
+    odenen:'Ödenen', bekleyen:'Bekleyen', not:'Not', lead:'Müşteri adayı', analiz:'Ön analiz',
+    tarih:'Tarih', gecerlilik:'Geçerlilik', versiyon:'Versiyon', hazirlayan:'Hazırlayan',
+    araToplam:'Ara toplam', indirim:'İndirim', vergiOran:'Vergi oranı (%)', vergi:'Vergi',
+    toplam:'Toplam', doviz:'Para birimi', icOnay:'İç onay', musteriOnay:'Müşteri onayı',
+    kalemSayisi:'Kalem sayısı', odemePlani:'Ödeme planı', teslimSuresi:'Teslim süresi',
+    garanti:'Garanti', destek:'Destek', kisi:'Kişi', oran:'Oran (%)', tutar:'Tutar',
+    hakedisTarihi:'Hakediş tarihi', odemeTarihi:'Ödeme tarihi', onay:'Onay',
+    musteriAd:'Müşteri adı', pm:'Proje yöneticisi', ekip:'Ekip', saglik:'Sağlık',
+    baslangic:'Başlangıç', planlananBitis:'Planlanan bitiş', gercekBitis:'Gerçek bitiş',
+    ilerleme:'İlerleme (%)', sozlesmeTutari:'Sözleşme tutarı', butce:'Bütçe',
+    gerceklesenMaliyet:'Gerçekleşen maliyet', tahminiSure:'Tahmini süre (saat)',
+    harcananSure:'Harcanan süre (saat)', oncelik:'Öncelik', faz:'Faz', repo:'Repo',
+    canli:'Canlı ortam', test:'Test ortamı', tasarim:'Tasarım', sunucu:'Sunucu',
+    teknoloji:'Teknoloji', ucuncuTaraf:'Üçüncü taraf', teknikSorumlu:'Teknik sorumlu',
+    musteriSorumlu:'Müşteri sorumlusu', riskler:'Riskler', gecikmeNedeni:'Gecikme nedeni',
+    sonGuncelleme:'Son güncelleme', proje:'Proje', modul:'Modül', sprint:'Sprint',
+    dep:'Departman', olusturan:'Oluşturan', veren:'Veren', yardimci:'Yardımcı',
+    izleyiciler:'İzleyiciler', kontrolEden:'Kontrol eden', onaylayan:'Onaylayan',
+    etki:'Etki', aciliyet:'Aciliyet', termin:'Termin', tamamlanma:'Tamamlanma',
+    gercekSure:'Gerçek süre (saat)', faturalanabilir:'Faturalanabilir (saat)',
+    revizyon:'Revizyon', yenidenAcilma:'Yeniden açılma', aciklama:'Açıklama', amac:'Amaç',
+    kabulKriteri:'Kabul kriteri', beklenenCikti:'Beklenen çıktı', kategori:'Kategori',
+    altKategori:'Alt kategori', marka:'Marka', model:'Model', seri:'Seri no',
+    ozellik:'Özellik', alisTarihi:'Alış tarihi', alisFiyati:'Alış fiyatı',
+    tedarikci:'Tedarikçi', garantiBas:'Garanti başlangıcı', garantiBit:'Garanti bitişi',
+    lokasyon:'Lokasyon', zimmetli:'Zimmetli', zimmetTarihi:'Zimmet tarihi',
+    iadeTarihi:'İade tarihi', barkod:'Barkod', yonetici:'Yönetici', personel:'Personel sayısı'
+  };
+  var PARA = /tutar|ciro|fiyat|butce|bedel|hakedis|odenen|bekleyen|maliyet|indirim|toplam|vergi$/i;
+
+  function alanAd(k){
+    if(LBL[k]) return LBL[k];
+    var s = String(k).replace(/([a-z0-9])([A-ZĞÜŞİÖÇ])/g, '$1 $2').toLocaleLowerCase('tr');
+    return s.charAt(0).toLocaleUpperCase('tr') + s.slice(1);
+  }
+  function alanDeger(k, v){
+    if(v == null || v === '') return '<span class="u-faint">—</span>';
+    if(Array.isArray(v)) return v.length
+      ? v.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ')
+      : '<span class="u-faint">—</span>';
+    if(typeof v === 'boolean') return GV.badge(v ? 'Evet' : 'Hayır', v ? 'is-ok' : 'is-neutral');
+    var s = String(v);
+    if(/^EMP-\d+$/.test(s)) return GV.user(s, { sm:true });
+    if(/^DEP-\d+$/.test(s)) return esc(DB.depName(s)) + ' <span class="u-faint u-sm">' + esc(s) + '</span>';
+    if(/^\d{4}-\d{2}-\d{2}/.test(s)) return F.date(s);
+    if(typeof v === 'number' && PARA.test(k)) return F.money(v);
+    if(typeof v === 'number') return '<span class="u-num">' + F.num(v) + '</span>';
+    return esc(s);
+  }
+
+  function detayDrawer(x){
+    var h = kayitHref(x);
+    var alanlar = Object.keys(x.ref).map(function(k){
+      return '<div><dt>' + esc(alanAd(k)) + '</dt><dd>' + alanDeger(k, x.ref[k]) + '</dd></div>';
+    }).join('');
+
+    var arsivDl = '<dl class="gv-dl">' + [
+      ['Modül',              '<span class="tag">' + esc(x.modul) + '</span> ' + esc(x.tur)],
+      ['Kaynak koleksiyon',  '<span class="u-num">' + esc(x.koleksiyon) + '</span>'],
+      ['Arşiv durumu',       GV.badge(x.arsivDurum, x.arsivDurum === 'Arşivlendi' ? 'is-neutral' : 'is-warn')],
+      ['Arşivlenme tarihi',  x.arsivTarihi
+                               ? F.date(x.arsivTarihi) + ' <span class="u-faint u-sm">' + esc(x.arsivKaynak) + '</span>'
+                               : '<span class="u-faint">— · ' + esc(x.arsivKaynak) + '</span>'],
+      ['Arşivde kalma süresi', x.arsivYas == null ? '<span class="u-faint">Bilinmiyor</span>' : x.arsivYas + ' gün'],
+      ['Arşivleyen',         (x.arsivleyen ? GV.user(x.arsivleyen) : '<span class="u-faint">—</span>') +
+                             '<span class="cell-sub">Kaydın sorumlusundan türetildi</span>'],
+      ['Saklama politikası', SAKLAMA + ' gün'],
+      ['Geri alınabilirlik', GV.badge(x.geri, x.geri === 'Geri alınabilir' ? 'is-ok' : 'is-danger')],
+      ['Bu kaydı referans alan satır', bagliKayitSayisi(x) + ' kayıt']
+    ].map(function(p){ return '<div><dt>' + esc(p[0]) + '</dt><dd>' + p[1] + '</dd></div>'; }).join('') + '</dl>';
+
+    var acts = [{ label:'Kapat', cls:'btn-line' }];
+    if(canEdit) acts.unshift({ label:'Arşivden Geri Al', cls:'btn-acc',
+      onClick:function(){ setTimeout(function(){ geriAl(x); }, 340); } });
+    if(h) acts.unshift({ label:'Kaydı Listesinde Aç', cls:'btn-line',
+      onClick:function(){ location.href = h; } });
+
+    GV.drawer({
+      title:'Arşiv kaydı · ' + x.kod,
+      body:'<div class="gv-rec-head"><div>' +
+             '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(x.kod) + '</span>' +
+               GV.badge(x.arsivDurum, x.arsivDurum === 'Arşivlendi' ? 'is-neutral' : 'is-warn') +
+               '<span class="tag">' + esc(x.tur) + '</span></div>' +
+             '<div class="gv-rec-meta"><span>' + ico(x.ikon, 'ic-sm') + esc(x.baslik) + '</span>' +
+               '<span>' + ico('i-clock','ic-sm') + (x.arsivTarihi ? F.date(x.arsivTarihi) : '—') + '</span>' +
+               '<span>' + ico('i-user','ic-sm') + esc(arsivleyenAd(x.arsivleyen)) + '</span></div>' +
+           '</div></div>' +
+           GV.notice({ tone:'neutral', icon:'i-eye', title:'Salt okunur görünüm',
+             text:'Arşiv ekranı kaydın alanlarını düzenlemez. Alan düzeltmesi için kayıt önce arşivden ' +
+                  'geri alınır, sonra kendi modülünde düzenlenir.' }) +
+           '<h3 class="gc-title u-mt-4">Arşiv bilgileri</h3>' + arsivDl +
+           '<h3 class="gc-title u-mt-4">Kaydın tüm alanları</h3>' +
+           '<dl class="gv-dl">' + alanlar + '</dl>' +
+           '<p class="u-sm u-muted u-mt-4">' + esc('Alanlar kaynak koleksiyondan olduğu gibi okunur; ' +
+             'arşiv ekranı için ayrı bir kopya tutulmaz.') + '</p>',
+      actions:acts
+    });
+  }
+
+  /* =================================================================
+     UYARILAR
+     ================================================================= */
+  document.getElementById('uyari').innerHTML =
+    '<div class="u-mb-4">' + GV.notice({
+      tone:'warn', icon:'i-alert', title:'Kalıcı silme geri alınamaz',
+      text:'Arşivdeki kayıtlar ' + SAKLAMA + ' gün boyunca geri alınabilir; süre dolduğunda kalıcı silme ' +
+           'kuyruğuna düşer. Kalıcı silme kaydı koleksiyondan tamamen çıkarır ve geri alınamaz — yalnız log ' +
+           'satırında izi kalır. ' +
+           (canDel ? 'Rolünüz (' + rolAd + ') kalıcı silme yapabilir; işlem iki aşamalı onay ister ve ikinci ' +
+                     'aşamada kayıt kodunun yazılması zorunludur. '
+                   : '“' + rolAd + '” rolü kalıcı silme yapamaz; bu aksiyon satırlarda hiç basılmaz. ') +
+           'Ayrıca bu statik prototipte veri tarayıcı belleğinde tutulur: geri alma ve silme gerçekten çalışır ' +
+           'ama yalnız bu oturumu etkiler, sayfa yenilendiğinde başlangıç verisine dönülür.'
+    }) + '</div>' +
+    '<div class="u-mb-4">' + GV.notice({
+      tone:'neutral', icon:'i-info', title:'Arşiv listesi türetilmiş bir görünümdür',
+      text:'Sistemde ayrı bir arşiv tablosu yoktur. Satırlar müşteri, yetkili, yönlendiren, teklif, komisyon, ' +
+           'proje, görev, demirbaş ve departman koleksiyonlarındaki arsiv / aktif alanlarından derlenir. ' +
+           'Arşivlenme tarihi ve arşivleyen kullanıcı mock veri setinde tutulmadığı için kaydın kapanış tarihi ' +
+           've sorumlusundan türetilir; her satırın hangi alandan türediği kayıt görüntüleme penceresinde yazılıdır. ' +
+           'Gerçek sistemde bu iki alan arşivleme anında yazılır.'
+    }) + '</div>';
+
+  /* =================================================================
+     LİSTE
+     ================================================================= */
+  var rowActs = [];
+  if(canEdit) rowActs.push({ key:'geri', icon:'i-refresh', label:'Arşivden geri al',
+    run:function(x){ geriAl(x); } });
+  rowActs.push({ key:'detay', icon:'i-eye', label:'Kaydı görüntüle',
+    run:function(x){ detayDrawer(x); } });
+  if(canDel) rowActs.push({ key:'sil', icon:'i-trash', cls:'is-danger', label:'Kalıcı sil',
+    run:function(x){ kaliciSil(x); } });
+
+  function mevcutModuller(){
+    var v = arsivSatirlari().map(function(r){ return r.modul; });
+    return MODUL_SIRA.filter(function(m){ return v.indexOf(m) !== -1; });
+  }
+  function mevcutTurler(){
+    var out = [];
+    arsivSatirlari().forEach(function(r){ if(out.indexOf(r.tur) === -1) out.push(r.tur); });
+    return out.sort(function(a, b){ return a.localeCompare(b, 'tr'); });
+  }
+  function mevcutKisiler(){
+    var out = [];
+    arsivSatirlari().forEach(function(r){
+      if(r.arsivleyen && out.indexOf(r.arsivleyen) === -1) out.push(r.arsivleyen);
+    });
+    return out.map(function(k){ return { value:k, label:arsivleyenAd(k) }; })
+              .sort(function(a, b){ return a.label.localeCompare(b.label, 'tr'); });
+  }
+
+  var sekmeler = [{ key:'tumu', label:'Tümü', icon:'i-archive', filter:null }].concat(
+    mevcutModuller().map(function(m){
+      return { key:m.toLocaleLowerCase('tr'), label:m, icon:MODUL_IKON[m] || 'i-list',
+               filter:function(x){ return x.modul === m; } };
+    }));
+
+  L = GV.list({
+    mount:'#liste', id:'arsiv', key:'id', source:arsivSatirlari,
+    exportName:'arsiv-kayitlari', exportTitle:'Arşivlenen ve Pasife Alınan Kayıtlar',
+    pageSize:25, export:canExp,
+    /* Bu ekranın TAMAMI arşiv eksenidir; "Arşivlenenleri Göster" anahtarı
+       burada anlamsız olurdu (liste zaten yalnız arşiv/pasif kayıtlardan
+       oluşur). Arşiv ↔ pasif ayrımı sekme ve "Arşiv durumu" filtresiyle yapılır. */
+    archive:false,
+    search:{ placeholder:'Kayıt kodu, başlık, modül veya kayıt türü ara',
+             fields:['kod','baslik','modul','tur','bilgi','arsivDurum'],
+             extra:function(r){ return arsivleyenAd(r.arsivleyen) + ' ' + r.koleksiyon + ' ' + r.geri; } },
+    defaultSort:'arsivTarihi', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam arşivlenen kayıt', icon:'i-archive',
+        calc:function(a){ return a.length; },
+        meta:function(a){
+          var m = [];
+          a.forEach(function(r){ if(m.indexOf(r.modul) === -1) m.push(r.modul); });
+          return ico('i-layers','ic-sm') + ' ' + m.length + ' modül · ' +
+            a.filter(function(r){ return r.arsivDurum === 'Arşivlendi'; }).length + ' arşivli · ' +
+            a.filter(function(r){ return r.arsivDurum === 'Pasif'; }).length + ' pasif';
+        }, metaTone:'flat' },
+      { label:'Bu yıl arşivlenen', icon:'i-calendar', tone:'info',
+        calc:function(a){
+          var y = String(DB.today).slice(0,4);
+          return a.filter(function(r){ return String(r.arsivTarihi || '').slice(0,4) === y; }).length;
+        },
+        meta:function(a){
+          var ay = String(DB.today).slice(0,7);
+          return ico('i-clock','ic-sm') + ' Bu ay: ' +
+            a.filter(function(r){ return String(r.arsivTarihi || '').slice(0,7) === ay; }).length +
+            ' · tarih kaydın kapanışından türetildi';
+        }, metaTone:'flat' },
+      { label:'Geri alınabilir kayıt', icon:'i-refresh', tone:'accent',
+        calc:function(a){ return a.filter(function(r){ return r.geri === 'Geri alınabilir'; }).length; },
+        meta:function(){ return ico('i-shield','ic-sm') + ' Saklama süresi ' + SAKLAMA + ' gün'; }, metaTone:'flat' },
+      { label:'Kalıcı silme bekleyen', icon:'i-trash', tone:'danger',
+        calc:function(a){ return a.filter(function(r){ return r.geri !== 'Geri alınabilir'; }).length; },
+        meta:function(a){
+          var d = a.filter(function(r){ return r.geri !== 'Geri alınabilir'; })
+                   .map(function(r){ return r.arsivYas; }).sort(function(p, q){ return q - p; })[0];
+          return ico('i-hourglass','ic-sm') + (d == null ? ' Saklama süresi dolan kayıt yok'
+            : ' En eskisi ' + d + ' gündür arşivde');
+        }, metaTone:'flat' }
+    ],
+    tabs:sekmeler,
+    columns:[
+      { key:'kod', label:'Kayıt', width:'24%', locked:true, sortValue:function(x){ return x.kod; },
+        render:function(x){
+          var h = kayitHref(x);
+          return (h ? '<a class="cell-main" href="' + h + '">' + esc(x.kod) + '</a>'
+                    : '<span class="cell-main">' + esc(x.kod) + '</span>') +
+                 '<span class="cell-sub">' + esc(x.baslik) + '</span>';
+        },
+        exportValue:function(x){ return x.kod + ' — ' + x.baslik; } },
+      { key:'modul', label:'Modül', width:'10%',
+        render:function(x){ return '<span class="tag">' + ico(x.ikon,'ic-sm') + ' ' + esc(x.modul) + '</span>'; } },
+      { key:'tur', label:'Kayıt türü', width:'13%',
+        render:function(x){ return '<span class="u-sm">' + esc(x.tur) + '</span>'; } },
+      { key:'arsivTarihi', label:'Arşivlenme tarihi', width:'13%',
+        sortValue:function(x){ return x.arsivTarihi || ''; },
+        render:function(x){
+          if(!x.arsivTarihi) return '<span class="u-faint">—</span>' +
+            '<span class="cell-sub">Veride tarih alanı yok</span>';
+          return '<span class="cell-main">' + F.date(x.arsivTarihi) + '</span>' +
+                 '<span class="cell-sub">' + x.arsivYas + ' gün önce</span>';
+        },
+        exportValue:function(x){ return x.arsivTarihi || '—'; } },
+      { key:'arsivleyen', label:'Arşivleyen', width:'14%',
+        sortValue:function(x){ return arsivleyenAd(x.arsivleyen); },
+        render:function(x){
+          return (x.arsivleyen ? GV.user(x.arsivleyen, { sm:true }) : '<span class="u-faint">—</span>') +
+                 '<span class="cell-sub">kaydın sorumlusu</span>';
+        },
+        exportValue:function(x){ return arsivleyenAd(x.arsivleyen); } },
+      { key:'arsivDurum', label:'Durum', width:'10%',
+        render:function(x){ return GV.badge(x.arsivDurum, x.arsivDurum === 'Arşivlendi' ? 'is-neutral' : 'is-warn'); } },
+      { key:'geri', label:'Geri alınabilir mi', width:'14%',
+        render:function(x){
+          return GV.badge(x.geri === 'Geri alınabilir' ? 'Evet' : 'Hayır',
+                          x.geri === 'Geri alınabilir' ? 'is-ok' : 'is-danger') +
+                 '<span class="cell-sub">' + (x.geri === 'Geri alınabilir'
+                   ? (x.arsivYas == null ? 'Saklama süresi işlemiyor' : (SAKLAMA - x.arsivYas) + ' gün kaldı')
+                   : 'Saklama süresi doldu') + '</span>';
+        },
+        exportValue:function(x){ return x.geri; } },
+      { key:'bilgi', label:'Kayıt özeti', width:'16%', visible:false, cellClass:'cell-wrap',
+        render:function(x){ return '<span class="u-sm">' + esc(x.bilgi) + '</span>'; } },
+      { key:'koleksiyon', label:'Kaynak koleksiyon', visible:false, sortable:false,
+        render:function(x){ return '<span class="u-num u-sm">' + esc(x.koleksiyon) + '</span>' +
+          '<span class="cell-sub">' + esc(x.arsivKaynak) + '</span>'; },
+        exportValue:function(x){ return x.koleksiyon; } }
+    ],
+    filters:[
+      { key:'modul', label:'Modül', type:'multi', options:mevcutModuller() },
+      { key:'tur', label:'Kayıt türü', type:'multi', options:mevcutTurler() },
+      { key:'arsivTarihi', label:'Arşivlenme tarihi', type:'daterange' },
+      { key:'arsivleyen', label:'Arşivleyen', type:'select', options:mevcutKisiler() },
+      { key:'geri', label:'Geri alınabilirlik', type:'select',
+        options:[{ value:'Geri alınabilir', label:'Geri alınabilir' },
+                 { value:'Saklama süresi doldu', label:'Saklama süresi doldu' }] },
+      { key:'arsivDurum', label:'Arşiv durumu', type:'select',
+        options:[{ value:'Arşivlendi', label:'Arşivlendi (arsiv:true)' },
+                 { value:'Pasif', label:'Pasife alındı (aktif:false)' }] }
+    ],
+    bulk:canEdit ? [
+      { key:'geri', label:'Arşivden geri al', icon:'i-refresh',
+        run:function(ids){
+          var secili = arsivSatirlari().filter(function(r){ return ids.indexOf(r.id) !== -1; });
+          var n = 0;
+          secili.forEach(function(x){
+            degisiklikler(x).forEach(function(c){
+              c.uygula();
+              logKaydi('Arşivden geri aldı · ' + c.ad + ' alanını değiştirdi (toplu işlem)', x.kod, c.eski, c.yeni);
+              n++;
+            });
+          });
+          GV.toast(secili.length + ' kayıt arşivden geri alındı · ' + n + ' alan güncellendi', 'ok');
+          if(L) L.refresh();
+        },
+        confirm:'{n} kayıt arşivden çıkarılacak ve kendi modül listelerinde yeniden görünecek. Devam edilsin mi?' }
+    ] : null,
+    rowClass:function(x){ return x.geri === 'Geri alınabilir' ? '' : 'is-late'; },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.baslik) + '</span>' +
+          GV.badge(x.arsivDurum, x.arsivDurum === 'Arşivlendi' ? 'is-neutral' : 'is-warn') + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.kod) + ' · ' + esc(x.modul) + ' · ' + esc(x.tur) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + ico('i-clock','ic-sm') +
+          (x.arsivTarihi ? F.date(x.arsivTarihi) : '—') + '</span>' +
+          '<span>' + ico('i-user','ic-sm') + esc(arsivleyenAd(x.arsivleyen)) + '</span></div>' +
+        '<div class="gv-mrow-bottom">' + esc(x.bilgi) + ' · ' +
+          GV.badge(x.geri, x.geri === 'Geri alınabilir' ? 'is-ok' : 'is-danger') + '</div>';
+    },
+    rowActions:rowActs,
+    emptyState:{ icon:'i-archive', title:'Bu görünümde arşiv kaydı yok',
+      desc:'Modüllerde arşivlenen veya pasife alınan kayıtlar burada toplanır. Kayıt buradan arşivden geri ' +
+           'alınabilir, alanları salt okunur görüntülenebilir ve yetkili roller tarafından kalıcı olarak silinebilir.' }
+  });
+
+});
+</script>
+</body>
+</html>
