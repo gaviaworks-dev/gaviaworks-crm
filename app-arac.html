@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Araçlar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="arac">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  GV.pageHead({ eyebrow:'Envanter', title:'Araçlar ve Filo',
+    actions:[{ label:'Bakım', icon:'i-wrench', href:'app-arac-bakim.html' },
+             { label:'Yeni Araç', icon:'i-plus', cls:'btn-acc', href:'app-arac-form.html' }] });
+  var polOf = function(k, tur){ return DB.policies.filter(function(p){ return p.arac === k && p.tur === tur; })[0]; };
+  var mynOf = function(k){ return DB.inspections.filter(function(i){ return i.arac === k; })[0]; };
+  var giderOf = function(k){ return DB.vehicleExpenses.filter(function(g){ return g.arac === k; })
+    .reduce(function(s,g){ return s + g.tutar; }, 0); };
+  GV.list({
+    mount:'#liste', id:'arac', key:'kod', source:function(){ return DB.vehicles; },
+    exportName:'araclar', exportTitle:'Araç ve Filo Listesi', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Plaka, marka, model, şasi veya sürücü ara',
+             fields:['kod','plaka','marka','model','sasi','motorNo','tip'] },
+    defaultSort:'plaka',
+    kpis:[
+      { label:'Toplam araç', icon:'i-car', calc:function(a){ return a.length; } },
+      { label:'Serviste', icon:'i-wrench', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Serviste'; }).length; } },
+      { label:'Yaklaşan yenileme', icon:'i-shield', tone:'danger',
+        calc:function(a){ return a.filter(function(x){
+          var p = polOf(x.kod, 'Trafik Sigortası'), m = mynOf(x.kod);
+          return (p && p.kalanGun <= 60) || (m && m.kalanGun <= 60); }).length; } },
+      { label:'Toplam gider', icon:'i-wallet', tone:'info', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + giderOf(x.kod); }, 0) : 0; } }
+    ],
+    tabs:[
+      { key:'aktif', label:'Tüm Araçlar', icon:'i-car', filter:function(x){ return x.aktif; } },
+      { key:'tahsisli', label:'Personele Tahsisli', icon:'i-user-check', filter:function(x){ return x.kullanim === 'Personele tahsisli'; } },
+      { key:'ortak', label:'Ortak Kullanım', icon:'i-users', filter:function(x){ return x.kullanim === 'Ortak kullanım'; } },
+      { key:'kiralik', label:'Kiralık', icon:'i-receipt', filter:function(x){ return x.mulkiyet === 'Kiralık'; } },
+      { key:'serviste', label:'Serviste', icon:'i-wrench', filter:function(x){ return x.durum === 'Serviste'; } },
+      { key:'uyari', label:'Yenileme Uyarısı', icon:'i-alert', filter:function(x){
+          var p = polOf(x.kod, 'Trafik Sigortası'), m = mynOf(x.kod);
+          return (p && p.kalanGun <= 60) || (m && m.kalanGun <= 60); } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'plaka', label:'Araç', width:'20%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-arac-detay.html?id=' + x.kod + '">' + esc(x.plaka) + '</a>' +
+                 '<span class="cell-sub">' + esc(x.marka + ' ' + x.model + ' · ' + x.modelYili) + '</span>' +
+                 '<span class="cell-code">' + x.kod + '</span>'; } },
+      { key:'tip', label:'Tip / yakıt', render:function(x){
+          return '<span class="tag">' + esc(x.tip) + '</span><span class="cell-sub">' + esc(x.yakit + ' · ' + x.vites) + '</span>'; },
+        exportValue:function(x){ return x.tip + ' / ' + x.yakit; } },
+      { key:'mulkiyet', label:'Mülkiyet', render:function(x){
+          return '<span class="tag">' + esc(x.mulkiyet) + '</span>' +
+                 (x.mulkiyet === 'Kiralık' && x.aylikKira ? '<span class="cell-sub">' + F.money(x.aylikKira) + ' / ay</span>' : ''); } },
+      { key:'kullanim', label:'Kullanım', render:function(x){
+          return '<span class="cell-main">' + esc(x.kullanim) + '</span>' +
+                 (x.anaSurucu ? '<span class="cell-sub">' + esc(DB.empName(x.anaSurucu)) + '</span>' : ''); },
+        exportValue:function(x){ return x.kullanim + (x.anaSurucu ? ' — ' + DB.empName(x.anaSurucu) : ''); } },
+      { key:'guncelKm', label:'Güncel km', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.num(x.guncelKm) + '</span>'; } },
+      { key:'sonrakiBakimTarihi', label:'Sonraki bakım', render:function(x){
+          return GV.dateCell(x.sonrakiBakimTarihi) + '<span class="cell-sub">' + F.num(x.sonrakiBakimKm) + ' km</span>'; } },
+      { key:'muayene', label:'Muayene', sortable:false, render:function(x){
+          var m = mynOf(x.kod);
+          if(!m) return '<span class="u-faint">—</span>';
+          return GV.dateCell(m.sonrakiTarih) + (m.kalanGun <= 60 ? '<span class="cell-sub">' + m.kalanGun + ' gün kaldı</span>' : ''); },
+        exportValue:function(x){ var m = mynOf(x.kod); return m ? m.sonrakiTarih : ''; } },
+      { key:'sigorta', label:'Trafik sigortası', sortable:false, visible:false, render:function(x){
+          var p = polOf(x.kod, 'Trafik Sigortası');
+          return p ? GV.dateCell(p.bitis) : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ var p = polOf(x.kod, 'Trafik Sigortası'); return p ? p.bitis : ''; } },
+      { key:'kasko', label:'Kasko', sortable:false, visible:false, render:function(x){
+          var p = polOf(x.kod, 'Kasko');
+          return p ? GV.dateCell(p.bitis) : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ var p = polOf(x.kod, 'Kasko'); return p ? p.bitis : ''; } },
+      { key:'gider', label:'Toplam gider', cellClass:'num', sortValue:function(x){ return giderOf(x.kod); }, render:function(x){
+          return canFinans ? '<span class="cell-money">' + F.money(giderOf(x.kod)) + '</span>' : '<span class="cell-mask">••••</span>'; },
+        exportValue:function(x){ return canFinans ? giderOf(x.kod) : ''; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[
+      { key:'tip', label:'Araç tipi', type:'multi', options:['Otomobil','Ticari araç','Motosiklet'] },
+      { key:'yakit', label:'Yakıt türü', type:'multi', options:['Benzin','Dizel','Hibrit','Elektrik','LPG'] },
+      { key:'mulkiyet', label:'Mülkiyet', type:'multi', options:['Satın alınan','Kiralık','Finansal kiralama'] },
+      { key:'kullanim', label:'Kullanım şekli', type:'multi', options:['Personele tahsisli','Ortak kullanım','Departmana tahsisli','Projeye tahsisli'] },
+      { key:'anaSurucu', label:'Ana sürücü', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'durum', label:'Durum', type:'select', options:['Aktif','Serviste','Pasif'] }
+    ],
+    rowClass:function(x){
+      var p = polOf(x.kod, 'Trafik Sigortası'), m = mynOf(x.kod);
+      return ((p && p.kalanGun <= 30) || (m && m.kalanGun <= 30)) ? 'is-late' : ''; },
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-arac-detay.html?id=' + x.kod + '">' + esc(x.plaka) + '</a>' +
+        '<div class="cell-sub">' + esc(x.marka + ' ' + x.model) + '</div></div>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(x.kullanim) + '</span><span>' + F.num(x.guncelKm) + ' km</span></div>' +
+        '<div class="gv-rcard-foot">' + (x.anaSurucu ? GV.user(x.anaSurucu, { sm:true }) : '<span class="u-xs u-faint">Ortak kullanım</span>') +
+        GV.dateCell(x.sonrakiBakimTarihi) + '</div>';
+    },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-arac-detay.html?id=' + x.kod + '">' + esc(x.plaka) + '</a>' +
+        GV.badge(x.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.marka + ' ' + x.model) + ' · ' + F.num(x.guncelKm) + ' km</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-wrench','ic-sm') + 'Bakım ' + F.dateShort(x.sonrakiBakimTarihi) + '</span></div>';
+    },
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Araç kartını aç', href:function(x){ return 'app-arac-detay.html?id=' + x.kod; } },
+      { key:'bakim', icon:'i-wrench', label:'Bakım kayıtları', href:function(x){ return 'app-arac-bakim.html?f_arac=' + x.kod; } },
+      { key:'km', icon:'i-edit', label:'Kilometre güncelle', run:function(x, refresh){
+          GV.modal({ title:'Kilometre Güncelle', text:x.plaka + ' · güncel ' + F.num(x.guncelKm) + ' km', icon:'i-car', size:'sm',
+            body:'<div class="field"><label for="yKm">Yeni kilometre</label><input type="number" class="inp" id="yKm" value="' + x.guncelKm + '" min="' + x.guncelKm + '"></div>',
+            actions:[{ label:'Vazgeç', cls:'btn-line' },
+              { label:'Güncelle', cls:'btn-acc', onClick:function(close, el){
+                  var v = parseInt(el.querySelector('#yKm').value, 10);
+                  if(!v || v < x.guncelKm){ GV.toast('Yeni kilometre mevcut değerden küçük olamaz', 'danger'); return false; }
+                  x.guncelKm = v;
+                  if(v >= x.sonrakiBakimKm) GV.toast('Bakım kilometresi aşıldı — bakım planlaması gerekiyor', 'warn', 5000);
+                  else GV.toast('Kilometre güncellendi', 'ok');
+                  refresh(); } }] }); } }
+    ],
+    bulk:[{ key:'surucu', label:'Sürücü ata', icon:'i-user-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-car', title:'Bu görünümde araç yok',
+      desc:'Araçlar demirbaştan ayrı bir filo modülünde yönetilir; bakım, muayene, sigorta ve kasko ayrı takip edilir.' }
+  });
+
+});
+</script>
+</body>
+</html>
