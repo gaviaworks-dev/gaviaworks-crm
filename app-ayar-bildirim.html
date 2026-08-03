@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Bildirim Tercihleri — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="bildirimtercih">
+<div class="gv-card" id="tercih"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var mount = document.getElementById('tercih');
+  var LSK = 'gv.notifpref';
+
+  /* =================================================================
+     1. MODEL — 31 bildirim tipi (PROMPT.md §21) × 7 kanal
+     Tip adları app-panel-bildirimler.html’deki DB.notifications.tur
+     değerleriyle eşlenir; önizleme sayısı bu eşlemeden hesaplanır.
+     ================================================================= */
+  var GROUPS = [
+    { k:'satis',     ad:'Satış',            ic:'i-funnel' },
+    { k:'proje',     ad:'Projeler',         ic:'i-briefcase' },
+    { k:'gorev',     ad:'Görevler',         ic:'i-tasks' },
+    { k:'ik',        ad:'İnsan Kaynakları', ic:'i-users' },
+    { k:'satinalma', ad:'Satın Alma',       ic:'i-cart' },
+    { k:'filo',      ad:'Araç ve Filo',     ic:'i-car' },
+    { k:'finans',    ad:'Finans',           ic:'i-wallet' },
+    { k:'destek',    ad:'Destek',           ic:'i-support' }
+  ];
+
+  /* ton → app-panel-bildirimler.html’deki DB.notifications.tone ile aynı sözlük */
+  var TYPES = [
+    /* Satış */
+    { k:'yeniLead',        ad:'Yeni müşteri adayı',                    grup:'satis', ton:'ok',      kritik:false, tur:['Yeni müşteri adayı'],
+      not:'Yeni aday kaydı açıldığında' },
+    { k:'yeniReferans',    ad:'Yeni referans',                         grup:'satis', ton:'ok',      kritik:false, tur:[],
+      not:'Referans kaydı geldiğinde' },
+    { k:'yaklasanGorusme', ad:'Yaklaşan görüşme',                      grup:'satis', ton:'info',    kritik:false, tur:[],
+      not:'Görüşmeye 1 saat kala' },
+    { k:'islemsizMusteri', ad:'Uzun süredir işlem yapılmayan müşteri', grup:'satis', ton:'warn',    kritik:false, tur:[],
+      not:'Aşamada bekleme süresi aşıldığında' },
+    { k:'teklifGecerlilik',ad:'Teklif geçerlilik süresi',              grup:'satis', ton:'warn',    kritik:false, tur:[],
+      not:'Geçerlilik bitişine 3 gün kala' },
+    { k:'teklifOnayi',     ad:'Teklif onayı',                          grup:'satis', ton:'ok',      kritik:true,  tur:[],
+      not:'Müşteri teklifi onayladığında' },
+    /* Projeler */
+    { k:'projeBaslangic',  ad:'Proje başlangıcı',                      grup:'proje', ton:'info',    kritik:false, tur:[],
+      not:'Proje başlatıldığında' },
+    { k:'yaklasanTeslim',  ad:'Yaklaşan teslim',                       grup:'proje', ton:'warn',    kritik:false, tur:[],
+      not:'Teslime 3 gün kala' },
+    { k:'gecikenProje',    ad:'Geciken proje',                         grup:'proje', ton:'danger',  kritik:true,  tur:['Geciken proje'],
+      not:'Planlanan bitiş geçtiğinde' },
+    /* Görevler */
+    { k:'yeniGorev',       ad:'Yeni görev',                            grup:'gorev', ton:'info',    kritik:false, tur:[],
+      not:'Size görev atandığında' },
+    { k:'gorevKabulu',     ad:'Görev kabulü',                          grup:'gorev', ton:'info',    kritik:false, tur:[],
+      not:'Atadığınız görev kabul edildiğinde' },
+    { k:'gorevGecikmesi',  ad:'Görev gecikmesi',                       grup:'gorev', ton:'danger',  kritik:true,  tur:['Görev gecikmesi'],
+      not:'Termin geçtiğinde' },
+    { k:'kontrolBekleyen', ad:'Kontrol bekleyen görev',                grup:'gorev', ton:'warn',    kritik:false, tur:[],
+      not:'Kontrolünüzü bekleyen teslim olduğunda' },
+    { k:'depTalep',        ad:'Departmanlar arası talep',              grup:'gorev', ton:'info',    kritik:false, tur:['Departmanlar arası talep'],
+      not:'Departmanınıza iş talebi düştüğünde' },
+    { k:'etiketlenme',     ad:'Sohbette etiketlenme',                  grup:'gorev', ton:'info',    kritik:false, tur:['Sohbette etiketlenme'],
+      not:'Bir kanalda @ ile anıldığınızda' },
+    /* İnsan Kaynakları */
+    { k:'izinTalebi',      ad:'İzin talebi',                           grup:'ik',    ton:'info',    kritik:false, tur:['İzin talebi'],
+      not:'Onayınıza izin talebi geldiğinde' },
+    { k:'eksikZaman',      ad:'Eksik zaman kaydı',                     grup:'ik',    ton:'warn',    kritik:false, tur:[],
+      not:'Haftalık zaman kaydı eksik kaldığında' },
+    /* Satın Alma */
+    { k:'satinAlmaOnayi',  ad:'Satın alma onayı',                      grup:'satinalma', ton:'warn',   kritik:true,  tur:['Onay bekleyen işlem'],
+      not:'Onayınızı bekleyen satın alma talebi' },
+    { k:'gecikenSiparis',  ad:'Geciken sipariş',                       grup:'satinalma', ton:'danger', kritik:true,  tur:[],
+      not:'Termin geçtiği hâlde teslim alınmadığında' },
+    { k:'garantiBitisi',   ad:'Garanti bitişi',                        grup:'satinalma', ton:'warn',   kritik:false, tur:[],
+      not:'Demirbaş garantisine 30 gün kala' },
+    { k:'lisansYenileme',  ad:'Lisans yenileme',                       grup:'satinalma', ton:'warn',   kritik:false, tur:['Lisans yenileme'],
+      not:'Lisans bitişine 30 gün kala' },
+    /* Araç ve Filo */
+    { k:'aracBakimTarih',  ad:'Araç bakım tarihi',                     grup:'filo',  ton:'warn',    kritik:false, tur:[],
+      not:'Periyodik bakım tarihine 15 gün kala' },
+    { k:'aracBakimKm',     ad:'Araç bakım kilometresi',                grup:'filo',  ton:'warn',    kritik:false, tur:[],
+      not:'Bakım kilometresine 1.000 km kala' },
+    { k:'muayene',         ad:'Muayene tarihi',                        grup:'filo',  ton:'warn',    kritik:true,  tur:['Muayene tarihi'],
+      not:'Muayene bitişine 60/30/15/7 gün kala' },
+    { k:'trafikSigorta',   ad:'Trafik sigortası',                      grup:'filo',  ton:'warn',    kritik:true,  tur:['Trafik sigortası'],
+      not:'Poliçe bitişine 30/15/7 gün kala' },
+    { k:'kasko',           ad:'Kasko',                                 grup:'filo',  ton:'warn',    kritik:true,  tur:[],
+      not:'Kasko poliçesi bitişine 30/15/7 gün kala' },
+    { k:'kiralamaSozlesme',ad:'Kiralama sözleşmesi',                   grup:'filo',  ton:'info',    kritik:false, tur:[],
+      not:'Kiralama sözleşmesi bitişine 30 gün kala' },
+    { k:'trafikCezasi',    ad:'Trafik cezası',                         grup:'filo',  ton:'danger',  kritik:false, tur:[],
+      not:'Araca ceza işlendiğinde' },
+    /* Finans */
+    { k:'gecikenTahsilat', ad:'Geciken tahsilat',                      grup:'finans',ton:'danger',  kritik:true,  tur:['Geciken tahsilat'],
+      not:'Vade geçtiğinde ve her 7 günde bir' },
+    { k:'sozlesmeYenileme',ad:'Sözleşme yenilemesi',                   grup:'finans',ton:'warn',    kritik:false, tur:[],
+      not:'Sözleşme bitişine 45 gün kala' },
+    /* Destek */
+    { k:'slaIhlali',       ad:'SLA ihlali',                            grup:'destek',ton:'danger',  kritik:true,  tur:['SLA ihlali riski'],
+      not:'SLA süresinin %75’i dolduğunda' }
+  ];
+
+  var TYPE_BY_KEY = {}, TYPE_BY_TUR = {};
+  TYPES.forEach(function(t){
+    TYPE_BY_KEY[t.k] = t;
+    (t.tur || []).forEach(function(v){ TYPE_BY_TUR[v] = t; });
+  });
+  function grupTypes(gk){ return TYPES.filter(function(t){ return t.grup === gk; }); }
+
+  /* ---- 7 kanal: liste DB.notificationChannels’tan, bağlılık DB.integrations’tan ---- */
+  var CH_META = {
+    'Sistem içi':      { k:'sistem',   ic:'i-bell',      ent:null,
+      aciklama:'Uygulama içi bildirim merkezi ve üst bardaki zil rozeti' },
+    'E-posta':         { k:'eposta',   ic:'i-mail',      ent:null,
+      aciklama:'Kurumsal e-posta adresinize gönderilir' },
+    'Mobil bildirim':  { k:'mobil',    ic:'i-phone',     ent:null,
+      aciklama:'Mobil uygulamaya anlık bildirim (push) olarak düşer' },
+    'SMS':             { k:'sms',      ic:'i-send',      ent:null,
+      aciklama:'Kısa mesaj — maliyeti olduğu için yalnız kritik tiplerde önerilir' },
+    'WhatsApp':        { k:'whatsapp', ic:'i-chat',      ent:'WhatsApp Business',
+      aciklama:'WhatsApp Business hattı üzerinden mesaj' },
+    'Slack':           { k:'slack',    ic:'i-megaphone', ent:'Slack',
+      aciklama:'Bildirim seçtiğiniz Slack kanalına düşer' },
+    'Microsoft Teams': { k:'teams',    ic:'i-users',     ent:'Microsoft Teams',
+      aciklama:'Bildirim Microsoft Teams kanalına düşer' }
+  };
+  var CHANNELS = DB.notificationChannels.map(function(ad){
+    var m = CH_META[ad] || { k:ad, ic:'i-bell', ent:null, aciklama:'' };
+    var ent = m.ent ? DB.integrations.filter(function(x){ return x.ad === m.ent; })[0] : null;
+    return { ad:ad, k:m.k, ic:m.ic, aciklama:m.aciklama, ent:ent,
+             durum:ent ? ent.durum : 'Yerleşik', bagli:ent ? ent.durum === 'Bağlı' : true };
+  });
+  var CH_BY_KEY = {};
+  CHANNELS.forEach(function(c){ CH_BY_KEY[c.k] = c; });
+  var COLS = CHANNELS.length + 2;   /* tip + 7 kanal + satır aksiyonu */
+
+  var FREQ = [
+    { k:'anlik',    ad:'Anlık',         hint:'Olay gerçekleştiği anda iletilir' },
+    { k:'gunluk',   ad:'Günlük özet',   hint:'Gün içindeki bildirimler tek e-postada toplanır' },
+    { k:'haftalik', ad:'Haftalık özet', hint:'Hafta boyunca biriken bildirimler tek mesajda' }
+  ];
+  var DAYS = ['Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi','Pazar'];
+
+  /* =================================================================
+     2. DURUM
+     ================================================================= */
+  function defaults(){
+    var st = {
+      m:{}, kr:{},
+      q:{ acik:true, bas:'19:00', bit:'08:30', haftasonu:true },
+      f:'anlik', s:'08:30', g:'Pazartesi'
+    };
+    TYPES.forEach(function(t){
+      st.kr[t.k] = !!t.kritik;
+      st.m[t.k] = {};
+      CHANNELS.forEach(function(c){
+        var on = false;
+        if(c.bagli){
+          if(c.k === 'sistem') on = true;
+          else if(c.k === 'eposta') on = (t.ton === 'danger' || t.ton === 'warn' || t.k === 'yeniLead' || t.k === 'teklifOnayi');
+          else if(c.k === 'mobil') on = !!t.kritik;
+        }
+        st.m[t.k][c.k] = on;
+      });
+    });
+    return st;
+  }
+
+  var ST = defaults();
+  var dirty = false, kayitli = false;
+
+  function loadPref(){
+    var raw;
+    try { raw = window.localStorage.getItem(LSK); } catch(e){ return false; }
+    if(!raw) return false;
+    var o;
+    try { o = JSON.parse(raw); } catch(e){ return false; }
+    if(!o || o.v !== 1) return false;
+    TYPES.forEach(function(t){
+      if(o.kr && Object.prototype.hasOwnProperty.call(o.kr, t.k)) ST.kr[t.k] = !!o.kr[t.k];
+      CHANNELS.forEach(function(c){
+        if(!c.bagli){ ST.m[t.k][c.k] = false; return; }   /* bağlantı koptuysa tercih uygulanmaz */
+        if(o.m && o.m[t.k] && Object.prototype.hasOwnProperty.call(o.m[t.k], c.k)) ST.m[t.k][c.k] = !!o.m[t.k][c.k];
+      });
+    });
+    if(o.q){
+      ST.q.acik = !!o.q.acik;
+      ST.q.haftasonu = !!o.q.haftasonu;
+      if(o.q.bas) ST.q.bas = o.q.bas;
+      if(o.q.bit) ST.q.bit = o.q.bit;
+    }
+    if(o.f && FREQ.filter(function(x){ return x.k === o.f; }).length) ST.f = o.f;
+    if(o.s) ST.s = o.s;
+    if(o.g && DAYS.indexOf(o.g) !== -1) ST.g = o.g;
+    return true;
+  }
+
+  function savePref(){
+    try {
+      window.localStorage.setItem(LSK, JSON.stringify({
+        v:1, m:ST.m, kr:ST.kr, q:ST.q, f:ST.f, s:ST.s, g:ST.g, tarih:DB.today, kisi:GV.session.emp
+      }));
+      return true;
+    } catch(e){ return false; }
+  }
+  function clearPref(){ try { window.localStorage.removeItem(LSK); } catch(e){ /* yok sayılır */ } }
+
+  kayitli = loadPref();
+
+  /* Tercih kendine aittir — 'duzenle' yetkisi başkasının tercihini yönetmek içindir */
+  var baskasiniYonet = GV.perm.can('duzenle');
+
+  /* =================================================================
+     3. HESAP — sessiz saat, önizleme, sayaçlar
+     ================================================================= */
+  function toMin(hm){
+    var p = String(hm || '').split(':');
+    return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+  }
+  function dow(iso){ return new Date(String(iso).slice(0,10) + 'T00:00:00').getDay(); }
+  function haftaSonu(iso){ var d = dow(iso); return d === 0 || d === 6; }
+
+  function inQuiet(iso){
+    if(!ST.q.acik) return false;
+    if(ST.q.haftasonu && haftaSonu(iso)) return true;
+    var hm = String(iso).slice(11,16);
+    if(!hm) return false;
+    var m = toMin(hm), a = toMin(ST.q.bas), b = toMin(ST.q.bit);
+    if(a === b) return false;
+    return a > b ? (m >= a || m < b) : (m >= a && m < b);
+  }
+
+  function cellStats(){
+    var on = 0, total = 0;
+    TYPES.forEach(function(t){
+      CHANNELS.forEach(function(c){
+        if(!c.bagli) return;
+        total++;
+        if(ST.m[t.k][c.k]) on++;
+      });
+    });
+    return { on:on, total:total };
+  }
+  function rowOn(tk){
+    return CHANNELS.filter(function(c){ return c.bagli && ST.m[tk][c.k]; }).length;
+  }
+  function rowTotal(){ return CHANNELS.filter(function(c){ return c.bagli; }).length; }
+  function colOn(ck){
+    if(!CH_BY_KEY[ck].bagli) return 0;
+    return TYPES.filter(function(t){ return ST.m[t.k][ck]; }).length;
+  }
+  function grupOn(gk){
+    var n = 0;
+    grupTypes(gk).forEach(function(t){ n += rowOn(t.k); });
+    return n;
+  }
+  function grupTotal(gk){ return grupTypes(gk).length * rowTotal(); }
+  function kritikSayi(){ return TYPES.filter(function(t){ return ST.kr[t.k]; }).length; }
+
+  /* Son 7 gün — DB.today (2026-08-03) eksenli, gerçek DB.notifications üzerinden */
+  function son7(){
+    return DB.notifications.filter(function(n){
+      var d = F.days(n.tarih);
+      return d !== null && d <= 0 && d >= -6;
+    });
+  }
+
+  function preview(){
+    var rows = son7();
+    var res = { olay:rows.length, eslenen:0, gonderim:0, ertelenen:0, anlik:0, ulasan:0,
+                perCh:{}, eslenmeyen:[] };
+    CHANNELS.forEach(function(c){ res.perCh[c.k] = { gonderim:0, ertelenen:0, gunler:{}, ulasan:0 }; });
+    rows.forEach(function(n){
+      var t = TYPE_BY_TUR[n.tur];
+      if(!t){ if(res.eslenmeyen.indexOf(n.tur) === -1) res.eslenmeyen.push(n.tur); return; }
+      res.eslenen++;
+      var sessiz = inQuiet(n.tarih) && !ST.kr[t.k];
+      CHANNELS.forEach(function(c){
+        if(!c.bagli || !ST.m[t.k][c.k]) return;
+        var p = res.perCh[c.k];
+        res.gonderim++; p.gonderim++;
+        p.gunler[String(n.tarih).slice(0,10)] = true;
+        if(sessiz){ res.ertelenen++; p.ertelenen++; }
+      });
+    });
+    res.anlik = res.gonderim - res.ertelenen;
+    CHANNELS.forEach(function(c){
+      var p = res.perCh[c.k];
+      /* Sistem içi kanal her zaman tek tek düşer; özet yalnız dış kanalları toplar */
+      p.ulasan = (ST.f === 'anlik' || c.k === 'sistem') ? p.gonderim
+               : (ST.f === 'gunluk' ? Object.keys(p.gunler).length : (p.gonderim ? 1 : 0));
+      res.ulasan += p.ulasan;
+    });
+    return res;
+  }
+
+  /* =================================================================
+     4. SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Bildirim Tercihleri', sub:'—',
+    actions:[
+      { label:'Bildirim Merkezi', icon:'i-bell', href:'app-panel-bildirimler.html' },
+      { label:'Varsayılana dön', icon:'i-refresh', cls:'btn-line', id:'btnSifirla' },
+      { label:'Tercihleri kaydet', icon:'i-check', cls:'btn-acc', id:'btnKaydet' }
+    ]
+  });
+  GV.shell.crumb('Bildirim Tercihleri');
+
+  function setSub(){
+    var el = document.querySelector('.gv-page-head .ph-sub');
+    if(!el) return;
+    var st = cellStats(), pv = preview();
+    el.textContent = TYPES.length + ' bildirim tipi · ' + CHANNELS.length + ' kanal · ' +
+      st.on + ' / ' + st.total + ' hücre açık · son 7 günde ' + pv.ulasan + ' bildirim alırdınız';
+  }
+
+  /* =================================================================
+     5. PARÇALAR
+     ================================================================= */
+  function noticeHtml(){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-user-check') + ' Bu ayarlar yalnızca sizin hesabınız için geçerlidir</h3></div>' +
+      '<p class="u-sm u-muted">Bildirim tercihleri kişiseldir: burada yaptığınız değişiklik ' +
+      '<b>' + esc(GV.session.ad) + '</b> hesabına uygulanır, ekip arkadaşlarınızın ayarlarını etkilemez. ' +
+      (baskasiniYonet
+        ? 'Rolünüzün düzenleme yetkisi var; başka bir kullanıcının tercihini değiştirmek için ' +
+          'ilgili personel kaydından “Bildirim tercihleri” bölümünü kullanın.'
+        : 'Rolünüz başka bir kullanıcının tercihini değiştiremez — yalnız kendi tercihinizi düzenleyebilirsiniz. ' +
+          'Bu ekran sizin için tümüyle açıktır.') + '</p>' +
+      '<div class="u-row u-wrap u-mt-4">' +
+        GV.user(GV.session.emp, { sm:true }) +
+        '<span class="tag">Rol: ' + esc(DB.roleName(GV.perm.role())) + '</span>' +
+        '<span class="badge ' + (baskasiniYonet ? 'is-accent' : 'is-info') + '">' +
+          (baskasiniYonet ? 'Başkasının tercihini yönetebilir' : 'Yalnız kendi tercihi') + '</span>' +
+        (kayitli ? '<span class="badge is-ok">Kayıtlı tercih yüklendi</span>'
+                 : '<span class="badge is-neutral">Varsayılan tercihler</span>') +
+      '</div></div>';
+  }
+
+  function kpiHtml(){
+    var pv = preview(), st = cellStats();
+    var cards = [
+      { ic:'i-activity', tone:'neutral', num:F.num(pv.olay),
+        lbl:'Son 7 günde oluşan olay · ' + F.date(DB.today) + ' eksenli' },
+      { ic:'i-bell', tone:pv.ulasan > 24 ? 'warn' : 'info', num:F.num(pv.ulasan),
+        lbl:'Bu ayarlarla size ulaşacak bildirim' },
+      { ic:'i-clock', tone:pv.ertelenen ? 'warn' : 'ok', num:F.num(pv.ertelenen),
+        lbl:'Sessiz saate denk gelip ertelenen' },
+      { ic:'i-sliders', tone:st.on / st.total > .5 ? 'ok' : st.on / st.total > .2 ? 'info' : 'neutral',
+        num:st.on + ' / ' + st.total, lbl:'Açık tip × kanal hücresi' }
+    ];
+    return cards.map(function(c){
+      return '<div class="kpi is-' + c.tone + '"><div class="kpi-ico">' + ico(c.ic,'ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">' + esc(c.num) + '</div>' +
+        '<div class="kpi-lbl">' + esc(c.lbl) + '</div></div></div>';
+    }).join('');
+  }
+
+  function kanalHtml(){
+    var kapali = CHANNELS.filter(function(c){ return !c.bagli; });
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-link') + ' Kanal Durumu</h3></div>' +
+      '<p class="u-sm u-muted">Sistem içi, e-posta, mobil bildirim ve SMS platformun yerleşik kanallarıdır. ' +
+      'WhatsApp, Slack ve Microsoft Teams ise <b>DB.integrations</b> kaydındaki bağlantı durumundan okunur — ' +
+      'bağlı olmayan kanalın anahtarları kapalı ve pasiftir.</p>' +
+      '<div class="gv-tablewrap u-mt-4"><table class="gtable"><thead><tr>' +
+      '<th>Kanal</th><th>Nasıl çalışır</th><th>Kaynak</th><th>Durum</th><th class="num">Açık tip</th>' +
+      '</tr></thead><tbody>' +
+      CHANNELS.map(function(c){
+        return '<tr' + (c.bagli ? '' : ' class="is-passive"') + '>' +
+          '<td><span class="cell-main">' + ico(c.ic,'ic-sm') + ' ' + esc(c.ad) + '</span></td>' +
+          '<td class="cell-wrap"><span class="cell-sub">' + esc(c.aciklama) + '</span></td>' +
+          '<td>' + (c.ent ? '<span class="tag">' + esc(c.ent.kod + ' · ' + c.ent.ad) + '</span>'
+                          : '<span class="tag">Yerleşik kanal</span>') + '</td>' +
+          '<td>' + (c.bagli ? '<span class="badge is-ok">Bağlı</span>'
+                            : '<span class="badge is-warn">' + esc(c.durum) + '</span>') + '</td>' +
+          '<td class="num"><b class="u-num" data-colcnt2="' + c.k + '">' +
+            (c.bagli ? colOn(c.k) + ' / ' + TYPES.length : '—') + '</b></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + CHANNELS.map(function(c){
+        return '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+          '<span class="cell-main">' + esc(c.ad) + '</span>' +
+          '<div class="gv-mrow-code">' + esc(c.ent ? c.ent.kod + ' · ' + c.ent.ad : 'Yerleşik kanal') + '</div></div>' +
+          (c.bagli ? '<span class="badge is-ok">Bağlı</span>'
+                   : '<span class="badge is-warn">' + esc(c.durum) + '</span>') +
+          '</div><div class="gv-mrow-meta"><span>' + esc(c.aciklama) + '</span></div></div>';
+      }).join('') + '</div>' +
+      (kapali.length
+        ? '<div class="u-row u-wrap u-mt-4">' +
+          '<span class="badge is-warn">Entegrasyon bağlı değil</span>' +
+          '<span class="u-sm u-muted">' + esc(kapali.map(function(c){ return c.ad; }).join(', ')) +
+          ' kanalları için anahtarlar pasif. Bağlamak için ' +
+          '</span><a class="btn btn-line btn-sm" href="app-ayar-entegrasyon.html">' +
+          ico('i-link','ic-sm') + ' Entegrasyonlar ekranı</a></div>'
+        : '') + '</div>';
+  }
+
+  function swHtml(t, c, withLabel){
+    var on = !!ST.m[t.k][c.k];
+    return '<label class="f-switch"><input type="checkbox" data-t="' + t.k + '" data-c="' + c.k + '"' +
+      (on ? ' checked' : '') + (c.bagli ? '' : ' disabled') +
+      ' aria-label="' + esc(t.ad + ' — ' + c.ad + (c.bagli ? '' : ' (entegrasyon bağlı değil)')) + '">' +
+      '<span class="sw"></span>' +
+      (withLabel ? '<span>' + esc(c.ad) + (c.bagli ? '' : ' · bağlı değil') + '</span>' : '') + '</label>';
+  }
+
+  function matrisHtml(){
+    var head = '<tr><th>Bildirim tipi</th>' +
+      CHANNELS.map(function(c){
+        return '<th class="th-narrow">' + esc(c.ad) +
+          (c.bagli ? '' : ' <span class="u-warn">·&nbsp;bağlı değil</span>') +
+          '<br><button type="button" class="btn btn-xs btn-line" data-tog="col" data-k="' + c.k + '"' +
+          (c.bagli ? '' : ' disabled') + ' title="' + esc(c.ad + ' kanalını tüm tiplerde aç veya kapat') + '">' +
+          '<span data-colcnt="' + c.k + '">' + (c.bagli ? colOn(c.k) + '/' + TYPES.length : '—') + '</span></button></th>';
+      }).join('') +
+      '<th class="th-narrow">Tüm kanallar</th></tr>';
+
+    var body = '';
+    GROUPS.forEach(function(g){
+      body += '<tr><td colspan="' + COLS + '">' +
+        '<span class="u-row u-wrap">' +
+          '<span class="badge is-accent">' + esc(g.ad) + '</span>' +
+          '<span class="u-xs u-muted" data-grpcnt="' + g.k + '">' +
+            grupOn(g.k) + ' / ' + grupTotal(g.k) + ' kanal açık · ' + grupTypes(g.k).length + ' tip</span>' +
+          '<button type="button" class="btn btn-xs btn-line" data-tog="grp" data-k="' + g.k + '">' +
+            ico('i-check','ic-sm') + ' Grubu aç/kapat</button>' +
+        '</span></td></tr>';
+      grupTypes(g.k).forEach(function(t){
+        body += '<tr>' +
+          '<td class="cell-wrap"><span class="cell-main">' + esc(t.ad) + '</span>' +
+          '<span class="cell-sub">' + esc(t.not) + '</span>' +
+          '<span class="cell-code" data-rowcnt="' + t.k + '">' + rowOn(t.k) + ' / ' + rowTotal() + ' kanal' +
+          (ST.kr[t.k] ? ' · kritik' : '') + '</span></td>' +
+          CHANNELS.map(function(c){ return '<td class="cell-sw">' + swHtml(t, c, false) + '</td>'; }).join('') +
+          '<td class="cell-sw"><button type="button" class="ia" data-tog="row" data-k="' + t.k + '"' +
+            ' title="' + esc(t.ad + ' için tüm kanalları aç veya kapat') + '"' +
+            ' aria-label="' + esc(t.ad + ' için tüm kanalları aç veya kapat') + '">' +
+            ico('i-check','ic-sm') + '</button></td></tr>';
+      });
+    });
+
+    /* ≤760px’de .gv-tablewrap gizlenir, aynı durumdan üretilen kart listesi devreye girer */
+    var cards = '';
+    GROUPS.forEach(function(g){
+      cards += '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+        '<span class="cell-main">' + esc(g.ad) + '</span>' +
+        '<div class="gv-mrow-code" data-grpcnt="' + g.k + '">' + grupOn(g.k) + ' / ' + grupTotal(g.k) +
+        ' kanal açık · ' + grupTypes(g.k).length + ' tip</div></div>' +
+        '<button type="button" class="btn btn-xs btn-line" data-tog="grp" data-k="' + g.k + '">Grubu aç/kapat</button>' +
+        '</div></div>';
+      grupTypes(g.k).forEach(function(t){
+        cards += '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+          '<span class="cell-main">' + esc(t.ad) + '</span>' +
+          '<div class="gv-mrow-code" data-rowcnt="' + t.k + '">' + rowOn(t.k) + ' / ' + rowTotal() + ' kanal' +
+          (ST.kr[t.k] ? ' · kritik' : '') + '</div></div>' +
+          '<button type="button" class="btn btn-xs btn-line" data-tog="row" data-k="' + t.k + '">Tüm kanallar</button>' +
+          '</div><div class="u-col u-mt-4">' +
+          CHANNELS.map(function(c){ return swHtml(t, c, true); }).join('') + '</div></div>';
+      });
+    });
+
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-grid') + ' Bildirim Tipi × Kanal Matrisi</h3></div>' +
+      '<p class="u-sm u-muted">' + TYPES.length + ' bildirim tipi × ' + CHANNELS.length + ' kanal. ' +
+      'Kolon başlığındaki sayaç düğmesi o kanalı tüm tiplerde açar/kapatır, satır sonundaki düğme ' +
+      'o tip için tüm kanalları, grup satırındaki düğme ise grubun tamamını değiştirir. ' +
+      'Tablo yatay kaydırılabilir ve ilk kolon sabittir; dar ekranda aynı veriden üretilen kart listesi devreye girer.</p>' +
+      '<div class="gv-tablewrap is-sticky1 u-mt-4"><table class="gtable">' +
+      '<thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + cards + '</div></div>';
+  }
+
+  function sessizHtml(){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-clock') + ' Sessiz Saatler</h3></div>' +
+      '<p class="u-sm u-muted">Sessiz saat aralığında yalnızca <b>kritik</b> işaretlenen tipler anında iletilir. ' +
+      'Kritik olmayan bildirimler bastırılmaz, sessiz saat bittiğinde toplu olarak iletilir — ' +
+      'önizlemede “ertelenen” olarak sayılır.</p>' +
+      '<div class="gv-fields u-mt-4">' +
+        '<div class="field f-col-3"><span class="f-lbl">Sessiz saatleri uygula</span>' +
+          '<label class="f-switch"><input type="checkbox" id="qOn"' + (ST.q.acik ? ' checked' : '') + '>' +
+          '<span class="sw"></span><span>' + (ST.q.acik ? 'Açık' : 'Kapalı') + '</span></label>' +
+          '<div class="f-hint">Kapatırsanız her bildirim geldiği anda iletilir.</div></div>' +
+        '<div class="field f-col-3"><label for="qBas">Başlangıç saati</label>' +
+          '<input type="time" class="inp" id="qBas" value="' + esc(ST.q.bas) + '"></div>' +
+        '<div class="field f-col-3"><label for="qBit">Bitiş saati</label>' +
+          '<input type="time" class="inp" id="qBit" value="' + esc(ST.q.bit) + '">' +
+          '<div class="f-hint">Bitiş başlangıçtan küçükse aralık gece yarısını aşar.</div></div>' +
+        '<div class="field f-col-3"><span class="f-lbl">Hafta sonu</span>' +
+          '<label class="f-switch"><input type="checkbox" id="qWknd"' + (ST.q.haftasonu ? ' checked' : '') + '>' +
+          '<span class="sw"></span><span>Cumartesi ve pazar tüm gün sessiz</span></label></div>' +
+      '</div>' +
+      '<div class="gv-summary u-mt-8">' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Geçerli sessiz aralık</span>' +
+        '<span class="gv-summary-val" id="qOzet">—</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Sessiz saatte geçen kritik tip</span>' +
+        '<span class="gv-summary-val" id="qKritik">—</span></div>' +
+      '</div>' +
+      '<div class="gv-form-sec-head u-mt-8"><h3>' + ico('i-alert') + ' Sessiz Saatte Geçecek Kritik Tipler</h3></div>' +
+      '<p class="u-sm u-muted">İşaretli tipler sessiz saat ve hafta sonu kuralını aşar. Listeyi dar tutun — ' +
+      'her tip kritik işaretlenirse sessiz saat anlamını kaybeder.</p>' +
+      '<div class="gv-fields u-mt-4">' + GROUPS.map(function(g){
+        return '<div class="field f-col-3"><span class="f-lbl">' + esc(g.ad) + '</span>' +
+          grupTypes(g.k).map(function(t){
+            return '<label class="f-check"><input type="checkbox" data-kr="' + t.k + '"' +
+              (ST.kr[t.k] ? ' checked' : '') + '><span>' + esc(t.ad) + '</span></label>';
+          }).join('') + '</div>';
+      }).join('') + '</div></div>';
+  }
+
+  function ozetHtml(){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-inbox') + ' Özet Sıklığı</h3></div>' +
+      '<p class="u-sm u-muted">Sistem içi bildirimler her zaman tek tek düşer. Buradaki seçim ' +
+      'e-posta, SMS, WhatsApp, Slack ve Teams gibi <b>dış kanalların</b> gönderim ritmini belirler.</p>' +
+      '<div class="f-radios u-mt-4">' + FREQ.map(function(f){
+        return '<label class="f-radio"><input type="radio" name="ozetFreq" value="' + f.k + '"' +
+          (ST.f === f.k ? ' checked' : '') + '><span>' + esc(f.ad) + '</span></label>';
+      }).join('') + '</div>' +
+      '<div class="gv-fields u-mt-8">' +
+        '<div class="field f-col-4"><label for="ozSaat">Özet gönderim saati</label>' +
+          '<input type="time" class="inp" id="ozSaat" value="' + esc(ST.s) + '"' +
+          (ST.f === 'anlik' ? ' disabled' : '') + '>' +
+          '<div class="f-hint">' + esc(FREQ.filter(function(f){ return f.k === ST.f; })[0].hint) + '</div></div>' +
+        '<div class="field f-col-4"><label for="ozGun">Haftalık özet günü</label>' +
+          '<select class="inp" id="ozGun"' + (ST.f === 'haftalik' ? '' : ' disabled') + '>' +
+          DAYS.map(function(d){
+            return '<option value="' + esc(d) + '"' + (ST.g === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="f-hint">Yalnızca haftalık özet seçildiğinde kullanılır.</div></div>' +
+        '<div class="field f-col-4"><span class="f-lbl">Şu anki gönderim planı</span>' +
+          '<p class="u-sm u-muted" id="ozOzet">—</p></div>' +
+      '</div></div>';
+  }
+
+  function onizlemeHtml(){
+    var pv = preview();
+    var kapsam = TYPES.filter(function(t){ return (t.tur || []).length; }).length;
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-chart-bar') + ' Önizleme — Son 7 Gün</h3></div>' +
+      '<p class="u-sm u-muted">Aşağıdaki sayılar tahmin değil: <b>DB.notifications</b> içindeki ' +
+      F.date(DB.today) + ' ve öncesindeki 7 günlük gerçek kayıtlar, seçtiğiniz matris · sessiz saat · ' +
+      'özet sıklığı kurallarından geçirilerek hesaplanır.</p>' +
+      '<div class="gv-summary u-mt-4" id="pvBreak">' + breakRows(pv) + '</div>' +
+      '<p class="u-xs u-faint u-mt-4">Örnek veri kapsamı: ' + TYPES.length + ' tipin ' + kapsam +
+      ' tanesi için son 7 günde kayıt var; kalan ' + (TYPES.length - kapsam) +
+      ' tip önizlemeye 0 katkı verir çünkü mock veride o tipte olay üretilmemiştir.' +
+      (pv.eslenmeyen.length ? ' Eşlenemeyen tür: ' + esc(pv.eslenmeyen.join(', ')) + '.' : '') + '</p></div>';
+  }
+
+  function breakRows(pv){
+    var rows = [
+      ['Son 7 günde oluşan olay', F.num(pv.olay) + ' bildirim'],
+      ['Tercihlerinizle eşleşen olay', F.num(pv.eslenen) + ' bildirim'],
+      ['Toplam gönderim (tip × kanal)', '<b>' + F.num(pv.gonderim) + '</b>'],
+      ['Anında iletilecek', F.num(pv.anlik)],
+      ['Sessiz saate denk gelip ertelenen', pv.ertelenen
+        ? '<span class="badge is-warn">' + F.num(pv.ertelenen) + '</span>' : F.num(0)],
+      ['Özet sıklığı sonrası size ulaşan', '<b>' + F.num(pv.ulasan) + '</b> mesaj']
+    ];
+    CHANNELS.forEach(function(c){
+      var p = pv.perCh[c.k];
+      rows.push([c.ad, c.bagli
+        ? (F.num(p.ulasan) + ' mesaj' + (p.gonderim !== p.ulasan ? ' <span class="u-xs u-muted">(' + F.num(p.gonderim) + ' gönderim özetlendi)</span>' : ''))
+        : '<span class="badge is-warn">Bağlı değil</span>']);
+    });
+    return rows.map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(p[0]) + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('');
+  }
+
+  function footHtml(){
+    return '<div class="gc-foot">' +
+      '<span class="gv-count" id="pfFoot">' + esc(footText()) + '</span>' +
+      '<span class="u-row">' +
+        '<button type="button" class="btn btn-line btn-sm" data-act="sifirla">' +
+          ico('i-refresh','ic-sm') + ' Varsayılana dön</button>' +
+        '<button type="button" class="btn btn-acc btn-sm" data-act="kaydet">' +
+          ico('i-check','ic-sm') + ' Tercihleri kaydet</button>' +
+      '</span></div>';
+  }
+  function footText(){
+    var st = cellStats();
+    return (dirty ? 'Kaydedilmemiş değişiklik var' : (kayitli ? 'Tercihler kayıtlı' : 'Varsayılan tercihler kullanılıyor')) +
+      ' · ' + st.on + ' / ' + st.total + ' hücre açık · ' + kritikSayi() + ' kritik tip · ' +
+      'tarayıcıda saklanır (localStorage: ' + LSK + ')';
+  }
+
+  /* =================================================================
+     6. RENDER
+     ================================================================= */
+  function render(){
+    mount.innerHTML =
+      '<div class="gc-head"><div>' +
+        '<h2 class="gc-title">' + ico('i-bell') + 'Bildirim Tercihleri</h2>' +
+        '<div class="gc-sub">Hangi olayın hangi kanaldan size ulaşacağını siz belirlersiniz.</div>' +
+      '</div><div class="gc-head-acts">' +
+        '<span class="tag">' + TYPES.length + ' tip</span>' +
+        '<span class="tag">' + CHANNELS.length + ' kanal</span>' +
+      '</div></div>' +
+      '<div class="gc-body">' +
+        noticeHtml() +
+        '<div class="kpi-grid u-mt-8" id="pvKpi">' + kpiHtml() + '</div>' +
+        kanalHtml() +
+        matrisHtml() +
+        sessizHtml() +
+        ozetHtml() +
+        onizlemeHtml() +
+      '</div>' +
+      footHtml();
+    refresh();
+  }
+
+  /* Değişiklik sonrası türetilen her şeyi tazeler — matris yeniden basılmaz */
+  function refresh(){
+    var pv = preview();
+
+    CHANNELS.forEach(function(c){
+      var a = mount.querySelector('[data-colcnt="' + c.k + '"]');
+      if(a) a.textContent = c.bagli ? colOn(c.k) + '/' + TYPES.length : '—';
+      var b = mount.querySelector('[data-colcnt2="' + c.k + '"]');
+      if(b) b.textContent = c.bagli ? colOn(c.k) + ' / ' + TYPES.length : '—';
+    });
+    TYPES.forEach(function(t){
+      Array.prototype.forEach.call(mount.querySelectorAll('[data-rowcnt="' + t.k + '"]'), function(el){
+        el.textContent = rowOn(t.k) + ' / ' + rowTotal() + ' kanal' + (ST.kr[t.k] ? ' · kritik' : '');
+      });
+    });
+    GROUPS.forEach(function(g){
+      Array.prototype.forEach.call(mount.querySelectorAll('[data-grpcnt="' + g.k + '"]'), function(el){
+        el.textContent = grupOn(g.k) + ' / ' + grupTotal(g.k) + ' kanal açık · ' + grupTypes(g.k).length + ' tip';
+      });
+    });
+
+    var kpi = document.getElementById('pvKpi');
+    if(kpi) kpi.innerHTML = kpiHtml();
+    var brk = document.getElementById('pvBreak');
+    if(brk) brk.innerHTML = breakRows(pv);
+
+    var qo = document.getElementById('qOzet');
+    if(qo) qo.textContent = ST.q.acik
+      ? (ST.q.bas + ' – ' + ST.q.bit + (ST.q.haftasonu ? ' · hafta sonu tüm gün' : ' · hafta sonu normal'))
+      : 'Sessiz saat uygulanmıyor';
+    var qk = document.getElementById('qKritik');
+    if(qk) qk.textContent = kritikSayi() + ' / ' + TYPES.length + ' tip';
+
+    var oz = document.getElementById('ozOzet');
+    if(oz){
+      oz.textContent = ST.f === 'anlik'
+        ? 'Dış kanallar da olay anında gönderilir.'
+        : (ST.f === 'gunluk'
+            ? 'Dış kanallar her gün ' + ST.s + ' saatinde tek özet gönderir.'
+            : 'Dış kanallar her ' + ST.g + ' ' + ST.s + ' saatinde tek özet gönderir.');
+    }
+
+    var ft = document.getElementById('pfFoot');
+    if(ft) ft.textContent = footText();
+    setSub();
+  }
+
+  /* Tüm anahtarları ST’den tazeler (tablo ↔ mobil kart ikizi birlikte) */
+  function syncSwitches(){
+    Array.prototype.forEach.call(mount.querySelectorAll('input[data-t][data-c]'), function(el){
+      el.checked = !!ST.m[el.dataset.t][el.dataset.c];
+    });
+  }
+
+  /* =================================================================
+     7. ETKİLEŞİM
+     ================================================================= */
+  function mark(){ dirty = true; kayitli = false; }
+
+  mount.addEventListener('change', function(e){
+    var t = e.target;
+
+    /* Matris anahtarı */
+    if(t.matches('input[data-t][data-c]')){
+      var tk = t.dataset.t, ck = t.dataset.c;
+      if(!CH_BY_KEY[ck].bagli){ t.checked = false; return; }
+      ST.m[tk][ck] = t.checked;
+      Array.prototype.forEach.call(mount.querySelectorAll('input[data-t="' + tk + '"][data-c="' + ck + '"]'),
+        function(x){ x.checked = t.checked; });
+      mark(); refresh();
+      GV.toast(TYPE_BY_KEY[tk].ad + ' · ' + CH_BY_KEY[ck].ad + (t.checked ? ' açıldı' : ' kapatıldı'),
+        t.checked ? 'ok' : 'warn', 1800);
+      return;
+    }
+
+    /* Kritik tip seçimi */
+    if(t.matches('input[data-kr]')){
+      var k = t.dataset.kr;
+      ST.kr[k] = t.checked;
+      mark(); refresh();
+      GV.toast(TYPE_BY_KEY[k].ad + (t.checked ? ' sessiz saatte de iletilecek' : ' sessiz saatte ertelenecek'),
+        t.checked ? 'ok' : 'warn', 2000);
+      return;
+    }
+
+    /* Sessiz saatler */
+    if(t.id === 'qOn'){
+      ST.q.acik = t.checked;
+      var lbl = t.parentNode.querySelector('span:last-child');
+      if(lbl) lbl.textContent = t.checked ? 'Açık' : 'Kapalı';
+      mark(); refresh();
+      GV.toast(t.checked ? 'Sessiz saatler açıldı' : 'Sessiz saatler kapatıldı', t.checked ? 'ok' : 'warn');
+      return;
+    }
+    if(t.id === 'qBas' || t.id === 'qBit'){
+      if(!t.value){ t.value = (t.id === 'qBas' ? ST.q.bas : ST.q.bit); GV.toast('Saat boş bırakılamaz', 'danger'); return; }
+      if(t.id === 'qBas') ST.q.bas = t.value; else ST.q.bit = t.value;
+      if(ST.q.bas === ST.q.bit){ GV.toast('Başlangıç ve bitiş aynı olamaz — aralık uygulanmaz', 'warn', 3000); }
+      mark(); refresh();
+      return;
+    }
+    if(t.id === 'qWknd'){
+      ST.q.haftasonu = t.checked;
+      mark(); refresh();
+      GV.toast(t.checked ? 'Hafta sonu tüm gün sessiz' : 'Hafta sonu normal iletim', t.checked ? 'ok' : 'info');
+      return;
+    }
+
+    /* Özet sıklığı */
+    if(t.name === 'ozetFreq'){
+      ST.f = t.value;
+      var saat = document.getElementById('ozSaat'), gun = document.getElementById('ozGun');
+      if(saat) saat.disabled = (ST.f === 'anlik');
+      if(gun) gun.disabled = (ST.f !== 'haftalik');
+      var hint = saat ? saat.parentNode.querySelector('.f-hint') : null;
+      if(hint) hint.textContent = FREQ.filter(function(f){ return f.k === ST.f; })[0].hint;
+      mark(); refresh();
+      GV.toast('Özet sıklığı: ' + FREQ.filter(function(f){ return f.k === ST.f; })[0].ad, 'ok');
+      return;
+    }
+    if(t.id === 'ozSaat'){
+      if(!t.value){ t.value = ST.s; GV.toast('Özet saati boş bırakılamaz', 'danger'); return; }
+      ST.s = t.value; mark(); refresh(); return;
+    }
+    if(t.id === 'ozGun'){ ST.g = t.value; mark(); refresh(); return; }
+  });
+
+  mount.addEventListener('click', function(e){
+    var b = e.target.closest('[data-tog]');
+    if(!b || b.disabled) return;
+    var tip = b.dataset.tog, k = b.dataset.k, msg = '';
+
+    if(tip === 'col'){
+      var c = CH_BY_KEY[k];
+      if(!c.bagli){ GV.toast(c.ad + ' entegrasyonu bağlı değil', 'danger'); return; }
+      var hepsi = colOn(k) === TYPES.length;
+      TYPES.forEach(function(t){ ST.m[t.k][k] = !hepsi; });
+      msg = c.ad + ' kanalı ' + TYPES.length + ' tipin tamamında ' + (hepsi ? 'kapatıldı' : 'açıldı');
+      if(!hepsi && (k === 'sms' || k === 'whatsapp')) msg += ' — bu kanalın mesaj başına maliyeti vardır';
+    } else if(tip === 'row'){
+      var t2 = TYPE_BY_KEY[k];
+      var acik = rowOn(k) === rowTotal();
+      CHANNELS.forEach(function(c2){ if(c2.bagli) ST.m[k][c2.k] = !acik; });
+      msg = t2.ad + ' için tüm kanallar ' + (acik ? 'kapatıldı' : 'açıldı');
+    } else if(tip === 'grp'){
+      var g = GROUPS.filter(function(x){ return x.k === k; })[0];
+      var hep = grupOn(k) === grupTotal(k);
+      grupTypes(k).forEach(function(t3){
+        CHANNELS.forEach(function(c3){ if(c3.bagli) ST.m[t3.k][c3.k] = !hep; });
+      });
+      msg = g.ad + ' grubundaki ' + grupTypes(k).length + ' tip için tüm kanallar ' + (hep ? 'kapatıldı' : 'açıldı');
+    }
+
+    syncSwitches();
+    mark(); refresh();
+    GV.toast(msg, 'ok', 2400);
+  });
+
+  /* ---- Kaydet / Varsayılana dön ---- */
+  function onKaydet(){
+    if(!dirty && kayitli){ GV.toast('Kaydedilecek değişiklik yok', 'info'); return; }
+    var st = cellStats(), pv = preview();
+    GV.confirm({
+      title:'Bildirim tercihlerini kaydet',
+      text:st.on + ' / ' + st.total + ' hücre açık, ' + kritikSayi() + ' kritik tip, ' +
+        FREQ.filter(function(f){ return f.k === ST.f; })[0].ad.toLowerCase() +
+        ' gönderim. Bu ayarlarla son 7 günde ' + pv.ulasan + ' bildirim alırdınız.',
+      okLabel:'Kaydet'
+    }).then(function(ok){
+      if(!ok) return;
+      if(!savePref()){ GV.toast('Tarayıcı deposuna yazılamadı — tercihler yalnız bu oturumda geçerli', 'danger', 4000); return; }
+      dirty = false; kayitli = true;
+      DB.logs.unshift({
+        kod:'LOG-' + (88201 + DB.logs.length), tarih:DB.today + 'T00:00',
+        kisi:GV.session.emp, islem:'Bildirim tercihlerini güncelledi', kayit:GV.session.emp,
+        modul:'Ayarlar', ip:'—', eski:null, yeni:st.on + '/' + st.total + ' kanal · ' + ST.f
+      });
+      GV.toast('Bildirim tercihleriniz kaydedildi', 'ok');
+      render();
+    });
+  }
+
+  function onSifirla(){
+    GV.confirm({
+      title:'Varsayılana dön', tone:'danger',
+      text:'Matris, sessiz saatler, kritik tip seçimi ve özet sıklığı fabrika varsayılanlarına döner. ' +
+        'Tarayıcıda saklanan kayıtlı tercihiniz de silinir. Bu işlem geri alınamaz.',
+      okLabel:'Varsayılana dön'
+    }).then(function(ok){
+      if(!ok) return;
+      ST = defaults();
+      clearPref();
+      dirty = false; kayitli = false;
+      GV.toast('Bildirim tercihleri varsayılana döndürüldü', 'ok');
+      render();
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    if(e.target.closest('#btnKaydet, [data-act=kaydet]')) onKaydet();
+    if(e.target.closest('#btnSifirla, [data-act=sifirla]')) onSifirla();
+  });
+
+  render();
+  if(kayitli) GV.toast('Kayıtlı bildirim tercihleriniz yüklendi', 'info', 2200);
+});
+</script>
+</body>
+</html>
