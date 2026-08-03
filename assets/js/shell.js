@@ -562,7 +562,10 @@
     'app-arac-sigorta.html',
     'app-arac-yakit.html',
     'app-arac-gider.html',
-    'app-arac-kaza.html'
+    'app-arac-kaza.html',
+    'app-satinalma.html',
+    'app-tedarikci.html',
+    'app-siparis.html'
   ];
   GV.built = BUILT;
 
