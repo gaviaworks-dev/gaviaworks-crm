@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yakıt Kayıtları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="yakit">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  var arac = function(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || {}; };
+  var aracCol = { key:'arac', label:'Araç', width:'18%', locked:true, sortValue:function(x){ return arac(x.arac).plaka || ''; },
+    render:function(x){ var v = arac(x.arac);
+      return '<a class="cell-main" href="app-arac-detay.html?id=' + x.arac + '">' + esc(v.plaka || x.arac) + '</a>' +
+             '<span class="cell-sub">' + esc((v.marka || '') + ' ' + (v.model || '')) + '</span>'; },
+    exportValue:function(x){ return arac(x.arac).plaka || x.arac; } };
+  var aracFilter = { key:'arac', label:'Araç', type:'multi',
+    options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) };
+  GV.pageHead({ eyebrow:'Araç ve Filo', title:'Yakıt ve Şarj Kayıtları',
+    actions:[{ label:'Araç Giderleri', icon:'i-receipt', href:'app-arac-gider.html' },
+             { label:'Yakıt Kaydı Ekle', icon:'i-plus', cls:'btn-acc', href:'app-arac-yakit-form.html' }] });
+  GV.list({
+    mount:'#liste', id:'yakit', key:'kod', source:function(){ return DB.fuelLogs; },
+    exportName:'yakit-kayitlari', exportTitle:'Yakıt ve Şarj Kayıtları', pageSize:25,
+    search:{ placeholder:'İstasyon, araç veya sürücü ara', fields:['kod','istasyon','arac','surucu'] },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam tutar', icon:'i-wallet', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + x.tutar; }, 0) : 0; } },
+      { label:'Toplam litre', icon:'i-fuel', tone:'info', format:function(v){ return F.num(v, 1) + ' L'; },
+        calc:function(a){ return a.reduce(function(s,x){ return s + x.litre; }, 0); } },
+      { label:'Ortalama birim fiyat', icon:'i-percent', tone:'warn', format:function(v){ return F.num(v, 2) + ' ₺/L'; },
+        calc:function(a){ return a.length ? a.reduce(function(s,x){ return s + x.birimFiyat; }, 0) / a.length : 0; } },
+      { label:'Kayıt sayısı', icon:'i-list', tone:'neutral', calc:function(a){ return a.length; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Kayıtlar', icon:'i-list', filter:null },
+      { key:'ay', label:'Bu Ay', icon:'i-calendar', filter:function(x){ return String(x.tarih).slice(0,7) === DB.today.slice(0,7); } },
+      { key:'onceki', label:'Geçen Ay', icon:'i-clock', filter:function(x){ return String(x.tarih).slice(0,7) === '2026-07'; } }
+    ],
+    columns:[
+      { key:'tarih', label:'Tarih', locked:true, render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      aracCol,
+      { key:'istasyon', label:'İstasyon' },
+      { key:'litre', label:'Litre', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.num(x.litre, 1) + ' L</span>'; } },
+      { key:'birimFiyat', label:'Birim fiyat', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.num(x.birimFiyat, 2) + ' ₺</span>'; } },
+      { key:'tutar', label:'Tutar', cellClass:'num', render:function(x){
+          return canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '<span class="cell-mask">••••</span>'; },
+        exportValue:function(x){ return canFinans ? x.tutar : ''; } },
+      { key:'km', label:'Kilometre', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.num(x.km) + '</span>'; } },
+      { key:'surucu', label:'Sürücü', render:function(x){ return GV.user(x.surucu, { sm:true }); },
+        sortValue:function(x){ return DB.empName(x.surucu); }, exportValue:function(x){ return DB.empName(x.surucu); } }
+    ],
+    filters:[ aracFilter,
+      { key:'surucu', label:'Sürücü', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'tarih', label:'Kayıt tarihi', type:'daterange' }
+    ],
+    mobile:function(x){ var v = arac(x.arac);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(v.plaka || x.arac) + '</span>' +
+        (canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '') + '</div>' +
+        '<div class="gv-mrow-code">' + F.date(x.tarih) + ' · ' + esc(x.istasyon) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + F.num(x.litre, 1) + ' L</span><span>' + F.num(x.km) + ' km</span></div>'; },
+    rowActions:[{ key:'arac', icon:'i-car', label:'Aracı aç', href:function(x){ return 'app-arac-detay.html?id=' + x.arac; } }],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-fuel', title:'Yakıt kaydı yok', desc:'Yakıt kayıtları ortalama tüketim ve km başına maliyeti besler.' }
+  });
+
+});
+</script>
+</body>
+</html>
