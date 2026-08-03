@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Satış ve Finans Raporları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="rapor" data-screen="raporfinans">
+<div id="rapor"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var host = document.getElementById('rapor');
+  if(!host) return;
+  var S = GV.session || {};
+  var TODAY = DB.today;                    /* referans tarih — new Date() kullanılmaz */
+  var AY_KEY = TODAY.slice(0, 7);
+
+  GV.pageHead({
+    eyebrow:'Raporlar', title:'Satış ve Finans Raporları',
+    sub:'16 rapor · satış hunisi, performans, proje finansı ve nakit ekseni · referans tarih ' + F.date(TODAY),
+    actions:[
+      { label:'Teklifler', icon:'i-quote', href:'app-teklif.html' },
+      { label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
+      { label:'Tahsilatlar', icon:'i-wallet', cls:'btn-acc', href:'app-tahsilat.html' }
+    ]
+  });
+
+  /* =================================================================
+     0. YETKİ KAPISI — bu ekranın tamamı finans verisidir (§26-D)
+     ================================================================= */
+  if(!GV.perm.can('finans')){
+    host.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-lock', title:'Satış ve finans raporlarına erişim yetkiniz yok',
+      desc:(S.rolAd || 'Bu rol') + ' rolü ciro, teklif tutarı, bütçe, maliyet ve tahsilat verisi içeren ' +
+           'raporları görüntüleyemez. Erişim gerekiyorsa sistem yöneticinizden finans yetkisi talep edin.',
+      action:'<a class="btn btn-acc" href="app-panel.html">Ana Panele Dön</a>'
+    }) + '</div>';
+    return;
+  }
+
+  var canExp = GV.perm.can('disaAktar');   /* çıktı yetkisi */
+
+  /* =================================================================
+     1. İNDEKSLER VE GENEL YARDIMCILAR
+     ================================================================= */
+  var CUS = {}; DB.customers.forEach(function(c){ CUS[c.kod] = c; });
+  var PRJ = {}; DB.projects.forEach(function(p){ PRJ[p.kod] = p; });
+  var INV = {}; DB.invoices.forEach(function(i){ INV[i.kod] = i; });
+  var STG = {}; DB.pipelineStages.forEach(function(s){ STG[s.key] = s; });
+  var LEADQ = {}; DB.quotes.forEach(function(q){ if(q.lead && !LEADQ[q.lead]) LEADQ[q.lead] = q; });
+  var QSZL = {}; DB.contracts.forEach(function(s){ if(s.teklif) QSZL[s.teklif] = s; });
+
+  function sum(a, fn){ return a.reduce(function(s, x){ return s + (fn(x) || 0); }, 0); }
+  function uniq(a){ var o = []; a.forEach(function(x){ if(x != null && x !== '' && o.indexOf(x) === -1) o.push(x); }); return o; }
+  function topN(d, n){ return d.slice().sort(function(a, b){ return (b.value || 0) - (a.value || 0); }).slice(0, n || 10); }
+  function pct(pay, toplam){ return toplam ? Math.round(pay * 100 / toplam) : 0; }
+  function cus(k){ return CUS[k] || null; }
+  function cName(k){ var c = cus(k); return c ? c.kisa : (k || '—'); }
+  function cShort(k){ var c = cus(k); return c ? String(c.kisa).split(' ')[0] : String(k || '—').slice(-3); }
+  function pName(k){ var p = PRJ[k]; return p ? p.ad : (k || '—'); }
+  function empAd(k){ return DB.empName(k); }
+  function kisaAd(s, n){ s = String(s || '—'); return s.length > (n || 12) ? s.slice(0, n || 12) + '…' : s; }
+  function bin(v){ return Math.round((v || 0) / 1000); }
+
+  var AYK = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+  function ayEt(ym){ var p = String(ym).split('-'); return AYK[parseInt(p[1], 10) - 1] + ' ' + p[0].slice(2); }
+  function ay(iso){ return iso ? String(iso).slice(0, 7) : null; }
+  function aySirala(list){ return uniq(list.filter(Boolean)).sort(); }
+
+  /* ---- para / sayı hücreleri ---- */
+  function mny(v){ return '<span class="cell-money">' + F.money(v || 0) + '</span>'; }
+  function mnyTone(v, t){ return '<span class="cell-money' + (t ? ' u-' + t : '') + '">' + F.money(v || 0) + '</span>'; }
+  function mnySigned(v){
+    v = v || 0;
+    return v < 0 ? '<span class="cell-money u-danger">−' + F.money(Math.abs(v)) + '</span>'
+                 : '<span class="cell-money u-ok">' + F.money(v) + '</span>';
+  }
+  function num(v){ return '<span class="u-num">' + F.num(v) + '</span>'; }
+  function sub(t){ return '<span class="cell-sub">' + t + '</span>'; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function gunCell(v, tone){
+    if(v == null) return faint('—');
+    return '<span class="u-num' + (tone ? ' u-' + tone : '') + '">' + F.num(v) + ' gün</span>';
+  }
+  function oranCell(v, esik){
+    if(v == null) return faint('—');
+    var e = esik || 50;
+    return '<span class="u-num ' + (v >= e ? 'u-ok' : v >= e / 2 ? 'u-warn' : 'u-danger') + '">%' + F.num(v) + '</span>';
+  }
+
+  /* ---- ortak kolon fabrikaları (her çağrıda yeni nesne) ---- */
+  function colMoney(key, label, o){
+    o = o || {};
+    return { key:key, label:label, cellClass:'num', visible:o.visible !== false,
+      sortValue:function(x){ return x[key] || 0; },
+      exportValue:function(x){ return x[key] || 0; },
+      render:function(x){
+        var v = x[key] || 0;
+        var body = o.signed ? mnySigned(v) : mnyTone(v, o.tone ? o.tone(x) : null);
+        return body + (o.sub ? sub(o.sub(x)) : ''); } };
+  }
+  function colNum(key, label, o){
+    o = o || {};
+    return { key:key, label:label, cellClass:'num', visible:o.visible !== false,
+      sortValue:function(x){ return x[key] || 0; },
+      exportValue:function(x){ return x[key] || 0; },
+      render:function(x){ return num(x[key]) + (o.sub ? sub(o.sub(x)) : ''); } };
+  }
+  function colPct(key, label, o){
+    o = o || {};
+    return { key:key, label:label, cellClass:'num', visible:o.visible !== false,
+      sortValue:function(x){ return x[key] == null ? -1 : x[key]; },
+      exportValue:function(x){ return x[key]; },
+      render:function(x){ return o.bar ? GV.progress(x[key]) : oranCell(x[key], o.esik); } };
+  }
+  function colDate(key, label, o){
+    o = o || {};
+    return { key:key, label:label, visible:o.visible !== false,
+      exportValue:function(x){ return x[key] || ''; },
+      render:function(x){ return x[key]
+        ? (o.plain ? '<span class="cell-date">' + F.date(x[key]) + '</span>'
+                   : GV.dateCell(x[key], { done:o.done ? o.done(x) : false }))
+        : faint('—'); } };
+  }
+  function colDurum(key, label){
+    return { key:key || 'durum', label:label || 'Durum',
+      render:function(x){ return GV.badge(x[key || 'durum']); } };
+  }
+  function colKisi(key, label){
+    return { key:key, label:label,
+      exportValue:function(x){ return empAd(x[key]); },
+      render:function(x){ return GV.user(x[key], { sm:true }); } };
+  }
+  function linkCell(href, kod, altHtml){
+    return '<a class="cell-main" href="' + href + '">' + esc(kod) + '</a>' + (altHtml || '');
+  }
+
+  /* ---- mobil satır ---- */
+  function mRow(main, kod, metas, badges){
+    return '<div class="gv-mrow-top">' + main + '</div>' +
+      '<div class="gv-mrow-code">' + kod + '</div>' +
+      (metas && metas.length ? '<div class="gv-mrow-meta">' + metas.map(function(m){
+        return '<span>' + m + '</span>'; }).join('') + '</div>' : '') +
+      (badges ? '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + badges + '</span></div>' : '');
+  }
+
+  /* ---- tablo iskeleti ---- */
+  function tbl(o){
+    return { key:o.key || 'kod', pageSize:o.pageSize || 10, archive:false, export:canExp,
+      exportName:o.exportName, exportTitle:o.exportTitle,
+      search:o.search, defaultSort:o.defaultSort, defaultDir:o.defaultDir || 'desc',
+      tabs:o.tabs, columns:o.columns, mobile:o.mobile, emptyState:o.emptyState };
+  }
+  function bos(baslik, aciklama, ikon){
+    return { icon:ikon || 'i-wallet', title:baslik,
+      desc:aciklama || 'Ortak filtreleri temizleyerek ya da tarih aralığını genişleterek kapsamı büyütebilirsiniz.' };
+  }
+
+  /* =================================================================
+     2. ORTAK FİLTRE UYGULAMASI
+     f = { tarih, musteri, proje, temsilci, durum }
+     ================================================================= */
+  function tarihOK(f, iso){ return !f.tarih || (!!iso && String(iso).slice(0, 10) >= f.tarih); }
+  function musteriOK(f, kod){ return !f.musteri || kod === f.musteri; }
+  function projeOK(f, projeKod, musteriKod){
+    if(!f.proje) return true;
+    if(projeKod) return projeKod === f.proje;
+    var p = PRJ[f.proje];                     /* kaydın projesi yoksa müşteri üzerinden eşleşir */
+    return !!p && !!musteriKod && p.musteri === musteriKod;
+  }
+  function kisiOK(f, list){ return !f.temsilci || (list || []).indexOf(f.temsilci) !== -1; }
+  function durumOK(f, v){ return !f.durum || v === f.durum; }
+
+  /* =================================================================
+     3. SATIŞ TÜRETMELERİ
+     ================================================================= */
+  function leadQuote(l){ return LEADQ[l.kod] || null; }
+  function leadSozlesme(l){ var q = leadQuote(l); return q ? (QSZL[q.kod] || null) : null; }
+  /* Fırsat değeri: teklif varsa teklifin genel toplamı, yoksa müşterinin beyan ettiği bütçe */
+  function leadDeger(l){ var q = leadQuote(l); return q ? q.toplam : (l.butce || 0); }
+  function leadOlasilik(l){ var s = STG[l.asama]; return s ? s.olasilik : 0; }
+  function leadAgirlikli(l){ return Math.round(leadDeger(l) * leadOlasilik(l) / 100); }
+  function kazanildi(l){ return l.asama === 'Kazanıldı'; }
+  function kaybedildi(l){ return l.asama === 'Kaybedildi'; }
+  function sonuclandi(l){ return kazanildi(l) || kaybedildi(l); }
+  function leadAcik(l){ return !sonuclandi(l); }
+  /* Sonuç tarihi: kazanımda sözleşme imza tarihi (yoksa teklif tarihi), kayıpta son iletişim */
+  function leadSonucTarihi(l){
+    if(kazanildi(l)){
+      var s = leadSozlesme(l); if(s) return s.imzaTarihi;
+      var q = leadQuote(l); if(q) return q.tarih;
+      return l.sonIletisim;
+    }
+    if(kaybedildi(l)) return l.sonIletisim || (leadQuote(l) ? leadQuote(l).gecerlilik : null);
+    return null;
+  }
+  function leadSure(l){
+    var k = leadSonucTarihi(l);
+    return (k && l.talepTarihi) ? F.days(k, l.talepTarihi) : null;
+  }
+  function leadSonuc(l){ return kazanildi(l) ? 'Kazanıldı' : kaybedildi(l) ? 'Kaybedildi' : 'Sürüyor'; }
+
+  function leadRow(l){
+    var q = leadQuote(l), sz = leadSozlesme(l);
+    return {
+      kod:l.kod, firma:l.firma, yetkili:l.yetkili, sektor:l.sektor, hizmet:l.hizmet, ozet:l.ozet,
+      kaynak:l.kaynak, yonlendiren:l.yonlendiren, sorumlu:l.sorumlu, sorumluAd:empAd(l.sorumlu),
+      musteri:l.musteri, musteriAd:l.musteri ? cName(l.musteri) : 'Müşteri kaydı yok',
+      asama:l.asama, sonuc:leadSonuc(l), olasilik:leadOlasilik(l),
+      deger:leadDeger(l), agirlikli:leadAgirlikli(l), butce:l.butce || 0,
+      teklif:q ? q.kod : null, teklifTutar:q ? q.toplam : 0, teklifDurum:q ? q.durum : null,
+      sozlesme:sz ? sz.kod : null, sozlesmeTutar:sz ? sz.tutar : 0,
+      talepTarihi:l.talepTarihi, kapanisTahmini:l.kapanisTahmini, sonucTarihi:leadSonucTarihi(l),
+      sure:leadSure(l), sonIletisim:l.sonIletisim, puan:l.puan, sicaklik:l.sicaklik,
+      kayipNedeni:l.kayipNedeni, oncelik:l.oncelik
+    };
+  }
+  function baseLeads(f){
+    return DB.leads.filter(function(l){
+      return tarihOK(f, l.talepTarihi) && musteriOK(f, l.musteri) &&
+             projeOK(f, null, l.musteri) && kisiOK(f, [l.sorumlu]) && durumOK(f, l.asama);
+    });
+  }
+  function leadRows(f){ return baseLeads(f).map(leadRow); }
+
+  function baseQuotes(f){
+    return DB.quotes.filter(function(q){
+      return tarihOK(f, q.tarih) && musteriOK(f, q.musteri) &&
+             projeOK(f, null, q.musteri) && kisiOK(f, [q.hazirlayan]) && durumOK(f, q.durum);
+    });
+  }
+  function quoteRow(q){
+    var sz = QSZL[q.kod] || null;
+    return {
+      kod:q.kod, firma:q.firma, musteri:q.musteri,
+      musteriAd:q.musteri ? cName(q.musteri) : 'Aday müşteri',
+      lead:q.lead, analiz:q.analiz, hazirlayan:q.hazirlayan, hazirlayanAd:empAd(q.hazirlayan),
+      tarih:q.tarih, gecerlilik:q.gecerlilik, versiyon:q.versiyon, kalemSayisi:q.kalemSayisi,
+      araToplam:q.araToplam, indirim:q.indirim, indirimOran:q.araToplam ? Math.round(q.indirim * 100 / q.araToplam) : 0,
+      vergi:q.vergi, toplam:q.toplam, durum:q.durum, icOnay:q.icOnay, musteriOnay:q.musteriOnay,
+      sozlesme:sz ? sz.kod : null,
+      sonuc:q.durum === 'Kazanıldı' ? 'Kazanıldı' : q.durum === 'Kaybedildi' ? 'Kaybedildi' : 'Sürüyor',
+      kalanGun:q.gecerlilik ? F.days(q.gecerlilik) : null,
+      teslimSuresi:q.teslimSuresi, odemePlani:q.odemePlani
+    };
+  }
+
+  /* =================================================================
+     4. PROJE / MÜŞTERİ FİNANS TÜRETMELERİ
+     app-butce.html ile birebir aynı formüller — canonical değer disiplini
+     ================================================================= */
+  function butceKalan(p){ return (p.butce || 0) - (p.gerceklesenMaliyet || 0); }
+  function butceKullanim(p){ return p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0; }
+  function sureSapma(p){ return p.tahminiSure ? Math.round((p.harcananSure - p.tahminiSure) / p.tahminiSure * 100) : 0; }
+  function saatMaliyet(p){ return p.harcananSure ? Math.round(p.gerceklesenMaliyet / p.harcananSure) : null; }
+  function prjFaturalari(p){ return DB.invoices.filter(function(i){ return i.proje === p.kod; }); }
+  function faturalanan(p){ return sum(prjFaturalari(p), function(i){ return i.toplam; }); }
+  function tahsilEdilen(p){
+    var kodlar = prjFaturalari(p).map(function(i){ return i.kod; });
+    return sum(DB.payments.filter(function(t){
+      return kodlar.indexOf(t.fatura) !== -1 && t.durum === 'Ödendi'; }), function(t){ return t.tutar; });
+  }
+
+  function projectRow(p){
+    var fat = faturalanan(p), tah = tahsilEdilen(p), kalan = butceKalan(p);
+    return {
+      kod:p.kod, ad:p.ad, tur:p.tur, musteri:p.musteri, musteriAd:p.musteriAd, musteriKisa:cName(p.musteri),
+      pm:p.pm, pmAd:empAd(p.pm), durum:p.durum, saglik:p.saglik, faz:p.faz, ilerleme:p.ilerleme,
+      baslangic:p.baslangic, planlananBitis:p.planlananBitis, gercekBitis:p.gercekBitis,
+      sozlesmeTutari:p.sozlesmeTutari || 0, butce:p.butce || 0, maliyet:p.gerceklesenMaliyet || 0,
+      kalanButce:kalan, asimTutar:kalan < 0 ? -kalan : 0, kullanim:butceKullanim(p),
+      tahminiSure:p.tahminiSure || 0, harcananSure:p.harcananSure || 0, sureSapma:sureSapma(p),
+      saatMaliyet:saatMaliyet(p), faturalanan:fat, tahsilEdilen:tah, bekleyen:fat - tah,
+      kar:(p.sozlesmeTutari || 0) - (p.gerceklesenMaliyet || 0),
+      marj:p.sozlesmeTutari ? Math.round(((p.sozlesmeTutari - p.gerceklesenMaliyet) / p.sozlesmeTutari) * 100) : 0,
+      gecikmeNedeni:p.gecikmeNedeni
+    };
+  }
+  function baseProjects(f){
+    return DB.projects.filter(function(p){
+      return tarihOK(f, p.gercekBitis || p.planlananBitis) && musteriOK(f, p.musteri) &&
+             (!f.proje || p.kod === f.proje) &&
+             kisiOK(f, [p.pm, p.teknikSorumlu, p.musteriSorumlu].concat(p.ekip || [])) &&
+             durumOK(f, p.durum);
+    });
+  }
+  function projectRows(f){ return baseProjects(f).map(projectRow); }
+
+  function custRow(c){
+    var pr = DB.projects.filter(function(p){ return p.musteri === c.kod; });
+    var fa = DB.invoices.filter(function(i){ return i.musteri === c.kod; });
+    var th = DB.payments.filter(function(t){ return t.musteri === c.kod; });
+    var sz = DB.contracts.filter(function(s){ return s.musteri === c.kod; });
+    var gelir = sum(pr, function(p){ return p.sozlesmeTutari; });
+    var maliyet = sum(pr, function(p){ return p.gerceklesenMaliyet; });
+    return {
+      kod:c.kod, unvan:c.unvan, kisa:c.kisa, sektor:c.sektor, durum:c.durum, risk:c.risk,
+      sorumlu:c.sorumlu, sorumluAd:empAd(c.sorumlu), memnuniyet:c.memnuniyet,
+      projeAdet:pr.length, gelir:gelir, maliyet:maliyet, kar:gelir - maliyet,
+      marj:gelir ? Math.round((gelir - maliyet) / gelir * 100) : 0,
+      saat:sum(pr, function(p){ return p.harcananSure; }),
+      saatKar:sum(pr, function(p){ return p.harcananSure; })
+        ? Math.round((gelir - maliyet) / sum(pr, function(p){ return p.harcananSure; })) : null,
+      sozlesmeTutar:sum(sz, function(s){ return s.tutar; }), sozlesmeAdet:sz.length,
+      faturalanan:sum(fa, function(i){ return i.toplam; }), faturaAdet:fa.length,
+      tahsilEdilen:sum(th.filter(function(t){ return t.durum === 'Ödendi'; }), function(t){ return t.tutar; }),
+      geciken:sum(th.filter(function(t){ return t.durum === 'Gecikti'; }), function(t){ return t.tutar; }),
+      bekleyen:c.bekleyenTahsilat || 0, toplamCiro:c.toplamCiro || 0
+    };
+  }
+  function baseCustomers(f){
+    return DB.customers.filter(function(c){
+      if(f.musteri && c.kod !== f.musteri) return false;
+      if(f.durum && c.durum !== f.durum) return false;
+      if(f.temsilci && c.sorumlu !== f.temsilci) return false;
+      if(f.proje){ var p = PRJ[f.proje]; if(!p || p.musteri !== c.kod) return false; }
+      if(f.tarih && !(c.sonIletisim && c.sonIletisim >= f.tarih)) return false;
+      return true;
+    });
+  }
+
+  /* =================================================================
+     5. NAKİT TÜRETMELERİ
+     ================================================================= */
+  function invProje(faturaKod){ var i = INV[faturaKod]; return i ? i.proje : null; }
+  function tahsilTarihi(t){
+    var i = INV[t.fatura];
+    if(t.durum !== 'Ödendi') return null;
+    return (i && i.odemeTarihi) || t.sonAksiyonTarihi || null;
+  }
+  function yaslandirma(g){
+    if(!g) return 'Vadesi geçmedi';
+    if(g <= 30) return '1-30 gün';
+    if(g <= 60) return '31-60 gün';
+    return '60+ gün';
+  }
+  function paymentRow(t){
+    var i = INV[t.fatura] || null;
+    return {
+      kod:t.kod, fatura:t.fatura, musteri:t.musteri, musteriAd:t.musteriAd, musteriKisa:cName(t.musteri),
+      tutar:t.tutar, vade:t.vade, gecikmeGun:t.gecikmeGun || 0, durum:t.durum,
+      sorumlu:t.sorumlu, sorumluAd:empAd(t.sorumlu),
+      sonAksiyon:t.sonAksiyon, sonAksiyonTarihi:t.sonAksiyonTarihi,
+      proje:i ? i.proje : null, projeAd:i && i.proje ? pName(i.proje) : '—',
+      sozlesme:i ? i.sozlesme : null, faturaTarihi:i ? i.tarih : null,
+      tahsilTarihi:tahsilTarihi(t), yaslandirma:yaslandirma(t.gecikmeGun || 0),
+      kalanGun:t.vade ? F.days(t.vade) : null
+    };
+  }
+  function basePayments(f){
+    return DB.payments.filter(function(t){
+      return tarihOK(f, t.vade) && musteriOK(f, t.musteri) &&
+             projeOK(f, invProje(t.fatura), t.musteri) && kisiOK(f, [t.sorumlu]) && durumOK(f, t.durum);
+    });
+  }
+  function paymentRows(f){ return basePayments(f).map(paymentRow); }
+
+  function baseInvoices(f){
+    return DB.invoices.filter(function(i){
+      return tarihOK(f, i.tarih) && musteriOK(f, i.musteri) &&
+             projeOK(f, i.proje, i.musteri) && durumOK(f, i.durum) &&
+             (!f.temsilci || (cus(i.musteri) && cus(i.musteri).sorumlu === f.temsilci) ||
+              (PRJ[i.proje] && PRJ[i.proje].pm === f.temsilci));
+    });
+  }
+  /* Faturalanmamış milestone ödemeleri — çift sayım olmasın diye faturası olan hariç */
+  function acikMilestones(f){
+    return DB.milestones.filter(function(m){
+      var faturali = DB.invoices.some(function(i){ return i.milestone === m.kod; });
+      if(faturali || m.odemeDurum === 'Ödendi') return false;
+      var p = PRJ[m.proje];
+      if(!p) return false;
+      return musteriOK(f, p.musteri) && (!f.proje || m.proje === f.proje) &&
+             kisiOK(f, [p.pm].concat(p.ekip || [])) && tarihOK(f, m.tarih);
+    });
+  }
+
+  /* =================================================================
+     6. FİLTRE SEÇENEKLERİ
+     ================================================================= */
+  var TEMSILCILER = uniq(
+    DB.leads.map(function(l){ return l.sorumlu; })
+      .concat(DB.quotes.map(function(q){ return q.hazirlayan; }))
+      .concat(DB.customers.map(function(c){ return c.sorumlu; }))
+      .concat(DB.projects.map(function(p){ return p.pm; }))
+      .concat(DB.payments.map(function(t){ return t.sorumlu; }))
+  ).sort(function(a, b){ return empAd(a).localeCompare(empAd(b), 'tr'); });
+
+  var DURUMLAR = uniq(
+    DB.pipelineStages.map(function(s){ return s.key; })
+      .concat(DB.quotes.map(function(q){ return q.durum; }))
+      .concat(DB.projects.map(function(p){ return p.durum; }))
+      .concat(DB.customers.map(function(c){ return c.durum; }))
+      .concat(DB.invoices.map(function(i){ return i.durum; }))
+      .concat(DB.payments.map(function(t){ return t.durum; }))
+  );
+
+  /* =================================================================
+     7. RAPORLAR
+     ================================================================= */
+  GV.report({
+    mount:'#rapor', id:'raporfinans',
+
+    filters:[
+      { key:'tarih', label:'Tarihten itibaren', type:'date' },
+      { key:'musteri', label:'Müşteri', type:'select', all:'Tüm müşteriler',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'proje', label:'Proje', type:'select', all:'Tüm projeler',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'temsilci', label:'Satış temsilcisi / sorumlu', type:'select', all:'Tüm sorumlular',
+        options:TEMSILCILER.map(function(k){ return { value:k, label:empAd(k) }; }) },
+      { key:'durum', label:'Durum', type:'select', all:'Tüm durumlar', options:DURUMLAR }
+    ],
+
+    reports:[
+
+    /* ============================================================
+       1 · LEAD KAYNAKLARI
+       ============================================================ */
+    { key:'leadkaynak', label:'Lead kaynakları', icon:'i-funnel', group:'Satış Hunisi',
+      title:'Lead Kaynakları',
+      desc:'Müşteri adaylarının hangi kanaldan geldiği; kanal başına fırsat adedi, toplam fırsat değeri, kazanılan ciro ve dönüşüm oranı. Fırsat değeri teklif varsa teklifin genel toplamı, yoksa müşterinin beyan ettiği bütçedir.',
+      rows:function(f){
+        var m = {}, order = [];
+        baseLeads(f).forEach(function(l){
+          var k = l.kaynak || '—';
+          if(!m[k]){
+            m[k] = { kod:k, ad:k, adet:0, kazanilan:0, kaybedilen:0, acik:0, deger:0,
+                     kazanilanCiro:0, kayipDeger:0, puanTop:0, sonTalep:null, yonlendiren:[] };
+            order.push(k);
+          }
+          var a = m[k];
+          a.adet++;
+          a.deger += leadDeger(l);
+          a.puanTop += l.puan || 0;
+          if(l.yonlendiren && l.yonlendiren !== '—' && a.yonlendiren.indexOf(l.yonlendiren) === -1) a.yonlendiren.push(l.yonlendiren);
+          if(!a.sonTalep || (l.talepTarihi && l.talepTarihi > a.sonTalep)) a.sonTalep = l.talepTarihi;
+          if(kazanildi(l)){ a.kazanilan++; a.kazanilanCiro += leadDeger(l); }
+          else if(kaybedildi(l)){ a.kaybedilen++; a.kayipDeger += leadDeger(l); }
+          else a.acik++;
+        });
+        return order.map(function(k){
+          var a = m[k];
+          a.donusum = (a.kazanilan + a.kaybedilen) ? pct(a.kazanilan, a.kazanilan + a.kaybedilen) : null;
+          a.ortPuan = a.adet ? Math.round(a.puanTop / a.adet) : 0;
+          a.ortDeger = a.adet ? Math.round(a.deger / a.adet) : 0;
+          a.yonlendirenAd = a.yonlendiren.join(', ') || '—';
+          return a;
+        }).sort(function(x, y){ return y.adet - x.adet; });
+      },
+      kpis:[
+        { label:'Aktif kaynak', icon:'i-funnel', calc:function(r){ return r.length; } },
+        { label:'Toplam lead', icon:'i-user-plus', tone:'info',
+          calc:function(r){ return sum(r, function(x){ return x.adet; }); } },
+        { label:'Toplam fırsat değeri', icon:'i-wallet', tone:'purple', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.deger; }); } },
+        { label:'Kazanılan ciro', icon:'i-check-circle', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.kazanilanCiro; }); } }
+      ],
+      charts:function(r){
+        var para = topN(r.map(function(x){
+          return { label:kisaAd(x.ad, 14), value:x.deger, value2:x.kazanilanCiro }; }), 10);
+        var don = r.map(function(x){ return { label:x.ad, value:x.adet }; });
+        return [
+          { title:'Kaynak bazlı fırsat değeri ve kazanılan ciro', sub:'koyu sütun toplam fırsat · açık sütun kazanılan ciro',
+            wide:true, html:GV.chart.bar(para, { money:true }),
+            legend:[{ label:'Toplam fırsat değeri (bin ₺)', value:bin(sum(r, function(x){ return x.deger; })) },
+                    { label:'Kazanılan ciro (bin ₺)', value:bin(sum(r, function(x){ return x.kazanilanCiro; })) }] },
+          { title:'Lead adedi dağılımı',
+            html:GV.chart.donut(don, { center:String(sum(r, function(x){ return x.adet; })), centerSub:'lead' }),
+            legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-lead-kaynak', exportTitle:'Lead Kaynakları Raporu',
+        defaultSort:'adet', pageSize:25,
+        search:{ placeholder:'Kaynak veya yönlendiren ara', fields:['kod','ad','yonlendirenAd'] },
+        columns:[
+          { key:'ad', label:'Kaynak', width:'18%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.ad; },
+            render:function(x){ return linkCell('app-lead.html', x.ad) + sub(esc(x.yonlendirenAd)); } },
+          colNum('adet', 'Lead adedi'),
+          colMoney('deger', 'Toplam fırsat değeri', { sub:function(x){ return 'ort. ' + F.money(x.ortDeger); } }),
+          colNum('kazanilan', 'Kazanılan'),
+          colNum('kaybedilen', 'Kaybedilen'),
+          colNum('acik', 'Açık fırsat'),
+          colPct('donusum', 'Dönüşüm', { esik:40 }),
+          colMoney('kazanilanCiro', 'Kazanılan ciro'),
+          colMoney('kayipDeger', 'Kaybedilen değer', { visible:false }),
+          colNum('ortPuan', 'Ortalama puan', { visible:false }),
+          colDate('sonTalep', 'Son talep', { plain:true })
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-lead.html', x.ad) + num(x.adet), esc(x.kod),
+            ['Kazanılan ' + F.num(x.kazanilan), 'Kaybedilen ' + F.num(x.kaybedilen), F.moneyK(x.deger)],
+            x.donusum == null ? '' : GV.badge('%' + x.donusum + ' dönüşüm', x.donusum >= 40 ? 'is-ok' : 'is-warn'));
+        },
+        emptyState:bos('Kaynak kırılımı boş', 'Seçilen kapsamda müşteri adayı kaydı bulunmuyor.', 'i-funnel') }) },
+
+    /* ============================================================
+       2 · SATIŞ DÖNÜŞÜM ORANI
+       ============================================================ */
+    { key:'donusum', label:'Satış dönüşüm oranı', icon:'i-percent', group:'Satış Hunisi',
+      title:'Satış Dönüşüm Oranı',
+      desc:'Sonuçlanmış fırsatlar üzerinden hesaplanan dönüşüm oranı: kazanılan fırsatların kazanılan + kaybedilen toplamına oranı. Huni grafiği fırsatların hangi aşamada beklediğini gösterir.',
+      rows:leadRows,
+      kpis:[
+        { label:'Dönüşüm oranı', icon:'i-percent', tone:'ok', format:F.pct,
+          calc:function(r){
+            var s = r.filter(function(x){ return x.sonuc !== 'Sürüyor'; });
+            return s.length ? pct(s.filter(function(x){ return x.sonuc === 'Kazanıldı'; }).length, s.length) : 0; },
+          meta:function(r){
+            var s = r.filter(function(x){ return x.sonuc !== 'Sürüyor'; });
+            return ico('i-funnel','ic-sm') + ' ' + F.num(s.length) + ' sonuçlanmış fırsat üzerinden'; },
+          metaTone:'flat' },
+        { label:'Kazanılan fırsat', icon:'i-check-circle', tone:'ok',
+          calc:function(r){ return r.filter(function(x){ return x.sonuc === 'Kazanıldı'; }).length; } },
+        { label:'Kaybedilen fırsat', icon:'i-x-circle', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.sonuc === 'Kaybedildi'; }).length; } },
+        { label:'Açık huni değeri', icon:'i-wallet', tone:'purple', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){ return x.sonuc === 'Sürüyor'; }), function(x){ return x.deger; }); } }
+      ],
+      charts:function(r){
+        var huni = DB.pipelineStages.map(function(s){
+          return { label:kisaAd(s.key, 13), value:r.filter(function(x){ return x.asama === s.key; }).length,
+                   tone:s.key === 'Kazanıldı' ? 'ok' : s.key === 'Kaybedildi' ? 'danger' : null };
+        }).filter(function(d){ return d.value > 0; });
+        var don = ['Kazanıldı','Kaybedildi','Sürüyor'].map(function(k){
+          return { label:k, value:r.filter(function(x){ return x.sonuc === k; }).length };
+        }).filter(function(d){ return d.value; });
+        return [
+          { title:'Satış hunisi — aşama bazlı fırsat adedi', sub:'aşama sırası PROMPT.md §8.2', wide:true,
+            html:GV.chart.bar(huni) },
+          { title:'Fırsat sonucu dağılımı',
+            html:GV.chart.donut(don, { center:String(r.length), centerSub:'fırsat' }), legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-donusum', exportTitle:'Satış Dönüşüm Oranı Raporu',
+        defaultSort:'deger', pageSize:25,
+        search:{ placeholder:'Firma, hizmet, kaynak veya aşama ara',
+                 fields:['kod','firma','hizmet','kaynak','asama','sorumluAd','ozet'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm fırsatlar', icon:'i-funnel', filter:function(){ return true; } },
+          { key:'acik', label:'Açık fırsatlar', icon:'i-layers', filter:function(x){ return x.sonuc === 'Sürüyor'; } },
+          { key:'sonuc', label:'Sonuçlananlar', icon:'i-check-circle', filter:function(x){ return x.sonuc !== 'Sürüyor'; } }
+        ],
+        columns:[
+          { key:'firma', label:'Fırsat', width:'22%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.firma; },
+            render:function(x){ return linkCell('app-lead.html', x.firma) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.hizmet) + '</span>'; } },
+          { key:'kaynak', label:'Kaynak', render:function(x){ return esc(x.kaynak) + sub(esc(x.yonlendiren || '—')); } },
+          colKisi('sorumlu', 'Sorumlu'),
+          { key:'asama', label:'Aşama', render:function(x){ return GV.badge(x.asama); } },
+          colPct('olasilik', 'Olasılık', { bar:true }),
+          colMoney('deger', 'Fırsat değeri'),
+          colMoney('agirlikli', 'Ağırlıklı gelir', { visible:false }),
+          colDate('talepTarihi', 'Talep tarihi', { plain:true }),
+          colDate('kapanisTahmini', 'Kapanış tahmini'),
+          { key:'sonuc', label:'Sonuç',
+            render:function(x){ return GV.badge(x.sonuc,
+              x.sonuc === 'Kazanıldı' ? 'is-ok' : x.sonuc === 'Kaybedildi' ? 'is-danger' : 'is-info'); } }
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-lead.html', x.firma) + mny(x.deger), esc(x.kod) + ' · ' + esc(x.hizmet),
+            [ico('i-user','ic-sm') + esc(x.sorumluAd), ico('i-percent','ic-sm') + '%' + x.olasilik,
+             ico('i-calendar','ic-sm') + F.dateShort(x.kapanisTahmini)],
+            GV.badge(x.asama));
+        },
+        emptyState:bos('Fırsat kaydı yok', 'Seçilen kapsamda müşteri adayı bulunmuyor.', 'i-funnel') }) },
+
+    /* ============================================================
+       3 · TEKLİF BAŞARI ORANI
+       ============================================================ */
+    { key:'teklif', label:'Teklif başarı oranı', icon:'i-quote', group:'Satış Hunisi',
+      title:'Teklif Başarı Oranı',
+      desc:'Müşteriye iletilmiş tekliflerin kazanma oranı, teklif tutarları, uygulanan indirim ve iç onay / müşteri onayı durumları.',
+      rows:function(f){ return baseQuotes(f).map(quoteRow); },
+      kpis:[
+        { label:'Teklif başarı oranı', icon:'i-percent', tone:'ok', format:F.pct,
+          calc:function(r){
+            var s = r.filter(function(x){ return x.sonuc !== 'Sürüyor'; });
+            return s.length ? pct(s.filter(function(x){ return x.sonuc === 'Kazanıldı'; }).length, s.length) : 0; },
+          meta:function(r){ return ico('i-quote','ic-sm') + ' ' + F.num(r.length) + ' teklif · ' +
+            F.num(r.filter(function(x){ return x.sonuc !== 'Sürüyor'; }).length) + ' sonuçlandı'; },
+          metaTone:'flat' },
+        { label:'Kazanılan teklif tutarı', icon:'i-check-circle', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){ return x.sonuc === 'Kazanıldı'; }), function(x){ return x.toplam; }); } },
+        { label:'Açık teklif tutarı', icon:'i-hourglass', tone:'warn', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){ return x.sonuc === 'Sürüyor'; }), function(x){ return x.toplam; }); } },
+        { label:'Ortalama teklif tutarı', icon:'i-wallet', tone:'info', format:F.moneyK,
+          calc:function(r){ return r.length ? Math.round(sum(r, function(x){ return x.toplam; }) / r.length) : 0; } }
+      ],
+      charts:function(r){
+        var don = {}; r.forEach(function(x){ don[x.durum] = (don[x.durum] || 0) + 1; });
+        var dd = Object.keys(don).map(function(k){ return { label:k, value:don[k] }; });
+        var bar = r.slice().sort(function(a, b){ return b.toplam - a.toplam; }).slice(0, 12).map(function(x){
+          return { label:kisaAd(x.firma, 10), value:x.toplam,
+                   tone:x.sonuc === 'Kazanıldı' ? 'ok' : x.sonuc === 'Kaybedildi' ? 'danger' : null };
+        });
+        return [
+          { title:'Teklif tutarları', sub:'yeşil kazanılan · kırmızı kaybedilen · gri süreçte', wide:true,
+            html:GV.chart.bar(bar, { money:true }) },
+          { title:'Teklif durumu dağılımı',
+            html:GV.chart.donut(dd, { center:String(r.length), centerSub:'teklif' }), legend:dd }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-teklif', exportTitle:'Teklif Başarı Oranı Raporu',
+        defaultSort:'tarih', pageSize:25,
+        search:{ placeholder:'Teklif no, firma, müşteri veya hazırlayan ara',
+                 fields:['kod','firma','musteriAd','hazirlayanAd','durum'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm teklifler', icon:'i-quote', filter:function(){ return true; } },
+          { key:'acik', label:'Süreçte olanlar', icon:'i-hourglass', filter:function(x){ return x.sonuc === 'Sürüyor'; } },
+          { key:'kazanilan', label:'Kazanılanlar', icon:'i-check-circle', filter:function(x){ return x.sonuc === 'Kazanıldı'; } },
+          { key:'kaybedilen', label:'Kaybedilenler', icon:'i-x-circle', filter:function(x){ return x.sonuc === 'Kaybedildi'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Teklif', width:'18%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.firma; },
+            render:function(x){ return linkCell('app-teklif.html', x.kod) +
+              '<span class="cell-sub">' + esc(x.firma) + ' · v' + x.versiyon + '</span>'; } },
+          { key:'musteriAd', label:'Müşteri',
+            render:function(x){ return x.musteri
+              ? linkCell('app-musteri.html', x.musteriAd) + '<span class="cell-code">' + esc(x.musteri) + '</span>'
+              : faint('Aday müşteri'); } },
+          colKisi('hazirlayan', 'Hazırlayan'),
+          colDate('tarih', 'Teklif tarihi', { plain:true }),
+          colDate('gecerlilik', 'Geçerlilik', { done:function(x){ return x.sonuc !== 'Sürüyor'; } }),
+          colMoney('araToplam', 'Ara toplam', { visible:false }),
+          colMoney('indirim', 'İndirim', { visible:false, sub:function(x){ return '%' + x.indirimOran; } }),
+          colMoney('toplam', 'Genel toplam', { sub:function(x){ return x.kalemSayisi + ' kalem'; } }),
+          { key:'icOnay', label:'İç onay', visible:false, render:function(x){ return GV.badge(x.icOnay); } },
+          { key:'musteriOnay', label:'Müşteri onayı',
+            render:function(x){ return x.musteriOnay === '—' ? faint('—') : GV.badge(x.musteriOnay); } },
+          { key:'sozlesme', label:'Sözleşme', visible:false,
+            render:function(x){ return x.sozlesme
+              ? linkCell('app-sozlesme.html', x.sozlesme) : faint('—'); } },
+          colDurum('durum', 'Teklif durumu')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-teklif.html', x.kod) + mny(x.toplam),
+            esc(x.firma) + ' · v' + x.versiyon,
+            [ico('i-user','ic-sm') + esc(x.hazirlayanAd), ico('i-calendar','ic-sm') + F.dateShort(x.tarih)],
+            GV.badge(x.durum));
+        },
+        emptyState:bos('Teklif kaydı yok', 'Seçilen kapsamda teklif bulunmuyor.', 'i-quote') }) },
+
+    /* ============================================================
+       4 · KAZANILAN SATIŞLAR
+       ============================================================ */
+    { key:'kazanilan', label:'Kazanılan satışlar', icon:'i-check-circle', group:'Satış Hunisi',
+      title:'Kazanılan Satışlar',
+      desc:'Sözleşmeye dönüşmüş fırsatlar; kazanılan tutar, imzaya kadar geçen satış süresi ve oluşan proje bağlantısı. Kazanma tarihi sözleşme imza tarihidir.',
+      rows:function(f){ return leadRows(f).filter(function(x){ return x.sonuc === 'Kazanıldı'; }); },
+      kpis:[
+        { label:'Kazanılan satış', icon:'i-check-circle', tone:'ok', calc:function(r){ return r.length; } },
+        { label:'Toplam kazanılan ciro', icon:'i-wallet', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.deger; }); } },
+        { label:'Ortalama satış tutarı', icon:'i-receipt', tone:'info', format:F.moneyK,
+          calc:function(r){ return r.length ? Math.round(sum(r, function(x){ return x.deger; }) / r.length) : 0; } },
+        { label:'Ortalama satış süresi', icon:'i-clock', tone:'purple',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){
+            var s = r.filter(function(x){ return x.sure != null; });
+            return s.length ? Math.round(sum(s, function(x){ return x.sure; }) / s.length) : 0; } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.deger - a.deger; }).map(function(x){
+          return { label:kisaAd(x.firma, 10), value:x.deger, tone:'ok' }; });
+        var hz = {}; r.forEach(function(x){ hz[x.hizmet] = (hz[x.hizmet] || 0) + 1; });
+        var don = Object.keys(hz).map(function(k){ return { label:k, value:hz[k] }; });
+        return [
+          { title:'Kazanılan satış tutarları', sub:'sözleşmeye dönüşen fırsat başına', wide:true,
+            html:GV.chart.bar(bar, { money:true }) },
+          { title:'Hizmet türü dağılımı',
+            html:GV.chart.donut(don, { center:String(r.length), centerSub:'satış' }), legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-kazanilan', exportTitle:'Kazanılan Satışlar Raporu',
+        defaultSort:'deger', pageSize:25,
+        search:{ placeholder:'Firma, hizmet, müşteri veya sorumlu ara',
+                 fields:['kod','firma','hizmet','musteriAd','sorumluAd','kaynak'] },
+        columns:[
+          { key:'firma', label:'Kazanılan fırsat', width:'22%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.firma; },
+            render:function(x){ return linkCell('app-lead.html', x.firma) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.hizmet) + '</span>'; } },
+          { key:'musteriAd', label:'Müşteri',
+            render:function(x){ return x.musteri
+              ? linkCell('app-musteri.html', x.musteriAd) + '<span class="cell-code">' + esc(x.musteri) + '</span>'
+              : faint('Müşteri kaydı yok'); } },
+          colKisi('sorumlu', 'Satış sorumlusu'),
+          { key:'teklif', label:'Teklif',
+            render:function(x){ return x.teklif ? linkCell('app-teklif.html', x.teklif) : faint('Teklifsiz'); } },
+          { key:'sozlesme', label:'Sözleşme',
+            render:function(x){ return x.sozlesme
+              ? linkCell('app-sozlesme.html', x.sozlesme) + sub(F.money(x.sozlesmeTutar)) : faint('—'); } },
+          colMoney('deger', 'Kazanılan tutar'),
+          colDate('talepTarihi', 'Talep tarihi', { plain:true }),
+          colDate('sonucTarihi', 'Kazanma tarihi', { plain:true }),
+          { key:'sure', label:'Satış süresi', cellClass:'num',
+            sortValue:function(x){ return x.sure == null ? -1 : x.sure; },
+            exportValue:function(x){ return x.sure; },
+            render:function(x){ return gunCell(x.sure, x.sure != null && x.sure > 45 ? 'warn' : 'ok'); } },
+          { key:'kaynak', label:'Kaynak', visible:false, render:function(x){ return esc(x.kaynak); } }
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-lead.html', x.firma) + mny(x.deger), esc(x.kod) + ' · ' + esc(x.hizmet),
+            [ico('i-user','ic-sm') + esc(x.sorumluAd), ico('i-clock','ic-sm') + (x.sure == null ? '—' : x.sure + ' gün'),
+             ico('i-calendar','ic-sm') + F.dateShort(x.sonucTarihi)],
+            GV.badge('Kazanıldı', 'is-ok'));
+        },
+        emptyState:bos('Kazanılan satış yok', 'Seçilen kapsamda sözleşmeye dönüşmüş fırsat bulunmuyor.', 'i-check-circle') }) },
+
+    /* ============================================================
+       5 · KAYBEDİLEN SATIŞLAR
+       ============================================================ */
+    { key:'kaybedilen', label:'Kaybedilen satışlar', icon:'i-x-circle', group:'Satış Hunisi',
+      title:'Kaybedilen Satışlar',
+      desc:'Kaybedilen fırsatlar, kaçan fırsat değeri ve kayıp nedenleri. Kayıp nedeni dağılımı satış argümanının nerede zayıf kaldığını gösterir.',
+      rows:function(f){ return leadRows(f).filter(function(x){ return x.sonuc === 'Kaybedildi'; }); },
+      kpis:[
+        { label:'Kaybedilen fırsat', icon:'i-x-circle', tone:'danger', calc:function(r){ return r.length; } },
+        { label:'Kaçan fırsat değeri', icon:'i-trend-down', tone:'danger', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.deger; }); } },
+        { label:'Kayıp oranı', icon:'i-percent', tone:'warn', format:F.pct,
+          calc:function(r, f){
+            var all = leadRows(f).filter(function(x){ return x.sonuc !== 'Sürüyor'; });
+            return all.length ? pct(r.length, all.length) : 0; },
+          meta:function(r){
+            return ico('i-x-circle','ic-sm') + ' ' + F.num(r.length) + ' kayıp · ' +
+                   F.moneyK(sum(r, function(x){ return x.teklifTutar; })) + ' teklif verilmişti'; },
+          metaTone:'flat' },
+        { label:'En sık kayıp nedeni', icon:'i-alert', tone:'danger',
+          format:function(v){ return esc(String(v)); },
+          calc:function(r){
+            var m = {}, best = '—', bn = 0;
+            r.forEach(function(x){ var k = x.kayipNedeni || 'Belirtilmedi'; m[k] = (m[k] || 0) + 1;
+              if(m[k] > bn){ bn = m[k]; best = k; } });
+            return best; } }
+      ],
+      charts:function(r){
+        var m = {}; r.forEach(function(x){ var k = x.kayipNedeni || 'Belirtilmedi'; m[k] = (m[k] || 0) + 1; });
+        var neden = Object.keys(m).map(function(k){ return { label:kisaAd(k, 14), value:m[k], tone:'danger' }; });
+        var bar = r.slice().sort(function(a, b){ return b.deger - a.deger; }).map(function(x){
+          return { label:kisaAd(x.firma, 10), value:x.deger, tone:'danger' }; });
+        return [
+          { title:'Kayıp nedeni dağılımı', sub:'fırsat adedi', wide:true, html:GV.chart.bar(neden) },
+          { title:'Kaçan fırsat değeri', sub:'firma bazlı', wide:true, html:GV.chart.bar(bar, { money:true }) }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-kaybedilen', exportTitle:'Kaybedilen Satışlar Raporu',
+        defaultSort:'deger', pageSize:25,
+        search:{ placeholder:'Firma, hizmet, kayıp nedeni veya sorumlu ara',
+                 fields:['kod','firma','hizmet','kayipNedeni','sorumluAd','kaynak'] },
+        columns:[
+          { key:'firma', label:'Kaybedilen fırsat', width:'20%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.firma; },
+            render:function(x){ return linkCell('app-lead.html', x.firma) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.hizmet) + '</span>'; } },
+          { key:'kayipNedeni', label:'Kayıp nedeni', width:'16%', cellClass:'cell-wrap',
+            render:function(x){ return x.kayipNedeni
+              ? GV.badge(x.kayipNedeni, 'is-danger') : faint('Belirtilmedi'); } },
+          { key:'kaynak', label:'Kaynak', render:function(x){ return esc(x.kaynak) + sub(esc(x.yonlendiren || '—')); } },
+          colKisi('sorumlu', 'Satış sorumlusu'),
+          { key:'teklif', label:'Teklif',
+            render:function(x){ return x.teklif
+              ? linkCell('app-teklif.html', x.teklif) + sub(F.money(x.teklifTutar)) : faint('Teklifsiz'); } },
+          colMoney('deger', 'Kaçan değer'),
+          colDate('talepTarihi', 'Talep tarihi', { plain:true }),
+          colDate('sonucTarihi', 'Kayıp tarihi', { plain:true }),
+          { key:'sure', label:'Süreçte geçen', cellClass:'num',
+            sortValue:function(x){ return x.sure == null ? -1 : x.sure; },
+            exportValue:function(x){ return x.sure; },
+            render:function(x){ return gunCell(x.sure, 'warn'); } },
+          colNum('puan', 'Lead puanı', { visible:false })
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-lead.html', x.firma) + mnyTone(x.deger, 'danger'),
+            esc(x.kod) + ' · ' + esc(x.hizmet),
+            [ico('i-user','ic-sm') + esc(x.sorumluAd), ico('i-calendar','ic-sm') + F.dateShort(x.sonucTarihi)],
+            GV.badge(x.kayipNedeni || 'Belirtilmedi', 'is-danger'));
+        },
+        emptyState:bos('Kaybedilen fırsat yok', 'Seçilen kapsamda kaybedilmiş satış kaydı bulunmuyor.', 'i-x-circle') }) },
+
+    /* ============================================================
+       6 · TAHMİNİ SATIŞ GELİRİ
+       ============================================================ */
+    { key:'tahminigelir', label:'Tahmini satış geliri', icon:'i-trend-up', group:'Satış Hunisi',
+      title:'Tahmini Satış Geliri',
+      desc:'Açık fırsatların aşama olasılığı ile ağırlıklandırılmış gelir tahmini. Olasılık değerleri PROMPT.md §8.2 satış aşaması tanımından gelir; ağırlıklı gelir = fırsat değeri × aşama olasılığı.',
+      rows:function(f){ return leadRows(f).filter(function(x){ return x.sonuc === 'Sürüyor'; }); },
+      kpis:[
+        { label:'Açık fırsat', icon:'i-layers', tone:'info', calc:function(r){ return r.length; } },
+        { label:'Toplam fırsat değeri', icon:'i-wallet', tone:'purple', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.deger; }); } },
+        { label:'Ağırlıklı gelir tahmini', icon:'i-trend-up', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.agirlikli; }); } },
+        { label:'Bu ay kapanması beklenen', icon:'i-calendar-check', tone:'warn', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){
+            return ay(x.kapanisTahmini) === AY_KEY; }), function(x){ return x.agirlikli; }); } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.deger - a.deger; }).slice(0, 12).map(function(x){
+          return { label:kisaAd(x.firma, 10), value:x.deger, value2:x.agirlikli }; });
+        var aylar = aySirala(r.map(function(x){ return ay(x.kapanisTahmini); }));
+        var brut = aylar.map(function(m){
+          return sum(r.filter(function(x){ return ay(x.kapanisTahmini) === m; }), function(x){ return x.deger; }); });
+        var agir = aylar.map(function(m){
+          return sum(r.filter(function(x){ return ay(x.kapanisTahmini) === m; }), function(x){ return x.agirlikli; }); });
+        return [
+          { title:'Fırsat değeri ve ağırlıklı gelir', sub:'koyu sütun brüt fırsat · açık sütun olasılıkla ağırlıklı', wide:true,
+            html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Brüt fırsat değeri (bin ₺)', value:bin(sum(r, function(x){ return x.deger; })) },
+                    { label:'Ağırlıklı gelir (bin ₺)', value:bin(sum(r, function(x){ return x.agirlikli; })) }] },
+          { title:'Beklenen kapanış ayına göre gelir', sub:'kapanış tahmini ayına göre · brüt ve ağırlıklı', wide:true,
+            html:GV.chart.line([{ values:brut }, { values:agir }], aylar.map(ayEt), { money:true, label:'Beklenen gelir' }),
+            legend:[{ label:'Brüt fırsat değeri (bin ₺)', value:bin(brut.reduce(function(a, b){ return a + b; }, 0)) },
+                    { label:'Ağırlıklı gelir (bin ₺)', value:bin(agir.reduce(function(a, b){ return a + b; }, 0)) }] }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-tahmini-gelir', exportTitle:'Tahmini Satış Geliri Raporu',
+        defaultSort:'agirlikli', pageSize:25,
+        search:{ placeholder:'Firma, hizmet, aşama veya sorumlu ara',
+                 fields:['kod','firma','hizmet','asama','sorumluAd','sicaklik'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm açık fırsatlar', icon:'i-layers', filter:function(){ return true; } },
+          { key:'sicak', label:'Sıcak fırsatlar', icon:'i-trend-up', filter:function(x){ return x.sicaklik === 'Sıcak'; } },
+          { key:'buay', label:'Bu ay kapanacaklar', icon:'i-calendar-check',
+            filter:function(x){ return ay(x.kapanisTahmini) === AY_KEY; } }
+        ],
+        columns:[
+          { key:'firma', label:'Fırsat', width:'20%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.firma; },
+            render:function(x){ return linkCell('app-lead.html', x.firma) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.hizmet) + '</span>'; } },
+          { key:'asama', label:'Aşama', render:function(x){ return GV.badge(x.asama); } },
+          colPct('olasilik', 'Olasılık', { bar:true }),
+          colMoney('deger', 'Fırsat değeri'),
+          colMoney('agirlikli', 'Ağırlıklı gelir'),
+          colKisi('sorumlu', 'Sorumlu'),
+          colDate('kapanisTahmini', 'Kapanış tahmini'),
+          { key:'sicaklik', label:'Sıcaklık',
+            render:function(x){ return GV.badge(x.sicaklik,
+              x.sicaklik === 'Sıcak' ? 'is-ok' : x.sicaklik === 'Ilık' ? 'is-warn' : 'is-neutral'); } },
+          colNum('puan', 'Lead puanı', { visible:false }),
+          { key:'kaynak', label:'Kaynak', visible:false, render:function(x){ return esc(x.kaynak); } }
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-lead.html', x.firma) + mny(x.agirlikli), esc(x.kod) + ' · ' + esc(x.hizmet),
+            [ico('i-percent','ic-sm') + '%' + x.olasilik, ico('i-wallet','ic-sm') + F.moneyK(x.deger),
+             ico('i-calendar','ic-sm') + F.dateShort(x.kapanisTahmini)],
+            GV.badge(x.asama));
+        },
+        emptyState:bos('Açık fırsat yok', 'Seçilen kapsamda süreçte olan fırsat bulunmuyor.', 'i-trend-up') }) },
+
+    /* ============================================================
+       7 · SATIŞ TEMSİLCİSİ PERFORMANSI
+       ============================================================ */
+    { key:'temsilci', label:'Satış temsilcisi performansı', icon:'i-award', group:'Performans',
+      title:'Satış Temsilcisi Performansı',
+      desc:'Temsilci başına fırsat yükü, kazanım, dönüşüm oranı, teklif üretimi, kazanılan ciro ve elde tutulan açık huni değeri. Performans yalnız adetle değil, ciro ve dönüşümle birlikte okunur.',
+      rows:function(f){
+        var leads = leadRows(f), quotes = baseQuotes(f).map(quoteRow);
+        var kodlar = uniq(leads.map(function(x){ return x.sorumlu; })
+          .concat(quotes.map(function(x){ return x.hazirlayan; })));
+        return kodlar.map(function(k){
+          var e = DB.emp(k) || {};
+          var my = leads.filter(function(x){ return x.sorumlu === k; });
+          var mq = quotes.filter(function(x){ return x.hazirlayan === k; });
+          var kaz = my.filter(function(x){ return x.sonuc === 'Kazanıldı'; });
+          var kay = my.filter(function(x){ return x.sonuc === 'Kaybedildi'; });
+          var acik = my.filter(function(x){ return x.sonuc === 'Sürüyor'; });
+          var sureli = kaz.filter(function(x){ return x.sure != null; });
+          return {
+            kod:k, ad:e.ad || k, pozisyon:e.pozisyon || DB.roleName(e.rol) || '—', dep:e.depAd || '—',
+            leadAdet:my.length, kazanilan:kaz.length, kaybedilen:kay.length, acik:acik.length,
+            donusum:(kaz.length + kay.length) ? pct(kaz.length, kaz.length + kay.length) : null,
+            teklifAdet:mq.length, teklifTutar:sum(mq, function(x){ return x.toplam; }),
+            kazanilanCiro:sum(kaz, function(x){ return x.deger; }),
+            acikDeger:sum(acik, function(x){ return x.deger; }),
+            agirlikli:sum(acik, function(x){ return x.agirlikli; }),
+            ortSure:sureli.length ? Math.round(sum(sureli, function(x){ return x.sure; }) / sureli.length) : null,
+            ortPuan:my.length ? Math.round(sum(my, function(x){ return x.puan; }) / my.length) : 0
+          };
+        }).sort(function(a, b){ return b.kazanilanCiro - a.kazanilanCiro; });
+      },
+      kpis:[
+        { label:'Satış temsilcisi', icon:'i-users', calc:function(r){ return r.length; } },
+        { label:'Toplam kazanılan ciro', icon:'i-award', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.kazanilanCiro; }); } },
+        { label:'En yüksek dönüşüm', icon:'i-percent', tone:'purple',
+          format:function(v){ return esc(String(v)); },
+          calc:function(r){
+            var s = r.filter(function(x){ return x.donusum != null; })
+                     .sort(function(a, b){ return b.donusum - a.donusum; });
+            return s.length ? s[0].ad + ' · %' + s[0].donusum : '—'; } },
+        { label:'Elde tutulan açık huni', icon:'i-layers', tone:'info', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.acikDeger; }); } }
+      ],
+      charts:function(r){
+        var bar = r.map(function(x){
+          return { label:kisaAd(x.ad, 12), value:x.kazanilanCiro, value2:x.acikDeger }; });
+        var don = r.map(function(x){
+          return { label:kisaAd(x.ad, 12), value:x.donusum == null ? 0 : x.donusum,
+                   tone:x.donusum == null ? null : x.donusum >= 50 ? 'ok' : x.donusum >= 25 ? 'warn' : 'danger' };
+        });
+        return [
+          { title:'Temsilci bazlı kazanılan ciro ve açık huni', sub:'koyu sütun kazanılan · açık sütun açık fırsat değeri',
+            wide:true, html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Kazanılan ciro (bin ₺)', value:bin(sum(r, function(x){ return x.kazanilanCiro; })) },
+                    { label:'Açık huni değeri (bin ₺)', value:bin(sum(r, function(x){ return x.acikDeger; })) }] },
+          { title:'Dönüşüm oranı', sub:'kazanılan / sonuçlanmış fırsat · %', wide:true, html:GV.chart.bar(don) }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-temsilci', exportTitle:'Satış Temsilcisi Performans Raporu',
+        defaultSort:'kazanilanCiro', pageSize:25,
+        search:{ placeholder:'Temsilci, pozisyon veya departman ara', fields:['kod','ad','pozisyon','dep'] },
+        columns:[
+          { key:'ad', label:'Temsilci', width:'20%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.ad; },
+            render:function(x){ return GV.user(x.kod, { sm:true }) + sub(esc(x.pozisyon)); } },
+          colNum('leadAdet', 'Fırsat'),
+          colNum('kazanilan', 'Kazanılan'),
+          colNum('kaybedilen', 'Kaybedilen'),
+          colNum('acik', 'Açık'),
+          colPct('donusum', 'Dönüşüm', { esik:40 }),
+          colNum('teklifAdet', 'Teklif', { visible:false }),
+          colMoney('teklifTutar', 'Teklif tutarı', { visible:false }),
+          colMoney('kazanilanCiro', 'Kazanılan ciro'),
+          colMoney('acikDeger', 'Açık huni değeri', { sub:function(x){ return 'ağırlıklı ' + F.moneyK(x.agirlikli); } }),
+          { key:'ortSure', label:'Ort. satış süresi', cellClass:'num',
+            sortValue:function(x){ return x.ortSure == null ? -1 : x.ortSure; },
+            exportValue:function(x){ return x.ortSure; },
+            render:function(x){ return gunCell(x.ortSure, x.ortSure != null && x.ortSure > 45 ? 'warn' : 'ok'); } }
+        ],
+        mobile:function(x){
+          return mRow(GV.user(x.kod, { sm:true }) + mny(x.kazanilanCiro), esc(x.pozisyon),
+            ['Fırsat ' + F.num(x.leadAdet), 'Kazanılan ' + F.num(x.kazanilan),
+             'Açık ' + F.moneyK(x.acikDeger)],
+            x.donusum == null ? '' : GV.badge('%' + x.donusum + ' dönüşüm', x.donusum >= 40 ? 'is-ok' : 'is-warn'));
+        },
+        emptyState:bos('Temsilci kırılımı boş', 'Seçilen kapsamda satış kaydı bulunmuyor.', 'i-award') }) },
+
+    /* ============================================================
+       8 · ORTALAMA SATIŞ SÜRESİ
+       ============================================================ */
+    { key:'satissure', label:'Ortalama satış süresi', icon:'i-clock', group:'Performans',
+      title:'Ortalama Satış Süresi',
+      desc:'Talep tarihinden sonuç tarihine kadar geçen gün sayısı. Kazanımda sonuç tarihi sözleşme imzası, kayıpta son iletişim tarihidir; yalnız sonuçlanmış fırsatlar hesaba girer.',
+      rows:function(f){
+        return leadRows(f).filter(function(x){ return x.sonuc !== 'Sürüyor' && x.sure != null; });
+      },
+      kpis:[
+        { label:'Ortalama satış süresi', icon:'i-clock', tone:'info',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){ return r.length ? Math.round(sum(r, function(x){ return x.sure; }) / r.length) : 0; },
+          meta:function(r){ return ico('i-funnel','ic-sm') + ' ' + F.num(r.length) + ' sonuçlanmış fırsat üzerinden'; },
+          metaTone:'flat' },
+        { label:'En kısa süre', icon:'i-trend-down', tone:'ok',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){ return r.length ? r.reduce(function(m, x){ return Math.min(m, x.sure); }, 9999) : 0; } },
+        { label:'En uzun süre', icon:'i-hourglass', tone:'warn',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){ return r.reduce(function(m, x){ return Math.max(m, x.sure); }, 0); } },
+        { label:'Kazanımda ortalama', icon:'i-check-circle', tone:'ok',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){
+            var k = r.filter(function(x){ return x.sonuc === 'Kazanıldı'; });
+            return k.length ? Math.round(sum(k, function(x){ return x.sure; }) / k.length) : 0; } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.sure - a.sure; }).map(function(x){
+          return { label:kisaAd(x.firma, 10), value:x.sure,
+                   tone:x.sonuc === 'Kazanıldı' ? 'ok' : 'danger' }; });
+        var hz = {}, hn = {};
+        r.forEach(function(x){ hz[x.hizmet] = (hz[x.hizmet] || 0) + x.sure; hn[x.hizmet] = (hn[x.hizmet] || 0) + 1; });
+        var hbar = Object.keys(hz).map(function(k){
+          return { label:kisaAd(k, 13), value:Math.round(hz[k] / hn[k]) }; })
+          .sort(function(a, b){ return b.value - a.value; });
+        return [
+          { title:'Fırsat bazlı satış süresi', sub:'gün · yeşil kazanılan · kırmızı kaybedilen', wide:true,
+            html:GV.chart.bar(bar) },
+          { title:'Hizmet türüne göre ortalama süre', sub:'gün', wide:true, html:GV.chart.bar(hbar) }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-satis-suresi', exportTitle:'Ortalama Satış Süresi Raporu',
+        defaultSort:'sure', pageSize:25,
+        search:{ placeholder:'Firma, hizmet, kaynak veya sorumlu ara',
+                 fields:['kod','firma','hizmet','kaynak','sorumluAd','sonuc'] },
+        tabs:[
+          { key:'hepsi', label:'Sonuçlanan tüm fırsatlar', icon:'i-funnel', filter:function(){ return true; } },
+          { key:'kazanilan', label:'Kazanılanlar', icon:'i-check-circle', filter:function(x){ return x.sonuc === 'Kazanıldı'; } },
+          { key:'kaybedilen', label:'Kaybedilenler', icon:'i-x-circle', filter:function(x){ return x.sonuc === 'Kaybedildi'; } }
+        ],
+        columns:[
+          { key:'firma', label:'Fırsat', width:'22%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.firma; },
+            render:function(x){ return linkCell('app-lead.html', x.firma) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.hizmet) + '</span>'; } },
+          { key:'kaynak', label:'Kaynak', render:function(x){ return esc(x.kaynak); } },
+          colKisi('sorumlu', 'Sorumlu'),
+          colDate('talepTarihi', 'Talep tarihi', { plain:true }),
+          colDate('sonucTarihi', 'Sonuç tarihi', { plain:true }),
+          { key:'sure', label:'Satış süresi', cellClass:'num',
+            sortValue:function(x){ return x.sure; }, exportValue:function(x){ return x.sure; },
+            render:function(x){ return gunCell(x.sure, x.sure > 45 ? 'danger' : x.sure > 30 ? 'warn' : 'ok'); } },
+          colMoney('deger', 'Fırsat değeri'),
+          { key:'asama', label:'Aşama', visible:false, render:function(x){ return GV.badge(x.asama); } },
+          { key:'sonuc', label:'Sonuç',
+            render:function(x){ return GV.badge(x.sonuc, x.sonuc === 'Kazanıldı' ? 'is-ok' : 'is-danger'); } }
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-lead.html', x.firma) + '<span class="u-num">' + F.num(x.sure) + ' gün</span>',
+            esc(x.kod) + ' · ' + esc(x.hizmet),
+            [ico('i-user','ic-sm') + esc(x.sorumluAd), ico('i-wallet','ic-sm') + F.moneyK(x.deger)],
+            GV.badge(x.sonuc, x.sonuc === 'Kazanıldı' ? 'is-ok' : 'is-danger'));
+        },
+        emptyState:bos('Sonuçlanmış fırsat yok', 'Seçilen kapsamda kazanılmış ya da kaybedilmiş fırsat bulunmuyor.', 'i-clock') }) },
+
+    /* ============================================================
+       9 · PROJE BÜTÇELERİ
+       ============================================================ */
+    { key:'projebutce', label:'Proje bütçeleri', icon:'i-briefcase', group:'Proje Finansı',
+      title:'Proje Bütçeleri',
+      desc:'Sözleşme bedeli, onaylı bütçe, gerçekleşen maliyet ve kalan bütçe. Hesaplar app-butce.html ile birebir aynıdır: kalan = onaylı bütçe − gerçekleşen maliyet, kullanım = maliyet / bütçe.',
+      rows:projectRows,
+      kpis:[
+        { label:'Toplam onaylı bütçe', icon:'i-wallet', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.butce; }); },
+          meta:function(r){ return ico('i-briefcase','ic-sm') + ' ' + F.num(r.length) + ' proje'; }, metaTone:'flat' },
+        { label:'Toplam sözleşme bedeli', icon:'i-file-check', tone:'info', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.sozlesmeTutari; }); } },
+        { label:'Bütçe kullanımı', icon:'i-gauge', tone:'purple', format:F.pct,
+          calc:function(r){
+            var b = sum(r, function(x){ return x.butce; });
+            return b ? Math.round(sum(r, function(x){ return x.maliyet; }) * 100 / b) : 0; } },
+        { label:'Bütçesi aşan proje', icon:'i-alert', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.asimTutar > 0; }).length; } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.butce - a.butce; }).map(function(x){
+          return { label:cShort(x.musteri), value:x.butce, value2:x.maliyet }; });
+        var don = ['İyi','Dikkat','Riskli'].map(function(s){
+          return { label:s, value:bin(sum(r.filter(function(x){ return x.saglik === s; }), function(x){ return x.butce; })) };
+        }).filter(function(d){ return d.value > 0; });
+        return [
+          { title:'Onaylı bütçe ve gerçekleşen maliyet', sub:'koyu sütun bütçe · açık sütun gerçekleşen maliyet',
+            wide:true, html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Onaylı bütçe (bin ₺)', value:bin(sum(r, function(x){ return x.butce; })) },
+                    { label:'Gerçekleşen maliyet (bin ₺)', value:bin(sum(r, function(x){ return x.maliyet; })) }] },
+          { title:'Sağlık durumuna göre bütçe dağılımı', sub:'bin ₺',
+            html:GV.chart.donut(don, { center:F.moneyK(sum(r, function(x){ return x.butce; })), centerSub:'toplam bütçe' }),
+            legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-proje-butce', exportTitle:'Proje Bütçeleri Raporu',
+        defaultSort:'butce', pageSize:25,
+        search:{ placeholder:'Proje, müşteri, tür veya PM ara',
+                 fields:['kod','ad','musteriAd','tur','pmAd','durum'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm projeler', icon:'i-briefcase', filter:function(){ return true; } },
+          { key:'asan', label:'Bütçesi aşanlar', icon:'i-alert', filter:function(x){ return x.asimTutar > 0; } },
+          { key:'aktif', label:'Devam edenler', icon:'i-play', filter:function(x){ return x.durum !== 'Teslim'; } }
+        ],
+        columns:[
+          { key:'ad', label:'Proje', width:'22%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.ad; },
+            render:function(x){ return linkCell('app-butce.html', x.ad) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.tur) + '</span>'; } },
+          { key:'musteriAd', label:'Müşteri',
+            render:function(x){ return linkCell('app-musteri.html', x.musteriKisa) +
+              '<span class="cell-code">' + esc(x.musteri) + '</span>'; } },
+          colMoney('sozlesmeTutari', 'Sözleşme bedeli'),
+          colMoney('butce', 'Onaylı bütçe'),
+          colMoney('maliyet', 'Gerçekleşen maliyet'),
+          colMoney('kalanButce', 'Kalan bütçe', { signed:true }),
+          colPct('kullanim', 'Kullanım', { bar:true }),
+          colPct('ilerleme', 'İlerleme', { bar:true, visible:false }),
+          { key:'saglik', label:'Sağlık', render:function(x){ return GV.badge(x.saglik); } },
+          colDurum('durum', 'Proje durumu')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-butce.html', x.ad) + mny(x.butce), esc(x.kod) + ' · ' + esc(x.musteriKisa),
+            [ico('i-wallet','ic-sm') + F.moneyK(x.maliyet), ico('i-gauge','ic-sm') + '%' + x.kullanim],
+            GV.badge(x.saglik) + (x.asimTutar > 0 ? GV.badge('Bütçe aşımı', 'is-danger') : ''));
+        },
+        emptyState:bos('Proje bütçesi yok', 'Seçilen kapsamda bütçesi tanımlı proje bulunmuyor.', 'i-briefcase') }) },
+
+    /* ============================================================
+       10 · PROJE MALİYETLERİ
+       ============================================================ */
+    { key:'projemaliyet', label:'Proje maliyetleri', icon:'i-receipt', group:'Proje Finansı',
+      title:'Proje Maliyetleri',
+      desc:'Gerçekleşen maliyetin efor ile ilişkisi: harcanan saat, saat başına maliyet, süre sapması ve bütçe aşım tutarı. Saat maliyeti = gerçekleşen maliyet / harcanan saat.',
+      rows:projectRows,
+      kpis:[
+        { label:'Toplam gerçekleşen maliyet', icon:'i-receipt', tone:'info', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.maliyet; }); } },
+        { label:'Ortalama saat maliyeti', icon:'i-timer', tone:'purple', format:F.money,
+          calc:function(r){
+            var s = sum(r, function(x){ return x.harcananSure; });
+            return s ? Math.round(sum(r, function(x){ return x.maliyet; }) / s) : 0; } },
+        { label:'Toplam bütçe aşımı', icon:'i-alert', tone:'danger', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.asimTutar; }); } },
+        { label:'Harcanan efor', icon:'i-clock', tone:'warn', format:F.hours,
+          calc:function(r){ return sum(r, function(x){ return x.harcananSure; }); } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.maliyet - a.maliyet; }).map(function(x){
+          return { label:cShort(x.musteri), value:x.maliyet, tone:x.asimTutar > 0 ? 'danger' : null }; });
+        var sm = r.filter(function(x){ return x.saatMaliyet != null; })
+          .sort(function(a, b){ return b.saatMaliyet - a.saatMaliyet; })
+          .map(function(x){ return { label:cShort(x.musteri), value:x.saatMaliyet }; });
+        return [
+          { title:'Proje bazlı gerçekleşen maliyet', sub:'kırmızı sütun bütçesi aşan proje', wide:true,
+            html:GV.chart.bar(bar, { money:true }) },
+          { title:'Saat başına maliyet', sub:'gerçekleşen maliyet / harcanan saat', wide:true,
+            html:GV.chart.bar(sm, { money:true }) }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-proje-maliyet', exportTitle:'Proje Maliyetleri Raporu',
+        defaultSort:'maliyet', pageSize:25,
+        search:{ placeholder:'Proje, müşteri, tür veya PM ara',
+                 fields:['kod','ad','musteriAd','tur','pmAd','durum'] },
+        columns:[
+          { key:'ad', label:'Proje', width:'22%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.ad; },
+            render:function(x){ return linkCell('app-butce.html', x.ad) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.tur) + '</span>'; } },
+          { key:'musteriAd', label:'Müşteri',
+            render:function(x){ return linkCell('app-musteri.html', x.musteriKisa) +
+              '<span class="cell-code">' + esc(x.musteri) + '</span>'; } },
+          colKisi('pm', 'Proje yöneticisi'),
+          { key:'harcananSure', label:'Tahmini / Harcanan', cellClass:'num',
+            sortValue:function(x){ return x.harcananSure; },
+            exportValue:function(x){ return x.tahminiSure + ' / ' + x.harcananSure; },
+            render:function(x){ return '<span class="u-num">' + F.hours(x.tahminiSure) + ' / <b>' +
+              F.hours(x.harcananSure) + '</b></span>'; } },
+          { key:'sureSapma', label:'Süre sapması', cellClass:'num',
+            sortValue:function(x){ return x.sureSapma; }, exportValue:function(x){ return x.sureSapma; },
+            render:function(x){
+              if(!x.sureSapma) return '<span class="u-num">%0</span>';
+              return '<span class="u-num ' + (x.sureSapma > 0 ? 'u-danger' : 'u-ok') + '">' +
+                (x.sureSapma > 0 ? '+' : '−') + '%' + F.num(Math.abs(x.sureSapma)) + '</span>'; } },
+          colMoney('maliyet', 'Gerçekleşen maliyet'),
+          { key:'saatMaliyet', label:'Saat maliyeti', cellClass:'num',
+            sortValue:function(x){ return x.saatMaliyet == null ? -1 : x.saatMaliyet; },
+            exportValue:function(x){ return x.saatMaliyet; },
+            render:function(x){ return x.saatMaliyet == null ? faint('—')
+              : '<span class="cell-money">' + F.money(x.saatMaliyet) + '</span>' + sub('/ saat'); } },
+          colMoney('butce', 'Onaylı bütçe', { visible:false }),
+          colMoney('asimTutar', 'Bütçe aşımı', { tone:function(x){ return x.asimTutar > 0 ? 'danger' : null; } }),
+          { key:'saglik', label:'Sağlık', render:function(x){ return GV.badge(x.saglik); } }
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-butce.html', x.ad) + mny(x.maliyet), esc(x.kod) + ' · ' + esc(x.musteriKisa),
+            [ico('i-timer','ic-sm') + F.hours(x.harcananSure),
+             ico('i-trend-up','ic-sm') + (x.sureSapma > 0 ? '+' : '') + '%' + x.sureSapma,
+             x.saatMaliyet == null ? '—' : F.money(x.saatMaliyet) + '/sa'],
+            GV.badge(x.saglik) + (x.asimTutar > 0 ? GV.badge('Aşım ' + F.moneyK(x.asimTutar), 'is-danger') : ''));
+        },
+        emptyState:bos('Maliyet kaydı yok', 'Seçilen kapsamda maliyet girilmiş proje bulunmuyor.', 'i-receipt') }) },
+
+    /* ============================================================
+       11 · MÜŞTERİ KÂRLILIĞI
+       ============================================================ */
+    { key:'musterikar', label:'Müşteri kârlılığı', icon:'i-building', group:'Proje Finansı',
+      title:'Müşteri Kârlılığı',
+      desc:'Müşteri başına proje geliri (sözleşme bedeli), gerçekleşen maliyet, kâr ve marj; yanında faturalanan, tahsil edilen ve bekleyen tutarlar. Kâr = sözleşme bedeli − gerçekleşen maliyet.',
+      rows:function(f){ return baseCustomers(f).map(custRow); },
+      kpis:[
+        { label:'Toplam kâr', icon:'i-trend-up', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.kar; }); } },
+        { label:'Ortalama marj', icon:'i-percent', tone:'info', format:F.pct,
+          calc:function(r){
+            var g = sum(r, function(x){ return x.gelir; });
+            return g ? Math.round(sum(r, function(x){ return x.kar; }) * 100 / g) : 0; } },
+        { label:'En kârlı müşteri', icon:'i-award', tone:'purple',
+          format:function(v){ return esc(String(v)); },
+          calc:function(r){
+            var s = r.slice().sort(function(a, b){ return b.kar - a.kar; });
+            return s.length && s[0].kar > 0 ? s[0].kisa : '—'; } },
+        { label:'Bekleyen tahsilat', icon:'i-wallet', tone:'warn', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.bekleyen; }); } }
+      ],
+      charts:function(r){
+        var akt = r.filter(function(x){ return x.gelir > 0; });
+        var bar = akt.slice().sort(function(a, b){ return b.gelir - a.gelir; }).map(function(x){
+          return { label:cShort(x.kod), value:x.gelir, value2:x.maliyet }; });
+        var marj = akt.slice().sort(function(a, b){ return b.marj - a.marj; }).map(function(x){
+          return { label:cShort(x.kod), value:x.marj,
+                   tone:x.marj >= 35 ? 'ok' : x.marj >= 15 ? 'warn' : 'danger' }; });
+        return [
+          { title:'Müşteri bazlı gelir ve maliyet', sub:'koyu sütun proje geliri · açık sütun gerçekleşen maliyet',
+            wide:true, html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Proje geliri (bin ₺)', value:bin(sum(akt, function(x){ return x.gelir; })) },
+                    { label:'Gerçekleşen maliyet (bin ₺)', value:bin(sum(akt, function(x){ return x.maliyet; })) }] },
+          { title:'Müşteri bazlı kâr marjı', sub:'%', wide:true, html:GV.chart.bar(marj) }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-musteri-karlilik', exportTitle:'Müşteri Kârlılığı Raporu',
+        defaultSort:'kar', pageSize:25,
+        search:{ placeholder:'Müşteri, unvan, sektör veya sorumlu ara',
+                 fields:['kod','unvan','kisa','sektor','sorumluAd','durum'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm müşteriler', icon:'i-building', filter:function(){ return true; } },
+          { key:'karli', label:'Kâr üretenler', icon:'i-trend-up', filter:function(x){ return x.kar > 0; } },
+          { key:'riskli', label:'Bekleyen tahsilatı olanlar', icon:'i-alert', filter:function(x){ return x.bekleyen > 0; } }
+        ],
+        columns:[
+          { key:'kisa', label:'Müşteri', width:'18%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; },
+            render:function(x){ return linkCell('app-musteri.html', x.kisa) +
+              '<span class="cell-code">' + esc(x.kod) + ' · ' + esc(x.sektor) + '</span>'; } },
+          colNum('projeAdet', 'Proje'),
+          colMoney('gelir', 'Proje geliri', { sub:function(x){ return x.sozlesmeAdet + ' sözleşme'; } }),
+          colMoney('maliyet', 'Gerçekleşen maliyet', { sub:function(x){ return F.hours(x.saat); } }),
+          colMoney('kar', 'Kâr', { signed:true }),
+          colPct('marj', 'Marj', { esik:30 }),
+          colMoney('faturalanan', 'Faturalanan', { sub:function(x){ return x.faturaAdet + ' fatura'; } }),
+          colMoney('tahsilEdilen', 'Tahsil edilen'),
+          colMoney('bekleyen', 'Bekleyen tahsilat',
+            { tone:function(x){ return x.bekleyen > 0 ? 'warn' : null; },
+              sub:function(x){ return x.geciken ? 'geciken ' + F.moneyK(x.geciken) : 'gecikme yok'; } }),
+          { key:'risk', label:'Risk', visible:false, render:function(x){ return GV.badge(x.risk); } },
+          colDurum('durum', 'Müşteri durumu')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-musteri.html', x.kisa) + mnySigned(x.kar), esc(x.kod) + ' · ' + esc(x.sektor),
+            [ico('i-wallet','ic-sm') + F.moneyK(x.gelir), ico('i-receipt','ic-sm') + F.moneyK(x.maliyet),
+             ico('i-percent','ic-sm') + '%' + x.marj],
+            GV.badge(x.durum) + (x.bekleyen > 0 ? GV.badge('Bekleyen ' + F.moneyK(x.bekleyen), 'is-warn') : ''));
+        },
+        emptyState:bos('Müşteri kırılımı boş', 'Seçilen kapsamda müşteri kaydı bulunmuyor.', 'i-building') }) },
+
+    /* ============================================================
+       12 · HİZMET KÂRLILIĞI
+       ============================================================ */
+    { key:'hizmetkar', label:'Hizmet kârlılığı', icon:'i-layers', group:'Proje Finansı',
+      title:'Hizmet Kârlılığı',
+      desc:'Hizmet türü bazında gelir, maliyet, kâr ve marj. Hangi hizmet kaleminin gerçekten para kazandırdığını, hangisinin efor yakıp marjı düşürdüğünü gösterir.',
+      rows:function(f){
+        var pr = projectRows(f), leads = leadRows(f);
+        var m = {}, order = [];
+        pr.forEach(function(p){
+          var k = p.tur || '—';
+          if(!m[k]){ m[k] = { kod:k, ad:k, projeAdet:0, gelir:0, maliyet:0, saat:0, musteri:[] }; order.push(k); }
+          var a = m[k];
+          a.projeAdet++; a.gelir += p.sozlesmeTutari; a.maliyet += p.maliyet; a.saat += p.harcananSure;
+          if(a.musteri.indexOf(p.musteri) === -1) a.musteri.push(p.musteri);
+        });
+        return order.map(function(k){
+          var a = m[k];
+          a.kar = a.gelir - a.maliyet;
+          a.marj = a.gelir ? Math.round(a.kar * 100 / a.gelir) : 0;
+          a.ortProje = a.projeAdet ? Math.round(a.gelir / a.projeAdet) : 0;
+          a.saatKar = a.saat ? Math.round(a.kar / a.saat) : null;
+          a.musteriAdet = a.musteri.length;
+          a.talep = leads.filter(function(l){ return l.hizmet === k; }).length;
+          a.acikTalepDeger = sum(leads.filter(function(l){ return l.hizmet === k && l.sonuc === 'Sürüyor'; }),
+                                 function(l){ return l.deger; });
+          return a;
+        }).sort(function(x, y){ return y.kar - x.kar; });
+      },
+      kpis:[
+        { label:'Hizmet kalemi', icon:'i-layers', calc:function(r){ return r.length; } },
+        { label:'Toplam kâr', icon:'i-trend-up', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.kar; }); } },
+        { label:'En kârlı hizmet', icon:'i-award', tone:'purple',
+          format:function(v){ return esc(String(v)); },
+          calc:function(r){ return r.length ? r[0].ad + ' · %' + r[0].marj : '—'; } },
+        { label:'Ortalama marj', icon:'i-percent', tone:'info', format:F.pct,
+          calc:function(r){
+            var g = sum(r, function(x){ return x.gelir; });
+            return g ? Math.round(sum(r, function(x){ return x.kar; }) * 100 / g) : 0; } }
+      ],
+      charts:function(r){
+        var bar = r.map(function(x){ return { label:kisaAd(x.ad, 13), value:x.gelir, value2:x.maliyet }; });
+        var don = r.filter(function(x){ return x.kar > 0; })
+          .map(function(x){ return { label:x.ad, value:bin(x.kar) }; });
+        return [
+          { title:'Hizmet bazlı gelir ve maliyet', sub:'koyu sütun gelir · açık sütun gerçekleşen maliyet', wide:true,
+            html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Gelir (bin ₺)', value:bin(sum(r, function(x){ return x.gelir; })) },
+                    { label:'Maliyet (bin ₺)', value:bin(sum(r, function(x){ return x.maliyet; })) }] },
+          { title:'Kâr dağılımı', sub:'bin ₺ · yalnız kâr üreten hizmetler',
+            html:GV.chart.donut(don, { center:F.moneyK(sum(r, function(x){ return x.kar; })), centerSub:'toplam kâr' }),
+            legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-hizmet-karlilik', exportTitle:'Hizmet Kârlılığı Raporu',
+        defaultSort:'kar', pageSize:25,
+        search:{ placeholder:'Hizmet türü ara', fields:['kod','ad'] },
+        columns:[
+          { key:'ad', label:'Hizmet', width:'20%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.ad; },
+            render:function(x){ return linkCell('app-proje.html', x.ad) +
+              sub(x.musteriAdet + ' müşteri · ' + x.projeAdet + ' proje'); } },
+          colNum('projeAdet', 'Proje'),
+          colMoney('gelir', 'Gelir', { sub:function(x){ return 'ort. ' + F.moneyK(x.ortProje); } }),
+          colMoney('maliyet', 'Maliyet', { sub:function(x){ return F.hours(x.saat); } }),
+          colMoney('kar', 'Kâr', { signed:true }),
+          colPct('marj', 'Marj', { esik:30 }),
+          { key:'saatKar', label:'Saat başına kâr', cellClass:'num',
+            sortValue:function(x){ return x.saatKar == null ? -99999 : x.saatKar; },
+            exportValue:function(x){ return x.saatKar; },
+            render:function(x){ return x.saatKar == null ? faint('—')
+              : mnyTone(x.saatKar, x.saatKar < 0 ? 'danger' : 'ok') + sub('/ saat'); } },
+          colNum('talep', 'Gelen talep', { visible:false }),
+          colMoney('acikTalepDeger', 'Açık talep değeri', { visible:false })
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-proje.html', x.ad) + mnySigned(x.kar), x.projeAdet + ' proje',
+            [ico('i-wallet','ic-sm') + F.moneyK(x.gelir), ico('i-receipt','ic-sm') + F.moneyK(x.maliyet),
+             ico('i-percent','ic-sm') + '%' + x.marj],
+            GV.badge('%' + x.marj + ' marj', x.marj >= 30 ? 'is-ok' : x.marj >= 15 ? 'is-warn' : 'is-danger'));
+        },
+        emptyState:bos('Hizmet kırılımı boş', 'Seçilen kapsamda proje kaydı bulunmuyor.', 'i-layers') }) },
+
+    /* ============================================================
+       13 · TAHSİLATLAR
+       ============================================================ */
+    { key:'tahsilat', label:'Tahsilatlar', icon:'i-wallet', group:'Nakit',
+      title:'Tahsilatlar',
+      desc:'Fatura bazlı tahsilat takibi: tahsil edilen, bekleyen ve geciken tutarlar. Değerler app-tahsilat.html ve app-fatura.html ile birebir aynıdır.',
+      rows:paymentRows,
+      kpis:[
+        { label:'Tahsil edilen', icon:'i-check-circle', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){ return x.durum === 'Ödendi'; }), function(x){ return x.tutar; }); } },
+        { label:'Bekleyen tahsilat', icon:'i-wallet', tone:'warn', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){ return x.durum !== 'Ödendi'; }), function(x){ return x.tutar; }); } },
+        { label:'Geciken tutar', icon:'i-alert', tone:'danger', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){ return x.gecikmeGun > 0; }), function(x){ return x.tutar; }); } },
+        { label:'Tahsilat oranı', icon:'i-percent', tone:'info', format:F.pct,
+          calc:function(r){
+            var t = sum(r, function(x){ return x.tutar; });
+            return t ? Math.round(sum(r.filter(function(x){ return x.durum === 'Ödendi'; }),
+              function(x){ return x.tutar; }) * 100 / t) : 0; },
+          meta:function(r){ return ico('i-receipt','ic-sm') + ' ' + F.num(r.length) + ' tahsilat kaydı'; },
+          metaTone:'flat' }
+      ],
+      charts:function(r){
+        var m = {}, order = [];
+        r.forEach(function(x){
+          if(!m[x.musteri]){ m[x.musteri] = { fat:0, tah:0 }; order.push(x.musteri); }
+          m[x.musteri].fat += x.tutar;
+          if(x.durum === 'Ödendi') m[x.musteri].tah += x.tutar;
+        });
+        var bar = order.map(function(k){
+          return { label:cShort(k), value:m[k].fat, value2:m[k].tah }; })
+          .sort(function(a, b){ return b.value - a.value; });
+        var dm = {}; r.forEach(function(x){ dm[x.durum] = (dm[x.durum] || 0) + x.tutar; });
+        var don = Object.keys(dm).map(function(k){ return { label:k, value:bin(dm[k]) }; });
+        return [
+          { title:'Müşteri bazlı faturalanan ve tahsil edilen', sub:'koyu sütun fatura tutarı · açık sütun tahsil edilen',
+            wide:true, html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Faturalanan (bin ₺)', value:bin(sum(r, function(x){ return x.tutar; })) },
+                    { label:'Tahsil edilen (bin ₺)',
+                      value:bin(sum(r.filter(function(x){ return x.durum === 'Ödendi'; }), function(x){ return x.tutar; })) }] },
+          { title:'Tahsilat durumuna göre tutar', sub:'bin ₺',
+            html:GV.chart.donut(don, { center:F.moneyK(sum(r, function(x){ return x.tutar; })), centerSub:'toplam' }),
+            legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-tahsilat', exportTitle:'Tahsilat Raporu',
+        defaultSort:'vade', defaultDir:'asc', pageSize:25,
+        search:{ placeholder:'Tahsilat no, fatura, müşteri veya son aksiyon ara',
+                 fields:['kod','fatura','musteriAd','durum','sonAksiyon','sorumluAd'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm kayıtlar', icon:'i-list', filter:function(){ return true; } },
+          { key:'bekleyen', label:'Bekleyenler', icon:'i-clock', filter:function(x){ return x.durum === 'Bekliyor'; } },
+          { key:'geciken', label:'Gecikenler', icon:'i-alert', filter:function(x){ return x.gecikmeGun > 0; } },
+          { key:'tahsil', label:'Tahsil edilenler', icon:'i-check-circle', filter:function(x){ return x.durum === 'Ödendi'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Tahsilat', width:'16%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.musteriAd; },
+            render:function(x){ return linkCell('app-tahsilat.html', x.kod) + sub(esc(x.musteriAd)); } },
+          { key:'fatura', label:'Fatura',
+            render:function(x){ return '<a class="cell-code" href="app-fatura.html">' + esc(x.fatura) + '</a>'; } },
+          { key:'musteriKisa', label:'Müşteri',
+            exportValue:function(x){ return x.musteriAd; },
+            render:function(x){ return linkCell('app-musteri.html', x.musteriKisa) +
+              '<span class="cell-code">' + esc(x.musteri) + '</span>'; } },
+          { key:'projeAd', label:'Proje', visible:false,
+            render:function(x){ return x.proje ? linkCell('app-butce.html', x.projeAd) : faint('Projesiz'); } },
+          colMoney('tutar', 'Tutar'),
+          colDate('faturaTarihi', 'Fatura tarihi', { plain:true, visible:false }),
+          colDate('vade', 'Vade', { done:function(x){ return x.durum === 'Ödendi'; } }),
+          { key:'gecikmeGun', label:'Gecikme', cellClass:'num',
+            sortValue:function(x){ return x.gecikmeGun; }, exportValue:function(x){ return x.gecikmeGun; },
+            render:function(x){ return x.gecikmeGun > 0
+              ? '<span class="u-num u-danger u-b">' + F.num(x.gecikmeGun) + ' gün</span>' : faint('—'); } },
+          colDate('tahsilTarihi', 'Tahsil tarihi', { plain:true, visible:false }),
+          colKisi('sorumlu', 'Sorumlu'),
+          { key:'sonAksiyon', label:'Son aksiyon', width:'18%', cellClass:'cell-wrap', sortable:false,
+            render:function(x){ return '<span class="cell-main">' + esc(x.sonAksiyon) + '</span>' +
+              sub(F.date(x.sonAksiyonTarihi)); } },
+          colDurum('durum', 'Durum')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-tahsilat.html', x.kod) + mny(x.tutar),
+            esc(x.musteriAd) + ' · Vade ' + F.date(x.vade),
+            [ico('i-receipt','ic-sm') + esc(x.fatura), ico('i-user','ic-sm') + esc(x.sorumluAd)],
+            GV.badge(x.durum) + (x.gecikmeGun > 0 ? GV.badge(x.gecikmeGun + ' gün gecikti', 'is-danger') : ''));
+        },
+        emptyState:bos('Tahsilat kaydı yok', 'Seçilen kapsamda tahsilat kaydı bulunmuyor.', 'i-wallet') }) },
+
+    /* ============================================================
+       14 · GECİKEN ÖDEMELER
+       ============================================================ */
+    { key:'geciken', label:'Geciken ödemeler', icon:'i-alert', group:'Nakit',
+      title:'Geciken Ödemeler',
+      desc:'Vadesi geçmiş ve hâlâ tahsil edilmemiş tutarlar; gecikme günü, yaşlandırma kovası (1-30 / 31-60 / 60+ gün) ve son takip aksiyonu ile birlikte.',
+      rows:function(f){ return paymentRows(f).filter(function(x){ return x.gecikmeGun > 0; }); },
+      kpis:[
+        { label:'Geciken kayıt', icon:'i-alert', tone:'danger', calc:function(r){ return r.length; } },
+        { label:'Geciken tutar', icon:'i-wallet', tone:'danger', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.tutar; }); } },
+        { label:'Ortalama gecikme', icon:'i-hourglass', tone:'warn',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){ return r.length ? Math.round(sum(r, function(x){ return x.gecikmeGun; }) / r.length) : 0; } },
+        { label:'En uzun gecikme', icon:'i-clock', tone:'danger',
+          format:function(v){ return F.num(v) + ' gün'; },
+          calc:function(r){ return r.reduce(function(m, x){ return Math.max(m, x.gecikmeGun); }, 0); } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.gecikmeGun - a.gecikmeGun; }).map(function(x){
+          return { label:cShort(x.musteri), value:x.gecikmeGun, tone:'danger' }; });
+        var m = {}, order = [];
+        r.forEach(function(x){
+          var k = x.yaslandirma;
+          if(!(k in m)){ m[k] = 0; order.push(k); }
+          m[k] += x.tutar;
+        });
+        var yas = order.map(function(k){ return { label:k, value:m[k], tone:'danger' }; });
+        return [
+          { title:'Kayıt bazlı gecikme süresi', sub:'gün', wide:true, html:GV.chart.bar(bar) },
+          { title:'Yaşlandırma kovasına göre geciken tutar', sub:'vade aşımı aralığı', wide:true,
+            html:GV.chart.bar(yas, { money:true }) }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-geciken-odeme', exportTitle:'Geciken Ödemeler Raporu',
+        defaultSort:'gecikmeGun', pageSize:25,
+        search:{ placeholder:'Tahsilat no, fatura, müşteri veya son aksiyon ara',
+                 fields:['kod','fatura','musteriAd','sonAksiyon','sorumluAd','yaslandirma'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm gecikenler', icon:'i-alert', filter:function(){ return true; } },
+          { key:'a30', label:'1-30 gün', icon:'i-clock', filter:function(x){ return x.yaslandirma === '1-30 gün'; } },
+          { key:'a60', label:'31-60 gün', icon:'i-hourglass', filter:function(x){ return x.yaslandirma === '31-60 gün'; } },
+          { key:'a60p', label:'60+ gün', icon:'i-x-circle', filter:function(x){ return x.yaslandirma === '60+ gün'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Tahsilat', width:'16%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.musteriAd; },
+            render:function(x){ return linkCell('app-tahsilat.html', x.kod) + sub(esc(x.musteriAd)); } },
+          { key:'fatura', label:'Fatura',
+            render:function(x){ return '<a class="cell-code" href="app-fatura.html">' + esc(x.fatura) + '</a>'; } },
+          { key:'musteriKisa', label:'Müşteri',
+            exportValue:function(x){ return x.musteriAd; },
+            render:function(x){ return linkCell('app-musteri.html', x.musteriKisa) +
+              '<span class="cell-code">' + esc(x.musteri) + '</span>'; } },
+          colMoney('tutar', 'Geciken tutar', { tone:function(){ return 'danger'; } }),
+          colDate('vade', 'Vade'),
+          { key:'gecikmeGun', label:'Gecikme', cellClass:'num',
+            sortValue:function(x){ return x.gecikmeGun; }, exportValue:function(x){ return x.gecikmeGun; },
+            render:function(x){ return '<span class="u-num u-danger u-b">' + F.num(x.gecikmeGun) + ' gün</span>'; } },
+          { key:'yaslandirma', label:'Yaşlandırma',
+            render:function(x){ return GV.badge(x.yaslandirma,
+              x.yaslandirma === '60+ gün' ? 'is-danger' : x.yaslandirma === '31-60 gün' ? 'is-warn' : 'is-info'); } },
+          colKisi('sorumlu', 'Takip sorumlusu'),
+          { key:'sonAksiyon', label:'Son aksiyon', width:'20%', cellClass:'cell-wrap', sortable:false,
+            render:function(x){ return '<span class="cell-main">' + esc(x.sonAksiyon) + '</span>' +
+              sub(F.date(x.sonAksiyonTarihi)); } },
+          { key:'projeAd', label:'Proje', visible:false,
+            render:function(x){ return x.proje ? linkCell('app-butce.html', x.projeAd) : faint('Projesiz'); } },
+          colDurum('durum', 'Durum')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-tahsilat.html', x.kod) + mnyTone(x.tutar, 'danger'),
+            esc(x.musteriAd) + ' · Vade ' + F.date(x.vade),
+            [ico('i-receipt','ic-sm') + esc(x.fatura), ico('i-user','ic-sm') + esc(x.sorumluAd)],
+            GV.badge(x.gecikmeGun + ' gün gecikti', 'is-danger') + GV.badge(x.yaslandirma, 'is-warn'));
+        },
+        emptyState:bos('Geciken ödeme yok', 'Seçilen kapsamda vadesi geçmiş tahsilat bulunmuyor.', 'i-check-circle') }) },
+
+    /* ============================================================
+       15 · AYLIK GELİR TAHMİNİ
+       ============================================================ */
+    { key:'aylikgelir', label:'Aylık gelir tahmini', icon:'i-chart-bar', group:'Nakit',
+      title:'Aylık Gelir Tahmini',
+      desc:'Gerçekleşen faturalanan gelir ile ileriye dönük gelir tahmininin ay ay karşılaştırması. Tahmin iki bileşenden oluşur: henüz faturalanmamış milestone ödemeleri ve açık fırsatların olasılıkla ağırlıklandırılmış geliri. Gerçekleşen seri referans ayında (' + ayEt(AY_KEY) + ') biter, tahmin serisi oradan devam eder.',
+      rows:function(f){
+        var inv = baseInvoices(f), ms = acikMilestones(f);
+        var leads = leadRows(f).filter(function(x){ return x.sonuc === 'Sürüyor'; });
+        var aylar = aySirala(
+          inv.map(function(i){ return ay(i.tarih); })
+            .concat(ms.map(function(m){ return ay(m.tarih); }))
+            .concat(leads.map(function(l){ return ay(l.kapanisTahmini); }))
+        );
+        return aylar.map(function(k){
+          var fi = inv.filter(function(i){ return ay(i.tarih) === k; });
+          var mi = ms.filter(function(m){ return ay(m.tarih) === k; });
+          var li = leads.filter(function(l){ return ay(l.kapanisTahmini) === k; });
+          var msT = sum(mi, function(m){ return m.odeme; });
+          var pipT = sum(li, function(l){ return l.agirlikli; });
+          return {
+            kod:k, ay:ayEt(k), donem:k,
+            faturalanan:sum(fi, function(i){ return i.toplam; }), faturaAdet:fi.length,
+            tahsilEdilen:sum(fi.filter(function(i){ return i.durum === 'Ödendi'; }), function(i){ return i.toplam; }),
+            milestone:msT, pipeline:pipT, tahmini:msT + pipT,
+            firsatAdet:li.length,
+            tip:k < AY_KEY ? 'Gerçekleşen' : k === AY_KEY ? 'Referans ay' : 'Tahmin'
+          };
+        });
+      },
+      kpis:[
+        { label:'Toplam faturalanan', icon:'i-receipt', tone:'info', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.faturalanan; }); },
+          meta:function(r){ return ico('i-calendar','ic-sm') + ' ' + F.num(r.length) + ' ay · ' +
+            F.num(sum(r, function(x){ return x.faturaAdet; })) + ' fatura'; }, metaTone:'flat' },
+        { label:'Toplam tahsil edilen', icon:'i-check-circle', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.tahsilEdilen; }); } },
+        { label:'Önümüzdeki 3 ay tahmini', icon:'i-trend-up', tone:'purple', format:F.moneyK,
+          calc:function(r){
+            var ileri = r.filter(function(x){ return x.donem >= AY_KEY; }).slice(0, 3);
+            return sum(ileri, function(x){ return x.tahmini; }); } },
+        { label:'Ortalama aylık gelir', icon:'i-chart-bar', tone:'warn', format:F.moneyK,
+          calc:function(r){
+            var g = r.filter(function(x){ return x.faturalanan > 0; });
+            return g.length ? Math.round(sum(g, function(x){ return x.faturalanan; }) / g.length) : 0; } }
+      ],
+      charts:function(r){
+        var labels = r.map(function(x){ return x.ay; });
+        var gercek = r.map(function(x){ return x.donem <= AY_KEY ? x.faturalanan : 0; });
+        var tahmin = r.map(function(x){ return x.donem >= AY_KEY ? x.tahmini : 0; });
+        var bar = r.map(function(x){ return { label:x.ay, value:x.faturalanan, value2:x.tahsilEdilen }; });
+        return [
+          { title:'Gerçekleşen gelir ve gelir tahmini', sub:'birinci seri faturalanan gerçekleşen gelir · ikinci seri ileriye dönük tahmin',
+            wide:true,
+            html:GV.chart.line([{ values:gercek }, { values:tahmin }], labels, { money:true, label:'Aylık gelir' }),
+            legend:[{ label:'Gerçekleşen faturalanan gelir (bin ₺)', value:bin(gercek.reduce(function(a, b){ return a + b; }, 0)) },
+                    { label:'Tahmini gelir (bin ₺)', value:bin(tahmin.reduce(function(a, b){ return a + b; }, 0)) }] },
+          { title:'Aylık faturalanan ve tahsil edilen', sub:'koyu sütun faturalanan · açık sütun tahsil edilen', wide:true,
+            html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Faturalanan (bin ₺)', value:bin(sum(r, function(x){ return x.faturalanan; })) },
+                    { label:'Tahsil edilen (bin ₺)', value:bin(sum(r, function(x){ return x.tahsilEdilen; })) }] }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-aylik-gelir', exportTitle:'Aylık Gelir Tahmini Raporu',
+        defaultSort:'ay', defaultDir:'asc', pageSize:25,
+        search:{ placeholder:'Ay ara (ör. Ağu 26)', fields:['kod','ay','tip'] },
+        columns:[
+          { key:'ay', label:'Dönem', width:'14%', locked:true,
+            sortValue:function(x){ return x.donem; },
+            exportValue:function(x){ return x.donem; },
+            render:function(x){ return linkCell('app-fatura.html', x.ay) +
+              '<span class="cell-code">' + esc(x.donem) + '</span>'; } },
+          colMoney('faturalanan', 'Faturalanan gelir', { sub:function(x){ return x.faturaAdet + ' fatura'; } }),
+          colMoney('tahsilEdilen', 'Tahsil edilen'),
+          colMoney('milestone', 'Milestone tahmini', { sub:function(x){ return 'faturalanmamış'; } }),
+          colMoney('pipeline', 'Ağırlıklı pipeline', { sub:function(x){ return x.firsatAdet + ' açık fırsat'; } }),
+          colMoney('tahmini', 'Toplam tahmin'),
+          { key:'tip', label:'Dönem tipi',
+            render:function(x){ return GV.badge(x.tip,
+              x.tip === 'Gerçekleşen' ? 'is-ok' : x.tip === 'Referans ay' ? 'is-accent' : 'is-info'); } }
+        ],
+        mobile:function(x){
+          return mRow('<span class="cell-main">' + esc(x.ay) + '</span>' + mny(x.faturalanan), esc(x.donem),
+            [ico('i-check-circle','ic-sm') + F.moneyK(x.tahsilEdilen),
+             ico('i-trend-up','ic-sm') + F.moneyK(x.tahmini)],
+            GV.badge(x.tip, x.tip === 'Gerçekleşen' ? 'is-ok' : x.tip === 'Referans ay' ? 'is-accent' : 'is-info'));
+        },
+        emptyState:bos('Gelir dönemi yok', 'Seçilen kapsamda fatura ya da gelir tahmini kaydı bulunmuyor.', 'i-chart-bar') }) },
+
+    /* ============================================================
+       16 · NAKİT AKIŞ TAHMİNİ
+       ============================================================ */
+    { key:'nakit', label:'Nakit akış tahmini', icon:'i-trend-up', group:'Nakit',
+      title:'Nakit Akış Tahmini',
+      desc:'Kasaya giren ve girmesi beklenen nakdin ay ay projeksiyonu. Gerçekleşen giriş tahsil edilmiş ödemelerden, tahmini giriş bekleyen/geciken tahsilatlar, faturalanmamış milestone ödemeleri ve ağırlıklı pipeline gelirinden oluşur. Kümülatif sütun dönem sonu nakit pozisyonunu verir.',
+      rows:function(f){
+        var pay = paymentRows(f);
+        var ms = acikMilestones(f);
+        var leads = leadRows(f).filter(function(x){ return x.sonuc === 'Sürüyor'; });
+        var odenen = pay.filter(function(x){ return x.durum === 'Ödendi'; });
+        var acik = pay.filter(function(x){ return x.durum !== 'Ödendi'; });
+        var aylar = aySirala(
+          odenen.map(function(x){ return ay(x.tahsilTarihi || x.vade); })
+            .concat(acik.map(function(x){ return ay(x.vade); }))
+            .concat(ms.map(function(m){ return ay(m.tarih); }))
+            .concat(leads.map(function(l){ return ay(l.kapanisTahmini); }))
+        );
+        var kum = 0;
+        return aylar.map(function(k){
+          var g = sum(odenen.filter(function(x){ return ay(x.tahsilTarihi || x.vade) === k; }), function(x){ return x.tutar; });
+          var b = sum(acik.filter(function(x){ return ay(x.vade) === k; }), function(x){ return x.tutar; });
+          var riskli = sum(acik.filter(function(x){ return ay(x.vade) === k && x.gecikmeGun > 0; }), function(x){ return x.tutar; });
+          var m = sum(ms.filter(function(x){ return ay(x.tarih) === k; }), function(x){ return x.odeme; });
+          var p = sum(leads.filter(function(l){ return ay(l.kapanisTahmini) === k; }), function(l){ return l.agirlikli; });
+          var tahmin = b + m + p;
+          kum += g + tahmin;
+          return {
+            kod:k, ay:ayEt(k), donem:k, gerceklesen:g, beklenen:b, riskli:riskli,
+            milestone:m, pipeline:p, tahmini:tahmin, toplam:g + tahmin, kumulatif:kum,
+            tip:k < AY_KEY ? 'Gerçekleşen' : k === AY_KEY ? 'Referans ay' : 'Tahmin'
+          };
+        });
+      },
+      kpis:[
+        { label:'Gerçekleşen nakit girişi', icon:'i-check-circle', tone:'ok', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.gerceklesen; }); } },
+        { label:'30 gün içinde beklenen', icon:'i-hourglass', tone:'warn', format:F.moneyK,
+          calc:function(r, f){
+            return sum(paymentRows(f).filter(function(x){
+              return x.durum !== 'Ödendi' && x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 30;
+            }), function(x){ return x.tutar; }); } },
+        { label:'Riskli (geciken) giriş', icon:'i-alert', tone:'danger', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.riskli; }); } },
+        { label:'Dönem sonu nakit pozisyonu', icon:'i-trend-up', tone:'purple', format:F.moneyK,
+          calc:function(r){ return r.length ? r[r.length - 1].kumulatif : 0; } }
+      ],
+      charts:function(r){
+        var labels = r.map(function(x){ return x.ay; });
+        var gercek = r.map(function(x){ return x.gerceklesen; });
+        var tahmin = r.map(function(x){ return x.tahmini; });
+        var bar = r.map(function(x){ return { label:x.ay, value:x.beklenen, value2:x.milestone + x.pipeline }; });
+        return [
+          { title:'Gerçekleşen ve tahmini nakit girişi', sub:'birinci seri tahsil edilen · ikinci seri beklenen giriş',
+            wide:true,
+            html:GV.chart.line([{ values:gercek }, { values:tahmin }], labels, { money:true, label:'Nakit akışı' }),
+            legend:[{ label:'Gerçekleşen giriş (bin ₺)', value:bin(gercek.reduce(function(a, b){ return a + b; }, 0)) },
+                    { label:'Tahmini giriş (bin ₺)', value:bin(tahmin.reduce(function(a, b){ return a + b; }, 0)) }] },
+          { title:'Tahmini girişin kaynağı', sub:'koyu sütun bekleyen tahsilat · açık sütun milestone ve pipeline', wide:true,
+            html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Bekleyen tahsilat (bin ₺)', value:bin(sum(r, function(x){ return x.beklenen; })) },
+                    { label:'Milestone + pipeline (bin ₺)', value:bin(sum(r, function(x){ return x.milestone + x.pipeline; })) }] }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-nakit-akis', exportTitle:'Nakit Akış Tahmini Raporu',
+        defaultSort:'ay', defaultDir:'asc', pageSize:25,
+        search:{ placeholder:'Ay ara (ör. Eyl 26)', fields:['kod','ay','tip'] },
+        columns:[
+          { key:'ay', label:'Dönem', width:'14%', locked:true,
+            sortValue:function(x){ return x.donem; },
+            exportValue:function(x){ return x.donem; },
+            render:function(x){ return linkCell('app-tahsilat.html', x.ay) +
+              '<span class="cell-code">' + esc(x.donem) + '</span>'; } },
+          colMoney('gerceklesen', 'Gerçekleşen giriş'),
+          colMoney('beklenen', 'Bekleyen tahsilat',
+            { sub:function(x){ return x.riskli ? 'riskli ' + F.moneyK(x.riskli) : 'gecikme yok'; } }),
+          colMoney('milestone', 'Faturalanmamış milestone'),
+          colMoney('pipeline', 'Ağırlıklı pipeline'),
+          colMoney('tahmini', 'Tahmini giriş'),
+          colMoney('toplam', 'Dönem toplamı', { visible:false }),
+          colMoney('kumulatif', 'Kümülatif pozisyon'),
+          { key:'tip', label:'Dönem tipi',
+            render:function(x){ return GV.badge(x.tip,
+              x.tip === 'Gerçekleşen' ? 'is-ok' : x.tip === 'Referans ay' ? 'is-accent' : 'is-info'); } }
+        ],
+        mobile:function(x){
+          return mRow('<span class="cell-main">' + esc(x.ay) + '</span>' + mny(x.toplam), esc(x.donem),
+            [ico('i-check-circle','ic-sm') + F.moneyK(x.gerceklesen),
+             ico('i-hourglass','ic-sm') + F.moneyK(x.tahmini),
+             ico('i-trend-up','ic-sm') + F.moneyK(x.kumulatif)],
+            GV.badge(x.tip, x.tip === 'Gerçekleşen' ? 'is-ok' : x.tip === 'Referans ay' ? 'is-accent' : 'is-info') +
+            (x.riskli ? GV.badge('Riskli ' + F.moneyK(x.riskli), 'is-danger') : ''));
+        },
+        emptyState:bos('Nakit akış dönemi yok', 'Seçilen kapsamda tahsilat ya da beklenen giriş kaydı bulunmuyor.', 'i-trend-up') }) }
+
+    ]
+  });
+});
+</script>
+</body>
+</html>
