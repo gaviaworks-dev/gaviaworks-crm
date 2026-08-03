@@ -578,6 +578,7 @@
     'app-butce.html',
     'app-sohbet.html',
     'app-ajanda.html',
+    'app-rapor.html',
     'app-rapor-musteri.html',
     'app-rapor-referans.html',
     'app-rapor-filo.html',
@@ -680,15 +681,22 @@
         '<div class="ph-sub" data-listcount>' + esc(cfg.sub || '—') + '</div>' +
       '</div>' +
       (cfg.actions && cfg.actions.length
-        ? '<div class="ph-actions">' + cfg.actions.map(function(a){
+        ? '<div class="ph-actions">' + cfg.actions.map(function(a, i){
             var inner = (a.icon ? ico(a.icon) + ' ' : '') + esc(a.label);
             return a.href
               ? '<a class="btn ' + (a.cls || 'btn-line') + '" href="' + a.href + '">' + inner + '</a>'
               : '<button type="button" class="btn ' + (a.cls || 'btn-line') + '"' +
-                (a.id ? ' id="' + a.id + '"' : '') + '>' + inner + '</button>';
+                (a.id ? ' id="' + a.id + '"' : '') + ' data-ph-act="' + i + '">' + inner + '</button>';
           }).join('') + '</div>'
         : '') +
       '</div>';
+
+    /* href'siz aksiyonlara run(ev) bağla — sahte buton bırakılmaz */
+    (cfg.actions || []).forEach(function(a, i){
+      if(a.href || typeof a.run !== 'function') return;
+      var btn = document.querySelector('.ph-actions [data-ph-act="' + i + '"]');
+      if(btn) btn.addEventListener('click', function(ev){ a.run(ev, btn); });
+    });
   };
 
   /* ===================================================================
