@@ -615,6 +615,7 @@
     'app-ayar-arsiv.html',
     'app-ayar-sirket.html',
     'app-ayar-onay.html',
+    'app-panel-duyurular.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
