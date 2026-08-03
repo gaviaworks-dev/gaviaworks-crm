@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Satın Alma — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satinalma" data-screen="talep">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  GV.pageHead({ eyebrow:'Tedarik', title:'Satın Alma Talepleri',
+    actions:[{ label:'Siparişler', icon:'i-truck', href:'app-siparis.html' },
+             { label:'Yeni Talep', icon:'i-plus', cls:'btn-acc', href:'app-satinalma-form.html' }] });
+  var zincir = function(k){ return DB.purchaseApprovals.filter(function(a){ return a.talep === k; }); };
+  GV.list({
+    mount:'#liste', id:'satinalma', key:'kod', source:function(){ return DB.purchases; },
+    exportName:'satin-alma-talepleri', exportTitle:'Satın Alma Talepleri', pageSize:10, views:['table','kanban'],
+    search:{ placeholder:'Talep no, ürün, kategori veya gerekçe ara', fields:['kod','urun','kategori','aciklama','gerekce','butceKodu'] },
+    defaultSort:'ihtiyacTarihi',
+    kpis:[
+      { label:'Açık talep', icon:'i-cart', calc:function(a){ return a.filter(function(x){ return ['Teslim alındı','İptal'].indexOf(x.durum) === -1; }).length; } },
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length; } },
+      { label:'Bekleyen tutar', icon:'i-wallet', tone:'info', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum === 'Onay bekliyor'; })
+          .reduce(function(s,x){ return s + x.tahminiMaliyet; }, 0) : 0; } },
+      { label:'Bu yıl satın alma', icon:'i-truck', tone:'ok', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum === 'Teslim alındı'; })
+          .reduce(function(s,x){ return s + x.tahminiMaliyet; }, 0) : 0; } }
+    ],
+    tabs:[
+      { key:'acik', label:'Açık Talepler', icon:'i-cart', filter:function(x){ return ['Teslim alındı','İptal'].indexOf(x.durum) === -1; } },
+      { key:'taslak', label:'Taslak', icon:'i-edit', filter:function(x){ return x.durum === 'Taslak'; } },
+      { key:'onay', label:'Onay Bekleyenler', icon:'i-stamp', filter:function(x){ return x.durum === 'Onay bekliyor'; } },
+      { key:'siparis', label:'Sipariş Verilenler', icon:'i-truck', filter:function(x){ return x.durum === 'Sipariş verildi'; } },
+      { key:'teslim', label:'Teslim Alınanlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Teslim alındı'; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'urun', label:'Talep', width:'24%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-satinalma-detay.html?id=' + x.kod + '">' + esc(x.urun) + '</a>' +
+                 '<span class="cell-sub">' + esc(x.aciklama) + '</span><span class="cell-code">' + x.kod + '</span>'; } },
+      { key:'kategori', label:'Kategori', render:function(x){ return '<span class="tag">' + esc(x.kategori) + '</span>'; } },
+      { key:'talepEden', label:'Talep eden', render:function(x){
+          return GV.user(x.talepEden, { sm:true }) + '<span class="cell-sub">' + esc(DB.depName(x.dep)) + '</span>'; },
+        sortValue:function(x){ return DB.empName(x.talepEden); }, exportValue:function(x){ return DB.empName(x.talepEden); } },
+      { key:'miktar', label:'Miktar', cellClass:'num' },
+      { key:'tahminiMaliyet', label:'Tahmini maliyet', cellClass:'num', render:function(x){
+          return canFinans ? '<span class="cell-money">' + F.money(x.tahminiMaliyet) + '</span>' : '<span class="cell-mask">••••••</span>'; },
+        exportValue:function(x){ return canFinans ? x.tahminiMaliyet : ''; } },
+      { key:'butceKodu', label:'Bütçe kodu', visible:false },
+      { key:'gerekce', label:'Gerekçe', visible:false, cellClass:'cell-wrap' },
+      { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
+      { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', render:function(x){ return GV.dateCell(x.ihtiyacTarihi, { done:x.durum === 'Teslim alındı' }); } },
+      { key:'onayAdim', label:'Onay ilerlemesi', sortValue:function(x){ return x.onayAdim / Math.max(1, x.onayToplam); },
+        render:function(x){ return GV.progress(Math.round(x.onayAdim / Math.max(1, x.onayToplam) * 100)) +
+          '<span class="cell-sub">' + x.onayAdim + ' / ' + x.onayToplam + ' onay</span>'; },
+        exportValue:function(x){ return x.onayAdim + '/' + x.onayToplam; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[
+      { key:'durum', label:'Talep durumu', type:'multi', options:['Taslak','Onay bekliyor','Sipariş verildi','Teslim alındı','İptal'] },
+      { key:'kategori', label:'Kategori', type:'multi', options:DB.assetCategories },
+      { key:'dep', label:'Talep eden departman', type:'multi', options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'talepEden', label:'Talep eden', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'oncelik', label:'Öncelik', type:'multi', options:DB.priorities },
+      { key:'tahminiMaliyet', label:'Tutar (en az)', type:'text', test:function(x,v){ return x.tahminiMaliyet >= (parseFloat(v) || 0); } },
+      { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return (x.ihtiyacTarihi && F.days(x.ihtiyacTarihi) < 0 && x.durum !== 'Teslim alındı') ? 'is-late' : ''; },
+    kanban:{ groupBy:'durum', columns:['Taslak','Onay bekliyor','Sipariş verildi','Teslim alındı'],
+      card:function(x){
+        return '<a class="gv-kcard-title" href="app-satinalma-detay.html?id=' + x.kod + '">' + esc(x.urun) + '</a>' +
+          '<div class="gv-kcard-meta"><span>' + esc(x.kategori) + '</span>' + GV.pri(x.oncelik) + '</div>' +
+          '<div class="gv-kcard-meta">' + (canFinans ? '<span class="cell-money">' + F.money(x.tahminiMaliyet) + '</span>' : '') +
+          GV.user(x.talepEden, { sm:true }) + '</div>'; } },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-satinalma-detay.html?id=' + x.kod + '">' + esc(x.urun) + '</a>' +
+        GV.pri(x.oncelik) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.kategori) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-user','ic-sm') + esc(DB.empName(x.talepEden)) + '</span>' +
+        (canFinans ? '<span>' + GV.ico('i-wallet','ic-sm') + F.money(x.tahminiMaliyet) + '</span>' : '') + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span></div>';
+    },
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Talebi aç', href:function(x){ return 'app-satinalma-detay.html?id=' + x.kod; } },
+      { key:'zincir', icon:'i-stamp', label:'Onay zinciri', run:function(x){
+          var z = zincir(x.kod);
+          GV.modal({ title:'Onay Zinciri', text:x.kod + ' · ' + x.urun + ' · ' + F.money(x.tahminiMaliyet),
+            icon:'i-stamp', size:'lg',
+            body:z.length ? GV.chain(z.map(function(a){
+              return { rol:a.rol, kisi:DB.empName(a.kisi), durum:a.durum, tarih:a.tarih, not:a.not };
+            })) : '<p class="u-sm u-muted">Bu talep için onay zinciri tanımlanmamış. Tutar ve kategoriye göre onay makamları otomatik belirlenir.</p>',
+            actions:[{ label:'Kapat', cls:'btn-acc' }] }); } },
+      { key:'onayla', icon:'i-check', label:'Onayla', run:function(x, refresh){
+          if(!GV.perm.can('onay')){ GV.toast('Satın alma onaylama yetkiniz yok.', 'danger'); return; }
+          if(x.durum !== 'Onay bekliyor'){ GV.toast('Bu talep onay aşamasında değil.', 'info'); return; }
+          GV.confirm({ title:'Satın alma talebini onayla',
+            text:x.urun + ' · ' + F.money(x.tahminiMaliyet) + ' — onayınızla ' + (x.onayAdim + 1) + '. adım tamamlanacak.',
+            okLabel:'Onayla' }).then(function(ok){ if(!ok) return;
+              var z = zincir(x.kod).filter(function(a){ return a.durum === 'Bekliyor'; })[0];
+              if(z){ z.durum = 'Onaylandı'; z.tarih = DB.today + 'T09:00'; }
+              x.onayAdim += 1;
+              if(x.onayAdim >= x.onayToplam){ x.durum = 'Sipariş verildi';
+                GV.toast(x.kod + ' tüm onayları aldı, sipariş aşamasına geçti', 'ok'); }
+              else GV.toast(x.kod + ' onaylandı — ' + (x.onayToplam - x.onayAdim) + ' onay kaldı', 'ok');
+              refresh(); }); } }
+    ],
+    bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-cart', title:'Bu görünümde satın alma talebi yok',
+      desc:'Talepler tutar ve kategoriye göre çok aşamalı onaydan geçer, onaylanınca siparişe dönüşür.',
+      action:'<a class="btn btn-acc" href="app-satinalma-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Talep</a>' }
+  });
+
+});
+</script>
+</body>
+</html>
