@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Otomasyon Kuralları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="otomasyon">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var canEdit = GV.perm.can('duzenle');
+  var L = null;
+
+  /* =================================================================
+     Türetilmiş alanlar — DB.automations'ta kategori / koşul / son
+     çalışma alanı YOK. Aşağıdaki üç fonksiyon bu üç sütunu kuralın
+     kendi metninden türetir; uydurma veri yazılmaz.
+     ================================================================= */
+
+  /* Kategori — kuralın hangi modülün olayını dinlediği (kod ekseni) */
+  var KAT = {
+    'OTO-001':'Görev', 'OTO-002':'Görev', 'OTO-003':'Görev', 'OTO-004':'Görev',
+    'OTO-005':'Görev', 'OTO-006':'Görev', 'OTO-007':'Görev', 'OTO-008':'Görev',
+    'OTO-009':'Görev', 'OTO-010':'Görev', 'OTO-011':'Görev', 'OTO-012':'Destek',
+    'OTO-013':'Satış', 'OTO-014':'Satış', 'OTO-015':'Filo', 'OTO-016':'Finans',
+    'OTO-017':'Destek', 'OTO-018':'İK', 'OTO-019':'Yönetim', 'OTO-020':'Yönetim',
+    'OTO-021':'Varlık', 'OTO-022':'İK'
+  };
+  function kategori(x){ return KAT[x.kod] || 'Diğer'; }
+
+  /* Tetikleyici türü — tetikleyici metninden çıkarılır */
+  function tur(x){
+    var s = String(x.tetikleyici || '').toLocaleLowerCase('tr');
+    if(/%/.test(s)) return 'Oran eşikli';
+    if(/her gün|her pazartesi|periyot|\d{2}:\d{2}/.test(s)) return 'Zamanlanmış';
+    if(/kala|sonra|geçtiğinde|aşıldığında|dolduğunda|altında/.test(s)) return 'Zaman eşikli';
+    return 'Olay tabanlı';
+  }
+  var TURLER = ['Olay tabanlı','Zaman eşikli','Oran eşikli','Zamanlanmış'];
+
+  /* Koşul — tetikleyicideki eşik ifadesi (süre, oran, plan saati) */
+  function kosul(x){
+    var s = String(x.tetikleyici || '');
+    var m = s.match(/%\s?\d+|(?:\d+\s*\/\s*)+\d+\s*gün|\d+\s*(?:günde bir|gün|saat)/);
+    if(m) return m[0].replace(/\s+/g,' ').trim();
+    var t = tur(x);
+    if(t === 'Zamanlanmış'){
+      var saat = s.match(/\d{2}:\d{2}/);
+      return saat ? 'Plan saati ' + saat[0] : 'Tanımlı periyot';
+    }
+    if(t === 'Zaman eşikli') return 'Süre doldu';
+    return null; /* koşulsuz — olay anında çalışır */
+  }
+
+  /* Son çalışma — yalnızca plan saati BELLİ zamanlanmış kurallar için
+     DB.today ekseninden türetilir. Olay tetiklemeli kurallarda çalışma
+     günlüğü verisi olmadığı için değer üretilmez. */
+  function sonCalisma(x){
+    if(tur(x) !== 'Zamanlanmış') return null;
+    var saat = String(x.tetikleyici || '').match(/\d{2}:\d{2}/);
+    if(!saat) return null;
+    var d = new Date(DB.today + 'T00:00:00');
+    var hedefGun = /pazartesi/i.test(x.tetikleyici) ? 1 : /cuma/i.test(x.tetikleyici) ? 5 : null;
+    if(hedefGun !== null) d.setDate(d.getDate() - ((d.getDay() - hedefGun + 7) % 7));
+    var ay = ('0' + (d.getMonth() + 1)).slice(-2), gun = ('0' + d.getDate()).slice(-2);
+    return d.getFullYear() + '-' + ay + '-' + gun + 'T' + saat[0];
+  }
+
+  /* Hedef roller — "Sorumlu, yönetici" gibi alanlar tekilleştirilir */
+  function hedefler(x){
+    return String(x.kullanici || '').split(/\s*,\s*/).filter(function(v){ return v; });
+  }
+  var HEDEF_LISTE = (function(){
+    var out = [];
+    DB.automations.forEach(function(x){
+      hedefler(x).forEach(function(h){ if(out.indexOf(h) === -1) out.push(h); });
+    });
+    return out.sort(function(a,b){ return a.localeCompare(b,'tr'); });
+  })();
+
+  function aktifMi(x){ return x.aktif !== false; }
+  function setAktif(x, on){ x.aktif = !!on; x.durum = on ? 'Aktif' : 'Pasif'; }
+
+  /* =================================================================
+     Kuru çalıştırma — kuralın hedef koleksiyonundaki eşleşen kayıt
+     sayısını GERÇEKTEN sayar. Sayılamayan kurallarda 'not' döner.
+     ================================================================= */
+  var BITMIS = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  function gorevler(fn){ return DB.tasks.filter(fn).length; }
+
+  var DENEME = {
+    'OTO-001':{ hedef:'Görevler', say:function(){ return gorevler(function(t){
+        return t.sorumlu && ['Atandı','Kabul bekliyor'].indexOf(t.durum) !== -1; }); } },
+    'OTO-002':{ hedef:'Görevler', say:function(){ return gorevler(function(t){ return t.durum === 'Kabul bekliyor'; }); } },
+    'OTO-003':{ hedef:'Görevler', say:function(){ return gorevler(function(t){
+        var d = F.days(t.termin); return d !== null && d >= 0 && d <= 2 && BITMIS.indexOf(t.durum) === -1; }); } },
+    'OTO-004':{ hedef:'Görevler', say:function(){ return gorevler(function(t){
+        var d = F.days(t.termin); return d !== null && d < 0 && BITMIS.indexOf(t.durum) === -1; }); } },
+    'OTO-005':{ hedef:'Görev bağımlılıkları', say:function(){
+        return DB.taskDeps.filter(function(b){
+          var oncul = DB.tasks.filter(function(t){ return t.kod === b.bagimli; })[0];
+          return oncul && oncul.durum === 'Tamamlandı'; }).length; } },
+    'OTO-006':{ hedef:'Görevler', say:function(){ return gorevler(function(t){ return t.durum === 'Kontrol bekliyor'; }); } },
+    'OTO-007':{ hedef:'Görevler', say:function(){ return gorevler(function(t){
+        return ['Revize bekliyor','Revizede'].indexOf(t.durum) !== -1; }); } },
+    'OTO-008':{ hedef:'Görevler', say:function(){ return gorevler(function(t){ return t.tur === 'Tekrarlayan görev'; }); } },
+    'OTO-009':{ hedef:'Kapasite kayıtları', say:function(){
+        return DB.capacity.filter(function(c){ return c.doluluk >= 95; }).length; } },
+    'OTO-010':{ not:'Sohbet mesajlarında görev bağlantısı alanı tutulmuyor — eşleşme sayılamıyor.' },
+    'OTO-011':{ hedef:'Toplantı kararları', say:function(){
+        return DB.decisions.filter(function(k){ return !!k.gorev; }).length; } },
+    'OTO-012':{ hedef:'Destek kayıtları', say:function(){
+        return DB.tickets.filter(function(d){ return d.kategori === 'Geliştirme talebi'; }).length; } },
+    'OTO-013':{ hedef:'Teklifler', say:function(){
+        return DB.quotes.filter(function(q){
+          var d = F.days(q.gecerlilik);
+          return d !== null && d >= 0 && d <= 5 && ['Kazanıldı','Kaybedildi'].indexOf(q.durum) === -1; }).length; } },
+    'OTO-014':{ hedef:'Müşteri adayları', say:function(){
+        return DB.leads.filter(function(l){
+          var d = F.days(l.sonIletisim);
+          return d !== null && d <= -14 && ['Kazanıldı','Kaybedildi'].indexOf(l.asama) === -1; }).length; } },
+    'OTO-015':{ hedef:'Bakım · muayene · poliçe', say:function(){
+        function yakin(a){ return a.filter(function(r){ return r.kalanGun != null && r.kalanGun <= 60; }).length; }
+        return yakin(DB.maintenance) + yakin(DB.inspections) + yakin(DB.policies); } },
+    'OTO-016':{ hedef:'Faturalar', say:function(){
+        return DB.invoices.filter(function(f){
+          var d = F.days(f.vade); return d !== null && d < 0 && f.durum !== 'Ödendi'; }).length; } },
+    'OTO-017':{ hedef:'Destek kayıtları', say:function(){
+        return DB.tickets.filter(function(d){ return d.slaDurum && d.slaDurum !== 'Zamanında'; }).length; } },
+    'OTO-018':{ hedef:'Zaman kayıtları', say:function(){
+        return DB.timesheets.filter(function(t){ return t.eksik > 0 || t.toplam < 40; }).length; } },
+    'OTO-019':{ not:'Zamanlanmış özet — tek kayda değil, günün tamamına bakar; eşleşme sayısı üretmez.' },
+    'OTO-020':{ not:'Zamanlanmış özet — tek kayda değil, haftanın tamamına bakar; eşleşme sayısı üretmez.' },
+    'OTO-021':{ hedef:'Demirbaşlar', say:function(){
+        return DB.assets.filter(function(d){
+          var g = F.days(d.garantiBit); return g !== null && g >= 0 && g <= 30; }).length; } },
+    'OTO-022':{ hedef:'Zimmetler', say:function(){
+        return DB.assignments.filter(function(z){ return z.durum === 'Aktif' && !z.iadeTarihi; }).length; } }
+  };
+  function deneme(x){ return DENEME[x.kod] || { not:'Bu kural için hedef koleksiyon tanımlı değil — eşleşme sayılamıyor.' }; }
+  function eslesme(x){ var d = deneme(x); return d.say ? d.say() : null; }
+
+  /* =================================================================
+     Sayfa başlığı + yetki uyarısı
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Otomasyon Kuralları',
+    actions:[
+      { label:'Bildirim Tercihleri', icon:'i-bell', href:'app-ayar-bildirim.html' },
+      { label:'Tümünü Dene', icon:'i-play', cls:'btn-acc', run:function(){
+          var satir = DB.automations.filter(aktifMi).map(function(x){
+            var n = eslesme(x);
+            return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + x.kod + ' · ' + esc(x.ad) + '</span>' +
+              '<span class="gv-summary-val">' + (n === null ? '<span class="u-faint u-sm">sayılamıyor</span>'
+                                                            : n + ' kayıt') + '</span></div>';
+          }).join('');
+          var toplam = DB.automations.filter(aktifMi).reduce(function(s,x){ return s + (eslesme(x) || 0); }, 0);
+          GV.modal({ title:'Kuru Çalıştırma Özeti', icon:'i-play', size:'lg',
+            text:'Aktif kuralların bugünkü veriyle (' + F.date(DB.today) + ') eşlediği kayıt sayıları. Hiçbir bildirim gönderilmez.',
+            body:'<div class="gv-summary">' + satir + '</div>',
+            actions:[{ label:'Kapat', cls:'btn-acc' }] });
+          GV.toast('Kuru çalıştırma tamamlandı — toplam ' + toplam + ' kayıt eşleşti', 'ok');
+        } }
+    ]
+  });
+
+  if(!canEdit){
+    document.getElementById('uyari').innerHTML =
+      '<div class="gv-card"><div class="gc-head"><div>' +
+        '<h2 class="gc-title">' + ico('i-lock') + 'Salt okunur görünüm</h2>' +
+        '<p class="gc-sub">Rolünüzde düzenleme yetkisi yok. Kuralları görüntüleyebilir ve kuru çalıştırabilirsiniz; ' +
+        'aç/kapat anahtarları ve toplu işlemler devre dışıdır.</p>' +
+      '</div></div></div>';
+  }
+
+  /* =================================================================
+     Liste
+     ================================================================= */
+  function anahtar(x){
+    return '<label class="f-switch" title="' + (x.aktif ? 'Kuralı kapat' : 'Kuralı aç') + '">' +
+      '<input type="checkbox" data-oto="' + esc(x.kod) + '"' + (aktifMi(x) ? ' checked' : '') +
+      (canEdit ? '' : ' disabled') + ' aria-label="' + esc(x.ad) + ' kuralını aç/kapat"><span class="sw"></span></label>';
+  }
+
+  function detayDrawer(x){
+    var d = deneme(x);
+    var zincir = GV.chain([
+      { rol:'1 · Tetikleyici', kisi:x.tetikleyici, durum:tur(x) },
+      { rol:'2 · Koşul', kisi:kosul(x) || 'Koşulsuz — olay anında', durum:aktifMi(x) ? 'Kural aktif' : 'Kural pasif' },
+      { rol:'3 · İşlem', kisi:x.islem, durum:'Otomatik uygulanır' },
+      { rol:'4 · Bildirim', kisi:x.kanal.join(' · '), durum:x.kullanici, not:x.fayda }
+    ]);
+    var dl = '<dl class="gv-dl">' +
+      [['Kural kodu', x.kod], ['Kategori', esc(kategori(x))], ['Tetikleyici türü', esc(tur(x))],
+       ['Koşul', kosul(x) ? esc(kosul(x)) : 'Koşulsuz — olay anında'],
+       ['Durum', GV.badge(aktifMi(x) ? 'Aktif' : 'Pasif')],
+       ['Son çalışma', sonCalisma(x) ? F.dt(sonCalisma(x)) : 'Olay tetiklemeli — çalışma günlüğü tutulmuyor'],
+       ['Beklenen fayda', esc(x.fayda)],
+       ['Hedef alıcılar', hedefler(x).map(function(h){ return '<span class="tag">' + esc(h) + '</span>'; }).join(' ')],
+       ['Bildirim kanalları', x.kanal.map(function(k){ return '<span class="tag">' + esc(k) + '</span>'; }).join(' ')]
+      ].map(function(p){ return '<div><dt>' + esc(p[0]) + '</dt><dd>' + p[1] + '</dd></div>'; }).join('') + '</dl>';
+
+    var acts = [{ label:'Kapat', cls:'btn-line' }];
+    if(canEdit){
+      acts.push({ label:aktifMi(x) ? 'Kuralı kapat' : 'Kuralı aç', cls:'btn-acc', onClick:function(){
+        setAktif(x, !aktifMi(x));
+        GV.toast(x.kod + ' — kural ' + (aktifMi(x) ? 'açıldı' : 'kapatıldı'), aktifMi(x) ? 'ok' : 'warn');
+        if(L) L.refresh();
+      } });
+    }
+
+    GV.drawer({
+      title:x.ad,
+      body:'<div class="gv-rec-head"><div><div class="gv-rec-id"><span class="gv-rec-code">' + x.kod + '</span>' +
+             GV.badge(aktifMi(x) ? 'Aktif' : 'Pasif') + '<span class="tag">' + esc(kategori(x)) + '</span>' +
+             '<span class="tag">' + esc(tur(x)) + '</span></div>' +
+             '<div class="gv-rec-meta">' + esc(x.fayda) + '</div></div></div>' +
+           '<h3 class="gc-title u-mt-0">Zincir</h3>' + zincir +
+           dl +
+           '<p class="u-sm u-muted">Kuru çalıştırma hedefi: ' +
+             (d.say ? esc(d.hedef) + ' — şu an <b>' + d.say() + '</b> kayıt eşleşiyor.' : esc(d.not)) + '</p>',
+      actions:acts
+    });
+  }
+
+  L = GV.list({
+    mount:'#liste', id:'otomasyon', key:'kod', source:function(){ return DB.automations; },
+    exportName:'otomasyon-kurallari', exportTitle:'Otomasyon Kuralları', pageSize:10, archive:false,
+    search:{ placeholder:'Kural kodu, ad, tetikleyici veya işlem ara',
+             fields:['kod','ad','tetikleyici','islem','kullanici','kanal','fayda'] },
+    defaultSort:'kod', defaultDir:'asc',
+    kpis:[
+      { label:'Tanımlı kural', icon:'i-activity', calc:function(a){ return a.length; } },
+      { label:'Aktif kural', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(aktifMi).length; } },
+      { label:'Pasif kural', icon:'i-pause', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return !aktifMi(x); }).length; } },
+      { label:'Aktif kuralların eşlediği kayıt', icon:'i-target', tone:'info',
+        calc:function(a){ return a.filter(aktifMi).reduce(function(s,x){ return s + (eslesme(x) || 0); }, 0); } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'gorev', label:'Görev', icon:'i-tasks', filter:function(x){ return kategori(x) === 'Görev'; } },
+      { key:'satis', label:'Satış', icon:'i-funnel', filter:function(x){ return kategori(x) === 'Satış'; } },
+      { key:'finans', label:'Finans', icon:'i-wallet', filter:function(x){ return kategori(x) === 'Finans'; } },
+      { key:'destek', label:'Destek', icon:'i-support', filter:function(x){ return kategori(x) === 'Destek'; } },
+      { key:'filo', label:'Filo', icon:'i-car', filter:function(x){ return kategori(x) === 'Filo'; } },
+      { key:'ik', label:'İK', icon:'i-users', filter:function(x){ return kategori(x) === 'İK'; } },
+      { key:'varlik', label:'Varlık', icon:'i-package', filter:function(x){ return kategori(x) === 'Varlık'; } },
+      { key:'yonetim', label:'Yönetim', icon:'i-chart-bar', filter:function(x){ return kategori(x) === 'Yönetim'; } }
+    ],
+    columns:[
+      { key:'kod', label:'Kural', width:'18%', locked:true, cellClass:'cell-wrap',
+        render:function(x){ return '<span class="cell-main">' + esc(x.ad) + '</span>' +
+          '<span class="cell-code">' + x.kod + '</span>'; },
+        exportValue:function(x){ return x.kod + ' · ' + x.ad; } },
+      { key:'tetikleyici', label:'Tetikleyici', width:'17%', cellClass:'cell-wrap',
+        render:function(x){ return '<span class="cell-main">' + esc(x.tetikleyici) + '</span>' +
+          '<span class="cell-sub">' + esc(tur(x)) + '</span>'; } },
+      { key:'kosul', label:'Koşul', sortValue:function(x){ return kosul(x) || 'zzz'; },
+        render:function(x){ var k = kosul(x);
+          return k ? '<span class="tag">' + esc(k) + '</span>'
+                   : '<span class="u-faint u-sm">Koşulsuz</span>'; },
+        exportValue:function(x){ return kosul(x) || 'Koşulsuz'; } },
+      { key:'islem', label:'İşlem', width:'20%', cellClass:'cell-wrap',
+        render:function(x){ return '<span class="u-sm">' + esc(x.islem) + '</span>'; } },
+      { key:'kanal', label:'Bildirim kanalları', sortable:false,
+        render:function(x){ return x.kanal.map(function(k){ return '<span class="tag">' + esc(k) + '</span>'; }).join(' '); },
+        exportValue:function(x){ return x.kanal.join(' · '); } },
+      { key:'kullanici', label:'Hedef', sortable:false,
+        render:function(x){ return hedefler(x).map(function(h){
+          return '<span class="tag">' + esc(h) + '</span>'; }).join(' ') || '<span class="u-faint">—</span>'; } },
+      { key:'kategori', label:'Kategori', sortValue:kategori,
+        render:function(x){ return '<span class="tag">' + esc(kategori(x)) + '</span>'; },
+        exportValue:kategori },
+      { key:'sonCalisma', label:'Son çalışma', sortValue:function(x){ return sonCalisma(x) || ''; },
+        render:function(x){ var s = sonCalisma(x);
+          return s ? '<span class="cell-date">' + F.dt(s) + '</span>'
+                   : '<span class="u-faint u-sm">Olay tetiklemeli</span>'; },
+        exportValue:function(x){ return sonCalisma(x) || 'Olay tetiklemeli'; } },
+      { key:'fayda', label:'Beklenen fayda', visible:false, cellClass:'cell-wrap',
+        render:function(x){ return '<span class="u-sm u-muted">' + esc(x.fayda) + '</span>'; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(aktifMi(x) ? 'Aktif' : 'Pasif'); },
+        sortValue:function(x){ return aktifMi(x) ? 'Aktif' : 'Pasif'; },
+        exportValue:function(x){ return aktifMi(x) ? 'Aktif' : 'Pasif'; } },
+      { key:'anahtar', label:'Aç / Kapat', sortable:false, exportable:false, cellClass:'cell-sw',
+        render:anahtar }
+    ],
+    filters:[
+      { key:'kategori', label:'Kategori', type:'multi',
+        options:['Görev','Satış','Finans','Destek','Filo','İK','Varlık','Yönetim'],
+        test:function(r, v){ return v.indexOf(kategori(r)) !== -1; } },
+      { key:'tur', label:'Tetikleyici türü', type:'select', options:TURLER,
+        test:function(r, v){ return tur(r) === v; } },
+      { key:'kanal', label:'Bildirim kanalı', type:'multi', options:DB.notificationChannels,
+        test:function(r, v){ return r.kanal.some(function(k){ return v.indexOf(k) !== -1; }); } },
+      { key:'durum', label:'Kural durumu', type:'select', options:['Aktif','Pasif'],
+        test:function(r, v){ return (aktifMi(r) ? 'Aktif' : 'Pasif') === v; } },
+      { key:'kullanici', label:'Hedef rol', type:'select', options:HEDEF_LISTE,
+        test:function(r, v){ return hedefler(r).indexOf(v) !== -1; } }
+    ],
+    rowClass:function(x){ return aktifMi(x) ? '' : 'is-passive'; },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' + anahtar(x) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(kategori(x)) + ' · ' + esc(tur(x)) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + esc(x.tetikleyici) + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(aktifMi(x) ? 'Aktif' : 'Pasif') +
+          x.kanal.map(function(k){ return '<span class="tag">' + esc(k) + '</span>'; }).join(' ') + '</span></div>';
+    },
+    rowActions:[
+      { key:'detay', icon:'i-eye', label:'Kural detayı', run:function(x){ detayDrawer(x); } },
+      { key:'anahtar', icon:'i-refresh', label:'Kuralı aç / kapat', run:function(x, refresh){
+          if(!canEdit){ GV.toast('Otomasyon kurallarını değiştirme yetkiniz yok.', 'danger'); return; }
+          var kapat = aktifMi(x);
+          GV.confirm({ title:kapat ? 'Kuralı kapat' : 'Kuralı aç',
+            tone:kapat ? 'danger' : 'warn',
+            text:kapat ? x.ad + ' kuralı pasife alınacak; "' + x.tetikleyici + '" durumunda bildirim gönderilmeyecek.'
+                       : x.ad + ' kuralı aktifleşecek ve ' + x.kanal.join(', ') + ' kanallarından bildirim gönderecek.',
+            okLabel:kapat ? 'Kuralı kapat' : 'Kuralı aç' }).then(function(ok){
+              if(!ok) return;
+              setAktif(x, !kapat);
+              GV.toast(x.kod + ' — kural ' + (kapat ? 'kapatıldı' : 'açıldı'), kapat ? 'warn' : 'ok');
+              refresh();
+            }); } },
+      { key:'dene', icon:'i-play', label:'Şimdi çalıştır (deneme)', run:function(x){
+          GV.confirm({ title:'Kuralı kuru çalıştır',
+            text:x.ad + ' kuralı bugünkü veriyle (' + F.date(DB.today) + ') denenecek. Kayıt değiştirilmez, bildirim gönderilmez.',
+            okLabel:'Kuru çalıştır' }).then(function(ok){
+              if(!ok) return;
+              var d = deneme(x);
+              if(!d.say){ GV.toast(x.kod + ' kuru çalıştırıldı — ' + d.not, 'info', 6000); return; }
+              var n = d.say();
+              GV.toast(x.kod + ' kuru çalıştırıldı — ' + d.hedef + ' içinde ' + n + ' kayıt eşleşti', n ? 'ok' : 'info', 5000);
+            }); } }
+    ],
+    bulk:canEdit ? [
+      { key:'ac', label:'Seçilenleri aç', icon:'i-check',
+        confirm:'{n} kural aktifleştirilecek ve tanımlı kanallardan bildirim göndermeye başlayacak.',
+        run:function(ids){
+          ids.forEach(function(id){
+            var x = DB.automations.filter(function(r){ return r.kod === id; })[0];
+            if(x) setAktif(x, true);
+          });
+          GV.toast(ids.length + ' kural aktifleştirildi', 'ok');
+        } },
+      { key:'kapat', label:'Seçilenleri kapat', icon:'i-pause', tone:'danger',
+        confirm:'{n} kural pasife alınacak. Bu kurallar tetiklenmeyecek.',
+        run:function(ids){
+          ids.forEach(function(id){
+            var x = DB.automations.filter(function(r){ return r.kod === id; })[0];
+            if(x) setAktif(x, false);
+          });
+          GV.toast(ids.length + ' kural pasife alındı', 'warn');
+        } }
+    ] : null,
+    emptyState:{ icon:'i-activity', title:'Bu görünümde otomasyon kuralı yok',
+      desc:'Otomasyon kuralları bir olay veya süre koşulu gerçekleştiğinde ilgili kişilere bildirim gönderir ya da kayıt oluşturur.' },
+    onRender:function(){
+      Array.prototype.slice.call(document.querySelectorAll('#liste [data-oto]')).forEach(function(inp){
+        inp.addEventListener('change', function(){
+          if(!canEdit){ inp.checked = !inp.checked; return; }
+          var x = DB.automations.filter(function(r){ return r.kod === inp.dataset.oto; })[0];
+          if(!x) return;
+          setAktif(x, inp.checked);
+          GV.toast(x.kod + ' — kural ' + (inp.checked ? 'açıldı' : 'kapatıldı'), inp.checked ? 'ok' : 'warn');
+          if(L) L.refresh();
+        });
+      });
+    }
+  });
+
+});
+</script>
+</body>
+</html>
