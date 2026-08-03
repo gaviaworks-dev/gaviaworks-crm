@@ -585,6 +585,7 @@
     'app-rapor-finans.html',
     'app-rapor-proje.html',
     'app-ayar-yetki.html',
+    'app-ayar-otomasyon.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
