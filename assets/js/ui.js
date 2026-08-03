@@ -492,13 +492,20 @@
       if(!state.q) return rows;
       var q = state.q.toLocaleLowerCase('tr');
       var fields = (cfg.search && cfg.search.fields) || Object.keys(rows[0] || {});
+      /* search.extra(row) → aramaya dahil edilecek TÜRETİLMİŞ metin.
+         Kayıtta kod tutulup ekranda ad gösterilen alanlar (kisi:'EMP-012' → "Serkan Yılmaz")
+         ancak böyle aranabilir hâle gelir. */
+      var extra = cfg.search && cfg.search.extra;
       return rows.filter(function(r){
-        return fields.some(function(f){
+        var hit = fields.some(function(f){
           var v = r[f];
           if(v == null) return false;
           if(Array.isArray(v)) v = v.join(' ');
           return String(v).toLocaleLowerCase('tr').indexOf(q) !== -1;
         });
+        if(hit || !extra) return hit;
+        var ex = extra(r);
+        return ex != null && String(ex).toLocaleLowerCase('tr').indexOf(q) !== -1;
       });
     }
     function afterFilters(rows){
