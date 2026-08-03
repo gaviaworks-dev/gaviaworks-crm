@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kapasite — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="kapasite">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  GV.pageHead({ eyebrow:'İnsan Kaynakları', title:'Kapasite ve İş Yükü',
+    actions:[{ label:'Personel', icon:'i-users', href:'app-personel.html' },
+             { label:'Timesheet Onayı', icon:'i-clipboard-check', cls:'btn-acc', href:'app-zaman-onay.html' }] });
+  var acikGorev = function(k){ return DB.tasks.filter(function(t){
+    return t.sorumlu === k && ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; }); };
+  GV.list({
+    mount:'#liste', id:'kapasite', key:'personel', source:function(){ return DB.capacity; },
+    exportName:'kapasite', exportTitle:'Personel Kapasite Raporu', pageSize:25, archive:false,
+    search:{ placeholder:'Personel ara', fields:['personel'] },
+    defaultSort:'doluluk', defaultDir:'desc',
+    kpis:[
+      { label:'Ortalama doluluk', icon:'i-chart-bar', format:function(v){ return '%' + v; },
+        calc:function(a){ return a.length ? Math.round(a.reduce(function(s,c){ return s + c.doluluk; }, 0) / a.length) : 0; } },
+      { label:'Aşırı yüklü', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(c){ return c.doluluk >= 95; }).length; } },
+      { label:'Müsait kapasite', icon:'i-check-circle', tone:'ok', format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.reduce(function(s,c){ return s + Math.max(0, c.kapasite - c.planlanan); }, 0); } },
+      { label:'İzinli saat', icon:'i-calendar-check', tone:'info', format:function(v){ return v + ' gün'; },
+        calc:function(a){ return a.reduce(function(s,c){ return s + c.izin; }, 0); } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Ekip', icon:'i-users', filter:null },
+      { key:'kritik', label:'Aşırı Yüklü', icon:'i-alert', filter:function(c){ return c.doluluk >= 95; } },
+      { key:'yogun', label:'Yoğun', icon:'i-trend-up', filter:function(c){ return c.doluluk >= 85 && c.doluluk < 95; } },
+      { key:'musait', label:'Müsait', icon:'i-check-circle', filter:function(c){ return c.doluluk < 75; } },
+      { key:'izinli', label:'İzin Planlı', icon:'i-calendar-check', filter:function(c){ return c.izin > 0; } }
+    ],
+    columns:[
+      { key:'personel', label:'Personel', width:'24%', locked:true, render:function(c){
+          var e = DB.emp(c.personel) || {};
+          return '<a class="cell-main" href="app-personel-detay.html?id=' + c.personel + '">' + esc(e.ad || c.personel) + '</a>' +
+                 '<span class="cell-sub">' + esc(e.pozisyon || '') + '</span>'; },
+        sortValue:function(c){ return DB.empName(c.personel); }, exportValue:function(c){ return DB.empName(c.personel); } },
+      { key:'dep', label:'Departman', sortable:false, render:function(c){ return esc((DB.emp(c.personel) || {}).depAd || '—'); },
+        exportValue:function(c){ return (DB.emp(c.personel) || {}).depAd; } },
+      { key:'kapasite', label:'Haftalık kapasite', cellClass:'num', render:function(c){ return '<span class="u-num">' + c.kapasite + ' sa</span>'; } },
+      { key:'planlanan', label:'Planlanan', cellClass:'num', render:function(c){ return '<span class="u-num"><b>' + c.planlanan + '</b> sa</span>'; } },
+      { key:'musait', label:'Müsait', cellClass:'num', sortValue:function(c){ return c.kapasite - c.planlanan; },
+        render:function(c){ var m = c.kapasite - c.planlanan;
+          return '<span class="u-num ' + (m <= 0 ? 'u-danger' : 'u-ok') + '">' + m + ' sa</span>'; },
+        exportValue:function(c){ return c.kapasite - c.planlanan; } },
+      { key:'doluluk', label:'Doluluk oranı', render:function(c){
+          return GV.progress(c.doluluk, { tone:c.doluluk >= 95 ? 'danger' : c.doluluk >= 85 ? 'warn' : 'ok' }); },
+        exportValue:function(c){ return c.doluluk + '%'; } },
+      { key:'acikGorev', label:'Açık görev', cellClass:'num', sortValue:function(c){ return acikGorev(c.personel).length; },
+        render:function(c){ var n = acikGorev(c.personel).length;
+          return '<a class="cell-main" href="app-gorev.html?t=tumu&f_sorumlu=' + c.personel + '">' + n + '</a>'; },
+        exportValue:function(c){ return acikGorev(c.personel).length; } },
+      { key:'geciken', label:'Geciken', cellClass:'num', sortable:false, render:function(c){
+          var n = acikGorev(c.personel).filter(function(t){ return t.termin && F.days(t.termin) < 0; }).length;
+          return n ? '<span class="badge is-danger">' + n + '</span>' : '<span class="u-faint">—</span>'; },
+        exportValue:function(c){ return acikGorev(c.personel).filter(function(t){ return t.termin && F.days(t.termin) < 0; }).length; } },
+      { key:'izin', label:'Planlı izin', cellClass:'num', render:function(c){
+          return c.izin ? '<span class="u-num u-warn">' + c.izin + ' gün</span>' : '<span class="u-faint">—</span>'; } }
+    ],
+    filters:[
+      { key:'dep', label:'Departman', type:'multi',
+        options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }),
+        test:function(c,v){ var e = DB.emp(c.personel) || {}; return v.indexOf(e.dep) !== -1; } },
+      { key:'doluluk', label:'Doluluk (en az %)', type:'text', test:function(c,v){ return c.doluluk >= (parseFloat(v) || 0); } }
+    ],
+    rowClass:function(c){ return c.doluluk >= 95 ? 'is-late' : ''; },
+    mobile:function(c){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(DB.empName(c.personel)) + '</span>' +
+        '<span class="u-num u-b">%' + c.doluluk + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc((DB.emp(c.personel) || {}).depAd || '') + '</div>' +
+        '<div class="u-mt-0">' + GV.progress(c.doluluk, { tone:c.doluluk >= 95 ? 'danger' : '' }) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + c.planlanan + ' / ' + c.kapasite + ' sa</span>' +
+        '<span>' + acikGorev(c.personel).length + ' açık görev</span></div>';
+    },
+    rowActions:[
+      { key:'gorev', icon:'i-tasks', label:'Görevleri', href:function(c){ return 'app-gorev.html?t=tumu&f_sorumlu=' + c.personel; } },
+      { key:'kart', icon:'i-external', label:'Personel kartı', href:function(c){ return 'app-personel-detay.html?id=' + c.personel; } }
+    ],
+    emptyState:{ icon:'i-chart-bar', title:'Kapasite verisi yok', desc:'Personel kapasitesi zaman kayıtları ve görev atamalarından hesaplanır.' }
+  });
+
+});
+</script>
+</body>
+</html>
