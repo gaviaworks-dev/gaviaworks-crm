@@ -1444,6 +1444,9 @@
        opt.money:true → eksen ve ipucu para biçiminde. opt.series:['Bütçe','Maliyet'] legend için. */
     bar:function(data, opt){
       opt = opt || {};
+      data = (data || []).filter(Boolean);
+      if(!data.length) return GV.empty({ icon:'i-chart-bar', title:'Grafik için veri yok',
+        desc:'Seçili filtrelerde bu grafiği çizecek kayıt bulunmuyor.' });
       var w = opt.width || 640, h = opt.height || 220, pad = 32, padL = opt.padL || (opt.money ? 62 : 48);
       var paired = data.some(function(d){ return d.value2 != null; });
       var fmtV = opt.money ? Fmt.moneyK : Fmt.num;
@@ -1478,6 +1481,11 @@
 
     line:function(series, labels, opt){
       opt = opt || {};
+      /* boş seri / boş etiket çizdirilmez — çağıran her yerde kontrol etmek zorunda kalmasın */
+      series = (series || []).filter(function(s){ return s && s.values && s.values.length; });
+      labels = labels || [];
+      if(!series.length || !labels.length) return GV.empty({ icon:'i-chart-bar', title:'Grafik için veri yok',
+        desc:'Seçili filtrelerde bu grafiği çizecek kayıt bulunmuyor.' });
       var w = opt.width || 640, h = opt.height || 220, pad = 32, padL = 52;
       var all = series.reduce(function(a, s){ return a.concat(s.values); }, []);
       var max = Math.max.apply(null, all.concat([1]));
@@ -1511,6 +1519,9 @@
 
     donut:function(data, opt){
       opt = opt || {};
+      data = (data || []).filter(function(d){ return d && d.value; });
+      if(!data.length) return GV.empty({ icon:'i-chart-bar', title:'Grafik için veri yok',
+        desc:'Seçili filtrelerde bu grafiği çizecek kayıt bulunmuyor.' });
       var size = opt.size || 200, r = size / 2 - 12, cx = size / 2, cy = size / 2, sw = opt.thickness || 26;
       var total = data.reduce(function(a, d){ return a + d.value; }, 0) || 1;
       var colors = ['var(--acc-ink)','var(--info)','var(--purple)','var(--warn)','var(--danger)','var(--ok)','var(--neutral)'];
