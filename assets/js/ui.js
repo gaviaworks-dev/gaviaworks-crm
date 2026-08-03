@@ -121,7 +121,9 @@
     'Yenilenecek':'warn', 'Süresi doldu':'danger', 'Yenilendi':'ok', 'Faturalandı':'info',
     'Tahsil edildi':'ok', 'Kısmi tahsilat':'warn', 'Vadesi yaklaşıyor':'warn',
     /* doküman / sözleşme */
-    'Geçerli':'ok', 'Yürürlükte':'ok', 'Feshedildi':'danger', 'İmza bekliyor':'purple'
+    'Geçerli':'ok', 'Yürürlükte':'ok', 'Feshedildi':'danger', 'İmza bekliyor':'purple',
+    /* entegrasyon / sistem */
+    'Bağlı':'ok', 'Bağlı değil':'neutral', 'Planlandı':'info', 'Hata':'danger', 'Senkronda':'accent'
   };
 
   function tone(v){ return TONE[v] || 'neutral'; }
