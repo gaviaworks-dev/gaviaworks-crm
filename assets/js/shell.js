@@ -545,7 +545,11 @@
     'app-pipeline.html',
     'app-referans.html',
     'app-komisyon.html',
-    'app-onanaliz.html'
+    'app-onanaliz.html',
+    'app-musteri-yetkili.html',
+    'app-musteri-iletisim.html',
+    'app-istalebi.html',
+    'app-destek.html'
   ];
   GV.built = BUILT;
 
