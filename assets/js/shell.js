@@ -537,6 +537,7 @@
     'app-panel.html',
     'app-lead.html',
     'app-gorev.html',
+    'app-gorev-detay.html',
     'app-musteri.html',
     'app-proje.html'
   ];
