@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Duyurular — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="panel" data-screen="duyurular">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var ME = GV.session || {};
+  var canEkle = GV.perm.can('ekle');
+  var canDuzenle = GV.perm.can('duzenle');
+
+  /* ---- Okuma durumu ------------------------------------------------------
+     DB.announcements kayıtlarında kişi bazlı okuma alanı YOK (veri uydurulmaz).
+     Okuma durumu oturum sahibi için ekran belleğinde tutulur; başlangıç kuralı:
+     yayınından 14 günden fazla geçmiş duyurular okunmuş sayılır.               */
+  var READ = {};
+  DB.announcements.forEach(function(a){ READ[a.kod] = F.days(a.tarih) <= -14; });
+  function okundu(x){ return !!READ[x.kod]; }
+  function setRead(x, v){ READ[x.kod] = !!v; }
+
+  /* ---- Hedef kitle -------------------------------------------------------
+     dep boşsa duyuru tüm şirkete gider; tek departman veya departman dizisi
+     olarak da tutulabilir.                                                   */
+  function hedefler(x){
+    if(x.dep == null || x.dep === '') return [];
+    return Array.isArray(x.dep) ? x.dep : [x.dep];
+  }
+  function hedefText(x){
+    var h = hedefler(x);
+    return h.length ? h.map(function(d){ return DB.depName(d); }).join(', ') : 'Tüm şirket';
+  }
+  function hedefHtml(x){
+    var h = hedefler(x);
+    if(!h.length) return '<span class="tag">Tüm şirket</span>';
+    return h.map(function(d){ return '<span class="tag">' + esc(DB.depName(d)) + '</span>'; }).join(' ');
+  }
+  function hedefKisi(x){
+    var h = hedefler(x);
+    return DB.employees.filter(function(e){
+      return e.aktif !== false && (!h.length || h.indexOf(e.dep) !== -1);
+    }).length;
+  }
+  function banaMi(x){
+    var h = hedefler(x);
+    return !h.length || h.indexOf(ME.dep) !== -1;
+  }
+
+  /* ---- Geçerlilik --------------------------------------------------------- */
+  function suresiDoldu(x){ return !!x.bitis && F.days(x.bitis) < 0; }
+  function durum(x){ return x.aktif === false ? 'Arşivlendi' : suresiDoldu(x) ? 'Süresi doldu' : 'Aktif'; }
+  function yayinda(x){ return x.aktif !== false && !suresiDoldu(x); }
+
+  var PRI = { 'Kritik':4, 'Yüksek':3, 'Orta':2, 'Düşük':1 };
+  var DEP_OPT = DB.departments.filter(function(d){ return d.aktif !== false; })
+    .map(function(d){ return { value:d.kod, label:d.ad }; });
+
+  function ekHtml(x){
+    var e = x.ekler || [];
+    if(!e.length) return '<p class="u-sm u-faint u-mt-4">Bu duyuruya ek dosya eklenmemiş.</p>';
+    return '<div class="gv-filelist">' + e.map(function(f){
+      var kb = f.boyut != null ? (f.boyut / 1024 > 1024 ? (f.boyut / 1048576).toFixed(1) + ' MB'
+                                                        : Math.round(f.boyut / 1024) + ' KB') : '—';
+      return '<div class="gv-file"><span class="gv-file-ico">' + ico('i-file','ic-sm') + '</span>' +
+        '<span class="gv-file-body"><span class="gv-file-name">' + esc(f.ad) + '</span>' +
+        '<span class="gv-file-meta">' + esc(kb) + '</span></span></div>';
+    }).join('') + '</div>';
+  }
+
+  GV.pageHead({ eyebrow:'Ana Panel', title:'Duyurular',
+    sub:'Şirket ve departman duyuruları',
+    actions:[
+      { label:'Bildirim Merkezi', icon:'i-bell', href:'app-panel-bildirimler.html' },
+      { label:'Tümünü Okundu İşaretle', icon:'i-check', run:function(){ tumunuOku(); } }
+    ].concat(canEkle ? [{ label:'Yeni Duyuru', icon:'i-plus', cls:'btn-acc', run:function(){ yeniDuyuru(); } }] : []) });
+
+  var list = GV.list({
+    mount:'#liste', id:'duyuru', key:'kod', source:function(){ return DB.announcements; },
+    exportName:'duyurular', exportTitle:'Duyurular', export:!!GV.perm.can('disaAktar'),
+    pageSize:25, archive:false, views:['table','card'],
+    search:{ placeholder:'Duyuru başlığı, özet, metin veya yayınlayan ara',
+             fields:['kod','baslik','ozet','icerik'],
+             extra:function(r){ return DB.empName(r.yazan) + ' ' + hedefText(r) + ' ' + (r.oncelik || ''); } },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam duyuru', icon:'i-megaphone', calc:function(a){ return a.length; } },
+      { label:'Okunmamış', icon:'i-bell', tone:'danger',
+        calc:function(a){ return a.filter(function(x){ return !okundu(x) && yayinda(x); }).length; } },
+      { label:'Bu ay yayınlanan', icon:'i-calendar', tone:'info',
+        calc:function(a){ return a.filter(function(x){ return String(x.tarih).slice(0,7) === DB.today.slice(0,7); }).length; } },
+      { label:'Arşiv / süresi dolan', icon:'i-archive', tone:'neutral',
+        calc:function(a){ return a.filter(function(x){ return !yayinda(x); }).length; } }
+    ],
+    tabs:[
+      { key:'okunmamis', label:'Okunmamış', icon:'i-bell',
+        filter:function(x){ return !okundu(x) && yayinda(x); } },
+      { key:'aktif', label:'Aktif', icon:'i-megaphone', filter:function(x){ return yayinda(x); } },
+      { key:'bana', label:'Bana Yönelik', icon:'i-user',
+        filter:function(x){ return yayinda(x) && banaMi(x); } },
+      { key:'arsiv', label:'Arşiv', icon:'i-archive', filter:function(x){ return !yayinda(x); } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'baslik', label:'Duyuru', width:'32%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<span class="cell-main">' +
+                 (okundu(x) ? '' : '<span class="badge is-danger no-dot" style="margin-right:var(--sp-3)">Yeni</span>') +
+                 esc(x.baslik) + '</span>' +
+                 '<span class="cell-sub">' + esc(x.ozet) + '</span>' +
+                 '<span class="cell-code">' + esc(x.kod) + '</span>'; } },
+      { key:'yazan', label:'Yayınlayan', render:function(x){ return GV.user(x.yazan, { sm:true }); },
+        sortValue:function(x){ return DB.empName(x.yazan); },
+        exportValue:function(x){ return DB.empName(x.yazan); } },
+      { key:'dep', label:'Hedef kitle', cellClass:'cell-wrap', render:function(x){ return hedefHtml(x); },
+        sortValue:function(x){ return hedefText(x); }, exportValue:function(x){ return hedefText(x); } },
+      { key:'tarih', label:'Yayın tarihi', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      { key:'bitis', label:'Geçerlilik', render:function(x){
+          if(!x.bitis) return '<span class="u-faint">Süresiz</span>';
+          return GV.dateCell(x.bitis) + '<span class="cell-sub">' + esc(F.rel(x.bitis)) + '</span>'; },
+        exportValue:function(x){ return x.bitis || 'Süresiz'; } },
+      { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); },
+        sortValue:function(x){ return PRI[x.oncelik] || 0; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(durum(x)); },
+        sortValue:function(x){ return durum(x); }, exportValue:function(x){ return durum(x); } },
+      { key:'okundu', label:'Okundu durumu', render:function(x){
+          return okundu(x) ? GV.badge('Okundu', 'is-ok no-dot') : GV.badge('Okunmadı', 'is-warn no-dot'); },
+        sortValue:function(x){ return okundu(x) ? 1 : 0; },
+        exportValue:function(x){ return okundu(x) ? 'Okundu' : 'Okunmadı'; } }
+    ],
+    filters:[
+      { key:'yazan', label:'Yayınlayan', type:'select',
+        options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'dep', label:'Hedef kitle', type:'multi',
+        options:[{ value:'ALL', label:'Tüm şirket' }].concat(DEP_OPT),
+        test:function(r, v){
+          var h = hedefler(r);
+          return v.some(function(k){ return k === 'ALL' ? !h.length : h.indexOf(k) !== -1; }); } },
+      { key:'oncelik', label:'Öncelik', type:'multi', options:['Kritik','Yüksek','Orta','Düşük'] },
+      { key:'tarih', label:'Yayın tarihi', type:'daterange' },
+      { key:'okundu', label:'Okundu durumu', type:'select',
+        options:[{ value:'1', label:'Okundu' }, { value:'0', label:'Okunmadı' }],
+        test:function(r, v){ return okundu(r) === (v === '1'); } },
+      { key:'durum', label:'Yayın durumu', type:'select',
+        options:['Aktif','Süresi doldu','Arşivlendi'],
+        test:function(r, v){ return durum(r) === v; } }
+    ],
+    rowClass:function(x){
+      return (!okundu(x) && yayinda(x) && (x.oncelik === 'Kritik' || x.oncelik === 'Yüksek')) ? 'is-late' : ''; },
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><span class="cell-main">' + esc(x.baslik) + '</span>' +
+        '<div class="cell-sub">' + esc(x.ozet) + '</div></div>' + GV.pri(x.oncelik) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(hedefText(x)) + '</span><span>' + F.date(x.tarih) + '</span></div>' +
+        '<div class="gv-rcard-foot">' + GV.user(x.yazan, { sm:true }) +
+        (okundu(x) ? GV.badge('Okundu', 'is-ok no-dot') : GV.badge('Okunmadı', 'is-warn no-dot')) + '</div>';
+    },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.baslik) + '</span>' +
+        (okundu(x) ? '' : '<span class="badge is-danger no-dot">Yeni</span>') + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.kod) + ' · ' + esc(hedefText(x)) + ' · ' + F.date(x.tarih) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + esc(x.ozet) + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.pri(x.oncelik) + GV.badge(durum(x)) + '</span>' +
+        '<span class="u-sm u-muted">' + esc(DB.empName(x.yazan)) + '</span></div>';
+    },
+    rowActions:[
+      { key:'ac', icon:'i-eye', label:'Duyuruyu aç', run:function(x, refresh){ acDuyuru(x, refresh); } },
+      { key:'oku', icon:'i-check', label:'Okundu / okunmadı işaretle', run:function(x, refresh){
+          setRead(x, !okundu(x));
+          GV.toast(okundu(x) ? 'Duyuru okundu işaretlendi' : 'Duyuru okunmadı olarak işaretlendi', 'ok', 1600);
+          refresh(); } }
+    ].concat(canDuzenle ? [{ key:'arsiv', icon:'i-archive', label:'Arşivle', run:function(x, refresh){
+        if(x.aktif === false){ GV.toast('Bu duyuru zaten arşivde.', 'info'); return; }
+        GV.confirm({ title:'Duyuruyu arşivle',
+          text:'“' + x.baslik + '” duyurusu yayından kaldırılıp arşive alınacak.',
+          okLabel:'Arşivle', tone:'warn' })
+          .then(function(ok){ if(ok){ x.aktif = false; GV.toast('Duyuru arşivlendi', 'ok'); refresh(); } }); } }] : []),
+    bulk:[
+      { key:'oku', label:'Okundu işaretle', icon:'i-check', run:function(ids){
+          ids.forEach(function(id){ READ[id] = true; });
+          GV.toast(ids.length + ' duyuru okundu işaretlendi', 'ok'); } }
+    ].concat(canDuzenle ? [{ key:'arsiv', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'{n} duyuru arşive alınacak.', run:function(ids){
+          DB.announcements.forEach(function(a){ if(ids.indexOf(a.kod) !== -1) a.aktif = false; });
+          GV.toast(ids.length + ' duyuru arşivlendi', 'ok'); } }] : [])
+      .concat([{ key:'disa', label:'Dışa aktar', icon:'i-download' }]),
+    emptyState:{ icon:'i-megaphone', title:'Bu görünümde duyuru yok',
+      desc:'Şirket geneline veya seçili departmanlara yayınlanan duyurular burada listelenir; okuma durumu kişi bazında izlenir.' }
+  });
+
+  /* ---- Duyuruyu aç (sağ panel) — açılınca okundu işaretlenir --------------- */
+  function acDuyuru(x, refresh){
+    var yeniOkundu = !okundu(x);
+    setRead(x, true);
+    var dl = [
+      ['Yayınlayan', DB.empName(x.yazan)],
+      ['Yayınlayan departmanı', (DB.emp(x.yazan) || {}).depAd || '—'],
+      ['Yayın tarihi', F.date(x.tarih)],
+      ['Geçerlilik', x.bitis ? F.date(x.bitis) + ' · ' + F.rel(x.bitis) : 'Süresiz'],
+      ['Öncelik', x.oncelik],
+      ['Yayın durumu', durum(x)],
+      ['Hedef kitle', hedefText(x)],
+      ['Ulaşılan personel', F.num(hedefKisi(x)) + ' kişi']
+    ].map(function(r){ return '<div><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>'; }).join('');
+
+    GV.drawer({
+      title:'Duyuru · ' + x.kod,
+      body:'<div class="gv-rec-head"><div>' +
+             '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(x.kod) + '</span>' +
+               GV.pri(x.oncelik) + GV.badge(durum(x)) + '</div>' +
+             '<h1>' + esc(x.baslik) + '</h1>' +
+             '<div class="gv-rec-meta"><span>' + ico('i-user','ic-sm') + esc(DB.empName(x.yazan)) + '</span>' +
+               '<span>' + ico('i-calendar','ic-sm') + F.date(x.tarih) + '</span>' +
+               '<span>' + ico('i-users','ic-sm') + esc(hedefText(x)) + '</span>' +
+               '<span>' + ico('i-hourglass','ic-sm') + (x.bitis ? F.date(x.bitis) : 'Süresiz') + '</span></div>' +
+           '</div></div>' +
+           '<h3 class="gc-title u-mt-4">Duyuru metni</h3>' +
+           '<p class="u-mb-4">' + esc(x.icerik || x.ozet) + '</p>' +
+           '<h3 class="gc-title u-mt-4">Hedef kitle</h3>' +
+           '<div class="u-mb-4">' + hedefHtml(x) +
+             '<p class="u-sm u-muted u-mt-4">' + esc('Bu duyuru ' + hedefKisi(x) + ' aktif personele ulaşıyor.') + '</p></div>' +
+           '<h3 class="gc-title u-mt-4">Ek dosyalar</h3>' + ekHtml(x) +
+           '<h3 class="gc-title u-mt-4">Duyuru bilgileri</h3>' +
+           '<div class="gv-dl">' + dl + '</div>' +
+           '<div class="u-mt-4">' + GV.notice({ tone:'info', icon:'i-eye', title:'Okuma takibi',
+             text:'Duyuru açıldığı anda sizin için okundu işaretlendi. Prototipte okuma bilgisi yalnız oturum sahibi ' +
+                  'için tutulur; gerçek sistemde her personelin okuma zamanı kaydedilir ve okuyan sayısı buradan izlenir.' }) + '</div>',
+      actions:[
+        { label:'Okunmadı işaretle', cls:'btn-line', onClick:function(){
+            setRead(x, false); GV.toast('Duyuru okunmadı olarak işaretlendi', 'ok'); refresh(); } },
+        { label:'Kapat', cls:'btn-acc' }
+      ]
+    });
+    if(yeniOkundu) refresh();
+  }
+
+  /* ---- Tümünü okundu işaretle -------------------------------------------- */
+  function tumunuOku(){
+    var kalan = DB.announcements.filter(function(x){ return !okundu(x) && yayinda(x); });
+    if(!kalan.length){ GV.toast('Okunmamış duyuru yok', 'info'); return; }
+    GV.confirm({ title:'Tümünü okundu işaretle',
+      text:kalan.length + ' duyuru okundu olarak işaretlenecek.', okLabel:'İşaretle' })
+      .then(function(ok){ if(!ok) return;
+        kalan.forEach(function(x){ setRead(x, true); });
+        GV.toast(kalan.length + ' duyuru okundu işaretlendi', 'ok'); list.refresh(); });
+  }
+
+  /* ---- Yeni duyuru -------------------------------------------------------- */
+  function yeniKod(){
+    var mx = 0;
+    DB.announcements.forEach(function(a){
+      var n = parseInt(String(a.kod).split('-').pop(), 10);
+      if(!isNaN(n) && n > mx) mx = n;
+    });
+    return 'DUY-' + DB.today.slice(0,4) + '-' + ('00' + (mx + 1)).slice(-3);
+  }
+
+  function yeniDuyuru(){
+    var form = null, up = null;
+    GV.modal({
+      title:'Yeni Duyuru', text:'Duyuru yayınlandığında hedef kitledeki personele okunmamış olarak düşer.',
+      icon:'i-megaphone', size:'lg',
+      body:'<div id="duyForm"></div>' +
+           '<div class="gv-form-sec u-mt-8"><div class="gv-form-sec-head"><h3>Ek dosyalar</h3>' +
+           '<p>Politika metni, sunum veya form dosyalarını ekleyebilirsiniz.</p></div>' +
+           '<div id="duyEk"></div></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Yayınla', cls:'btn-acc', onClick:function(close){
+            if(!form) return false;
+            var d = form.submit();
+            if(!d) return false;
+            var kod = yeniKod();
+            DB.announcements.unshift({
+              kod:kod, baslik:d.baslik, ozet:d.ozet, icerik:d.icerik,
+              yazan:ME.emp, tarih:d.tarih, oncelik:d.oncelik,
+              dep:d.dep || null, bitis:d.bitis || null,
+              ekler:up ? up.files() : [], aktif:true
+            });
+            setRead({ kod:kod }, true);
+            GV.toast('Duyuru yayınlandı · ' + kod, 'ok');
+            list.refresh();
+          } }
+      ]
+    });
+
+    var mountForm = document.getElementById('duyForm');
+    var mountEk = document.getElementById('duyEk');
+    if(!mountForm || !mountEk) return;
+
+    form = GV.form({
+      mount:mountForm,
+      sections:[
+        { title:'Duyuru içeriği', fields:[
+          { key:'baslik', label:'Duyuru başlığı', type:'text', required:true, cols:12,
+            placeholder:'Örn. Ağustos ekip toplantısı takvimi' },
+          { key:'ozet', label:'Özet', type:'text', required:true, cols:12,
+            hint:'Liste ve bildirimlerde görünen tek satırlık özet',
+            placeholder:'Örn. Haftalık toplantılar Salı 09:30’a alındı.' },
+          { key:'icerik', label:'Duyuru metni', type:'textarea', required:true, rows:6, cols:12 }
+        ] },
+        { title:'Yayın ayarları', fields:[
+          { key:'dep', label:'Hedef kitle', type:'select', cols:6, options:DEP_OPT,
+            placeholder:'Tüm şirket (tüm departmanlar)',
+            hint:'Boş bırakılırsa duyuru tüm şirkete yayınlanır.' },
+          { key:'oncelik', label:'Öncelik', type:'select', required:true, cols:6,
+            options:['Kritik','Yüksek','Orta','Düşük'], value:'Orta' },
+          { key:'tarih', label:'Yayın tarihi', type:'date', required:true, cols:6, value:DB.today },
+          { key:'bitis', label:'Geçerlilik bitişi', type:'date', cols:6,
+            hint:'Boş bırakılırsa duyuru süresiz yayında kalır.',
+            validate:function(v, d){
+              return v && d.tarih && v < d.tarih ? 'Geçerlilik bitişi yayın tarihinden önce olamaz.' : ''; } }
+        ] }
+      ]
+    });
+
+    up = GV.upload({ mount:mountEk, multiple:true, maxMB:20,
+      hint:'PDF, DOCX, XLSX, PNG, JPG · en fazla 20 MB' });
+
+    var first = mountForm.querySelector('input,textarea,select');
+    if(first) first.focus();
+  }
+
+});
+</script>
+</body>
+</html>
