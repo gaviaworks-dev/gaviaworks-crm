@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Araç Bakım — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="bakim">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  var arac = function(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || {}; };
+  var aracCol = { key:'arac', label:'Araç', width:'18%', locked:true, sortValue:function(x){ return arac(x.arac).plaka || ''; },
+    render:function(x){ var v = arac(x.arac);
+      return '<a class="cell-main" href="app-arac-detay.html?id=' + x.arac + '">' + esc(v.plaka || x.arac) + '</a>' +
+             '<span class="cell-sub">' + esc((v.marka || '') + ' ' + (v.model || '')) + '</span>'; },
+    exportValue:function(x){ return arac(x.arac).plaka || x.arac; } };
+  var aracFilter = { key:'arac', label:'Araç', type:'multi',
+    options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) };
+  GV.pageHead({ eyebrow:'Araç ve Filo', title:'Araç Bakım Takibi',
+    actions:[{ label:'Araçlar', icon:'i-car', href:'app-arac.html' },
+             { label:'Bakım Planla', icon:'i-plus', cls:'btn-acc', href:'app-arac-bakim-form.html' }] });
+  GV.list({
+    mount:'#liste', id:'bakim', key:'kod', source:function(){ return DB.maintenance; },
+    exportName:'arac-bakim', exportTitle:'Araç Bakım Kayıtları', pageSize:25,
+    search:{ placeholder:'Bakım no, servis veya işlem ara', fields:['kod','tur','servis','durum','islemler'] },
+    defaultSort:'planTarihi',
+    kpis:[
+      { label:'Planlı bakım', icon:'i-wrench', calc:function(a){ return a.filter(function(x){ return x.durum === 'Planlandı'; }).length; } },
+      { label:'Yaklaşan', icon:'i-clock', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Yaklaşıyor'; }).length; } },
+      { label:'Serviste', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(x){ return x.durum === 'Serviste'; }).length; } },
+      { label:'Bakım maliyeti', icon:'i-wallet', tone:'info', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + (x.maliyet || 0); }, 0) : 0; } }
+    ],
+    tabs:[
+      { key:'acik', label:'Açık Bakımlar', icon:'i-wrench', filter:function(x){ return x.durum !== 'Tamam'; } },
+      { key:'yaklasan', label:'Yaklaşanlar', icon:'i-clock', filter:function(x){ return x.durum === 'Yaklaşıyor'; } },
+      { key:'serviste', label:'Serviste', icon:'i-alert', filter:function(x){ return x.durum === 'Serviste'; } },
+      { key:'tamam', label:'Tamamlananlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Tamam'; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[ aracCol,
+      { key:'tur', label:'Bakım türü', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
+      { key:'islemler', label:'Yapılacak işlemler', cellClass:'cell-wrap', sortable:false, render:function(x){
+          return (x.islemler || []).map(function(i){ return '<span class="tag">' + esc(i) + '</span>'; }).join(' '); },
+        exportValue:function(x){ return (x.islemler || []).join(', '); } },
+      { key:'planTarihi', label:'Planlanan tarih', render:function(x){ return GV.dateCell(x.planTarihi, { done:x.durum === 'Tamam' }); } },
+      { key:'planKm', label:'Bakım km', cellClass:'num', render:function(x){ return '<span class="u-num">' + F.num(x.planKm) + '</span>'; } },
+      { key:'servis', label:'Servis' },
+      { key:'maliyet', label:'Maliyet', cellClass:'num', render:function(x){
+          if(!canFinans) return '<span class="cell-mask">••••</span>';
+          return x.maliyet ? '<span class="cell-money">' + F.money(x.maliyet) + '</span>' : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return canFinans ? x.maliyet : ''; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[ aracFilter,
+      { key:'durum', label:'Bakım durumu', type:'multi', options:['Planlandı','Yaklaşıyor','Serviste','Tamam','Gecikti'] },
+      { key:'tur', label:'Bakım türü', type:'multi', options:['Periyodik bakım','Ağır bakım','Onarım','Lastik değişimi'] },
+      { key:'planTarihi', label:'Bakım tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return (x.kalanGun != null && x.kalanGun < 0 && x.durum !== 'Tamam') ? 'is-late' : ''; },
+    mobile:function(x){ var v = arac(x.arac);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(v.plaka || x.arac) + '</span>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.tur) + ' · ' + esc(x.servis) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-calendar','ic-sm') + F.date(x.planTarihi) + '</span></div>'; },
+    rowActions:[
+      { key:'arac', icon:'i-car', label:'Aracı aç', href:function(x){ return 'app-arac-detay.html?id=' + x.arac; } },
+      { key:'tamam', icon:'i-check', label:'Bakımı tamamla', run:function(x, refresh){
+          if(x.durum === 'Tamam'){ GV.toast('Bu bakım zaten tamamlanmış.', 'info'); return; }
+          GV.modal({ title:'Bakımı Tamamla', text:arac(x.arac).plaka + ' · ' + x.tur, icon:'i-wrench', size:'sm',
+            body:'<div class="gv-fields"><div class="field f-col-6"><label for="bTar">Gerçekleşen tarih</label>' +
+              '<input type="date" class="inp" id="bTar" value="' + DB.today + '"></div>' +
+              '<div class="field f-col-6"><label for="bMal">Maliyet (₺)</label><input type="number" class="inp" id="bMal" min="0" value="' + (x.maliyet || 0) + '"></div></div>',
+            actions:[{ label:'Vazgeç', cls:'btn-line' },
+              { label:'Tamamla', cls:'btn-acc', onClick:function(close, el){
+                  x.durum = 'Tamam'; x.gercekTarihi = el.querySelector('#bTar').value;
+                  x.maliyet = parseInt(el.querySelector('#bMal').value, 10) || 0;
+                  DB.vehicleExpenses.unshift({ kod:'AGD-2026-' + (100 + DB.vehicleExpenses.length), arac:x.arac, tur:'Bakım',
+                    tarih:x.gercekTarihi, tutar:x.maliyet, aciklama:x.tur, belge:x.kod, aktif:true });
+                  GV.toast('Bakım tamamlandı ve gider kaydı oluşturuldu', 'ok'); refresh(); } }] }); } }
+    ],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-wrench', title:'Bu görünümde bakım kaydı yok', desc:'Bakımlar tarih ve kilometre eşiğine göre otomatik uyarı üretir.' }
+  });
+
+});
+</script>
+</body>
+</html>
