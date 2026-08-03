@@ -3,6 +3,9 @@
 > Bu dosya, **sıfırdan gelen bir Claude'un hiçbir şey sormadan** işe devam
 > edebilmesi için yazıldı. Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/components.md`.
 > `PROMPT.md` mutlak kaynaktır; `CLAUDE.md` proje kurallarıdır.
+> **`tasks/ui-debt.md`** = arayüz borç defteri. Üretim sırasında görülen arayüz sorunları oraya
+> yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
+> ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
 **Güncelleme:** 2026-08-04 (2. oturum sonu) · **59 ekran canlıda** · Wave 11 tamam · Wave 12 %75.
 
