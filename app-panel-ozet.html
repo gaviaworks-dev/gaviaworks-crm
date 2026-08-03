@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Günlük Özet — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="panel" data-screen="ozet">
+<div id="ozet"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var mount = document.getElementById('ozet');
+  if(!mount) return;
+
+  var S = GV.session, ME = S.emp, T = DB.today;
+  var days = function(d){ return F.days(d); };
+
+  /* ===== Tarih yardımcıları — "şu an" DB.today'den gelir ================= */
+  function iso(d){
+    var m = d.getMonth() + 1, g = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (g < 10 ? '0' : '') + g;
+  }
+  function addDays(s, n){
+    var d = new Date(String(s).slice(0,10) + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return iso(d);
+  }
+
+  /* ===== Kart ve tablo yardımcıları (ortak sınıflar — sayfa CSS'i yok) === */
+  function card(c){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(c.icon || 'i-list') + esc(c.title) + '</h2>' +
+      (c.sub ? '<div class="gc-sub">' + esc(c.sub) + '</div>' : '') + '</div>' +
+      (c.link ? '<div class="gc-head-acts"><a class="btn btn-ghost btn-sm" href="' + c.link + '">' +
+        esc(c.linkLbl || 'Tümü') + ' ' + ico('i-arrow-right','ic-sm') + '</a></div>' : '') +
+      '</div>' +
+      (c.flush ? '<div class="gc-body flush">' : '<div class="gc-body">') + c.body + '</div>' +
+      '</section>';
+  }
+
+  /* Tablo + mobil kart listesi AYNI satır verisinden üretilir (≤760px'de
+     .gv-tablewrap gizlenir, .gv-cardlist görünür — components.md) */
+  function table(rows, empty){
+    if(!rows.length) return GV.empty(empty);
+    return '<div class="gv-tablewrap"><table class="gtable"><tbody>' +
+      rows.map(function(r){
+        return '<tr' + (r.cls ? ' class="' + r.cls + '"' : '') + '>' +
+          r.cells.map(function(c){
+            return '<td' + (c.cls ? ' class="' + c.cls + '"' : '') + '>' + c.html + '</td>';
+          }).join('') + '</tr>';
+      }).join('') +
+      '</tbody></table></div>' +
+      '<div class="gv-cardlist">' +
+      rows.map(function(r){
+        return '<div class="gv-mrow' + (r.cls ? ' ' + r.cls : '') + '">' + r.mobile + '</div>';
+      }).join('') +
+      '</div>';
+  }
+
+  function link(href, main, sub){
+    return (href ? '<a class="cell-main" href="' + href + '">' + esc(main) + '</a>'
+                 : '<span class="cell-main">' + esc(main) + '</span>') +
+           (sub ? '<span class="cell-sub">' + esc(sub) + '</span>' : '');
+  }
+
+  function mrow(o){
+    return '<div class="gv-mrow-top"><div>' + o.main + '</div></div>' +
+      (o.meta && o.meta.length
+        ? '<div class="gv-mrow-meta">' + o.meta.map(function(m){ return '<span>' + m + '</span>'; }).join('') + '</div>'
+        : '') +
+      (o.badges && o.badges.length
+        ? '<div class="gv-mrow-bottom"><div class="gv-mrow-badges">' + o.badges.join('') + '</div></div>'
+        : '');
+  }
+
+  function kpi(c){
+    var inner =
+      '<div class="kpi-ico">' + ico(c.icon || 'i-chart-bar','ic-lg') + '</div>' +
+      '<div class="kpi-body"><div class="kpi-num">' + c.value + '</div>' +
+      '<div class="kpi-lbl">' + esc(c.label) + '</div>' +
+      (c.meta ? '<div class="kpi-meta is-' + (c.metaTone || 'flat') + '">' +
+        ico(c.metaIcon || 'i-clock','ic-sm') + esc(c.meta) + '</div>' : '') + '</div>';
+    return c.href
+      ? '<a class="kpi' + (c.tone ? ' is-' + c.tone : '') + '" href="' + c.href + '">' + inner + '</a>'
+      : '<div class="kpi' + (c.tone ? ' is-' + c.tone : '') + '">' + inner + '</div>';
+  }
+
+  /* ===== OTURUM SAHİBİNİN GÜNÜ — hepsi veriden türetilir ================= */
+  var BITTI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  function openTask(t){ return BITTI.indexOf(t.durum) === -1; }
+  function benim(t){ return t.sorumlu === ME || (t.yardimci || []).indexOf(ME) !== -1; }
+
+  var seeAll   = GV.perm.scope('gor') === 'tum';
+  var canOnay  = GV.perm.can('onay');
+  var canFin   = GV.perm.can('finans');
+  var canLog   = GV.perm.can('log');
+  var canPers  = GV.perm.can('personel');
+
+  var myTasks  = (DB.tasks || []).filter(function(t){ return t.aktif !== false && benim(t); });
+  var myOpen   = myTasks.filter(openTask);
+  var bugunGorev = myOpen.filter(function(t){ return t.termin === T; });
+  var gecikenGorev = myOpen.filter(function(t){ return t.termin && t.termin < T; });
+
+  var myMeetToday = (DB.meetings || []).filter(function(m){
+    return m.aktif !== false && String(m.tarih).slice(0,10) === T && (m.katilimci || []).indexOf(ME) !== -1;
+  });
+  var myApprovals = (DB.approvals || []).filter(function(a){
+    return a.durum === 'Bekliyor' && a.onaylayan === ME;
+  });
+  var myNotif = (DB.notifications || []).filter(function(n){ return n.kisi === ME && !n.okundu; });
+  var myLogsToday = (DB.timelogs || []).filter(function(l){
+    return l.aktif !== false && l.personel === ME && l.tarih === T;
+  });
+  var saatBugun = myLogsToday.reduce(function(a, l){ return a + l.sure; }, 0);
+  var haftaBas = addDays(T, -((new Date(T + 'T00:00:00').getDay() + 6) % 7));
+  var myLogsWeek = (DB.timelogs || []).filter(function(l){
+    return l.aktif !== false && l.personel === ME && l.tarih >= haftaBas && l.tarih <= T;
+  });
+  var saatHafta = myLogsWeek.reduce(function(a, l){ return a + l.sure; }, 0);
+
+  /* ===== BLOK 1 — Selamlama ============================================= */
+  var ozetCumle = [];
+  if(gecikenGorev.length) ozetCumle.push(gecikenGorev.length + ' geciken görev');
+  if(bugunGorev.length) ozetCumle.push(bugunGorev.length + ' bugün terminli görev');
+  if(myMeetToday.length) ozetCumle.push(myMeetToday.length + ' toplantı');
+  if(myApprovals.length) ozetCumle.push(myApprovals.length + ' bekleyen onay');
+  if(myNotif.length) ozetCumle.push(myNotif.length + ' okunmamış bildirim');
+
+  var selamlama = GV.notice({
+    tone: gecikenGorev.length ? 'warn' : 'info',
+    icon:'i-sun',
+    title:'Merhaba ' + S.ad + ' — ' + F.dateLong(T),
+    text: S.rolAd + ' · ' + S.depAd + ' · ' +
+      (ozetCumle.length ? 'Bugün sizi ' + ozetCumle.join(', ') + ' bekliyor.'
+                        : 'Bugün için üzerinize düşen açık bir iş, toplantı veya onay görünmüyor.'),
+    actions:[
+      { label:'Tam takvimi aç', href:'app-ajanda.html' },
+      { label:'Bildirim merkezi', href:'app-panel-bildirimler.html' }
+    ]
+  });
+
+  /* ===== BLOK 2 — KPI şeridi =========================================== */
+  var kpiler = '<div class="kpi-grid">' + [
+    { label:'Bugün terminli görevim', value:F.num(bugunGorev.length), icon:'i-sun',
+      tone:bugunGorev.length ? 'info' : 'neutral', href:'app-gorev.html?t=bana',
+      meta:F.dateShort(T) + ' termini' },
+    { label:'Geciken görevim', value:F.num(gecikenGorev.length), icon:'i-alert',
+      tone:gecikenGorev.length ? 'danger' : 'ok', href:'app-gorev.html?t=geciken',
+      meta:gecikenGorev.length
+        ? 'En eskisi ' + Math.abs(days(gecikenGorev.map(function(t){ return t.termin; }).sort()[0])) + ' gün gecikti'
+        : 'Gecikme yok',
+      metaTone:gecikenGorev.length ? 'down' : 'up' },
+    { label:'Bugünkü toplantım', value:F.num(myMeetToday.length), icon:'i-users',
+      tone:myMeetToday.length ? 'accent' : 'neutral', href:'app-ajanda.html',
+      meta:myMeetToday.length
+        ? 'İlki ' + myMeetToday.map(function(m){ return String(m.tarih).slice(11,16); }).sort()[0]
+        : 'Planlı toplantı yok' },
+    { label:'Bekleyen onayım', value:F.num(myApprovals.length), icon:'i-stamp',
+      tone:myApprovals.length ? 'warn' : 'ok', href:'app-panel-onaylar.html',
+      meta:myApprovals.length
+        ? myApprovals.filter(function(a){ return a.aciliyet === 'Kritik' || a.aciliyet === 'Yüksek'; }).length + ' acil'
+        : 'Onay kuyruğunuz temiz',
+      metaTone:myApprovals.length ? 'down' : 'up' },
+    { label:'Okunmamış bildirimim', value:F.num(myNotif.length), icon:'i-bell',
+      tone:myNotif.length ? 'purple' : 'neutral', href:'app-panel-bildirimler.html',
+      meta:myNotif.length
+        ? myNotif.filter(function(n){ return n.tone === 'danger'; }).length + ' kritik'
+        : 'Tümü okundu' },
+    { label:'Bugün kaydettiğim saat', value:F.hours(saatBugun), icon:'i-timer',
+      tone:saatBugun >= 8 ? 'ok' : saatBugun > 0 ? 'warn' : 'neutral', href:'app-zaman.html',
+      meta:'Bu hafta ' + F.hours(saatHafta),
+      metaTone:saatBugun >= 8 ? 'up' : 'flat' }
+  ].map(kpi).join('') + '</div>';
+
+  /* ===== BLOK 3 — Bugünün ajandası ===================================== */
+  /* Olay kaynakları app-ajanda.html ile aynı: toplantı · görev termini · izin.
+     Fark: burada eksen "oturum sahibinin günü"dür. */
+  function projAd(kod){
+    var p = (DB.projects || []).filter(function(x){ return x.kod === kod; })[0];
+    return p ? p.ad : null;
+  }
+
+  function olaylar(gun){
+    var ev = [];
+    (DB.meetings || []).forEach(function(m){
+      if(m.aktif === false || String(m.tarih).slice(0,10) !== gun) return;
+      var katil = (m.katilimci || []).indexOf(ME) !== -1;
+      if(!katil && !seeAll) return;
+      ev.push({
+        saat:String(m.tarih).slice(11,16), tur:'Toplantı', icon:'i-users',
+        tone:'accent', baslik:m.ad,
+        alt:m.tur + ' · ' + m.yer + (katil ? '' : ' · katılımcı değilsiniz'),
+        badge:GV.badge(m.durum), href:'app-toplanti.html', d:gun
+      });
+    });
+    myOpen.forEach(function(t){
+      if(t.termin !== gun) return;
+      ev.push({
+        saat:null, tur:'Görev termini', icon:'i-tasks',
+        tone:days(t.termin) < 0 ? 'danger' : 'info', baslik:t.baslik,
+        alt:t.kod + (projAd(t.proje) ? ' · ' + projAd(t.proje) : ''),
+        badge:GV.badge(t.durum), href:'app-gorev-detay.html?id=' + t.kod, d:gun
+      });
+    });
+    (DB.leaves || []).forEach(function(l){
+      if(l.aktif === false || l.durum === 'Reddedildi') return;
+      if(!(l.baslangic <= gun && l.bitis >= gun)) return;
+      if(l.personel !== ME && !canPers) return;
+      ev.push({
+        saat:null, tur:'İzin', icon:'i-calendar-check',
+        tone:l.durum === 'Onaylandı' ? 'ok' : 'warn',
+        baslik:DB.empName(l.personel) + ' — ' + l.tur,
+        alt:F.date(l.baslangic) + ' – ' + F.date(l.bitis) + ' · ' + l.gun + ' gün',
+        badge:GV.badge(l.durum), href:'app-izin.html', d:gun
+      });
+    });
+    return ev.sort(function(a, b){
+      return (a.saat || '99:99').localeCompare(b.saat || '99:99');
+    });
+  }
+
+  var bugunOlay = olaylar(T);
+
+  /* Bugün boşsa boş durum açıklamasında sıradaki olay gösterilir */
+  function sonrakiOlay(){
+    for(var i = 1; i <= 30; i++){
+      var g = addDays(T, i), e = olaylar(g);
+      if(e.length) return F.dateShort(g) + ' — ' + e[0].baslik;
+    }
+    return null;
+  }
+
+  var ajandaKart = card({
+    title:'Bugünün Ajandası', icon:'i-calendar', flush:true,
+    sub:bugunOlay.length ? bugunOlay.length + ' olay · saat sırasına göre' : 'Toplantı, görev termini ve izin kayıtları',
+    link:'app-ajanda.html', linkLbl:'Tam takvimi aç',
+    body:table(bugunOlay.map(function(e){
+      var saat = e.saat ? '<span class="cell-date">' + esc(e.saat) + '</span>'
+                        : '<span class="u-faint">Gün boyu</span>';
+      var tur = '<span class="tag">' + esc(e.tur) + '</span>';
+      return {
+        cls:e.tone === 'danger' ? 'is-late' : '',
+        cells:[
+          { html:saat },
+          { html:link(e.href, e.baslik, e.alt) },
+          { html:tur },
+          { html:e.badge }
+        ],
+        mobile:mrow({
+          main:link(e.href, e.baslik, e.alt),
+          meta:[ico('i-clock','ic-sm') + (e.saat || 'Gün boyu'), esc(e.tur)],
+          badges:[e.badge]
+        })
+      };
+    }), {
+      icon:'i-calendar', title:'Bugün için kayıt yok',
+      desc:(function(){
+        var n = sonrakiOlay();
+        return 'Bugüne planlanmış toplantı, görev termini veya izin kaydınız bulunmuyor.' +
+          (n ? ' Sıradaki olay: ' + n + '.' : '');
+      })(),
+      action:'<a class="btn btn-acc" href="app-ajanda.html">' + ico('i-calendar') + ' Tam takvimi aç</a>'
+    })
+  });
+
+  /* ===== BLOK 4 — Bana düşenler ======================================== */
+  var banaDusen = gecikenGorev.concat(bugunGorev).sort(function(a, b){
+    return String(a.termin).localeCompare(String(b.termin));
+  });
+
+  var banaKart = card({
+    title:'Bana Düşenler', icon:'i-inbox', flush:true,
+    sub:banaDusen.length
+      ? gecikenGorev.length + ' geciken · ' + bugunGorev.length + ' bugün terminli'
+      : 'Bugün ve öncesine terminli açık görevleriniz',
+    link:'app-gorev.html?t=bana', linkLbl:'Tüm görevlerim',
+    body:table(banaDusen.map(function(t){
+      var gec = days(t.termin) < 0;
+      var termin = gec
+        ? '<span class="cell-date is-late">' + Math.abs(days(t.termin)) + ' gün gecikti</span>'
+        : '<span class="cell-date is-soon">Bugün</span>';
+      return {
+        cls:gec ? 'is-late' : '',
+        cells:[
+          { html:link('app-gorev-detay.html?id=' + t.kod, t.baslik, t.kod + (projAd(t.proje) ? ' · ' + projAd(t.proje) : '')) },
+          { html:GV.pri(t.oncelik) },
+          { html:termin },
+          { html:GV.badge(t.durum) },
+          { html:GV.progress(t.ilerleme) }
+        ],
+        mobile:mrow({
+          main:link('app-gorev-detay.html?id=' + t.kod, t.baslik, t.kod),
+          meta:[ico('i-clock','ic-sm') + (gec ? Math.abs(days(t.termin)) + ' gün gecikti' : 'Bugün'),
+                GV.progress(t.ilerleme)],
+          badges:[GV.pri(t.oncelik), GV.badge(t.durum)]
+        })
+      };
+    }), {
+      icon:'i-check-circle', title:'Bugüne düşen görev yok',
+      desc:myOpen.length
+        ? 'Termini bugün veya daha önce olan açık göreviniz yok. Açık görev sayınız: ' + myOpen.length + '.'
+        : 'Şu an size atanmış açık bir görev bulunmuyor.',
+      action:'<a class="btn btn-line" href="app-gorev.html?t=bana">' + ico('i-tasks') + ' Görevlerimi aç</a>'
+    })
+  });
+
+  /* ===== BLOK 5 — Dikkat gerektirenler (rol yetkisine göre) ============= */
+  /* Kaynak yalnız yetki varsa taranır; hiçbir kaynağa yetki yoksa blok
+     hiç basılmaz (yetkisi olmayan rol bloğu görmez). */
+  function plaka(kod){
+    var v = (DB.vehicles || []).filter(function(x){ return x.kod === kod; })[0];
+    return v ? v.plaka : kod;
+  }
+
+  var dikkat = [], kaynak = [];
+
+  if(canFin && GV.perm.sec('finans')){
+    kaynak.push('geciken tahsilat');
+    (DB.invoices || []).forEach(function(f){
+      if(f.aktif === false || f.durum === 'Ödendi' || !f.vade || days(f.vade) >= 0) return;
+      dikkat.push({
+        tur:'Geciken tahsilat', icon:'i-receipt', tone:'danger', d:f.vade,
+        baslik:f.kod + ' · ' + f.musteriAd,
+        alt:'Vade ' + F.date(f.vade) + ' · ' + Math.abs(days(f.vade)) + ' gün gecikti',
+        deger:F.money(f.toplam), badge:GV.badge(f.durum), href:'app-tahsilat.html'
+      });
+    });
+  }
+
+  if(canOnay && GV.perm.sec('satinalma')){
+    kaynak.push('onay bekleyen satın alma');
+    (DB.purchases || []).forEach(function(p){
+      if(p.aktif === false || p.durum !== 'Onay bekliyor') return;
+      dikkat.push({
+        tur:'Satın alma onayı', icon:'i-cart', tone:'warn', d:p.ihtiyacTarihi,
+        baslik:p.urun,
+        alt:p.kod + ' · ' + DB.empName(p.talepEden) + ' · ' + p.onayAdim + '/' + p.onayToplam + ' onay',
+        deger:canFin ? F.money(p.tahminiMaliyet) : GV.perm.mask(null, 'finans'),
+        badge:GV.pri(p.oncelik), href:'app-satinalma.html?t=onay'
+      });
+    });
+  }
+
+  if(GV.perm.sec('destek')){
+    kaynak.push('SLA riski');
+    (DB.tickets || []).forEach(function(t){
+      if(t.aktif === false || t.slaDurum !== 'Risk altında') return;
+      if(['Kapandı','Çözüldü'].indexOf(t.durum) !== -1) return;
+      if(!seeAll && t.sorumlu !== ME) return;
+      dikkat.push({
+        tur:'SLA riski', icon:'i-support', tone:'danger', d:String(t.acilis).slice(0,10),
+        baslik:t.baslik,
+        alt:t.kod + ' · ' + t.musteriAd + ' · SLA ' + t.sla,
+        deger:'<span class="u-sm u-muted">' + esc(t.slaDurum) + '</span>',
+        badge:GV.badge(t.durum), href:'app-destek.html'
+      });
+    });
+  }
+
+  if(GV.perm.sec('varlik')){
+    kaynak.push('yaklaşan yenileme');
+    (DB.policies || []).forEach(function(p){
+      if(p.aktif === false || !p.bitis) return;
+      var k = days(p.bitis);
+      if(k > 60) return;
+      dikkat.push({
+        tur:'Poliçe yenileme', icon:'i-shield', tone:k <= 15 ? 'danger' : 'warn', d:p.bitis,
+        baslik:plaka(p.arac) + ' — ' + p.tur,
+        alt:p.sirket + ' · bitiş ' + F.date(p.bitis),
+        deger:'<span class="cell-date ' + (k < 0 ? 'is-late' : k <= 30 ? 'is-soon' : '') + '">' +
+          (k < 0 ? Math.abs(k) + ' gün geçti' : k + ' gün kaldı') + '</span>',
+        badge:GV.badge(k <= 30 ? 'Yaklaşıyor' : 'Planlandı'), href:'app-arac-sigorta.html'
+      });
+    });
+    (DB.inspections || []).forEach(function(x){
+      if(x.aktif === false || !x.sonrakiTarih) return;
+      var k = days(x.sonrakiTarih);
+      if(k > 60) return;
+      dikkat.push({
+        tur:'Muayene', icon:'i-clipboard', tone:k <= 15 ? 'danger' : 'warn', d:x.sonrakiTarih,
+        baslik:plaka(x.arac) + ' — muayene son tarihi',
+        alt:x.kod + ' · ' + F.date(x.sonrakiTarih),
+        deger:'<span class="cell-date ' + (k < 0 ? 'is-late' : k <= 30 ? 'is-soon' : '') + '">' +
+          (k < 0 ? Math.abs(k) + ' gün geçti' : k + ' gün kaldı') + '</span>',
+        badge:GV.badge(x.durum), href:'app-arac-muayene.html'
+      });
+    });
+  }
+
+  if(GV.perm.sec('musteri')){
+    kaynak.push('riskli müşteri');
+    (DB.customers || []).forEach(function(c){
+      if(c.aktif === false) return;
+      if(c.risk !== 'Yüksek' && c.durum !== 'Riskli') return;
+      if(!seeAll && c.sorumlu !== ME) return;
+      dikkat.push({
+        tur:'Riskli müşteri', icon:'i-alert-circle', tone:'danger', d:c.sonIletisim,
+        baslik:c.unvan,
+        alt:c.kod + ' · ' + c.sektor + ' · son iletişim ' + F.date(c.sonIletisim),
+        deger:c.memnuniyet != null ? '<span class="u-b">' + c.memnuniyet + ' / 5</span>' : '<span class="u-faint">—</span>',
+        badge:GV.badge(c.durum === 'Riskli' ? 'Riskli' : 'Aktif'), href:'app-musteri.html'
+      });
+    });
+  }
+
+  dikkat.sort(function(a, b){ return String(a.d).localeCompare(String(b.d)); });
+
+  var dikkatKart = kaynak.length ? card({
+    title:'Dikkat Gerektirenler', icon:'i-alert', flush:true,
+    sub:'Yetkinize açık kaynaklar: ' + kaynak.join(' · '),
+    body:table(dikkat.map(function(x){
+      return {
+        cls:x.tone === 'danger' ? 'is-late' : '',
+        cells:[
+          { html:'<span class="tag">' + esc(x.tur) + '</span>' },
+          { html:link(x.href, x.baslik, x.alt) },
+          { html:x.deger, cls:'num' },
+          { html:x.badge }
+        ],
+        mobile:mrow({
+          main:link(x.href, x.baslik, x.alt),
+          meta:[ico(x.icon,'ic-sm') + esc(x.tur), x.deger],
+          badges:[x.badge]
+        })
+      };
+    }), {
+      icon:'i-check-circle', title:'Dikkat gerektiren kayıt yok',
+      desc:'Yetkinize açık kaynaklarda (' + kaynak.join(', ') + ') şu an müdahale bekleyen bir kayıt bulunmuyor.'
+    })
+  }) : '';
+
+  /* ===== BLOK 6 — Onayımı bekleyenler (yalnız onay yetkisi olan rol) ==== */
+  var onayKart = canOnay ? card({
+    title:'Onayımı Bekleyenler', icon:'i-stamp', flush:true,
+    sub:myApprovals.length + ' işlem onayınızı bekliyor',
+    link:'app-panel-onaylar.html', linkLbl:'Onay kuyruğu',
+    body:table(myApprovals.slice(0, 6).map(function(a){
+      return {
+        cells:[
+          { html:link(a.link, a.baslik, a.tur + ' · ' + a.kayit) },
+          { html:a.tutar ? '<span class="cell-money">' + (canFin ? F.money(a.tutar) : GV.perm.mask(null,'finans')) + '</span>'
+                         : '<span class="u-faint">—</span>', cls:'num' },
+          { html:GV.pri(a.aciliyet) },
+          { html:'<span class="cell-date">' + F.dateShort(a.tarih) + '</span>' }
+        ],
+        mobile:mrow({
+          main:link(a.link, a.baslik, a.tur + ' · ' + a.kayit),
+          meta:[ico('i-clock','ic-sm') + F.dateShort(a.tarih)],
+          badges:[GV.pri(a.aciliyet)]
+        })
+      };
+    }), {
+      icon:'i-check-circle', title:'Bekleyen onayınız yok',
+      desc:'Onay kuyruğunuz temiz. Size yönlendirilen yeni işlemler burada listelenir.'
+    })
+  }) : '';
+
+  /* ===== BLOK 7 — Duyurular ============================================ */
+  var duyurular = (DB.announcements || []).filter(function(a){
+    return a.aktif !== false && (!a.dep || a.dep === S.dep);
+  }).sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); }).slice(0, 4);
+
+  var duyuruKart = card({
+    title:'Duyurular', icon:'i-megaphone', flush:true,
+    sub:duyurular.length ? 'Son ' + duyurular.length + ' duyuru' : 'Şirket ve departman duyuruları',
+    link:'app-panel-duyurular.html', linkLbl:'Tüm duyurular',
+    body:table(duyurular.map(function(a){
+      return {
+        cells:[
+          { html:'<span class="cell-main">' + esc(a.baslik) + '</span><span class="cell-sub">' + esc(a.ozet) + '</span>' },
+          { html:GV.pri(a.oncelik) },
+          { html:'<span class="cell-date">' + F.dateShort(a.tarih) + '</span>' }
+        ],
+        mobile:mrow({
+          main:'<span class="cell-main">' + esc(a.baslik) + '</span><span class="cell-sub">' + esc(a.ozet) + '</span>',
+          meta:[ico('i-user','ic-sm') + esc(DB.empName(a.yazan)), ico('i-clock','ic-sm') + F.dateShort(a.tarih)],
+          badges:[GV.pri(a.oncelik)]
+        })
+      };
+    }), {
+      icon:'i-megaphone', title:'Duyuru yok',
+      desc:'Size veya departmanınıza yayımlanmış aktif bir duyuru bulunmuyor.'
+    })
+  });
+
+  /* ===== BLOK 8 — Dünden bugüne ======================================== */
+  var kesim = addDays(T, -1);
+  var benimKayit = {};
+  myTasks.forEach(function(t){ benimKayit[t.kod] = 1; });
+  (DB.projects || []).forEach(function(p){
+    if(p.pm === ME || (p.ekip || []).indexOf(ME) !== -1) benimKayit[p.kod] = 1;
+  });
+  (DB.leads || []).forEach(function(l){ if(l.sorumlu === ME) benimKayit[l.kod] = 1; });
+  (DB.customers || []).forEach(function(c){ if(c.sorumlu === ME) benimKayit[c.kod] = 1; });
+
+  var hareketler = [];
+  (DB.activities || []).forEach(function(a){
+    if(String(a.tarih).slice(0,10) < kesim) return;
+    if(!(seeAll || a.kisi === S.ad || benimKayit[a.kayit])) return;
+    hareketler.push({
+      kisi:a.kisi, tarih:a.tarih, metin:a.metin + ' · ' + a.kayit,
+      tone:a.tone, icon:a.icon, eski:a.eski, yeni:a.yeni
+    });
+  });
+  (DB.logs || []).forEach(function(l){
+    if(String(l.tarih).slice(0,10) < kesim) return;
+    if(!(canLog || l.kisi === ME || benimKayit[l.kayit])) return;
+    hareketler.push({
+      kisi:DB.empName(l.kisi), tarih:l.tarih, metin:l.islem + ' · ' + l.kayit + ' (' + l.modul + ')',
+      tone:'neutral', icon:'i-activity', eski:l.eski, yeni:l.yeni
+    });
+  });
+  hareketler.sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); });
+
+  var hareketKart = card({
+    title:'Dünden Bugüne', icon:'i-activity',
+    sub:F.dateShort(kesim) + ' – ' + F.dateShort(T) + ' arasındaki hareketler',
+    link:canLog ? 'app-ayar-log.html' : null, linkLbl:'İşlem kayıtları',
+    body:hareketler.length
+      ? GV.activity(hareketler.slice(0, 8))
+      : GV.empty({ icon:'i-activity', title:'Son iki günde hareket yok',
+                   desc:'Sizi ilgilendiren kayıtlarda dün ve bugün için değişiklik kaydı bulunmuyor.' })
+  });
+
+  /* ===== SAYFA ========================================================= */
+  GV.pageHead({
+    eyebrow:'Ana Panel', title:'Günlük Özet',
+    sub:F.dateLong(T) + ' · ' + S.ad + ' · ' + S.rolAd,
+    actions:[
+      { label:'Tam takvim', icon:'i-calendar', href:'app-ajanda.html' },
+      { label:'Rol paneli', icon:'i-gauge', cls:'btn-acc', href:'app-panel.html' }
+    ]
+  });
+
+  mount.innerHTML =
+    selamlama +
+    '<div class="u-mt-8">' + kpiler + '</div>' +
+    '<div class="gv-grid gv-grid-main">' +
+      '<div class="u-col">' + ajandaKart + banaKart + dikkatKart + '</div>' +
+      '<div class="u-col">' + onayKart + duyuruKart + hareketKart + '</div>' +
+    '</div>';
+
+  document.title = 'Günlük Özet — ' + F.dateShort(T) + ' — GaviaWorks CRM';
+});
+</script>
+</body>
+</html>
