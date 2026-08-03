@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Doküman Merkezi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="dokuman" data-screen="dokuman">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  GV.pageHead({ eyebrow:'Arşiv', title:'Doküman Merkezi',
+    actions:[{ label:'Süresi Dolanlar', icon:'i-hourglass', href:'app-dokuman-sure.html' },
+             { label:'Doküman Yükle', icon:'i-plus', cls:'btn-acc', id:'btnYukle' }] });
+  var TUR = ['Sözleşme','Teklif','Gizlilik sözleşmesi','Proje analizi','Teknik doküman','Tasarım dosyası',
+             'Test raporu','Teslim belgesi','Fatura','Personel belgesi','Zimmet formu','Araç belgesi',
+             'Poliçe','Ruhsat','Muayene raporu','Satın alma belgesi'];
+  var list = GV.list({
+    mount:'#liste', id:'dokuman', key:'kod', source:function(){ return DB.documents; },
+    exportName:'dokumanlar', exportTitle:'Doküman Listesi', pageSize:25, views:['table','card'],
+    search:{ placeholder:'Doküman adı, klasör, tür veya kod ara', fields:['kod','ad','klasor','tur','format'] },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam doküman', icon:'i-folder', calc:function(a){ return a.length; } },
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.onay === 'Bekliyor'; }).length; } },
+      { label:'Süresi yaklaşan', icon:'i-hourglass', tone:'danger', href:'app-dokuman-sure.html',
+        calc:function(a){ return a.filter(function(x){ return x.kalanGun != null && x.kalanGun <= 30; }).length; } },
+      { label:'Gizli doküman', icon:'i-lock', tone:'purple', calc:function(a){ return a.filter(function(x){ return x.gizlilik === 'Gizli'; }).length; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Dokümanlar', icon:'i-folder', filter:null },
+      { key:'sozlesme', label:'Sözleşme ve Teklif', icon:'i-file-check',
+        filter:function(x){ return ['Sözleşme','Teklif','Gizlilik sözleşmesi'].indexOf(x.tur) !== -1; } },
+      { key:'proje', label:'Proje Dokümanları', icon:'i-briefcase',
+        filter:function(x){ return ['Proje analizi','Teknik doküman','Tasarım dosyası','Test raporu','Teslim belgesi'].indexOf(x.tur) !== -1; } },
+      { key:'personel', label:'Personel ve Zimmet', icon:'i-users',
+        filter:function(x){ return ['Personel belgesi','Zimmet formu'].indexOf(x.tur) !== -1; } },
+      { key:'filo', label:'Araç ve Poliçe', icon:'i-car',
+        filter:function(x){ return ['Araç belgesi','Poliçe','Ruhsat','Muayene raporu'].indexOf(x.tur) !== -1; } },
+      { key:'onay', label:'Onay Bekleyenler', icon:'i-stamp', filter:function(x){ return x.onay === 'Bekliyor'; } },
+      { key:'sure', label:'Süresi Yaklaşanlar', icon:'i-hourglass', filter:function(x){ return x.kalanGun != null && x.kalanGun <= 30; } }
+    ],
+    columns:[
+      { key:'ad', label:'Doküman', width:'28%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-dokuman-detay.html?id=' + x.kod + '">' + esc(x.ad) + '</a>' +
+                 '<span class="cell-sub">' + esc(x.klasor) + '</span>' +
+                 '<span class="cell-code">' + x.kod + ' · ' + esc(x.format) + ' · ' + esc(x.boyut) + '</span>'; } },
+      { key:'tur', label:'Tür', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
+      { key:'versiyon', label:'Versiyon', cellClass:'num', render:function(x){ return '<span class="u-num">v' + x.versiyon + '</span>'; } },
+      { key:'yukleyen', label:'Yükleyen', render:function(x){ return GV.user(x.yukleyen, { sm:true }); },
+        sortValue:function(x){ return DB.empName(x.yukleyen); }, exportValue:function(x){ return DB.empName(x.yukleyen); } },
+      { key:'tarih', label:'Yükleme tarihi', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      { key:'sonKullanma', label:'Son kullanma', render:function(x){
+          if(!x.sonKullanma) return '<span class="u-faint">Süresiz</span>';
+          return GV.dateCell(x.sonKullanma) + (x.kalanGun != null && x.kalanGun <= 40 ? '<span class="cell-sub">' + x.kalanGun + ' gün kaldı</span>' : ''); } },
+      { key:'gizlilik', label:'Gizlilik', render:function(x){
+          var t = x.gizlilik === 'Gizli' ? 'is-danger' : x.gizlilik === 'Kişisel veri' ? 'is-purple' : 'is-neutral';
+          return '<span class="badge ' + t + ' no-dot">' + esc(x.gizlilik) + '</span>'; } },
+      { key:'onay', label:'Dijital onay', render:function(x){ return GV.badge(x.onay); } }
+    ],
+    filters:[
+      { key:'tur', label:'Doküman türü', type:'multi', options:TUR },
+      { key:'gizlilik', label:'Gizlilik seviyesi', type:'multi', options:['İç kullanım','Gizli','Kişisel veri'] },
+      { key:'onay', label:'Onay durumu', type:'select', options:['Bekliyor','Onaylandı'] },
+      { key:'yukleyen', label:'Yükleyen', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'musteri', label:'Müşteri', type:'select', options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'tarih', label:'Yükleme tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return (x.kalanGun != null && x.kalanGun <= 15) ? 'is-late' : ''; },
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-dokuman-detay.html?id=' + x.kod + '">' + esc(x.ad) + '</a>' +
+        '<div class="cell-sub">' + esc(x.klasor) + '</div></div><span class="tag">' + esc(x.format) + '</span></div>' +
+        '<div class="gv-rcard-meta"><span>v' + x.versiyon + '</span><span>' + esc(x.boyut) + '</span></div>' +
+        '<div class="gv-rcard-foot">' + GV.user(x.yukleyen, { sm:true }) + GV.badge(x.onay) + '</div>';
+    },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-dokuman-detay.html?id=' + x.kod + '">' + esc(x.ad) + '</a>' +
+        '<span class="tag">' + esc(x.format) + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(x.klasor) + ' · v' + x.versiyon + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.onay) + '</span>' +
+        (x.sonKullanma ? GV.dateCell(x.sonKullanma) : '') + '</div>';
+    },
+    rowActions:[
+      { key:'onizle', icon:'i-eye', label:'Ön izleme', run:function(x){
+          GV.modal({ title:x.ad, text:x.klasor + ' · v' + x.versiyon + ' · ' + x.boyut, icon:'i-file', size:'lg',
+            body:'<div class="gv-state"><div class="gv-state-ico">' + GV.ico('i-file','ic-xl') + '</div>' +
+              '<h3>' + esc(x.format) + ' ön izleme</h3>' +
+              '<p>Prototipte dosya içeriği barındırılmıyor. Gerçek sistemde bu alanda PDF/görsel ön izleme açılır.</p></div>' +
+              '<div class="gv-dl u-mt-4">' +
+              [['Tür', x.tur], ['Klasör', x.klasor], ['Versiyon', 'v' + x.versiyon],
+               ['Yükleyen', DB.empName(x.yukleyen)], ['Yükleme tarihi', F.date(x.tarih)],
+               ['Son kullanma', x.sonKullanma ? F.date(x.sonKullanma) : 'Süresiz'],
+               ['Gizlilik', x.gizlilik], ['Dijital onay', x.onay]
+              ].map(function(r){ return '<div><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>'; }).join('') + '</div>',
+            actions:[{ label:'Kapat', cls:'btn-line' }, { label:'İndir', cls:'btn-acc', onClick:function(){ GV.toast('İndirme başlatıldı (prototip)', 'info'); } }] }); } },
+      { key:'onayla', icon:'i-check', label:'Dijital onay ver', run:function(x, refresh){
+          if(x.onay === 'Onaylandı'){ GV.toast('Bu doküman zaten onaylı.', 'info'); return; }
+          GV.confirm({ title:'Dijital onay', text:x.ad + ' dokümanı onaylanacak.', okLabel:'Onayla' })
+            .then(function(ok){ if(ok){ x.onay = 'Onaylandı'; GV.toast('Doküman onaylandı', 'ok'); refresh(); } }); } }
+    ],
+    bulk:[{ key:'klasor', label:'Klasör değiştir', icon:'i-folder' }, { key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-folder', title:'Bu görünümde doküman yok',
+      desc:'Sözleşme, teklif, teknik doküman ve belgeler klasörlenir, versiyonlanır ve yetkiyle paylaşılır.' }
+  });
+
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('#btnYukle')) return;
+    GV.modal({ title:'Doküman Yükle', icon:'i-upload', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="dAd">Doküman adı</label><input type="text" class="inp" id="dAd" placeholder="Örn. Sözleşme v2"></div>' +
+        '<div class="field f-col-6"><label for="dTur">Tür</label><select id="dTur">' +
+          ['Sözleşme','Teklif','Teknik doküman','Test raporu','Fatura','Poliçe','Personel belgesi'].map(function(t){
+            return '<option>' + t + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field f-col-6"><label for="dGiz">Gizlilik</label><select id="dGiz">' +
+          ['İç kullanım','Gizli','Kişisel veri'].map(function(t){ return '<option>' + t + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field f-col-12"><label for="dSon">Son kullanma (opsiyonel)</label><input type="date" class="inp" id="dSon"></div>' +
+        '<div class="field f-col-12"><div class="gv-upload" id="dUp" tabindex="0" role="button">' + GV.ico('i-upload','ic-lg') +
+          '<div class="gv-upload-title">Dosya seçin veya sürükleyip bırakın</div>' +
+          '<div class="gv-upload-hint">PDF, DOCX, XLSX, PNG · en fazla 20 MB</div>' +
+          '<input type="file" id="dFile" hidden></div><div class="gv-filelist" id="dList"></div></div></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:'Yükle', cls:'btn-acc', onClick:function(close, el){
+            var ad = el.querySelector('#dAd').value.trim();
+            if(!ad){ GV.toast('Doküman adı zorunludur', 'danger'); return false; }
+            var son = el.querySelector('#dSon').value;
+            DB.documents.unshift({ kod:'DOK-2026-' + (300 + DB.documents.length), ad:ad,
+              tur:el.querySelector('#dTur').value, klasor:'Yeni Yüklenenler', musteri:null, proje:null,
+              boyut:'—', format:'PDF', versiyon:1, yukleyen:GV.session.emp, tarih:DB.today,
+              sonKullanma:son || null, kalanGun:son ? F.days(son) : null,
+              gizlilik:el.querySelector('#dGiz').value, onay:'Bekliyor', aktif:true });
+            GV.toast('Doküman yüklendi', 'ok'); list.refresh(); } }],
+      });
+    setTimeout(function(){
+      var up = document.getElementById('dUp'), fi = document.getElementById('dFile'), fl = document.getElementById('dList');
+      if(!up) return;
+      up.addEventListener('click', function(){ fi.click(); });
+      up.addEventListener('dragover', function(ev){ ev.preventDefault(); up.classList.add('is-over'); });
+      up.addEventListener('dragleave', function(){ up.classList.remove('is-over'); });
+      up.addEventListener('drop', function(ev){ ev.preventDefault(); up.classList.remove('is-over'); fi.files = ev.dataTransfer.files; show(); });
+      fi.addEventListener('change', show);
+      function show(){ fl.innerHTML = Array.prototype.map.call(fi.files, function(f){
+        return '<div class="gv-file"><span class="gv-file-ico">' + GV.ico('i-file','ic-sm') + '</span>' +
+          '<span><span class="gv-file-name">' + esc(f.name) + '</span><span class="gv-file-meta">' +
+          Math.round(f.size/1024) + ' KB</span></span></div>'; }).join(''); }
+    }, 60);
+  });
+
+});
+</script>
+</body>
+</html>
