@@ -265,9 +265,15 @@
       if(!it.roles) return true;
       return it.roles.indexOf(this.role()) !== -1;
     },
-    /* Aksiyon yetkisi: 'ekle' | 'duzenle' | 'sil' | 'onay' | 'disaAktar' | 'finans' | 'maas' | 'log' */
+    /* Aksiyon yetkisi: 'ekle' | 'duzenle' | 'sil' | 'onay' | 'disaAktar' | 'finans' | 'maas' | 'log'
+       Türetilmiş rapor yetkileri (PROMPT.md §5 — "personel raporu" / "müşteri raporu" ayrı eksenler):
+       'musteriRapor'  → rapor yetkisi var mı
+       'personelRapor' → rapor yetkisi + personel verisi görme yetkisi birlikte */
     can:function(action){
       var m = this.matrix();
+      if(action === 'musteriRapor') return !!(m.rapor && m.rapor !== 'yok') && this.sec('musteri');
+      if(action === 'personelRapor')
+        return !!(m.rapor && m.rapor !== 'yok' && m.personel && m.personel !== 'yok') && this.sec('personel');
       var v = m[action];
       if(typeof v === 'boolean') return v;
       return v && v !== 'yok';
