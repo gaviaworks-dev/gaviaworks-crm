@@ -613,6 +613,7 @@
     'app-ayar-departman.html',
     'app-ayar-profil.html',
     'app-ayar-arsiv.html',
+    'app-ayar-sirket.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
