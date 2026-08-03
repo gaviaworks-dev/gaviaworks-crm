@@ -185,7 +185,8 @@
     otomasyon:    ['sahip','genelmudur','sistem','operasyon'],
     entegrasyon:  ['sahip','genelmudur','sistem','devops'],
     log:          ['sahip','genelmudur','sistem','operasyon','devops'],
-    arsiv:        ['sahip','genelmudur','sistem','operasyon']
+    arsiv:        ['sahip','genelmudur','sistem','operasyon'],
+    yonetici:     ['sahip','genelmudur','sistem','operasyon']
   };
 
   var SEC_BY_ROLE = {
@@ -617,6 +618,7 @@
     'app-ayar-onay.html',
     'app-panel-duyurular.html',
     'app-panel-ozet.html',
+    'app-panel-yonetici.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
