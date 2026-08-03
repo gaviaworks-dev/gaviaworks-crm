@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Filo Raporları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="rapor" data-screen="raporfilo">
+<div id="rapor"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     0. SÖZLÜK, KAYIT ARAYICILAR VE TÜRETİLMİŞ ÖLÇÜLER
+     Referans tarih daima DB.today (2026-08-03) — new Date() kullanılmaz.
+     ================================================================= */
+  var AYK = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+
+  function arc(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || null; }
+  function plaka(k){ var v = arc(k); return v ? v.plaka : (k || '—'); }
+  function aracLink(k){ var v = arc(k); return 'app-arac.html?q=' + encodeURIComponent(v ? v.plaka : (k || '')); }
+  function depKisa(k){ var d = DB.dep(k); return d ? d.kisa : '—'; }
+  function prj(k){ return DB.projects.filter(function(p){ return p.kod === k; })[0] || null; }
+  function projeAd(k){ var p = prj(k); return p ? p.ad : (k || 'Tahsis edilmemiş'); }
+
+  function bakimOf(k){ return DB.maintenance.filter(function(m){ return m.arac === k; }); }
+  function servisKaydi(k){ return bakimOf(k).filter(function(m){ return m.durum === 'Serviste'; })[0] || null; }
+  function mynOf(k){ return DB.inspections.filter(function(i){ return i.arac === k; })[0] || null; }
+  function polOf(k, tur){ return DB.policies.filter(function(p){ return p.arac === k && p.tur === tur; })[0] || null; }
+  function gidOf(k){ return DB.vehicleExpenses.filter(function(g){ return g.arac === k; }); }
+  function yktOf(k){ return DB.fuelLogs.filter(function(y){ return y.arac === k; }); }
+  function cezOf(k){ return DB.fines.filter(function(c){ return c.arac === k; }); }
+  function kzaOf(k){ return DB.accidents.filter(function(a){ return a.arac === k; }); }
+
+  function gidTop(k){ return gidOf(k).reduce(function(s, g){ return s + (g.tutar || 0); }, 0); }
+  function gidTur(k, t){ return gidOf(k).filter(function(g){ return g.tur === t; })
+    .reduce(function(s, g){ return s + (g.tutar || 0); }, 0); }
+  function litreTop(k){ return yktOf(k).reduce(function(s, y){ return s + (y.litre || 0); }, 0); }
+  function cezaTop(k){ return cezOf(k).reduce(function(s, c){ return s + (c.tutar || 0); }, 0); }
+
+  /* Ortalama tüketim — ardışık yakıt kayıtlarının kilometre farkı üzerinden.
+     Tek kayıtlı araçta hesaplanamaz (null döner, tabloda “—” gösterilir). */
+  function tuketim(k){
+    var ls = yktOf(k).slice().sort(function(a, b){ return a.km - b.km; });
+    if(ls.length < 2) return null;
+    var km = ls[ls.length - 1].km - ls[0].km;
+    if(km <= 0) return null;
+    var lt = ls.slice(1).reduce(function(s, y){ return s + (y.litre || 0); }, 0);
+    return Math.round(lt / km * 1000) / 10;
+  }
+
+  /* Ay farkı — tarih ekseni DB.today, en az 1 ay döner (bölme güvenliği). */
+  function ayFarki(iso, bitis){
+    if(!iso) return 1;
+    var a = String(iso).slice(0, 10).split('-'), b = String(bitis || DB.today).slice(0, 10).split('-');
+    return Math.max(1, (parseInt(b[0], 10) - parseInt(a[0], 10)) * 12 + (parseInt(b[1], 10) - parseInt(a[1], 10)));
+  }
+
+  /* Kilometre başına maliyet — kayıtlı gider toplamı / güncel kilometre */
+  function kmMaliyet(k){ var v = arc(k); return (v && v.guncelKm) ? gidTop(k) / v.guncelKm : 0; }
+
+  /* Sahip olma ekonomisi — satın alma bedeli sahiplik ayına yayılır,
+     kiralık araçta aylık kira edinme maliyeti sayılır (mükerrer sayım
+     olmaması için “Kira” gider kalemi işletme maliyetinden düşülür). */
+  function ekonomi(v){
+    var kiralik = v.mulkiyet !== 'Satın alınan';
+    var bas = kiralik ? v.sozlesmeBas : v.alisTarihi;
+    var ay = ayFarki(bas);
+    var hepsi = gidTop(v.kod), kira = gidTur(v.kod, 'Kira');
+    var isletme = hepsi - kira;
+    var edinmeAylik = kiralik ? (v.aylikKira || 0) : Math.round((v.alisBedeli || 0) / ay);
+    var edinmeToplam = kiralik ? (v.aylikKira || 0) * ay : (v.alisBedeli || 0);
+    return { kiralik:kiralik, bas:bas, ay:ay,
+             edinmeAylik:edinmeAylik, isletmeAylik:Math.round(isletme / ay),
+             toplamAylik:edinmeAylik + Math.round(isletme / ay),
+             edinmeToplam:edinmeToplam, isletmeToplam:isletme,
+             sahipToplam:edinmeToplam + isletme,
+             kmBasi:v.guncelKm ? (edinmeToplam + isletme) / v.guncelKm : 0 };
+  }
+
+  /* Kiralama — kilometre sınırı sözleşme yılı sayısıyla çarpılır (yıllık sınır varsayımı) */
+  function sozlesmeYil(v){
+    if(!v.sozlesmeBas || !v.sozlesmeBit) return 1;
+    return Math.max(1, Math.round(ayFarki(v.sozlesmeBas, v.sozlesmeBit) / 12));
+  }
+  function kmSinirToplam(v){ return (v.kmSiniri || 0) * sozlesmeYil(v); }
+  function kmKullanim(v){ var t = kmSinirToplam(v); return t ? Math.round((v.guncelKm || 0) * 100 / t) : null; }
+
+  /* =================================================================
+     1. YENİLEME EŞİKLERİ — PROMPT.md §16: 60 / 30 / 15 / 7 gün · süresi doldu
+     ================================================================= */
+  function esik(g){
+    if(g == null) return null;
+    if(g < 0)  return { ad:'Süresi doldu',    ton:'danger', sira:0 };
+    if(g <= 7) return { ad:'7 gün kaldı',     ton:'danger', sira:1 };
+    if(g <= 15) return { ad:'15 gün kaldı',   ton:'danger', sira:2 };
+    if(g <= 30) return { ad:'30 gün kaldı',   ton:'warn',   sira:3 };
+    if(g <= 60) return { ad:'60 gün kaldı',   ton:'warn',   sira:4 };
+    return { ad:'60 günden uzak', ton:'ok', sira:5 };
+  }
+  function esikBadge(g){
+    var e = esik(g);
+    return e ? GV.badge(e.ad, 'is-' + e.ton) : '<span class="u-faint">—</span>';
+  }
+  function esikTon(g){ var e = esik(g); return e ? e.ton : 'neutral'; }
+  function yaklasan(g){ return g != null && g <= 60; }
+  function esikDagilim(rows, gunFn){
+    var kova = [
+      { label:'Süresi doldu', value:0 }, { label:'7 gün', value:0 }, { label:'15 gün', value:0 },
+      { label:'30 gün', value:0 }, { label:'60 gün', value:0 }, { label:'60 günden uzak', value:0 }
+    ];
+    rows.forEach(function(x){ var e = esik(gunFn(x)); if(e) kova[e.sira].value++; });
+    return kova.filter(function(k){ return k.value; });
+  }
+
+  /* =================================================================
+     2. YETKİ — finans yetkisi yoksa tutarlar maskelenir
+     ================================================================= */
+  function para(v){ return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
+  function paraNum(v){ return canFinans ? '<span class="u-num">' + F.money(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
+  function paraExp(v){ return canFinans ? v : ''; }
+  function paraK(v){ return canFinans ? F.moneyK(v) : '••••••'; }
+  function tlKm(v){ return canFinans ? '₺' + F.num(v, 2) : '••••••'; }
+  function tlKmCell(v){
+    return canFinans ? '<span class="cell-money">₺' + F.num(v, 2) + '</span>' : '<span class="cell-mask">••••••</span>';
+  }
+
+  /* =================================================================
+     3. ORTAK FİLTRE
+     ================================================================= */
+  function aracUyar(v, f){
+    if(!v) return false;
+    if(f.arac && v.kod !== f.arac) return false;
+    if(f.dep && v.dep !== f.dep) return false;
+    if(f.proje && v.proje !== f.proje) return false;
+    return true;
+  }
+  /* Araç satırlı raporlar */
+  function baseArac(f){
+    return DB.vehicles.filter(function(v){
+      if(!aracUyar(v, f)) return false;
+      if(f.personel && v.anaSurucu !== f.personel && v.yedekSurucu !== f.personel) return false;
+      if(f.durum && v.durum !== f.durum) return false;
+      if(f.tarih){
+        var d = v.alisTarihi || v.sozlesmeBas;
+        if(!d || d < f.tarih) return false;
+      }
+      return true;
+    });
+  }
+  /* Araca bağlı kayıt satırlı raporlar. o:{tarih:'alan', surucu:'alan'} */
+  function baseKayit(list, f, o){
+    o = o || {};
+    return list.filter(function(x){
+      var v = arc(x.arac);
+      if(!aracUyar(v, f)) return false;
+      if(f.personel){
+        var s = o.surucu ? x[o.surucu] : null;
+        if(s){ if(s !== f.personel) return false; }
+        else if(!v || (v.anaSurucu !== f.personel && v.yedekSurucu !== f.personel)) return false;
+      }
+      if(f.durum){
+        var d = x.durum != null ? x.durum : (v ? v.durum : null);
+        if(d !== f.durum) return false;
+      }
+      if(f.tarih){
+        var t = o.tarih ? x[o.tarih] : null;
+        if(!t || t < f.tarih) return false;
+      }
+      return true;
+    });
+  }
+
+  /* =================================================================
+     4. TOPLAMA VE GRAFİK YARDIMCILARI
+     ================================================================= */
+  function sum(rows, fn){ return rows.reduce(function(s, x){ return s + (fn(x) || 0); }, 0); }
+  function top(a, n){ return a.slice(0, n || 12); }
+  function uniq(rows, fn){
+    var s = {};
+    rows.forEach(function(x){ var k = fn(x); if(k) s[k] = 1; });
+    return Object.keys(s).length;
+  }
+  function tally(rows, keyFn){
+    var m = {}, order = [];
+    rows.forEach(function(x){
+      var k = keyFn(x);
+      if(k == null || k === '') k = '—';
+      if(!(k in m)){ m[k] = 0; order.push(k); }
+      m[k]++;
+    });
+    return order.map(function(k){ return { label:k, value:m[k] }; })
+                .sort(function(a, b){ return b.value - a.value; });
+  }
+  function tallySum(rows, keyFn, valFn){
+    var m = {}, order = [];
+    rows.forEach(function(x){
+      var k = keyFn(x);
+      if(k == null || k === '') k = '—';
+      if(!(k in m)){ m[k] = 0; order.push(k); }
+      m[k] += valFn(x) || 0;
+    });
+    return order.map(function(k){ return { label:k, value:Math.round(m[k]) }; })
+                .filter(function(d){ return d.value; })
+                .sort(function(a, b){ return b.value - a.value; });
+  }
+  function ayEtiket(ym){ var p = ym.split('-'); return AYK[parseInt(p[1], 10) - 1] + ' ' + p[0].slice(2); }
+  function aylikSeri(rows, tarihFn, valFn){
+    var ay = [];
+    rows.forEach(function(x){
+      var t = tarihFn(x);
+      if(!t) return;
+      var m = String(t).slice(0, 7);
+      if(ay.indexOf(m) === -1) ay.push(m);
+    });
+    ay.sort();
+    return { labels:ay.map(ayEtiket), values:ay.map(function(m){
+      return Math.round(sum(rows.filter(function(x){ var t = tarihFn(x); return t && String(t).slice(0, 7) === m; }), valFn));
+    }) };
+  }
+
+  function donutKart(baslik, data, merkez, altBaslik){
+    if(!data.length) return null;
+    return { title:baslik, html:GV.chart.donut(data, { center:String(merkez), centerSub:altBaslik }), legend:data };
+  }
+  function barKart(baslik, alt, data, opt){
+    if(!data.length) return null;
+    return { title:baslik, sub:alt, wide:true, html:GV.chart.bar(data, opt || {}) };
+  }
+  /* Para grafiği — finans yetkisi yoksa adet/litre/km eksenine düşer */
+  function paraBar(o){
+    return canFinans
+      ? barKart(o.title, o.sub, o.data, { money:true })
+      : barKart(o.altTitle || o.title, o.altSub, o.altData || []);
+  }
+  function esikBar(baslik, alt, data){
+    return barKart(baslik, alt || 'kalan gün · yenileme eşiğine göre renklenir', data);
+  }
+
+  /* =================================================================
+     5. KOLON SÖZLÜĞÜ — her çağrıda yeni nesne (GV.list kolon durumu tutar)
+     ================================================================= */
+  var C = {
+    /* --- araç satırı --- */
+    arac:function(w){ return { key:'plaka', label:'Araç', width:w || '20%', cellClass:'cell-wrap', locked:true,
+      render:function(v){
+        return '<a class="cell-main" href="' + aracLink(v.kod) + '">' + esc(v.plaka) + '</a>' +
+               '<span class="cell-sub">' + esc(v.marka + ' ' + v.model + ' · ' + v.modelYili) + '</span>' +
+               '<span class="cell-code">' + v.kod + ' · ' + esc(v.tip) + '</span>'; },
+      exportValue:function(v){ return v.kod + ' — ' + v.plaka; } }; },
+
+    tip:function(vis){ return { key:'tip', label:'Tip / yakıt', visible:vis !== false,
+      render:function(v){ return '<span class="tag">' + esc(v.tip) + '</span>' +
+        '<span class="cell-sub">' + esc(v.yakit + ' · ' + v.vites) + '</span>'; },
+      exportValue:function(v){ return v.tip + ' / ' + v.yakit; } }; },
+
+    mulkiyet:function(vis){ return { key:'mulkiyet', label:'Mülkiyet', visible:vis !== false,
+      render:function(v){ return '<span class="tag">' + esc(v.mulkiyet) + '</span>' +
+        (v.mulkiyet === 'Kiralık' && v.aylikKira ? '<span class="cell-sub">' + (canFinans ? F.money(v.aylikKira) + ' / ay' : '•••• / ay') + '</span>' : ''); },
+      exportValue:function(v){ return v.mulkiyet; } }; },
+
+    kullanim:function(){ return { key:'kullanim', label:'Kullanım',
+      render:function(v){ return '<span class="cell-main">' + esc(v.kullanim) + '</span>' +
+        (v.anaSurucu ? '<span class="cell-sub">' + esc(DB.empName(v.anaSurucu)) + '</span>' : ''); },
+      exportValue:function(v){ return v.kullanim; } }; },
+
+    anaSurucu:function(){ return { key:'anaSurucu', label:'Ana sürücü',
+      render:function(v){ return v.anaSurucu ? GV.user(v.anaSurucu) : '<span class="u-faint">Ortak kullanım</span>'; },
+      exportValue:function(v){ return v.anaSurucu ? DB.empName(v.anaSurucu) : '—'; } }; },
+
+    yedekSurucu:function(vis){ return { key:'yedekSurucu', label:'Yedek sürücü', visible:vis !== false,
+      render:function(v){ return v.yedekSurucu ? GV.user(v.yedekSurucu) : '<span class="u-faint">—</span>'; },
+      exportValue:function(v){ return v.yedekSurucu ? DB.empName(v.yedekSurucu) : '—'; } }; },
+
+    aracDep:function(vis){ return { key:'dep', label:'Departman', visible:vis !== false,
+      render:function(v){ return esc(DB.depName(v.dep)); },
+      exportValue:function(v){ return DB.depName(v.dep); } }; },
+
+    aracProje:function(vis){ return { key:'proje', label:'Proje', visible:vis !== false,
+      render:function(v){ return v.proje ? '<a class="cell-main" href="app-proje.html?q=' + encodeURIComponent(v.proje) + '">' + esc(projeAd(v.proje)) + '</a>'
+                                         : '<span class="u-faint">Tahsis edilmemiş</span>'; },
+      exportValue:function(v){ return v.proje ? projeAd(v.proje) : '—'; } }; },
+
+    km:function(){ return { key:'guncelKm', label:'Güncel km', cellClass:'num',
+      render:function(v){ return '<span class="u-num">' + F.num(v.guncelKm) + '</span>'; } }; },
+
+    sonrakiBakim:function(){ return { key:'sonrakiBakimTarihi', label:'Sonraki bakım',
+      render:function(v){ return GV.dateCell(v.sonrakiBakimTarihi) +
+        '<span class="cell-sub">' + F.num(v.sonrakiBakimKm) + ' km</span>'; } }; },
+
+    muayeneOzet:function(vis){ return { key:'muayene', label:'Muayene', sortable:false, visible:vis !== false,
+      render:function(v){
+        var m = mynOf(v.kod);
+        if(!m) return '<span class="u-faint">—</span>';
+        return GV.dateCell(m.sonrakiTarih) + '<span class="cell-sub">' + esikBadge(F.days(m.sonrakiTarih)) + '</span>'; },
+      exportValue:function(v){ var m = mynOf(v.kod); return m ? m.sonrakiTarih : '—'; } }; },
+
+    sigortaOzet:function(vis){ return { key:'sigorta', label:'Trafik sigortası', sortable:false, visible:vis !== false,
+      render:function(v){
+        var p = polOf(v.kod, 'Trafik Sigortası');
+        if(!p) return '<span class="u-faint">Poliçe yok</span>';
+        return GV.dateCell(p.bitis) + '<span class="cell-sub">' + esc(p.sirket) + '</span>'; },
+      exportValue:function(v){ var p = polOf(v.kod, 'Trafik Sigortası'); return p ? p.bitis : '—'; } }; },
+
+    giderToplam:function(baslik){ return { key:'gider', label:baslik || 'Toplam gider', cellClass:'num',
+      sortValue:function(v){ return gidTop(v.kod); },
+      render:function(v){ return para(gidTop(v.kod)); },
+      exportValue:function(v){ return paraExp(gidTop(v.kod)); } }; },
+
+    aracDurum:function(){ return { key:'durum', label:'Durum', render:function(v){ return GV.badge(v.durum); } }; },
+
+    /* --- araca bağlı kayıt satırı --- */
+    kayit:function(sayfa, baslik, altFn, w){ return { key:'kod', label:baslik || 'Kayıt', width:w || '16%',
+      cellClass:'cell-wrap', locked:true,
+      render:function(x){
+        return '<a class="cell-main" href="' + sayfa + '?q=' + encodeURIComponent(x.kod) + '">' + x.kod + '</a>' +
+               (altFn ? '<span class="cell-sub">' + esc(altFn(x)) + '</span>' : ''); },
+      exportValue:function(x){ return x.kod; } }; },
+
+    aracOf:function(w){ return { key:'arac', label:'Araç', width:w || '16%', cellClass:'cell-wrap',
+      sortValue:function(x){ return plaka(x.arac); },
+      render:function(x){
+        var v = arc(x.arac);
+        return '<a class="cell-main" href="' + aracLink(x.arac) + '">' + esc(v ? v.plaka : x.arac) + '</a>' +
+               (v ? '<span class="cell-sub">' + esc(v.marka + ' ' + v.model) + '</span>' : ''); },
+      exportValue:function(x){ return plaka(x.arac); } }; },
+
+    kayitDep:function(vis){ return { key:'kdep', label:'Departman', visible:vis !== false,
+      sortValue:function(x){ var v = arc(x.arac); return v ? DB.depName(v.dep) : ''; },
+      render:function(x){ var v = arc(x.arac); return esc(v ? DB.depName(v.dep) : '—'); },
+      exportValue:function(x){ var v = arc(x.arac); return v ? DB.depName(v.dep) : '—'; } }; },
+
+    surucu:function(baslik){ return { key:'surucu', label:baslik || 'Sürücü',
+      sortValue:function(x){ return DB.empName(x.surucu); },
+      render:function(x){ return x.surucu ? GV.user(x.surucu) : '<span class="u-faint">—</span>'; },
+      exportValue:function(x){ return x.surucu ? DB.empName(x.surucu) : '—'; } }; },
+
+    tarih:function(alan, baslik){ return { key:alan, label:baslik || 'Tarih',
+      render:function(x){ return x[alan] ? '<span class="cell-date">' + F.dateShort(x[alan]) + '</span>' : '<span class="u-faint">—</span>'; } }; },
+
+    hedefTarih:function(alan, baslik){ return { key:alan, label:baslik || 'Tarih',
+      render:function(x){ return GV.dateCell(x[alan]); } }; },
+
+    kalanGun:function(alan){ return { key:'kalan', label:'Kalan gün', cellClass:'num',
+      sortValue:function(x){ var g = F.days(x[alan]); return g == null ? 99999 : g; },
+      render:function(x){
+        var g = F.days(x[alan]);
+        if(g == null) return '<span class="u-faint">—</span>';
+        if(g < 0) return '<span class="u-num u-danger">' + F.num(-g) + ' gün gecikti</span>';
+        return '<span class="u-num ' + (g <= 15 ? 'u-danger' : g <= 60 ? 'u-warn' : '') + '">' + F.num(g) + ' gün</span>'; },
+      exportValue:function(x){ return F.days(x[alan]); } }; },
+
+    esikKol:function(alan){ return { key:'esik', label:'Yenileme eşiği',
+      sortValue:function(x){ var e = esik(F.days(x[alan])); return e ? e.sira : 9; },
+      render:function(x){ return esikBadge(F.days(x[alan])); },
+      exportValue:function(x){ var e = esik(F.days(x[alan])); return e ? e.ad : '—'; } }; },
+
+    tutar:function(alan, baslik){ return { key:alan, label:baslik || 'Tutar', cellClass:'num',
+      render:function(x){ return x[alan] == null ? '<span class="u-faint">—</span>' : para(x[alan]); },
+      exportValue:function(x){ return paraExp(x[alan]); } }; },
+
+    kayitDurum:function(baslik){ return { key:'durum', label:baslik || 'Durum',
+      render:function(x){ return GV.badge(x.durum); } }; },
+
+    /* --- kırılım (özet) satırı --- */
+    ad:function(baslik, w){ return { key:'ad', label:baslik, width:w || '22%', cellClass:'cell-wrap', locked:true,
+      render:function(a){ return '<span class="cell-main">' + esc(a.ad) + '</span>' +
+        '<span class="cell-code">' + esc(a.kod) + '</span>'; },
+      exportValue:function(a){ return a.ad; } }; },
+    sayi:function(key, baslik, ton){ return { key:key, label:baslik, cellClass:'num',
+      render:function(a){ return a[key] ? '<span class="u-num' + (ton ? ' u-' + ton : ' u-b') + '">' + F.num(a[key]) + '</span>'
+                                        : '<span class="u-faint">0</span>'; } }; },
+    kmSayi:function(key, baslik){ return { key:key, label:baslik || 'Toplam km', cellClass:'num',
+      render:function(a){ return '<span class="u-num">' + F.num(a[key]) + '</span>'; } }; },
+    paraSayi:function(key, baslik){ return { key:key, label:baslik, cellClass:'num',
+      render:function(a){ return para(a[key]); },
+      exportValue:function(a){ return paraExp(a[key]); } }; }
+  };
+
+  /* =================================================================
+     6. MOBİL SATIR, BOŞ DURUM VE TABLO İSKELETLERİ
+     ================================================================= */
+  function mArac(v){
+    return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(v.kod) + '">' + esc(v.plaka) + '</a>' +
+      GV.badge(v.durum) + '</div>' +
+      '<div class="gv-mrow-code">' + v.kod + ' · ' + esc(v.marka + ' ' + v.model) + '</div>' +
+      '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(v.anaSurucu ? DB.empName(v.anaSurucu) : 'Ortak kullanım') + '</span>' +
+      '<span>' + ico('i-gauge','ic-sm') + F.num(v.guncelKm) + ' km</span>' +
+      '<span>' + ico('i-wrench','ic-sm') + F.dateShort(v.sonrakiBakimTarihi) + '</span></div>';
+  }
+  function mYenileme(alan, altFn){
+    return function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(plaka(x.arac)) + '</span>' +
+        esikBadge(F.days(x[alan])) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + (altFn ? ' · ' + esc(altFn(x)) : '') + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + ico('i-calendar','ic-sm') + F.dateShort(x[alan]) + '</span>' +
+        '<span>' + ico('i-clock','ic-sm') + F.rel(x[alan]) + '</span></div>';
+    };
+  }
+  function mKayit(altFn, tutarFn){
+    return function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(plaka(x.arac)) + '</span>' +
+        (x.durum ? GV.badge(x.durum) : '') + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + (altFn ? ' · ' + esc(altFn(x)) : '') + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + ico('i-calendar','ic-sm') + F.dateShort(x.tarih) + '</span>' +
+        (x.surucu ? '<span>' + ico('i-user','ic-sm') + esc(DB.empName(x.surucu)) + '</span>' : '') +
+        (tutarFn ? '<span>' + (canFinans ? F.money(tutarFn(x)) : '••••••') + '</span>' : '') + '</div>';
+    };
+  }
+  function mAgg(altFn){
+    return function(a){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(a.ad) + '</span>' +
+        '<span class="u-num u-b">' + F.num(a.arac) + ' araç</span></div>' +
+        '<div class="gv-mrow-code">' + esc(a.kod) + '</div>' +
+        '<div class="gv-mrow-meta">' + altFn(a) + '</div>';
+    };
+  }
+  function bos(baslik, aciklama, ikon){
+    return { icon:ikon || 'i-car', title:baslik || 'Bu raporda kayıt yok',
+             desc:aciklama || 'Ortak filtreleri temizleyerek ya da tarih aralığını genişleterek kapsamı büyütebilirsiniz.' };
+  }
+  function araAracla(){
+    return { placeholder:'Plaka, marka, model, tip veya sürücü ara',
+             fields:['kod','plaka','marka','model','tip','yakit','mulkiyet','kullanim','sasi','motorNo'] };
+  }
+  function tblArac(o){
+    return { key:'kod', pageSize:o.pageSize || 10, archive:false,
+      exportName:o.exportName, exportTitle:o.exportTitle,
+      search:o.search || araAracla(),
+      defaultSort:o.defaultSort || 'plaka', defaultDir:o.defaultDir || 'asc',
+      tabs:o.tabs, columns:o.columns, mobile:o.mobile || mArac,
+      emptyState:o.emptyState || bos() };
+  }
+  function tblKayit(o){
+    return { key:'kod', pageSize:o.pageSize || 15, archive:false,
+      exportName:o.exportName, exportTitle:o.exportTitle,
+      search:o.search, defaultSort:o.defaultSort, defaultDir:o.defaultDir || 'asc',
+      tabs:o.tabs, columns:o.columns, mobile:o.mobile,
+      emptyState:o.emptyState || bos() };
+  }
+
+  /* =================================================================
+     7. KIRILIM ÜRETİCİLERİ (personel · departman · proje)
+     ================================================================= */
+  function aracOzet(kod, ad, v){
+    return { kod:kod, ad:ad, arac:0, plakalar:[], km:0, gider:0, litre:0, yakitTutar:0,
+             ceza:0, cezaTutar:0, kaza:0, bakim:0, serviste:0 };
+  }
+  function aracEkle(a, v){
+    a.arac++;
+    a.plakalar.push(v.plaka);
+    a.km += v.guncelKm || 0;
+    a.gider += gidTop(v.kod);
+    a.litre += litreTop(v.kod);
+    a.yakitTutar += gidTur(v.kod, 'Yakıt');
+    a.ceza += cezOf(v.kod).length;
+    a.cezaTutar += cezaTop(v.kod);
+    a.kaza += kzaOf(v.kod).length;
+    a.bakim += bakimOf(v.kod).length;
+    if(v.durum === 'Serviste') a.serviste++;
+    a.kmMaliyet = a.km ? a.gider / a.km : 0;
+    a.litreOrt = a.km ? Math.round(a.litre / a.km * 1000) / 10 : 0;
+  }
+  function gruplaArac(rows, keyFn, adFn){
+    var m = {}, order = [];
+    rows.forEach(function(v){
+      var k = keyFn(v) || '—';
+      if(!m[k]){ m[k] = aracOzet(k, adFn(k), v); order.push(k); }
+      aracEkle(m[k], v);
+    });
+    return order.map(function(k){ return m[k]; }).sort(function(x, y){ return y.arac - x.arac || y.km - x.km; });
+  }
+
+  /* Personel kırılımı — ana/yedek sürücülük + yakıt, ceza ve kaza kayıtları */
+  function personelOzet(f){
+    var m = {}, order = [];
+    function al(kod){
+      if(!kod) return null;
+      if(!m[kod]){
+        var e = DB.emp(kod);
+        m[kod] = { kod:kod, ad:DB.empName(kod), dep:e ? e.dep : null, depAd:e ? DB.depName(e.dep) : '—',
+                   ana:0, yedek:0, plakalar:[], yakitKayit:0, litre:0, yakitTutar:0,
+                   ceza:0, cezaTutar:0, kaza:0, arac:0 };
+        order.push(kod);
+      }
+      return m[kod];
+    }
+    if(f.personel && !al(f.personel)) return [];
+    var araclar = baseArac(f);
+    araclar.forEach(function(v){
+      if(v.anaSurucu){ var a = al(v.anaSurucu); if(a){ a.ana++; a.arac++; a.plakalar.push(v.plaka); } }
+      if(v.yedekSurucu){ var b = al(v.yedekSurucu); if(b) b.yedek++; }
+    });
+    baseKayit(DB.fuelLogs, f, { tarih:'tarih', surucu:'surucu' }).forEach(function(y){
+      var a = al(y.surucu);
+      if(a){ a.yakitKayit++; a.litre += y.litre || 0; a.yakitTutar += y.tutar || 0; }
+    });
+    baseKayit(DB.fines, f, { tarih:'tarih', surucu:'surucu' }).forEach(function(c){
+      var a = al(c.surucu);
+      if(a){ a.ceza++; a.cezaTutar += c.tutar || 0; }
+    });
+    baseKayit(DB.accidents, f, { tarih:'tarih', surucu:'surucu' }).forEach(function(k){
+      var a = al(k.surucu);
+      if(a) a.kaza++;
+    });
+    return order.map(function(k){ return m[k]; })
+      .filter(function(a){ return !f.personel || a.kod === f.personel; })
+      .filter(function(a){ return a.ana || a.yedek || a.yakitKayit || a.ceza || a.kaza; })
+      .sort(function(x, y){ return y.arac - x.arac || y.litre - x.litre; });
+  }
+
+  /* =================================================================
+     8. SAYFA
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Raporlar', title:'Filo Raporları',
+    sub:'19 rapor · referans tarih ' + F.date(DB.today),
+    actions:[
+      { label:'Araçlar', icon:'i-car', href:'app-arac.html' },
+      { label:'Bakım', icon:'i-wrench', href:'app-arac-bakim.html' },
+      { label:'Araç Giderleri', icon:'i-wallet', href:'app-arac-gider.html' }
+    ]
+  });
+
+  GV.report({
+    mount:'#rapor', id:'raporfilo',
+
+    filters:[
+      { key:'tarih', label:'Tarihten itibaren', type:'date' },
+      { key:'arac', label:'Araç', type:'select',
+        options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) },
+      { key:'personel', label:'Sürücü / personel', type:'select',
+        options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'dep', label:'Departman', type:'select',
+        options:DB.departments.filter(function(d){ return d.aktif; })
+          .map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'durum', label:'Durum', type:'select',
+        options:['Aktif','Serviste','Pasif','Planlandı','Yaklaşıyor','Tamam','Kapandı','Ödendi','Ödenmedi'] }
+    ],
+
+    reports:[
+
+      /* =========================== ENVANTER =========================== */
+      { key:'aktif', label:'Aktif araçlar', icon:'i-car', group:'Envanter',
+        title:'Aktif Araçlar',
+        desc:'Filoda kayıtlı ve kullanımda olan araçlar; mülkiyet, kullanım şekli, güncel kilometre ve yaklaşan yenileme yükümlülükleri ile birlikte.',
+        rows:function(f){ return baseArac(f).filter(function(v){ return v.aktif; }); },
+        kpis:[
+          { label:'Aktif araç', icon:'i-car', calc:function(r){ return r.length; } },
+          { label:'Serviste', icon:'i-wrench', tone:'warn',
+            calc:function(r){ return r.filter(function(v){ return v.durum === 'Serviste'; }).length; } },
+          { label:'Toplam kilometre', icon:'i-gauge', tone:'info',
+            calc:function(r){ return sum(r, function(v){ return v.guncelKm; }); } },
+          { label:'Filo edinme bedeli', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(v){ return ekonomi(v).edinmeToplam; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          return [
+            barKart('Araç bazlı güncel kilometre', 'km',
+              r.map(function(v){ return { label:v.plaka.slice(-4), value:v.guncelKm }; })),
+            donutKart('Kullanım şekli dağılımı', tally(r, function(v){ return v.kullanim; }), r.length, 'araç')
+          ];
+        },
+        table:tblArac({ exportName:'filo-rapor-aktif', exportTitle:'Aktif Araçlar Raporu',
+          tabs:[
+            { key:'aktif', label:'Kullanımda', icon:'i-car', filter:function(v){ return v.durum === 'Aktif'; } },
+            { key:'serviste', label:'Serviste', icon:'i-wrench', filter:function(v){ return v.durum === 'Serviste'; } },
+            { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+          ],
+          columns:[C.arac(), C.tip(), C.mulkiyet(), C.kullanim(), C.aracDep(false), C.km(),
+                   C.sonrakiBakim(), C.muayeneOzet(), C.sigortaOzet(false), C.giderToplam(), C.aracDurum()],
+          emptyState:bos('Aktif araç yok', 'Seçilen kapsamda filoda kayıtlı aktif araç bulunmuyor.') }) },
+
+      { key:'tahsisli', label:'Personele tahsisli araçlar', icon:'i-user-check', group:'Envanter',
+        title:'Personele Tahsisli Araçlar',
+        desc:'Bir personele zimmetlenmiş araçlar; ana ve yedek sürücü, bağlı departman, kullanım kilometresi ve araç başına kayıtlı gider.',
+        rows:function(f){ return baseArac(f).filter(function(v){ return v.kullanim === 'Personele tahsisli'; }); },
+        kpis:[
+          { label:'Tahsisli araç', icon:'i-user-check', tone:'info', calc:function(r){ return r.length; } },
+          { label:'Farklı ana sürücü', icon:'i-users', tone:'purple',
+            calc:function(r){ return uniq(r, function(v){ return v.anaSurucu; }); } },
+          { label:'Yedek sürücüsü olan', icon:'i-user-plus',
+            calc:function(r){ return r.filter(function(v){ return !!v.yedekSurucu; }).length; } },
+          { label:'Ortalama kilometre', icon:'i-gauge', tone:'ok',
+            calc:function(r){ return r.length ? Math.round(sum(r, function(v){ return v.guncelKm; }) / r.length) : 0; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          return [
+            barKart('Sürücü bazlı araç kilometresi', 'km',
+              r.map(function(v){ return { label:DB.empName(v.anaSurucu).split(' ')[0], value:v.guncelKm }; })),
+            donutKart('Departman dağılımı', tally(r, function(v){ return depKisa(v.dep); }), r.length, 'araç')
+          ];
+        },
+        table:tblArac({ exportName:'filo-rapor-tahsisli', exportTitle:'Personele Tahsisli Araçlar Raporu',
+          columns:[C.arac(), C.anaSurucu(), C.yedekSurucu(), C.aracDep(), C.tip(false), C.mulkiyet(),
+                   C.km(), C.sonrakiBakim(), C.muayeneOzet(false), C.giderToplam(), C.aracDurum()],
+          emptyState:bos('Tahsisli araç yok', 'Seçilen kapsamda personele zimmetlenmiş araç bulunmuyor.', 'i-user-check') }) },
+
+      { key:'ortak', label:'Ortak kullanım araçları', icon:'i-users', group:'Envanter',
+        title:'Ortak Kullanım Araçları',
+        desc:'Havuzda tutulan, sabit sürücüsü olmayan araçlar; kullanan personel yakıt kayıtlarından türetilir.',
+        rows:function(f){ return baseArac(f).filter(function(v){ return v.kullanim === 'Ortak kullanım'; }); },
+        kpis:[
+          { label:'Ortak araç', icon:'i-users', tone:'accent', calc:function(r){ return r.length; } },
+          { label:'Kullanan personel', icon:'i-user', tone:'purple', calc:function(r){
+              var kods = r.map(function(v){ return v.kod; });
+              return uniq(DB.fuelLogs.filter(function(y){ return kods.indexOf(y.arac) !== -1; }), function(y){ return y.surucu; }); } },
+          { label:'Toplam kilometre', icon:'i-gauge', tone:'info',
+            calc:function(r){ return sum(r, function(v){ return v.guncelKm; }); } },
+          { label:'Serviste', icon:'i-wrench', tone:'warn',
+            calc:function(r){ return r.filter(function(v){ return v.durum === 'Serviste'; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kods = r.map(function(v){ return v.kod; });
+          var kul = tally(DB.fuelLogs.filter(function(y){ return kods.indexOf(y.arac) !== -1; }),
+                          function(y){ return DB.empName(y.surucu); });
+          return [
+            barKart('Araç bazlı güncel kilometre', 'km',
+              r.map(function(v){ return { label:v.plaka.slice(-4), value:v.guncelKm }; })),
+            donutKart('Havuz aracını kullanan personel', kul, kul.length, 'personel')
+          ];
+        },
+        table:tblArac({ exportName:'filo-rapor-ortak', exportTitle:'Ortak Kullanım Araçları Raporu',
+          columns:[C.arac(), C.aracDep(), C.tip(), C.mulkiyet(), C.km(),
+            { key:'kullanici', label:'Kullanan personel', sortable:false,
+              render:function(v){
+                var ls = yktOf(v.kod).map(function(y){ return DB.empName(y.surucu); });
+                var u = ls.filter(function(x, i){ return ls.indexOf(x) === i; });
+                return u.length ? '<span class="cell-main">' + esc(u.join(', ')) + '</span>' +
+                                  '<span class="cell-sub">' + F.num(ls.length) + ' yakıt kaydı</span>'
+                                : '<span class="u-faint">Kullanım kaydı yok</span>'; },
+              exportValue:function(v){
+                var ls = yktOf(v.kod).map(function(y){ return DB.empName(y.surucu); });
+                return ls.filter(function(x, i){ return ls.indexOf(x) === i; }).join(' / ') || '—'; } },
+            C.sonrakiBakim(), C.giderToplam(), C.aracDurum()],
+          emptyState:bos('Ortak kullanım aracı yok', 'Seçilen kapsamda havuzda tutulan araç bulunmuyor.', 'i-users') }) },
+
+      { key:'serviste', label:'Servisteki araçlar', icon:'i-wrench', group:'Envanter',
+        title:'Servisteki Araçlar',
+        desc:'Durumu “Serviste” olan araçlar; açık bakım kaydı, serviste geçen süre ve bakım maliyeti ile birlikte.',
+        rows:function(f){ return baseArac(f).filter(function(v){ return v.durum === 'Serviste'; }); },
+        kpis:[
+          { label:'Servisteki araç', icon:'i-wrench', tone:'warn', calc:function(r){ return r.length; } },
+          { label:'Açık bakım kaydı', icon:'i-clipboard', tone:'info',
+            calc:function(r){ return sum(r, function(v){ return bakimOf(v.kod).filter(function(m){ return m.durum !== 'Tamam'; }).length; }); } },
+          { label:'En uzun servis süresi', icon:'i-hourglass', tone:'danger',
+            format:function(v){ return F.num(v) + ' gün'; },
+            calc:function(r){
+              return r.reduce(function(m, v){
+                var b = servisKaydi(v.kod);
+                var g = b && b.gercekTarihi ? -F.days(b.gercekTarihi) : 0;
+                return Math.max(m, g > 0 ? g : 0); }, 0); } },
+          { label:'Servis maliyeti', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(v){ return gidTur(v.kod, 'Bakım') + gidTur(v.kod, 'Onarım'); }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var gun = r.map(function(v){
+            var b = servisKaydi(v.kod);
+            var g = b && b.gercekTarihi ? -F.days(b.gercekTarihi) : 0;
+            return { label:v.plaka.slice(-4), value:g > 0 ? g : 0, tone:g > 7 ? 'danger' : 'warn' };
+          });
+          var kods = r.map(function(v){ return v.kod; });
+          var tur = tally(DB.maintenance.filter(function(m){ return kods.indexOf(m.arac) !== -1; }), function(m){ return m.tur; });
+          return [barKart('Serviste geçen süre', 'gün', gun),
+                  donutKart('Bakım türü dağılımı', tur, tur.length, 'tür')];
+        },
+        table:tblArac({ exportName:'filo-rapor-serviste', exportTitle:'Servisteki Araçlar Raporu',
+          columns:[C.arac(), C.tip(false), C.aracDep(),
+            { key:'bakimKayit', label:'Açık bakım kaydı', cellClass:'cell-wrap', sortable:false,
+              render:function(v){
+                var b = servisKaydi(v.kod);
+                if(!b) return '<span class="u-faint">Açık bakım kaydı yok</span>';
+                return '<a class="cell-main" href="app-arac-bakim.html?q=' + encodeURIComponent(b.kod) + '">' + b.kod + '</a>' +
+                       '<span class="cell-sub">' + esc(b.tur + ' · ' + b.servis) + '</span>'; },
+              exportValue:function(v){ var b = servisKaydi(v.kod); return b ? b.kod + ' — ' + b.tur : '—'; } },
+            { key:'servisGun', label:'Serviste gün', cellClass:'num',
+              sortValue:function(v){ var b = servisKaydi(v.kod); return b && b.gercekTarihi ? -F.days(b.gercekTarihi) : -1; },
+              render:function(v){
+                var b = servisKaydi(v.kod);
+                if(!b || !b.gercekTarihi) return '<span class="u-faint">—</span>';
+                var g = -F.days(b.gercekTarihi);
+                return '<span class="u-num ' + (g > 7 ? 'u-danger' : 'u-warn') + '">' + F.num(g > 0 ? g : 0) + ' gün</span>'; },
+              exportValue:function(v){ var b = servisKaydi(v.kod); return b && b.gercekTarihi ? -F.days(b.gercekTarihi) : ''; } },
+            { key:'bakimMaliyet', label:'Bakım maliyeti', cellClass:'num',
+              sortValue:function(v){ return gidTur(v.kod, 'Bakım'); },
+              render:function(v){ return para(gidTur(v.kod, 'Bakım')); },
+              exportValue:function(v){ return paraExp(gidTur(v.kod, 'Bakım')); } },
+            C.km(), C.aracDurum()],
+          emptyState:bos('Serviste araç yok', 'Seçilen kapsamda serviste bekleyen araç bulunmuyor.', 'i-wrench') }) },
+
+      /* =========================== YENİLEME =========================== */
+      { key:'bakimYaklasan', label:'Bakımı yaklaşan araçlar', icon:'i-clipboard', group:'Yenileme',
+        title:'Bakımı Yaklaşan Araçlar',
+        desc:'Tamamlanmamış bakım planları; 60 / 30 / 15 / 7 gün eşikleriyle. Kilometre eşiği de izlenir — planlanan bakım kilometresine yaklaşan araç, tarihten bağımsız olarak servise çağrılır.',
+        rows:function(f){
+          return baseKayit(DB.maintenance, f, { tarih:'planTarihi' }).filter(function(m){
+            return !m.gercekTarihi && F.days(m.planTarihi) >= 0;
+          });
+        },
+        kpis:[
+          { label:'Yaklaşan bakım', icon:'i-clipboard', tone:'info', calc:function(r){ return r.length; } },
+          { label:'60 gün içinde', icon:'i-calendar', tone:'warn',
+            calc:function(r){ return r.filter(function(m){ return yaklasan(F.days(m.planTarihi)); }).length; } },
+          { label:'15 gün içinde', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(m){ var g = F.days(m.planTarihi); return g != null && g <= 15; }).length; } },
+          { label:'Bakım km eşiğine en yakın', icon:'i-gauge', tone:'purple',
+            format:function(v){ return v == null ? '—' : F.num(v) + ' km'; },
+            calc:function(r){
+              var en = null;
+              r.forEach(function(m){
+                var v = arc(m.arac);
+                if(!v || !m.planKm) return;
+                var k = m.planKm - v.guncelKm;
+                if(en == null || k < en) en = k;
+              });
+              return en; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kalan = r.slice().sort(function(a, b){ return F.days(a.planTarihi) - F.days(b.planTarihi); })
+            .map(function(m){ var g = F.days(m.planTarihi);
+              return { label:plaka(m.arac).slice(-4), value:g, tone:esikTon(g) }; });
+          var km = r.map(function(m){
+            var v = arc(m.arac);
+            return { label:plaka(m.arac).slice(-4), value:m.planKm || 0, value2:v ? v.guncelKm : 0 };
+          });
+          return [esikBar('Bakıma kalan gün', 'gün · 60 / 30 / 15 / 7 eşiği', kalan),
+                  { title:'Planlanan bakım kilometresi ve güncel kilometre', sub:'km', wide:true,
+                    html:GV.chart.bar(km),
+                    legend:[{ label:'Planlanan bakım km', value:sum(r, function(m){ return m.planKm; }) },
+                            { label:'Güncel km', value:sum(r, function(m){ var v = arc(m.arac); return v ? v.guncelKm : 0; }) }] }];
+        },
+        table:tblKayit({ exportName:'filo-rapor-bakim-yaklasan', exportTitle:'Bakımı Yaklaşan Araçlar Raporu',
+          defaultSort:'kalan', defaultDir:'asc',
+          search:{ placeholder:'Bakım no, servis, tür veya işlem ara', fields:['kod','tur','servis','durum','islemler','arac'] },
+          tabs:[
+            { key:'esik60', label:'60 gün içinde', icon:'i-alert', filter:function(m){ return yaklasan(F.days(m.planTarihi)); } },
+            { key:'tumu', label:'Tüm planlı bakımlar', icon:'i-list', filter:null }
+          ],
+          columns:[C.kayit('app-arac-bakim.html', 'Bakım kaydı', function(m){ return m.tur; }),
+                   C.aracOf(), C.kayitDep(false),
+                   C.hedefTarih('planTarihi', 'Plan tarihi'), C.kalanGun('planTarihi'), C.esikKol('planTarihi'),
+            { key:'planKm', label:'Plan km / güncel km', cellClass:'num',
+              sortValue:function(m){ var v = arc(m.arac); return v && m.planKm ? m.planKm - v.guncelKm : 999999; },
+              render:function(m){
+                var v = arc(m.arac);
+                if(!v || !m.planKm) return '<span class="u-faint">—</span>';
+                var k = m.planKm - v.guncelKm;
+                return '<span class="u-num">' + F.num(m.planKm) + ' / <b>' + F.num(v.guncelKm) + '</b></span>' +
+                       '<span class="cell-sub ' + (k <= 3000 ? 'u-warn' : '') + '">' + F.num(k) + ' km kaldı</span>'; },
+              exportValue:function(m){ var v = arc(m.arac); return v ? m.planKm + ' / ' + v.guncelKm : m.planKm; } },
+            { key:'servis', label:'Servis', render:function(m){ return esc(m.servis); } },
+            { key:'islemler', label:'Planlanan işlemler', cellClass:'cell-wrap', width:'18%', sortable:false,
+              render:function(m){ return (m.islemler || []).map(function(i){ return '<span class="tag">' + esc(i) + '</span>'; }).join(' '); },
+              exportValue:function(m){ return (m.islemler || []).join(', '); } },
+            C.kayitDurum()],
+          mobile:mYenileme('planTarihi', function(m){ return m.tur; }),
+          emptyState:bos('Yaklaşan bakım yok', 'Seçilen kapsamda planlanmış ve tamamlanmamış bakım kaydı bulunmuyor.', 'i-clipboard') }) },
+
+      { key:'bakimGeciken', label:'Bakımı geciken araçlar', icon:'i-alert', group:'Yenileme',
+        title:'Bakımı Geciken Araçlar',
+        desc:'Plan tarihi geçmiş ya da planlanan bakım kilometresi aşılmış ve hâlâ kapanmamış bakım kayıtları; servise girmiş ama tamamlanmamış işler de gecikme sayılır.',
+        rows:function(f){
+          return baseKayit(DB.maintenance, f, { tarih:'planTarihi' }).filter(function(m){
+            if(m.durum === 'Tamam') return false;
+            var v = arc(m.arac);
+            if(!m.gercekTarihi){
+              if(F.days(m.planTarihi) < 0) return true;
+              if(v && m.planKm && v.guncelKm >= m.planKm) return true;
+              return false;
+            }
+            return F.days(m.gercekTarihi) < 0;
+          });
+        },
+        kpis:[
+          { label:'Geciken bakım', icon:'i-alert', tone:'danger', calc:function(r){ return r.length; } },
+          { label:'Ortalama gecikme', icon:'i-clock', tone:'warn',
+            format:function(v){ return F.num(v) + ' gün'; },
+            calc:function(r){
+              if(!r.length) return 0;
+              return Math.round(sum(r, function(m){ var g = -F.days(m.gercekTarihi || m.planTarihi); return g > 0 ? g : 0; }) / r.length); } },
+          { label:'Km eşiğini aşan araç', icon:'i-gauge', tone:'danger',
+            calc:function(r){ return r.filter(function(m){ var v = arc(m.arac); return v && m.planKm && v.guncelKm >= m.planKm; }).length; } },
+          { label:'Serviste bekleyen', icon:'i-wrench', tone:'warn',
+            calc:function(r){ return r.filter(function(m){ return m.durum === 'Serviste'; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var gec = r.map(function(m){
+            var g = -F.days(m.gercekTarihi || m.planTarihi);
+            return { label:plaka(m.arac).slice(-4), value:g > 0 ? g : 0, tone:'danger' };
+          });
+          var tur = tally(r, function(m){ return m.tur; });
+          return [barKart('Bakım gecikmesi', 'gün', gec),
+                  donutKart('Gecikmenin bakım türü', tur, r.length, 'kayıt')];
+        },
+        table:tblKayit({ exportName:'filo-rapor-bakim-geciken', exportTitle:'Bakımı Geciken Araçlar Raporu',
+          defaultSort:'gecikme', defaultDir:'desc',
+          search:{ placeholder:'Bakım no, servis, tür veya işlem ara', fields:['kod','tur','servis','durum','islemler','arac'] },
+          columns:[C.kayit('app-arac-bakim.html', 'Bakım kaydı', function(m){ return m.tur; }),
+                   C.aracOf(), C.kayitDep(false),
+                   C.hedefTarih('planTarihi', 'Plan tarihi'), C.tarih('gercekTarihi', 'Servise giriş'),
+            { key:'gecikme', label:'Gecikme', cellClass:'num',
+              sortValue:function(m){ var g = -F.days(m.gercekTarihi || m.planTarihi); return g > 0 ? g : 0; },
+              render:function(m){
+                var g = -F.days(m.gercekTarihi || m.planTarihi);
+                return g > 0 ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>' : '<span class="u-faint">—</span>'; },
+              exportValue:function(m){ var g = -F.days(m.gercekTarihi || m.planTarihi); return g > 0 ? g : 0; } },
+            { key:'kmAsim', label:'Km aşımı', cellClass:'num',
+              sortValue:function(m){ var v = arc(m.arac); return v && m.planKm ? v.guncelKm - m.planKm : -999999; },
+              render:function(m){
+                var v = arc(m.arac);
+                if(!v || !m.planKm) return '<span class="u-faint">—</span>';
+                var k = v.guncelKm - m.planKm;
+                return k >= 0 ? '<span class="u-num u-danger">+' + F.num(k) + ' km</span>'
+                              : '<span class="u-num u-ok">' + F.num(-k) + ' km kaldı</span>'; },
+              exportValue:function(m){ var v = arc(m.arac); return v && m.planKm ? v.guncelKm - m.planKm : ''; } },
+            { key:'servis', label:'Servis', render:function(m){ return esc(m.servis); } },
+            C.tutar('maliyet', 'Bakım maliyeti'), C.kayitDurum()],
+          mobile:mYenileme('planTarihi', function(m){ return m.tur; }),
+          emptyState:bos('Geciken bakım yok', 'Seçilen kapsamda plan tarihi ya da kilometre eşiği aşılmış açık bakım kaydı bulunmuyor.', 'i-check-circle') }) },
+
+      { key:'muayene', label:'Muayenesi yaklaşan araçlar', icon:'i-clipboard-check', group:'Yenileme',
+        title:'Muayenesi Yaklaşan Araçlar',
+        desc:'Araç muayene geçerlilik tarihleri; 60 / 30 / 15 / 7 gün eşikleri ve süresi dolanlar. Kusur kaydı olan araçlarda tekrar muayene takibi gerekir.',
+        rows:function(f){ return baseKayit(DB.inspections, f, { tarih:'sonrakiTarih' }); },
+        kpis:[
+          { label:'İzlenen muayene', icon:'i-clipboard-check', calc:function(r){ return r.length; } },
+          { label:'60 gün içinde', icon:'i-calendar', tone:'warn',
+            calc:function(r){ return r.filter(function(m){ return yaklasan(F.days(m.sonrakiTarih)); }).length; } },
+          { label:'30 gün içinde', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(m){ var g = F.days(m.sonrakiTarih); return g != null && g <= 30; }).length; } },
+          { label:'Kusur kaydı olan', icon:'i-flag', tone:'purple',
+            calc:function(r){ return r.filter(function(m){ return !!m.kusur; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kalan = r.slice().sort(function(a, b){ return F.days(a.sonrakiTarih) - F.days(b.sonrakiTarih); })
+            .map(function(m){ var g = F.days(m.sonrakiTarih);
+              return { label:plaka(m.arac).slice(-4), value:g, tone:esikTon(g) }; });
+          var dag = esikDagilim(r, function(m){ return F.days(m.sonrakiTarih); });
+          return [esikBar('Muayeneye kalan gün', 'gün · 60 / 30 / 15 / 7 eşiği', kalan),
+                  donutKart('Yenileme eşiği dağılımı', dag, r.length, 'araç')];
+        },
+        table:tblKayit({ exportName:'filo-rapor-muayene', exportTitle:'Muayenesi Yaklaşan Araçlar Raporu',
+          defaultSort:'kalan', defaultDir:'asc',
+          search:{ placeholder:'Muayene no, istasyon, sonuç veya kusur ara', fields:['kod','istasyon','sonuc','kusur','arac'] },
+          tabs:[
+            { key:'esik60', label:'60 gün içinde', icon:'i-alert', filter:function(m){ return yaklasan(F.days(m.sonrakiTarih)); } },
+            { key:'doldu', label:'Süresi dolanlar', icon:'i-x-circle', filter:function(m){ return F.days(m.sonrakiTarih) < 0; } },
+            { key:'tumu', label:'Tüm muayeneler', icon:'i-list', filter:null }
+          ],
+          columns:[C.kayit('app-arac-muayene.html', 'Muayene kaydı', function(m){ return m.istasyon; }),
+                   C.aracOf(), C.kayitDep(false),
+                   C.tarih('sonTarih', 'Son muayene'), C.hedefTarih('sonrakiTarih', 'Geçerlilik / sonraki'),
+                   C.kalanGun('sonrakiTarih'), C.esikKol('sonrakiTarih'),
+            { key:'sonuc', label:'Sonuç', render:function(m){ return GV.badge(m.sonuc); } },
+            { key:'kusur', label:'Kusur bilgisi', cellClass:'cell-wrap', width:'18%',
+              render:function(m){ return m.kusur ? '<span class="u-warn">' + esc(m.kusur) + '</span>' : '<span class="u-faint">Kusur yok</span>'; },
+              exportValue:function(m){ return m.kusur || '—'; } },
+            C.kayitDurum()],
+          mobile:mYenileme('sonrakiTarih', function(m){ return m.istasyon; }),
+          emptyState:bos('Muayene kaydı yok', 'Seçilen kapsamda takip edilen araç muayenesi bulunmuyor.', 'i-clipboard-check') }) },
+
+      { key:'sigorta', label:'Sigortası yaklaşan araçlar', icon:'i-shield', group:'Yenileme',
+        title:'Sigortası Yaklaşan Araçlar',
+        desc:'Zorunlu trafik sigortası poliçelerinin bitiş tarihleri; 60 / 30 / 15 / 7 gün eşikleri, yenileme ve ödeme durumu.',
+        rows:function(f){ return baseKayit(DB.policies, f, { tarih:'bitis' }).filter(function(p){ return p.tur === 'Trafik Sigortası'; }); },
+        kpis:[
+          { label:'Trafik poliçesi', icon:'i-shield', calc:function(r){ return r.length; } },
+          { label:'60 gün içinde bitiyor', icon:'i-calendar', tone:'warn',
+            calc:function(r){ return r.filter(function(p){ return yaklasan(F.days(p.bitis)); }).length; } },
+          { label:'Yenilemesi bekleyen', icon:'i-refresh', tone:'danger',
+            calc:function(r){ return r.filter(function(p){ return p.yenileme === 'Bekliyor'; }).length; } },
+          { label:'Toplam prim', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(p){ return p.prim; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kalan = r.slice().sort(function(a, b){ return F.days(a.bitis) - F.days(b.bitis); })
+            .map(function(p){ var g = F.days(p.bitis);
+              return { label:plaka(p.arac).slice(-4), value:g, tone:esikTon(g) }; });
+          return [esikBar('Poliçe bitişine kalan gün', 'gün · 60 / 30 / 15 / 7 eşiği', kalan),
+                  paraBar({ title:'Sigorta şirketi bazlı prim', sub:'toplam prim',
+                    data:tallySum(r, function(p){ return p.sirket; }, function(p){ return p.prim; }),
+                    altTitle:'Sigorta şirketi bazlı poliçe adedi', altSub:'poliçe adedi',
+                    altData:tally(r, function(p){ return p.sirket; }) })];
+        },
+        table:tblKayit({ exportName:'filo-rapor-sigorta', exportTitle:'Sigortası Yaklaşan Araçlar Raporu',
+          defaultSort:'kalan', defaultDir:'asc',
+          search:{ placeholder:'Poliçe no, şirket veya acente ara', fields:['kod','police','sirket','acente','tur','arac'] },
+          tabs:[
+            { key:'esik60', label:'60 gün içinde', icon:'i-alert', filter:function(p){ return yaklasan(F.days(p.bitis)); } },
+            { key:'tumu', label:'Tüm trafik poliçeleri', icon:'i-list', filter:null }
+          ],
+          columns:[C.kayit('app-arac-sigorta.html', 'Poliçe', function(p){ return p.police; }),
+                   C.aracOf(), C.kayitDep(false),
+            { key:'sirket', label:'Sigorta şirketi',
+              render:function(p){ return '<span class="cell-main">' + esc(p.sirket) + '</span>' +
+                '<span class="cell-sub">' + esc(p.acente) + '</span>'; } },
+                   C.tarih('baslangic', 'Başlangıç'), C.hedefTarih('bitis', 'Bitiş'),
+                   C.kalanGun('bitis'), C.esikKol('bitis'), C.tutar('prim', 'Prim'),
+            { key:'teminat', label:'Teminat', visible:false, render:function(p){ return esc(p.teminat); } },
+            { key:'yenileme', label:'Yenileme', render:function(p){ return GV.badge(p.yenileme); } },
+            { key:'odeme', label:'Ödeme', render:function(p){ return GV.badge(p.odeme); } }],
+          mobile:mYenileme('bitis', function(p){ return p.sirket; }),
+          emptyState:bos('Trafik poliçesi yok', 'Seçilen kapsamda zorunlu trafik sigortası poliçesi bulunmuyor.', 'i-shield') }) },
+
+      { key:'kasko', label:'Kaskosu yaklaşan araçlar', icon:'i-shield-check', group:'Yenileme',
+        title:'Kaskosu Yaklaşan Araçlar',
+        desc:'Kasko poliçelerinin bitiş tarihleri; kasko bedeli, muafiyet, hasarsızlık oranı, ikame araç ve mini onarım hakları ile birlikte.',
+        rows:function(f){ return baseKayit(DB.policies, f, { tarih:'bitis' }).filter(function(p){ return p.tur === 'Kasko'; }); },
+        kpis:[
+          { label:'Kasko poliçesi', icon:'i-shield-check', calc:function(r){ return r.length; } },
+          { label:'60 gün içinde bitiyor', icon:'i-calendar', tone:'warn',
+            calc:function(r){ return r.filter(function(p){ return yaklasan(F.days(p.bitis)); }).length; } },
+          { label:'Toplam kasko bedeli', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(p){ return p.kaskoBedeli; }); } },
+          { label:'Toplam prim', icon:'i-receipt', tone:'info', format:paraK,
+            calc:function(r){ return sum(r, function(p){ return p.prim; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kalan = r.slice().sort(function(a, b){ return F.days(a.bitis) - F.days(b.bitis); })
+            .map(function(p){ var g = F.days(p.bitis);
+              return { label:plaka(p.arac).slice(-4), value:g, tone:esikTon(g) }; });
+          var bedel = r.map(function(p){ return { label:plaka(p.arac).slice(-4), value:p.kaskoBedeli || 0, value2:(p.prim || 0) * 10 }; });
+          return [esikBar('Kasko bitişine kalan gün', 'gün · 60 / 30 / 15 / 7 eşiği', kalan),
+                  canFinans
+                    ? { title:'Kasko bedeli ve prim', sub:'prim karşılaştırma için 10 katı ölçeklenmiştir', wide:true,
+                        html:GV.chart.bar(bedel, { money:true }),
+                        legend:[{ label:'Kasko bedeli', value:sum(r, function(p){ return p.kaskoBedeli; }) },
+                                { label:'Prim (×10)', value:sum(r, function(p){ return (p.prim || 0) * 10; }) }] }
+                    : donutKart('Kasko şirketi dağılımı', tally(r, function(p){ return p.sirket; }), r.length, 'poliçe')];
+        },
+        table:tblKayit({ exportName:'filo-rapor-kasko', exportTitle:'Kaskosu Yaklaşan Araçlar Raporu',
+          defaultSort:'kalan', defaultDir:'asc',
+          search:{ placeholder:'Poliçe no, kasko şirketi veya acente ara', fields:['kod','police','sirket','acente','arac'] },
+          tabs:[
+            { key:'esik60', label:'60 gün içinde', icon:'i-alert', filter:function(p){ return yaklasan(F.days(p.bitis)); } },
+            { key:'tumu', label:'Tüm kasko poliçeleri', icon:'i-list', filter:null }
+          ],
+          columns:[C.kayit('app-arac-sigorta.html', 'Poliçe', function(p){ return p.police; }),
+                   C.aracOf(),
+            { key:'sirket', label:'Kasko şirketi',
+              render:function(p){ return '<span class="cell-main">' + esc(p.sirket) + '</span>' +
+                '<span class="cell-sub">' + esc(p.acente) + '</span>'; } },
+                   C.hedefTarih('bitis', 'Bitiş'), C.kalanGun('bitis'), C.esikKol('bitis'),
+                   C.tutar('kaskoBedeli', 'Kasko bedeli'), C.tutar('prim', 'Prim'),
+            { key:'muafiyet', label:'Muafiyet', render:function(p){ return esc(p.muafiyet || '—'); } },
+            { key:'hasarsizlik', label:'Hasarsızlık', render:function(p){ return esc(p.hasarsizlik || '—'); } },
+            { key:'haklar', label:'Ek haklar', sortable:false, visible:false,
+              render:function(p){
+                var h = [];
+                if(p.ikameArac) h.push('İkame araç');
+                if(p.miniOnarim) h.push('Mini onarım');
+                return h.length ? h.map(function(x){ return '<span class="tag">' + esc(x) + '</span>'; }).join(' ') : '<span class="u-faint">—</span>'; },
+              exportValue:function(p){ return [p.ikameArac ? 'İkame araç' : '', p.miniOnarim ? 'Mini onarım' : ''].filter(Boolean).join(', ') || '—'; } },
+            { key:'yenileme', label:'Yenileme', render:function(p){ return GV.badge(p.yenileme); } },
+            { key:'odeme', label:'Ödeme', render:function(p){ return GV.badge(p.odeme); } }],
+          mobile:mYenileme('bitis', function(p){ return p.sirket; }),
+          emptyState:bos('Kasko poliçesi yok', 'Seçilen kapsamda kasko poliçesi bulunmuyor.', 'i-shield-check') }) },
+
+      /* ============================ MALİYET ============================ */
+      { key:'yakit', label:'Yakıt tüketimi', icon:'i-fuel', group:'Maliyet',
+        title:'Yakıt Tüketimi',
+        desc:'Yakıt ve şarj kayıtları; litre, birim fiyat, tutar ve kilometre. Ortalama tüketim ardışık dolum kayıtlarının kilometre farkından hesaplanır — tek kayıtlı araçta hesaplanamaz.',
+        rows:function(f){ return baseKayit(DB.fuelLogs, f, { tarih:'tarih', surucu:'surucu' }); },
+        kpis:[
+          { label:'Toplam litre', icon:'i-fuel', tone:'info',
+            format:function(v){ return F.num(v, 1) + ' L'; },
+            calc:function(r){ return sum(r, function(y){ return y.litre; }); } },
+          { label:'Toplam yakıt gideri', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(y){ return y.tutar; }); } },
+          { label:'Ortalama birim fiyat', icon:'i-receipt', tone:'warn',
+            format:function(v){ return canFinans ? '₺' + F.num(v, 2) + ' / L' : '••••••'; },
+            calc:function(r){
+              var lt = sum(r, function(y){ return y.litre; });
+              return lt ? sum(r, function(y){ return y.tutar; }) / lt : 0; } },
+          { label:'Dolum kaydı', icon:'i-list', tone:'ok', calc:function(r){ return r.length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var litre = tallySum(r, function(y){ return plaka(y.arac).slice(-4); }, function(y){ return y.litre; });
+          return [barKart('Araç bazlı yakıt tüketimi', 'litre', litre),
+                  paraBar({ title:'İstasyon bazlı yakıt gideri', sub:'toplam tutar', wide:true,
+                    data:tallySum(r, function(y){ return y.istasyon; }, function(y){ return y.tutar; }),
+                    altTitle:'İstasyon bazlı yakıt alımı', altSub:'litre',
+                    altData:tallySum(r, function(y){ return y.istasyon; }, function(y){ return y.litre; }) })];
+        },
+        table:tblKayit({ exportName:'filo-rapor-yakit', exportTitle:'Yakıt Tüketimi Raporu',
+          defaultSort:'tarih', defaultDir:'desc',
+          search:{ placeholder:'Kayıt no, istasyon veya araç ara', fields:['kod','istasyon','arac','surucu'] },
+          columns:[C.kayit('app-arac-yakit.html', 'Yakıt kaydı', function(y){ return y.istasyon; }),
+                   C.aracOf(), C.tarih('tarih'), C.surucu(),
+            { key:'litre', label:'Litre', cellClass:'num',
+              render:function(y){ return '<span class="u-num">' + F.num(y.litre, 1) + ' L</span>'; } },
+            { key:'birimFiyat', label:'Birim fiyat', cellClass:'num',
+              render:function(y){ return canFinans ? '<span class="u-num">₺' + F.num(y.birimFiyat, 2) + '</span>'
+                                                   : '<span class="cell-mask">••••••</span>'; },
+              exportValue:function(y){ return paraExp(y.birimFiyat); } },
+            C.tutar('tutar'),
+            { key:'km', label:'Kilometre', cellClass:'num',
+              render:function(y){ return '<span class="u-num">' + F.num(y.km) + '</span>'; } },
+            { key:'ortTuketim', label:'Ortalama tüketim', cellClass:'num',
+              sortValue:function(y){ return tuketim(y.arac) || 0; },
+              render:function(y){
+                var t = tuketim(y.arac);
+                return t == null ? '<span class="u-faint">Hesaplanamıyor</span>'
+                                 : '<span class="u-num">' + F.num(t, 1) + ' L/100km</span>'; },
+              exportValue:function(y){ var t = tuketim(y.arac); return t == null ? '' : t; } },
+            { key:'istasyon', label:'İstasyon', visible:false, render:function(y){ return esc(y.istasyon); } }],
+          mobile:mKayit(function(y){ return y.istasyon + ' · ' + F.num(y.litre, 1) + ' L'; }, function(y){ return y.tutar; }),
+          emptyState:bos('Yakıt kaydı yok', 'Seçilen kapsamda yakıt ya da şarj kaydı bulunmuyor.', 'i-fuel') }) },
+
+      { key:'gider', label:'Araç giderleri', icon:'i-wallet', group:'Maliyet',
+        title:'Araç Giderleri',
+        desc:'Yakıt, bakım, onarım, lastik, sigorta, kasko, muayene, otopark, HGS, kira, vergi, ceza ve diğer araç gider kalemlerinin tamamı.',
+        rows:function(f){ return baseKayit(DB.vehicleExpenses, f, { tarih:'tarih' }); },
+        kpis:[
+          { label:'Toplam gider', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(g){ return g.tutar; }); } },
+          { label:'Gider kaydı', icon:'i-receipt', tone:'info', calc:function(r){ return r.length; } },
+          { label:'En yüksek gider kalemi', icon:'i-trend-up', tone:'warn',
+            format:function(v){ return esc(String(v)); },
+            calc:function(r){
+              var d = tallySum(r, function(g){ return g.tur; }, function(g){ return g.tutar; });
+              return d.length ? d[0].label : '—'; } },
+          { label:'Araç başına ortalama', icon:'i-car', tone:'ok', format:paraK,
+            calc:function(r){
+              var n = uniq(r, function(g){ return g.arac; });
+              return n ? Math.round(sum(r, function(g){ return g.tutar; }) / n) : 0; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          return [
+            paraBar({ title:'Gider türü bazlı dağılım', sub:'toplam tutar',
+              data:tallySum(r, function(g){ return g.tur; }, function(g){ return g.tutar; }),
+              altTitle:'Gider türü bazlı kayıt adedi', altSub:'kayıt adedi',
+              altData:tally(r, function(g){ return g.tur; }) }),
+            canFinans
+              ? donutKart('Araç bazlı gider payı',
+                  tallySum(r, function(g){ return plaka(g.arac).slice(-4); }, function(g){ return g.tutar; }),
+                  Math.round(sum(r, function(g){ return g.tutar; }) / 1000) + 'B', 'toplam gider')
+              : donutKart('Araç bazlı kayıt dağılımı',
+                  tally(r, function(g){ return plaka(g.arac).slice(-4); }), r.length, 'kayıt')
+          ];
+        },
+        table:tblKayit({ exportName:'filo-rapor-gider', exportTitle:'Araç Giderleri Raporu',
+          defaultSort:'tarih', defaultDir:'desc',
+          search:{ placeholder:'Kayıt no, gider türü, açıklama veya belge ara', fields:['kod','tur','aciklama','belge','arac'] },
+          columns:[C.kayit('app-arac-gider.html', 'Gider kaydı', function(g){ return g.tur; }),
+                   C.aracOf(), C.kayitDep(false), C.tarih('tarih'),
+            { key:'tur', label:'Gider türü', render:function(g){ return '<span class="tag">' + esc(g.tur) + '</span>'; } },
+            C.tutar('tutar'),
+            { key:'aciklama', label:'Açıklama', cellClass:'cell-wrap', width:'20%',
+              render:function(g){ return esc(g.aciklama || '—'); } },
+            { key:'belge', label:'Belge', render:function(g){ return g.belge ? '<span class="cell-code">' + esc(g.belge) + '</span>' : '<span class="u-faint">—</span>'; } }],
+          mobile:mKayit(function(g){ return g.tur + ' · ' + (g.aciklama || ''); }, function(g){ return g.tutar; }),
+          emptyState:bos('Gider kaydı yok', 'Seçilen kapsamda araç gideri bulunmuyor.', 'i-wallet') }) },
+
+      { key:'kmMaliyet', label:'Kilometre başına maliyet', icon:'i-gauge', group:'Maliyet',
+        title:'Kilometre Başına Maliyet',
+        desc:'Araç başına kayıtlı gider toplamının güncel kilometreye bölünmesiyle hesaplanır. Satın alma bedeli ve kiralama taahhüdü bu ölçüye dahil değildir — sahip olma karşılaştırması için “Satın alma ve kiralama karşılaştırması” raporuna bakınız.',
+        rows:function(f){
+          return baseArac(f).map(function(v){
+            var gid = gidTop(v.kod);
+            return { kod:v.kod, plaka:v.plaka, marka:v.marka, model:v.model, tip:v.tip, yakit:v.yakit,
+                     mulkiyet:v.mulkiyet, kullanim:v.kullanim, dep:v.dep, durum:v.durum,
+                     guncelKm:v.guncelKm, gider:gid, yakitGider:gidTur(v.kod, 'Yakıt'),
+                     bakimGider:gidTur(v.kod, 'Bakım') + gidTur(v.kod, 'Onarım') + gidTur(v.kod, 'Lastik'),
+                     sabitGider:gidTur(v.kod, 'Sigorta') + gidTur(v.kod, 'Kasko') + gidTur(v.kod, 'Kira'),
+                     kmMaliyet:v.guncelKm ? gid / v.guncelKm : 0,
+                     aylikGider:Math.round(gid / ayFarki(v.alisTarihi || v.sozlesmeBas)),
+                     tuketim:tuketim(v.kod) };
+          }).sort(function(a, b){ return b.kmMaliyet - a.kmMaliyet; });
+        },
+        kpis:[
+          { label:'Filo km başına maliyet', icon:'i-gauge', tone:'purple',
+            format:function(v){ return tlKm(v) + ' / km'; },
+            calc:function(r){
+              var km = sum(r, function(a){ return a.guncelKm; });
+              return km ? sum(r, function(a){ return a.gider; }) / km : 0; },
+            meta:function(r){ return ico('i-car','ic-sm') + ' ' + F.num(r.length) + ' araç · ' + F.num(sum(r, function(a){ return a.guncelKm; })) + ' km'; },
+            metaTone:'flat' },
+          { label:'Kayıtlı toplam gider', icon:'i-wallet', tone:'info', format:paraK,
+            calc:function(r){ return sum(r, function(a){ return a.gider; }); } },
+          { label:'Toplam kilometre', icon:'i-car', tone:'ok',
+            calc:function(r){ return sum(r, function(a){ return a.guncelKm; }); } },
+          { label:'En pahalı araç', icon:'i-trend-up', tone:'danger',
+            format:function(v){ return esc(String(v)); },
+            calc:function(r){ return r.length ? r[0].plaka : '—'; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          return [
+            canFinans
+              ? barKart('Araç bazlı kilometre başına maliyet', 'kuruş / km',
+                  r.map(function(a){ return { label:a.plaka.slice(-4), value:Math.round(a.kmMaliyet * 100) }; }))
+              : barKart('Araç bazlı güncel kilometre', 'km',
+                  r.map(function(a){ return { label:a.plaka.slice(-4), value:a.guncelKm }; })),
+            canFinans
+              ? { title:'Gider bileşenleri', sub:'yakıt ve bakım gideri', wide:true,
+                  html:GV.chart.bar(r.map(function(a){ return { label:a.plaka.slice(-4), value:a.yakitGider, value2:a.bakimGider }; }), { money:true }),
+                  legend:[{ label:'Yakıt', value:sum(r, function(a){ return a.yakitGider; }) },
+                          { label:'Bakım ve onarım', value:sum(r, function(a){ return a.bakimGider; }) }] }
+              : barKart('Araç bazlı gider kaydı adedi', 'kayıt adedi',
+                  r.map(function(a){ return { label:a.plaka.slice(-4), value:gidOf(a.kod).length }; }))
+          ];
+        },
+        table:tblArac({ exportName:'filo-rapor-km-maliyet', exportTitle:'Kilometre Başına Maliyet Raporu',
+          defaultSort:'kmMaliyet', defaultDir:'desc', pageSize:25,
+          search:{ placeholder:'Plaka, marka, model veya tip ara', fields:['kod','plaka','marka','model','tip','mulkiyet'] },
+          columns:[
+            { key:'plaka', label:'Araç', width:'20%', cellClass:'cell-wrap', locked:true,
+              render:function(a){
+                return '<a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
+                       '<span class="cell-sub">' + esc(a.marka + ' ' + a.model) + '</span>' +
+                       '<span class="cell-code">' + a.kod + ' · ' + esc(a.mulkiyet) + '</span>'; },
+              exportValue:function(a){ return a.kod + ' — ' + a.plaka; } },
+            { key:'guncelKm', label:'Güncel km', cellClass:'num',
+              render:function(a){ return '<span class="u-num">' + F.num(a.guncelKm) + '</span>'; } },
+            { key:'gider', label:'Kayıtlı gider', cellClass:'num',
+              render:function(a){ return para(a.gider); }, exportValue:function(a){ return paraExp(a.gider); } },
+            { key:'yakitGider', label:'Yakıt gideri', cellClass:'num',
+              render:function(a){ return para(a.yakitGider); }, exportValue:function(a){ return paraExp(a.yakitGider); } },
+            { key:'bakimGider', label:'Bakım ve onarım', cellClass:'num',
+              render:function(a){ return para(a.bakimGider); }, exportValue:function(a){ return paraExp(a.bakimGider); } },
+            { key:'sabitGider', label:'Sigorta ve kira', cellClass:'num', visible:false,
+              render:function(a){ return para(a.sabitGider); }, exportValue:function(a){ return paraExp(a.sabitGider); } },
+            { key:'kmMaliyet', label:'Km başına maliyet', cellClass:'num',
+              render:function(a){ return tlKmCell(a.kmMaliyet) + '<span class="cell-sub">TL / km</span>'; },
+              exportValue:function(a){ return canFinans ? Math.round(a.kmMaliyet * 100) / 100 : ''; } },
+            { key:'aylikGider', label:'Aylık ortalama gider', cellClass:'num',
+              render:function(a){ return para(a.aylikGider); }, exportValue:function(a){ return paraExp(a.aylikGider); } },
+            { key:'tuketim', label:'Ortalama tüketim', cellClass:'num',
+              render:function(a){ return a.tuketim == null ? '<span class="u-faint">Hesaplanamıyor</span>'
+                                                           : '<span class="u-num">' + F.num(a.tuketim, 1) + ' L/100km</span>'; },
+              exportValue:function(a){ return a.tuketim == null ? '' : a.tuketim; } },
+            { key:'durum', label:'Durum', render:function(a){ return GV.badge(a.durum); } }],
+          mobile:function(a){
+            return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
+              (canFinans ? '<span class="u-num u-b">₺' + F.num(a.kmMaliyet, 2) + ' / km</span>' : '<span class="cell-mask">••••••</span>') + '</div>' +
+              '<div class="gv-mrow-code">' + a.kod + ' · ' + esc(a.marka + ' ' + a.model) + '</div>' +
+              '<div class="gv-mrow-meta"><span>' + ico('i-gauge','ic-sm') + F.num(a.guncelKm) + ' km</span>' +
+              '<span>' + (canFinans ? F.moneyK(a.gider) : '••••••') + ' gider</span></div>';
+          },
+          emptyState:bos('Maliyet hesaplanamıyor', 'Seçilen kapsamda kilometre ya da gider kaydı olan araç bulunmuyor.', 'i-gauge') }) },
+
+      /* ============================ KULLANIM =========================== */
+      { key:'personelKullanim', label:'Personel bazlı kullanım', icon:'i-user', group:'Kullanım',
+        title:'Personel Bazlı Araç Kullanımı',
+        desc:'Ana ve yedek sürücülük, yakıt kayıtları, trafik cezaları ve kaza kayıtları personel bazında toplanır. Kişi başına kilometre verisi tutulmadığı için kullanım yoğunluğu yakıt kayıtlarından okunur.',
+        rows:function(f){ return personelOzet(f); },
+        kpis:[
+          { label:'Araç kullanan personel', icon:'i-users', calc:function(r){ return r.length; } },
+          { label:'Tahsisli araç', icon:'i-user-check', tone:'info',
+            calc:function(r){ return sum(r, function(a){ return a.ana; }); } },
+          { label:'Toplam yakıt', icon:'i-fuel', tone:'purple',
+            format:function(v){ return F.num(v, 1) + ' L'; },
+            calc:function(r){ return sum(r, function(a){ return a.litre; }); } },
+          { label:'Ceza ve kaza kaydı', icon:'i-alert', tone:'danger',
+            calc:function(r){ return sum(r, function(a){ return a.ceza + a.kaza; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var litre = r.filter(function(a){ return a.litre; })
+            .map(function(a){ return { label:a.ad.split(' ')[0], value:Math.round(a.litre * 10) / 10 }; });
+          var tahsis = r.filter(function(a){ return a.ana; })
+            .map(function(a){ return { label:a.ad.split(' ')[0], value:a.ana }; });
+          return [barKart('Sürücü bazlı yakıt tüketimi', 'litre', litre),
+                  donutKart('Tahsisli araç dağılımı', tahsis, sum(r, function(a){ return a.ana; }), 'araç')];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'filo-rapor-personel-kullanim', exportTitle:'Personel Bazlı Araç Kullanımı Raporu',
+          search:{ placeholder:'Personel ara', fields:['kod','ad','depAd'] },
+          defaultSort:'ana', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Personel', width:'22%', cellClass:'cell-wrap', locked:true,
+              render:function(a){ return GV.user(a.kod) + '<span class="cell-code">' + a.kod + '</span>'; },
+              exportValue:function(a){ return a.ad; } },
+            { key:'depAd', label:'Departman', render:function(a){ return esc(a.depAd); } },
+            { key:'ana', label:'Ana sürücü', cellClass:'num',
+              render:function(a){ return a.ana ? '<span class="u-num u-b">' + F.num(a.ana) + '</span>' : '<span class="u-faint">0</span>'; } },
+            { key:'yedek', label:'Yedek sürücü', cellClass:'num',
+              render:function(a){ return a.yedek ? '<span class="u-num">' + F.num(a.yedek) + '</span>' : '<span class="u-faint">0</span>'; } },
+            { key:'plakalar', label:'Tahsisli araçlar', cellClass:'cell-wrap', width:'16%', sortable:false,
+              render:function(a){ return a.plakalar.length
+                ? a.plakalar.map(function(p){ return '<a class="tag" href="app-arac.html?q=' + encodeURIComponent(p) + '">' + esc(p) + '</a>'; }).join(' ')
+                : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ return a.plakalar.join(', ') || '—'; } },
+            { key:'yakitKayit', label:'Yakıt kaydı', cellClass:'num',
+              render:function(a){ return a.yakitKayit ? '<span class="u-num">' + F.num(a.yakitKayit) + '</span>' : '<span class="u-faint">0</span>'; } },
+            { key:'litre', label:'Litre', cellClass:'num',
+              render:function(a){ return a.litre ? '<span class="u-num">' + F.num(a.litre, 1) + ' L</span>' : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ return a.litre; } },
+            { key:'yakitTutar', label:'Yakıt gideri', cellClass:'num',
+              render:function(a){ return a.yakitTutar ? para(a.yakitTutar) : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ return paraExp(a.yakitTutar); } },
+            { key:'ceza', label:'Trafik cezası', cellClass:'num',
+              render:function(a){ return a.ceza
+                ? '<span class="u-num u-danger">' + F.num(a.ceza) + '</span><span class="cell-sub">' + (canFinans ? F.money(a.cezaTutar) : '••••••') + '</span>'
+                : '<span class="u-faint">0</span>'; },
+              exportValue:function(a){ return a.ceza; } },
+            { key:'kaza', label:'Kaza kaydı', cellClass:'num',
+              render:function(a){ return a.kaza ? '<span class="u-num u-danger">' + F.num(a.kaza) + '</span>' : '<span class="u-faint">0</span>'; } }],
+          mobile:function(a){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(a.ad) + '</span>' +
+              '<span class="u-num u-b">' + F.num(a.ana) + ' araç</span></div>' +
+              '<div class="gv-mrow-code">' + a.kod + ' · ' + esc(a.depAd) + '</div>' +
+              '<div class="gv-mrow-meta"><span>' + ico('i-fuel','ic-sm') + F.num(a.litre, 1) + ' L</span>' +
+              '<span>' + ico('i-alert','ic-sm') + F.num(a.ceza) + ' ceza</span>' +
+              '<span>' + F.num(a.kaza) + ' kaza</span></div>';
+          },
+          emptyState:bos('Personel kullanımı yok', 'Seçilen kapsamda araç kullanan personel kaydı bulunmuyor.', 'i-user') } },
+
+      { key:'depKullanim', label:'Departman bazlı kullanım', icon:'i-users', group:'Kullanım',
+        title:'Departman Bazlı Araç Kullanımı',
+        desc:'Araçların bağlı olduğu departman kırılımı; araç adedi, toplam kilometre, gider yükü ve kilometre başına maliyet.',
+        rows:function(f){ return gruplaArac(baseArac(f), function(v){ return v.dep; }, DB.depName); },
+        kpis:[
+          { label:'Araçlı departman', icon:'i-users', calc:function(r){ return r.length; } },
+          { label:'Toplam araç', icon:'i-car', tone:'info', calc:function(r){ return sum(r, function(a){ return a.arac; }); } },
+          { label:'Toplam kilometre', icon:'i-gauge', tone:'ok', calc:function(r){ return sum(r, function(a){ return a.km; }); } },
+          { label:'Toplam gider', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(a){ return a.gider; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          return [
+            { title:'Departman bazlı araç ve kilometre', sub:'araç adedi (sol) · kilometre karşılaştırması bin km cinsinden', wide:true,
+              html:GV.chart.bar(r.map(function(a){ return { label:depKisa(a.kod), value:a.arac, value2:Math.round(a.km / 1000) }; })),
+              legend:[{ label:'Araç adedi', value:sum(r, function(a){ return a.arac; }) },
+                      { label:'Kilometre (bin km)', value:Math.round(sum(r, function(a){ return a.km; }) / 1000) }] },
+            canFinans
+              ? donutKart('Departman bazlı gider payı',
+                  r.filter(function(a){ return a.gider; }).map(function(a){ return { label:depKisa(a.kod), value:Math.round(a.gider) }; }),
+                  Math.round(sum(r, function(a){ return a.gider; }) / 1000) + 'B', 'toplam gider')
+              : donutKart('Departman bazlı araç dağılımı',
+                  r.map(function(a){ return { label:depKisa(a.kod), value:a.arac }; }),
+                  sum(r, function(a){ return a.arac; }), 'araç')
+          ];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'filo-rapor-departman-kullanim', exportTitle:'Departman Bazlı Araç Kullanımı Raporu',
+          search:{ placeholder:'Departman ara', fields:['kod','ad'] },
+          defaultSort:'arac', defaultDir:'desc',
+          columns:[C.ad('Departman'), C.sayi('arac', 'Araç'),
+            { key:'plakalar', label:'Plakalar', cellClass:'cell-wrap', width:'18%', sortable:false,
+              render:function(a){ return a.plakalar.map(function(p){ return '<a class="tag" href="app-arac.html?q=' + encodeURIComponent(p) + '">' + esc(p) + '</a>'; }).join(' '); },
+              exportValue:function(a){ return a.plakalar.join(', '); } },
+            C.kmSayi('km'), C.sayi('serviste', 'Serviste', 'warn'),
+            { key:'litre', label:'Yakıt', cellClass:'num',
+              render:function(a){ return a.litre ? '<span class="u-num">' + F.num(a.litre, 1) + ' L</span>' : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ return a.litre; } },
+            C.paraSayi('gider', 'Toplam gider'),
+            { key:'kmMaliyet', label:'Km başına maliyet', cellClass:'num',
+              render:function(a){ return tlKmCell(a.kmMaliyet) + '<span class="cell-sub">TL / km</span>'; },
+              exportValue:function(a){ return canFinans ? Math.round(a.kmMaliyet * 100) / 100 : ''; } },
+            C.sayi('ceza', 'Ceza', 'danger'), C.sayi('kaza', 'Kaza', 'danger')],
+          mobile:mAgg(function(a){
+            return '<span>' + ico('i-gauge','ic-sm') + F.num(a.km) + ' km</span>' +
+                   '<span>' + (canFinans ? F.moneyK(a.gider) : '••••••') + '</span>' +
+                   '<span>' + F.num(a.ceza) + ' ceza</span>'; }),
+          emptyState:bos('Departman kırılımı boş', 'Seçilen kapsamda departmana bağlı araç bulunmuyor.', 'i-users') } },
+
+      { key:'projeKullanim', label:'Proje bazlı kullanım', icon:'i-briefcase', group:'Kullanım',
+        title:'Proje Bazlı Araç Kullanımı',
+        desc:'Projeye tahsis edilmiş araçlar. Bir projeye bağlanmamış araçlar “Tahsis edilmemiş” satırında toplanır — bu araçların maliyeti proje bütçesine yansıtılamaz.',
+        rows:function(f){
+          return gruplaArac(baseArac(f), function(v){ return v.proje || 'Tahsis edilmemiş'; },
+                            function(k){ return k === 'Tahsis edilmemiş' ? 'Tahsis edilmemiş' : projeAd(k); });
+        },
+        kpis:[
+          { label:'Projeye tahsisli araç', icon:'i-briefcase', tone:'info',
+            calc:function(r){ return sum(r.filter(function(a){ return a.kod !== 'Tahsis edilmemiş'; }), function(a){ return a.arac; }); } },
+          { label:'Araçlı proje', icon:'i-layers', tone:'purple',
+            calc:function(r){ return r.filter(function(a){ return a.kod !== 'Tahsis edilmemiş'; }).length; } },
+          { label:'Tahsis edilmemiş araç', icon:'i-alert', tone:'warn',
+            calc:function(r){ return sum(r.filter(function(a){ return a.kod === 'Tahsis edilmemiş'; }), function(a){ return a.arac; }); } },
+          { label:'Toplam kilometre', icon:'i-gauge', tone:'ok', calc:function(r){ return sum(r, function(a){ return a.km; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var dag = [
+            { label:'Projeye tahsisli', value:sum(r.filter(function(a){ return a.kod !== 'Tahsis edilmemiş'; }), function(a){ return a.arac; }) },
+            { label:'Tahsis edilmemiş', value:sum(r.filter(function(a){ return a.kod === 'Tahsis edilmemiş'; }), function(a){ return a.arac; }) }
+          ].filter(function(d){ return d.value; });
+          return [barKart('Proje bazlı araç ve kilometre', 'araç adedi (sol) · bin km (sağ)',
+                    r.map(function(a){ return { label:a.kod === 'Tahsis edilmemiş' ? 'Tahsissiz' : a.kod.slice(-3),
+                                                value:a.arac, value2:Math.round(a.km / 1000) }; })),
+                  donutKart('Proje tahsis durumu', dag, sum(r, function(a){ return a.arac; }), 'araç')];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'filo-rapor-proje-kullanim', exportTitle:'Proje Bazlı Araç Kullanımı Raporu',
+          search:{ placeholder:'Proje ara', fields:['kod','ad'] },
+          defaultSort:'arac', defaultDir:'desc',
+          columns:[
+            { key:'ad', label:'Proje', width:'26%', cellClass:'cell-wrap', locked:true,
+              render:function(a){
+                if(a.kod === 'Tahsis edilmemiş')
+                  return '<span class="cell-main u-faint">Tahsis edilmemiş</span><span class="cell-code">Projeye bağlanmamış araçlar</span>';
+                return '<a class="cell-main" href="app-proje.html?q=' + encodeURIComponent(a.kod) + '">' + esc(a.ad) + '</a>' +
+                       '<span class="cell-code">' + a.kod + '</span>'; },
+              exportValue:function(a){ return a.ad; } },
+            { key:'projeDurum', label:'Proje durumu',
+              sortValue:function(a){ var p = prj(a.kod); return p ? p.durum : 'zzz'; },
+              render:function(a){ var p = prj(a.kod); return p ? GV.badge(p.durum) : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ var p = prj(a.kod); return p ? p.durum : '—'; } },
+            C.sayi('arac', 'Araç'),
+            { key:'plakalar', label:'Plakalar', cellClass:'cell-wrap', width:'18%', sortable:false,
+              render:function(a){ return a.plakalar.map(function(p){ return '<a class="tag" href="app-arac.html?q=' + encodeURIComponent(p) + '">' + esc(p) + '</a>'; }).join(' '); },
+              exportValue:function(a){ return a.plakalar.join(', '); } },
+            C.kmSayi('km'), C.paraSayi('gider', 'Toplam gider'),
+            { key:'kmMaliyet', label:'Km başına maliyet', cellClass:'num',
+              render:function(a){ return tlKmCell(a.kmMaliyet) + '<span class="cell-sub">TL / km</span>'; },
+              exportValue:function(a){ return canFinans ? Math.round(a.kmMaliyet * 100) / 100 : ''; } },
+            C.sayi('serviste', 'Serviste', 'warn')],
+          mobile:mAgg(function(a){
+            return '<span>' + ico('i-gauge','ic-sm') + F.num(a.km) + ' km</span>' +
+                   '<span>' + (canFinans ? F.moneyK(a.gider) : '••••••') + '</span>'; }),
+          emptyState:bos('Proje kırılımı boş', 'Seçilen projeye tahsis edilmiş araç bulunmuyor.', 'i-briefcase') } },
+
+      /* ============================== OLAY ============================= */
+      { key:'kaza', label:'Kaza ve hasar', icon:'i-alert-circle', group:'Olay',
+        title:'Kaza ve Hasar Kayıtları',
+        desc:'Kaza tarihi, konum, sürücü, karşı araç, kusur oranı, ekspertiz, sigorta dosyası ve onarım maliyeti; açık ve kapanmış hasar dosyaları.',
+        rows:function(f){ return baseKayit(DB.accidents, f, { tarih:'tarih', surucu:'surucu' }); },
+        kpis:[
+          { label:'Kaza kaydı', icon:'i-alert-circle', tone:'danger', calc:function(r){ return r.length; } },
+          { label:'Kusurlu kaza', icon:'i-flag', tone:'warn',
+            calc:function(r){ return r.filter(function(k){ return (k.kusurOrani || 0) > 0; }).length; } },
+          { label:'Açık hasar dosyası', icon:'i-folder', tone:'purple',
+            calc:function(r){ return r.filter(function(k){ return k.durum !== 'Kapandı'; }).length; } },
+          { label:'Onarım maliyeti', icon:'i-wallet', tone:'info', format:paraK,
+            calc:function(r){ return sum(r, function(k){ return k.onarimMaliyet; }); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var arcD = tally(r, function(k){ return plaka(k.arac).slice(-4); });
+          var kusur = [
+            { label:'Kusursuz', value:r.filter(function(k){ return !(k.kusurOrani || 0); }).length },
+            { label:'Kusurlu', value:r.filter(function(k){ return (k.kusurOrani || 0) > 0; }).length }
+          ].filter(function(d){ return d.value; });
+          return [barKart('Araç bazlı kaza adedi', 'kayıt adedi', arcD),
+                  donutKart('Kusur dağılımı', kusur, r.length, 'kaza')];
+        },
+        table:tblKayit({ exportName:'filo-rapor-kaza', exportTitle:'Kaza ve Hasar Raporu',
+          defaultSort:'tarih', defaultDir:'desc',
+          search:{ placeholder:'Kayıt no, konum, açıklama veya sigorta dosyası ara',
+                   fields:['kod','konum','aciklama','sigortaDosya','onarimServis','karsiArac','arac'] },
+          columns:[C.kayit('app-arac-kaza.html', 'Kaza kaydı', function(k){ return k.konum; }),
+                   C.aracOf(), C.tarih('tarih', 'Kaza tarihi'), C.surucu(),
+            { key:'konum', label:'Konum', cellClass:'cell-wrap', width:'16%',
+              render:function(k){ return esc(k.konum || '—'); } },
+            { key:'karsiArac', label:'Karşı araç', render:function(k){ return k.karsiArac ? '<span class="cell-code">' + esc(k.karsiArac) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'kusurOrani', label:'Kusur oranı', cellClass:'num',
+              render:function(k){ return (k.kusurOrani || 0) > 0
+                ? '<span class="u-num u-danger">' + F.pct(k.kusurOrani) + '</span>'
+                : '<span class="u-num u-ok">Kusursuz</span>'; },
+              exportValue:function(k){ return k.kusurOrani || 0; } },
+            { key:'ekspertiz', label:'Ekspertiz', render:function(k){ return GV.badge(k.ekspertiz); } },
+            { key:'sigortaDosya', label:'Sigorta dosyası', visible:false,
+              render:function(k){ return k.sigortaDosya ? '<span class="cell-code">' + esc(k.sigortaDosya) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'onarimServis', label:'Onarım servisi', visible:false,
+              render:function(k){ return esc(k.onarimServis || '—'); } },
+            C.tutar('onarimMaliyet', 'Onarım maliyeti'), C.kayitDurum('Dosya durumu')],
+          mobile:mKayit(function(k){ return k.konum; }, function(k){ return k.onarimMaliyet; }),
+          emptyState:bos('Kaza kaydı yok', 'Seçilen kapsamda kaza ya da hasar kaydı bulunmuyor.', 'i-check-circle') }) },
+
+      { key:'ceza', label:'Trafik cezaları', icon:'i-receipt', group:'Olay',
+        title:'Trafik Cezaları',
+        desc:'Araç ve sürücü bazında trafik cezaları; ceza türü, tutar, son ödeme tarihi ve ödeme durumu. Son ödeme tarihi geçen ödenmemiş cezalar gecikme olarak işaretlenir.',
+        rows:function(f){ return baseKayit(DB.fines, f, { tarih:'tarih', surucu:'surucu' }); },
+        kpis:[
+          { label:'Trafik cezası', icon:'i-receipt', tone:'warn', calc:function(r){ return r.length; } },
+          { label:'Ödenmemiş ceza', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(c){ return c.durum !== 'Ödendi'; }).length; } },
+          { label:'Toplam ceza tutarı', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(c){ return c.tutar; }); } },
+          { label:'Son ödemesi geçen', icon:'i-clock', tone:'danger',
+            calc:function(r){ return r.filter(function(c){ return c.durum !== 'Ödendi' && c.sonOdeme && F.days(c.sonOdeme) < 0; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var odeme = tally(r, function(c){ return c.durum; });
+          return [
+            paraBar({ title:'Sürücü bazlı ceza tutarı', sub:'toplam tutar',
+              data:tallySum(r, function(c){ return DB.empName(c.surucu); }, function(c){ return c.tutar; }),
+              altTitle:'Sürücü bazlı ceza adedi', altSub:'ceza adedi',
+              altData:tally(r, function(c){ return DB.empName(c.surucu); }) }),
+            donutKart('Ödeme durumu', odeme, r.length, 'ceza')
+          ];
+        },
+        table:tblKayit({ exportName:'filo-rapor-ceza', exportTitle:'Trafik Cezaları Raporu',
+          defaultSort:'sonOdeme', defaultDir:'asc',
+          search:{ placeholder:'Kayıt no, ceza türü veya araç ara', fields:['kod','tur','durum','arac','surucu'] },
+          tabs:[
+            { key:'acik', label:'Ödenmemiş', icon:'i-alert', filter:function(c){ return c.durum !== 'Ödendi'; } },
+            { key:'tumu', label:'Tüm cezalar', icon:'i-list', filter:null }
+          ],
+          columns:[C.kayit('app-arac-kaza.html', 'Ceza kaydı', function(c){ return c.tur; }),
+                   C.aracOf(), C.kayitDep(false), C.tarih('tarih', 'Ceza tarihi'), C.surucu(),
+            { key:'tur', label:'Ceza türü', render:function(c){ return '<span class="tag">' + esc(c.tur) + '</span>'; } },
+            C.tutar('tutar', 'Ceza tutarı'),
+            { key:'sonOdeme', label:'Son ödeme',
+              render:function(c){ return GV.dateCell(c.sonOdeme, { done:c.durum === 'Ödendi' }); } },
+            { key:'gecikme', label:'Gecikme', cellClass:'num',
+              sortValue:function(c){ var g = c.sonOdeme ? -F.days(c.sonOdeme) : -99999; return c.durum === 'Ödendi' ? -99999 : g; },
+              render:function(c){
+                if(c.durum === 'Ödendi') return '<span class="u-faint">—</span>';
+                var g = c.sonOdeme ? -F.days(c.sonOdeme) : null;
+                return g != null && g > 0 ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>'
+                                          : '<span class="u-num u-ok">Süresi var</span>'; },
+              exportValue:function(c){ var g = c.sonOdeme ? -F.days(c.sonOdeme) : ''; return c.durum === 'Ödendi' ? '' : g; } },
+            { key:'belge', label:'Ceza belgesi', visible:false,
+              render:function(c){ return c.belge ? '<span class="cell-code">' + esc(c.belge) + '</span>' : '<span class="u-faint">—</span>'; } },
+            C.kayitDurum('Ödeme durumu')],
+          mobile:mKayit(function(c){ return c.tur; }, function(c){ return c.tutar; }),
+          emptyState:bos('Trafik cezası yok', 'Seçilen kapsamda trafik cezası kaydı bulunmuyor.', 'i-check-circle') }) },
+
+      /* ============================ MÜLKİYET =========================== */
+      { key:'kiralama', label:'Kiralama sözleşmeleri', icon:'i-file-check', group:'Mülkiyet',
+        title:'Kiralama Sözleşmeleri',
+        desc:'Kiralık ve finansal kiralama araçlarının sözleşme koşulları; aylık kira, kilometre sınırı kullanımı, depozito ve sözleşme bitişine kalan süre. Kilometre sınırı yıllık kabul edilip sözleşme yılı sayısıyla çarpılır.',
+        rows:function(f){ return baseArac(f).filter(function(v){ return v.mulkiyet !== 'Satın alınan'; }); },
+        kpis:[
+          { label:'Kiralık araç', icon:'i-file-check', tone:'info', calc:function(r){ return r.length; } },
+          { label:'Aylık toplam kira', icon:'i-wallet', tone:'purple', format:paraK,
+            calc:function(r){ return sum(r, function(v){ return v.aylikKira; }); } },
+          { label:'En yakın sözleşme bitişi', icon:'i-calendar', tone:'warn',
+            format:function(v){ return v == null ? '—' : F.num(v) + ' gün'; },
+            calc:function(r){
+              var en = null;
+              r.forEach(function(v){
+                var g = v.sozlesmeBit ? F.days(v.sozlesmeBit) : null;
+                if(g != null && (en == null || g < en)) en = g;
+              });
+              return en; } },
+          { label:'Km sınırı kullanımı', icon:'i-gauge', tone:'ok', format:F.pct,
+            calc:function(r){
+              var sinir = sum(r, kmSinirToplam), km = sum(r, function(v){ return v.guncelKm; });
+              return sinir ? Math.round(km * 100 / sinir) : 0; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kalan = r.map(function(v){
+            var g = v.sozlesmeBit ? F.days(v.sozlesmeBit) : 0;
+            return { label:v.plaka.slice(-4), value:g, tone:esikTon(g) };
+          });
+          var km = r.map(function(v){ return { label:v.plaka.slice(-4), value:kmSinirToplam(v), value2:v.guncelKm || 0 }; });
+          return [esikBar('Sözleşme bitişine kalan gün', 'gün · 60 / 30 / 15 / 7 eşiği', kalan),
+                  { title:'Sözleşme kilometre sınırı ve güncel kilometre', sub:'km', wide:true,
+                    html:GV.chart.bar(km),
+                    legend:[{ label:'Sözleşme km sınırı', value:sum(r, kmSinirToplam) },
+                            { label:'Güncel km', value:sum(r, function(v){ return v.guncelKm; }) }] }];
+        },
+        table:tblArac({ exportName:'filo-rapor-kiralama', exportTitle:'Kiralama Sözleşmeleri Raporu',
+          defaultSort:'sozlesmeBit', defaultDir:'asc',
+          search:{ placeholder:'Plaka, marka, model veya kiralama firması ara',
+                   fields:['kod','plaka','marka','model','kiralamaFirmasi','mulkiyet'] },
+          columns:[C.arac(),
+            { key:'kiralamaFirmasi', label:'Kiralama firması',
+              render:function(v){ return '<span class="cell-main">' + esc(v.kiralamaFirmasi || '—') + '</span>' +
+                '<span class="cell-sub">' + esc(v.mulkiyet) + '</span>'; },
+              exportValue:function(v){ return v.kiralamaFirmasi || '—'; } },
+            { key:'sozlesmeBas', label:'Sözleşme başlangıcı',
+              render:function(v){ return v.sozlesmeBas ? '<span class="cell-date">' + F.dateShort(v.sozlesmeBas) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'sozlesmeBit', label:'Sözleşme bitişi', render:function(v){ return GV.dateCell(v.sozlesmeBit); } },
+            { key:'kalan', label:'Kalan gün', cellClass:'num',
+              sortValue:function(v){ var g = v.sozlesmeBit ? F.days(v.sozlesmeBit) : 99999; return g; },
+              render:function(v){
+                if(!v.sozlesmeBit) return '<span class="u-faint">—</span>';
+                var g = F.days(v.sozlesmeBit);
+                return '<span class="u-num ' + (g < 0 ? 'u-danger' : g <= 60 ? 'u-warn' : '') + '">' + F.num(g) + ' gün</span>' +
+                       '<span class="cell-sub">' + esikBadge(g) + '</span>'; },
+              exportValue:function(v){ return v.sozlesmeBit ? F.days(v.sozlesmeBit) : ''; } },
+            { key:'aylikKira', label:'Aylık kira', cellClass:'num',
+              render:function(v){ return para(v.aylikKira); }, exportValue:function(v){ return paraExp(v.aylikKira); } },
+            { key:'toplamKira', label:'Sözleşme taahhüdü', cellClass:'num',
+              sortValue:function(v){ return (v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit); },
+              render:function(v){ return para((v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit)); },
+              exportValue:function(v){ return paraExp((v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit)); } },
+            { key:'kmSiniri', label:'Km sınırı', cellClass:'num',
+              render:function(v){ return '<span class="u-num">' + F.num(kmSinirToplam(v)) + '</span>' +
+                '<span class="cell-sub">' + F.num(v.kmSiniri) + ' km × ' + sozlesmeYil(v) + ' yıl</span>'; },
+              exportValue:function(v){ return kmSinirToplam(v); } },
+            { key:'kmKullanim', label:'Km kullanımı', cellClass:'num',
+              sortValue:function(v){ return kmKullanim(v) || 0; },
+              render:function(v){ var k = kmKullanim(v); return k == null ? '<span class="u-faint">—</span>' : GV.progress(k); },
+              exportValue:function(v){ return kmKullanim(v); } },
+            { key:'depozito', label:'Depozito', cellClass:'num', visible:false,
+              render:function(v){ return para(v.depozito); }, exportValue:function(v){ return paraExp(v.depozito); } },
+            C.aracDurum()],
+          mobile:function(v){
+            return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(v.kod) + '">' + esc(v.plaka) + '</a>' +
+              esikBadge(v.sozlesmeBit ? F.days(v.sozlesmeBit) : null) + '</div>' +
+              '<div class="gv-mrow-code">' + v.kod + ' · ' + esc(v.kiralamaFirmasi || v.mulkiyet) + '</div>' +
+              '<div class="gv-mrow-meta"><span>' + ico('i-calendar','ic-sm') + F.dateShort(v.sozlesmeBit) + '</span>' +
+              '<span>' + (canFinans ? F.money(v.aylikKira) + ' / ay' : '•••••• / ay') + '</span>' +
+              '<span>' + ico('i-gauge','ic-sm') + F.num(v.guncelKm) + ' km</span></div>';
+          },
+          emptyState:bos('Kiralama sözleşmesi yok', 'Seçilen kapsamda kiralık ya da finansal kiralama aracı bulunmuyor.', 'i-file-check') }) },
+
+      { key:'sahiplik', label:'Satın alma ve kiralama karşılaştırması', icon:'i-chart-bar', group:'Mülkiyet',
+        title:'Satın Alma ve Kiralama Karşılaştırması',
+        desc:'Her araç için aylık edinme ve işletme maliyeti karşılaştırılır. Satın alınan araçta edinme bedeli sahiplik ayına yayılır, kiralık araçta aylık kira edinme maliyeti sayılır; mükerrer sayım olmaması için “Kira” gider kalemi işletme maliyetinden düşülür.',
+        rows:function(f){
+          return baseArac(f).map(function(v){
+            var e = ekonomi(v);
+            return { kod:v.kod, plaka:v.plaka, marka:v.marka, model:v.model, modelYili:v.modelYili,
+                     tip:v.tip, mulkiyet:v.mulkiyet, durum:v.durum, guncelKm:v.guncelKm,
+                     bas:e.bas, ay:e.ay, kiralik:e.kiralik,
+                     edinmeAylik:e.edinmeAylik, isletmeAylik:e.isletmeAylik, toplamAylik:e.toplamAylik,
+                     edinmeToplam:e.edinmeToplam, isletmeToplam:e.isletmeToplam,
+                     sahipToplam:e.sahipToplam, kmBasi:e.kmBasi,
+                     aylikKira:v.aylikKira, alisBedeli:v.alisBedeli };
+          }).sort(function(a, b){ return b.toplamAylik - a.toplamAylik; });
+        },
+        kpis:[
+          { label:'Satın alınan araç', icon:'i-car', tone:'info',
+            calc:function(r){ return r.filter(function(a){ return !a.kiralik; }).length; } },
+          { label:'Kiralık araç', icon:'i-file-check', tone:'purple',
+            calc:function(r){ return r.filter(function(a){ return a.kiralik; }).length; } },
+          { label:'Satın alınan · aylık ortalama', icon:'i-wallet', tone:'ok', format:paraK,
+            calc:function(r){
+              var s = r.filter(function(a){ return !a.kiralik; });
+              return s.length ? Math.round(sum(s, function(a){ return a.toplamAylik; }) / s.length) : 0; } },
+          { label:'Kiralık · aylık ortalama', icon:'i-receipt', tone:'warn', format:paraK,
+            calc:function(r){
+              var s = r.filter(function(a){ return a.kiralik; });
+              return s.length ? Math.round(sum(s, function(a){ return a.toplamAylik; }) / s.length) : 0; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          return [
+            canFinans
+              ? { title:'Aylık edinme ve işletme maliyeti', sub:'araç bazında · TL / ay', wide:true,
+                  html:GV.chart.bar(r.map(function(a){ return { label:a.plaka.slice(-4), value:a.edinmeAylik, value2:a.isletmeAylik }; }), { money:true }),
+                  legend:[{ label:'Edinme (kira / amortisman)', value:sum(r, function(a){ return a.edinmeAylik; }) },
+                          { label:'İşletme gideri', value:sum(r, function(a){ return a.isletmeAylik; }) }] }
+              : { title:'Mülkiyet bazlı kilometre', sub:'araç bazında km', wide:true,
+                  html:GV.chart.bar(r.map(function(a){ return { label:a.plaka.slice(-4), value:a.guncelKm, tone:a.kiralik ? 'warn' : 'ok' }; })) },
+            donutKart('Mülkiyet dağılımı', tally(r, function(a){ return a.mulkiyet; }), r.length, 'araç')
+          ];
+        },
+        table:tblArac({ exportName:'filo-rapor-sahiplik', exportTitle:'Satın Alma ve Kiralama Karşılaştırma Raporu',
+          defaultSort:'toplamAylik', defaultDir:'desc', pageSize:25,
+          search:{ placeholder:'Plaka, marka, model veya mülkiyet ara', fields:['kod','plaka','marka','model','tip','mulkiyet'] },
+          tabs:[
+            { key:'tumu', label:'Tüm araçlar', icon:'i-car', filter:null },
+            { key:'satin', label:'Satın alınan', icon:'i-cart', filter:function(a){ return !a.kiralik; } },
+            { key:'kiralik', label:'Kiralık', icon:'i-file-check', filter:function(a){ return a.kiralik; } }
+          ],
+          columns:[
+            { key:'plaka', label:'Araç', width:'20%', cellClass:'cell-wrap', locked:true,
+              render:function(a){
+                return '<a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
+                       '<span class="cell-sub">' + esc(a.marka + ' ' + a.model + ' · ' + a.modelYili) + '</span>' +
+                       '<span class="cell-code">' + a.kod + '</span>'; },
+              exportValue:function(a){ return a.kod + ' — ' + a.plaka; } },
+            { key:'mulkiyet', label:'Mülkiyet',
+              render:function(a){ return '<span class="tag">' + esc(a.mulkiyet) + '</span>'; } },
+            { key:'bas', label:'Edinme / sözleşme başlangıcı',
+              render:function(a){ return a.bas ? '<span class="cell-date">' + F.dateShort(a.bas) + '</span>' +
+                '<span class="cell-sub">' + F.num(a.ay) + ' ay</span>' : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ return a.bas || '—'; } },
+            { key:'edinmeToplam', label:'Edinme bedeli / kira taahhüdü', cellClass:'num',
+              render:function(a){ return para(a.edinmeToplam); }, exportValue:function(a){ return paraExp(a.edinmeToplam); } },
+            { key:'edinmeAylik', label:'Aylık edinme', cellClass:'num',
+              render:function(a){ return para(a.edinmeAylik) +
+                '<span class="cell-sub">' + (a.kiralik ? 'aylık kira' : 'amortisman') + '</span>'; },
+              exportValue:function(a){ return paraExp(a.edinmeAylik); } },
+            { key:'isletmeAylik', label:'Aylık işletme', cellClass:'num',
+              render:function(a){ return para(a.isletmeAylik); }, exportValue:function(a){ return paraExp(a.isletmeAylik); } },
+            { key:'toplamAylik', label:'Aylık toplam', cellClass:'num',
+              render:function(a){ return para(a.toplamAylik); }, exportValue:function(a){ return paraExp(a.toplamAylik); } },
+            { key:'sahipToplam', label:'Bugüne kadarki toplam', cellClass:'num', visible:false,
+              render:function(a){ return para(a.sahipToplam); }, exportValue:function(a){ return paraExp(a.sahipToplam); } },
+            { key:'guncelKm', label:'Güncel km', cellClass:'num',
+              render:function(a){ return '<span class="u-num">' + F.num(a.guncelKm) + '</span>'; } },
+            { key:'kmBasi', label:'Km başına sahip olma', cellClass:'num',
+              render:function(a){ return tlKmCell(a.kmBasi) + '<span class="cell-sub">TL / km</span>'; },
+              exportValue:function(a){ return canFinans ? Math.round(a.kmBasi * 100) / 100 : ''; } },
+            { key:'durum', label:'Durum', render:function(a){ return GV.badge(a.durum); } }],
+          mobile:function(a){
+            return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
+              '<span class="tag">' + esc(a.mulkiyet) + '</span></div>' +
+              '<div class="gv-mrow-code">' + a.kod + ' · ' + esc(a.marka + ' ' + a.model) + '</div>' +
+              '<div class="gv-mrow-meta"><span>' + (canFinans ? F.moneyK(a.toplamAylik) + ' / ay' : '•••••• / ay') + '</span>' +
+              '<span>' + ico('i-gauge','ic-sm') + F.num(a.guncelKm) + ' km</span>' +
+              '<span>' + F.num(a.ay) + ' ay</span></div>';
+          },
+          emptyState:bos('Karşılaştırılacak araç yok', 'Seçilen kapsamda satın alınan ya da kiralanan araç bulunmuyor.', 'i-chart-bar') }) }
+
+    ]
+  });
+});
+</script>
+</body>
+</html>
