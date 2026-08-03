@@ -551,7 +551,17 @@
       return '<div class="lh-achips">' + keys.map(function(k){
         var f = (cfg.filters || []).filter(function(x){ return x.key === k; })[0];
         var v = state.filters[k];
-        var txt = Array.isArray(v) ? v.join(', ') : (f && f.type === 'daterange' ? String(v).split('~').map(Fmt.date).join(' – ') : v);
+        /* seçenek etiketi varsa ham kod yerine etiket gösterilir (MUS-2026-011 → Anka Finans) */
+        function optLabel(val){
+          var opts = (f && f.options) || [];
+          for(var i = 0; i < opts.length; i++){
+            var o = opts[i];
+            if(o && typeof o === 'object' && String(o.value) === String(val)) return o.label;
+          }
+          return val;
+        }
+        var txt = Array.isArray(v) ? v.map(optLabel).join(', ')
+                : (f && f.type === 'daterange' ? String(v).split('~').map(Fmt.date).join(' – ') : optLabel(v));
         return '<span class="achip"><b>' + esc(f ? f.label : k) + ':</b> ' + esc(txt) +
                '<button type="button" data-rmfilter="' + k + '" aria-label="Filtreyi kaldır">' + ico('i-x','ic-sm') + '</button></span>';
       }).join('') +
@@ -1522,6 +1532,209 @@
     }
   };
   GV.chart = Chart;
+
+  /* ===================================================================
+     9b. RAPOR İSKELETİ — GV.report(cfg)   (PROMPT.md §20)
+     Her rapor ekranı bunu kullanır: rapor seçici + ortak filtre şeridi +
+     KPI + grafik + detay tablo (GV.list) + kayıtlı rapor + çıktı.
+
+     GV.report({
+       mount:'#rapor', id:'rapormusteri',
+       filters:[{key,label,type:'select|date|daterange|text',options,value,all}],
+       reports:[{ key, label, icon, group, title, desc,
+                  rows:function(f){...},              // filtrelenmiş kayıtlar
+                  kpis:[{label,icon,tone,format,calc(rows,f)}],
+                  charts:function(rows,f){ return [{title,sub,html,wide}]; },
+                  table:{...GV.list config (mount hariç)} }]
+     })
+     =================================================================== */
+  GV.report = function(cfg){
+    var mount = typeof cfg.mount === 'string' ? document.querySelector(cfg.mount) : cfg.mount;
+    if(!mount) return null;
+    var reports = (cfg.reports || []).filter(Boolean);
+    if(!reports.length) return null;
+
+    var LS_SAVED = 'gv.rp.' + (cfg.id || location.pathname);
+    var qs = new URLSearchParams(location.search);
+    var state = { key:null, f:{} };
+
+    var byKey = function(k){ for(var i=0;i<reports.length;i++) if(reports[i].key === k) return reports[i]; return null; };
+    state.key = byKey(qs.get('r')) ? qs.get('r') : reports[0].key;
+    (cfg.filters || []).forEach(function(f){
+      var v = qs.get('rf_' + f.key);
+      state.f[f.key] = v != null ? v : (f.value != null ? f.value : '');
+    });
+
+    function syncUrl(){
+      var u = new URLSearchParams(location.search);
+      u.set('r', state.key);
+      (cfg.filters || []).forEach(function(f){
+        if(state.f[f.key]) u.set('rf_' + f.key, state.f[f.key]); else u.delete('rf_' + f.key);
+      });
+      history.replaceState(null, '', location.pathname + '?' + u.toString());
+    }
+
+    /* ---- kayıtlı raporlar ---- */
+    function savedList(){
+      try{ return JSON.parse(localStorage.getItem(LS_SAVED) || '[]'); }catch(e){ return []; }
+    }
+    function saveCurrent(){
+      var r = byKey(state.key);
+      GV.modal({
+        title:'Raporu kaydet', size:'sm',
+        body:'<div class="gv-fields"><div class="field f-col-12"><label for="rp-nm">Rapor adı</label>' +
+             '<input id="rp-nm" class="inp" type="text" value="' + esc(r.title || r.label) + '"></div></div>' +
+             '<p class="u-faint u-mt-4">Seçili rapor ve filtreler bu adla saklanır.</p>',
+        actions:[{ label:'Vazgeç' },
+                 { label:'Kaydet', cls:'btn-acc', onClick:function(close, box){
+                     var nm = (box.querySelector('#rp-nm').value || '').trim();
+                     if(!nm){ GV.toast('Rapor adı gerekli.', 'warn'); return false; }
+                     var list = savedList();
+                     list.push({ nm:nm, key:state.key, f:JSON.parse(JSON.stringify(state.f)) });
+                     try{ localStorage.setItem(LS_SAVED, JSON.stringify(list)); }catch(e){}
+                     GV.toast('“' + nm + '” kayıtlı raporlara eklendi.', 'ok');
+                     render();
+                   } }]
+      });
+    }
+    function openSaved(){
+      var list = savedList();
+      if(!list.length){ GV.toast('Henüz kayıtlı rapor yok.', 'info'); return; }
+      GV.drawer({
+        title:'Kayıtlı raporlar',
+        body:'<div class="gv-rp-list">' + list.map(function(s, i){
+          var r = byKey(s.key);
+          return '<button type="button" class="gv-rp-item" data-saved="' + i + '">' + ico(r ? (r.icon || 'i-chart-bar') : 'i-chart-bar') +
+                 '<span class="cell-main">' + esc(s.nm) + '<span class="cell-sub">' + esc(r ? r.label : s.key) + '</span></span></button>';
+        }).join('') + '</div>',
+        onOpen:function(box, close){
+          Array.prototype.forEach.call(box.querySelectorAll('[data-saved]'), function(b){
+            b.addEventListener('click', function(){
+              var s = list[+b.dataset.saved];
+              state.key = byKey(s.key) ? s.key : state.key;
+              state.f = JSON.parse(JSON.stringify(s.f || {}));
+              close(); render(); syncUrl();
+            });
+          });
+        }
+      });
+    }
+
+    /* ---- parçalar ---- */
+    function navHtml(){
+      var out = '<nav class="gv-rp-nav" aria-label="Raporlar"><div class="gv-rp-navhead">Raporlar</div><div class="gv-rp-list">';
+      var group = null;
+      reports.forEach(function(r){
+        if(r.group && r.group !== group){ group = r.group; out += '<div class="gv-rp-group">' + esc(group) + '</div>'; }
+        out += '<button type="button" class="gv-rp-item' + (r.key === state.key ? ' is-on' : '') + '" data-rp="' + r.key + '"' +
+               (r.key === state.key ? ' aria-current="true"' : '') + '>' + ico(r.icon || 'i-chart-bar') +
+               '<span>' + esc(r.label) + '</span></button>';
+      });
+      return out + '</div></nav>';
+    }
+
+    function filterHtml(){
+      if(!cfg.filters || !cfg.filters.length) return '';
+      var out = '<div class="gv-card"><div class="rp-filters">';
+      cfg.filters.forEach(function(f){
+        var v = state.f[f.key] || '';
+        out += '<div class="field"><label for="rpf-' + f.key + '">' + esc(f.label) + '</label>';
+        if(f.type === 'select'){
+          out += '<select class="inp" id="rpf-' + f.key + '" data-rf="' + f.key + '">' +
+                 '<option value="">' + esc(f.all || 'Tümü') + '</option>' +
+                 (f.options || []).map(function(o){
+                   var val = o && o.value != null ? o.value : o, lbl = o && o.label != null ? o.label : o;
+                   return '<option value="' + esc(String(val)) + '"' + (String(val) === String(v) ? ' selected' : '') + '>' + esc(String(lbl)) + '</option>';
+                 }).join('') + '</select>';
+        } else if(f.type === 'date'){
+          out += '<input class="inp" type="date" id="rpf-' + f.key + '" data-rf="' + f.key + '" value="' + esc(v) + '">';
+        } else {
+          out += '<input class="inp" type="text" id="rpf-' + f.key + '" data-rf="' + f.key + '" value="' + esc(v) + '" placeholder="' + esc(f.placeholder || '') + '">';
+        }
+        out += '</div>';
+      });
+      out += '<div class="rp-acts">' +
+        '<button type="button" class="btn btn-ghost" data-rp-clear>' + ico('i-x','ic-sm') + ' Filtreleri temizle</button>' +
+        '<button type="button" class="btn" data-rp-saved>' + ico('i-star','ic-sm') + ' Kayıtlı raporlar</button>' +
+        '<button type="button" class="btn btn-acc" data-rp-save>' + ico('i-check','ic-sm') + ' Raporu kaydet</button>' +
+        '</div></div></div>';
+      return out;
+    }
+
+    function kpiHtml(r, rows){
+      if(!r.kpis || !r.kpis.length) return '';
+      return '<div class="kpi-grid">' + r.kpis.map(function(k){
+        var val = k.calc ? k.calc(rows, state.f) : 0;
+        return '<div class="kpi' + (k.tone ? ' is-' + k.tone : '') + '">' +
+          '<div class="kpi-ico">' + ico(k.icon || 'i-chart-bar','ic-lg') + '</div>' +
+          '<div class="kpi-body"><div class="kpi-num">' + (k.format ? k.format(val) : Fmt.num(val)) + '</div>' +
+          '<div class="kpi-lbl">' + esc(k.label) + '</div>' +
+          (k.meta ? '<div class="kpi-meta' + (k.metaTone ? ' is-' + k.metaTone : '') + '">' + k.meta(rows) + '</div>' : '') +
+          '</div></div>';
+      }).join('') + '</div>';
+    }
+
+    function chartHtml(r, rows){
+      var items = r.charts ? (r.charts(rows, state.f) || []) : [];
+      items = items.filter(Boolean);
+      if(!items.length) return '';
+      return '<div class="gv-charts' + (items.length === 1 ? ' is-single' : '') + '">' + items.map(function(c){
+        return '<div class="gv-chartcard"' + (c.wide ? ' style="grid-column:1/-1"' : '') + '>' +
+               '<h3>' + esc(c.title || '') + '</h3>' +
+               (c.sub ? '<span class="gv-ch-sub">' + esc(c.sub) + '</span>' : '') +
+               (c.html || '') +
+               (c.legend ? Chart.legend(c.legend) : '') + '</div>';
+      }).join('') + '</div>';
+    }
+
+    function render(){
+      var r = byKey(state.key) || reports[0];
+      var rows = r.rows ? (r.rows(state.f) || []) : [];
+      mount.innerHTML =
+        '<div class="gv-rp">' + navHtml() +
+        '<div class="gv-rp-body">' +
+          filterHtml() +
+          '<section class="gv-rp-intro"><h2>' + esc(r.title || r.label) + '</h2>' +
+            (r.desc ? '<p>' + esc(r.desc) + '</p>' : '') + '</section>' +
+          kpiHtml(r, rows) +
+          chartHtml(r, rows) +
+          '<div class="gv-rp-table"></div>' +
+        '</div></div>';
+
+      if(r.table){
+        var tcfg = {}, k;
+        for(k in r.table) if(Object.prototype.hasOwnProperty.call(r.table, k)) tcfg[k] = r.table[k];
+        tcfg.mount = mount.querySelector('.gv-rp-table');
+        tcfg.id = (cfg.id || 'rp') + '-' + r.key;
+        tcfg.urlSync = false;
+        tcfg.source = function(){ return rows; };
+        GV.list(tcfg);
+      }
+
+      Array.prototype.forEach.call(mount.querySelectorAll('[data-rp]'), function(b){
+        b.addEventListener('click', function(){
+          if(state.key === b.dataset.rp) return;
+          state.key = b.dataset.rp; render(); syncUrl();
+          var body = mount.querySelector('.gv-rp-body');
+          if(body && window.innerWidth <= 980) body.scrollIntoView({ behavior:'smooth', block:'start' });
+        });
+      });
+      Array.prototype.forEach.call(mount.querySelectorAll('[data-rf]'), function(el){
+        el.addEventListener('change', function(){ state.f[el.dataset.rf] = el.value; render(); syncUrl(); });
+      });
+      var clr = mount.querySelector('[data-rp-clear]');
+      if(clr) clr.addEventListener('click', function(){
+        (cfg.filters || []).forEach(function(f){ state.f[f.key] = ''; });
+        render(); syncUrl(); GV.toast('Filtreler temizlendi.', 'info');
+      });
+      var sv = mount.querySelector('[data-rp-save]'); if(sv) sv.addEventListener('click', saveCurrent);
+      var op = mount.querySelector('[data-rp-saved]'); if(op) op.addEventListener('click', openSaved);
+      if(GV.markWip) GV.markWip(mount);
+    }
+
+    render(); syncUrl();
+    return { render:render, state:state };
+  };
 
   /* ===================================================================
      10. WIP BAĞLANTI KORUMASI — sahte buton bırakılmaz
