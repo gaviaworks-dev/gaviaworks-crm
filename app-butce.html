@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Proje Bütçe ve Maliyet — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="finans" data-screen="butce">
+<div id="grafik"></div>
+<div id="liste" class="u-mt-8"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* ---- türetilmiş bütçe ölçütleri (referans tarih: DB.today) --------- */
+  function aktif(p){ return p.durum !== 'Teslim' && !p.arsiv; }
+  function asim(p){ return p.gerceklesenMaliyet > p.butce; }
+  function kalan(p){ return p.butce - p.gerceklesenMaliyet; }
+  function kullanim(p){ return p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0; }
+  function sureSapma(p){ return p.tahminiSure ? Math.round((p.harcananSure - p.tahminiSure) / p.tahminiSure * 100) : 0; }
+  function saatMaliyet(p){ return p.harcananSure ? Math.round(p.gerceklesenMaliyet / p.harcananSure) : null; }
+
+  /* Proje bazlı gelir — faturalar ve tahsilatlar üzerinden */
+  function projeFaturalari(p){ return DB.invoices.filter(function(i){ return i.proje === p.kod; }); }
+  function faturalanan(p){ return projeFaturalari(p).reduce(function(s,i){ return s + i.toplam; }, 0); }
+  function tahsilEdilen(p){
+    var kodlar = projeFaturalari(p).map(function(i){ return i.kod; });
+    return DB.payments.filter(function(t){ return kodlar.indexOf(t.fatura) !== -1 && t.durum === 'Ödendi'; })
+                      .reduce(function(s,t){ return s + t.tutar; }, 0);
+  }
+
+  function musteriKisa(p){
+    var c = DB.customers.filter(function(x){ return x.kod === p.musteri; })[0];
+    return c ? c.kisa.split(' ')[0] : p.musteriAd.split(' ')[0];
+  }
+  function sglTone(s){ return s === 'İyi' ? 'is-ok' : s === 'Riskli' ? 'is-danger' : 'is-warn'; }
+  function sglRenk(s){ return s === 'İyi' ? 'var(--ok)' : s === 'Riskli' ? 'var(--danger)' : 'var(--warn)'; }
+  function para(v){ return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
+  function paraExp(v){ return canFinans ? v : ''; }
+  function mask(v){ return canFinans ? v : '••••••'; }
+
+  GV.pageHead({ eyebrow:'Finans', title:'Proje Bütçe ve Maliyet',
+    sub:'Sözleşme bedeli, onaylı bütçe, gerçekleşen maliyet ve süre sapması tek ekranda',
+    actions:[{ label:'Projeler', icon:'i-briefcase', href:'app-proje.html' },
+             { label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
+             { label:'Sözleşmeler', icon:'i-file-check', href:'app-sozlesme.html' }] });
+
+  /* =================================================================
+     GRAFİK ALANI — ortak .gv-charts / .gv-chartcard bileşeni
+     ================================================================= */
+  (function(){
+    var host = document.getElementById('grafik');
+    if(!host) return;
+
+    if(!canFinans){
+      host.innerHTML = '<div class="gv-charts is-single"><div class="gv-chartcard">' +
+        '<h3>Bütçe ve maliyet grafikleri</h3>' +
+        '<span class="gv-ch-sub">Finansal görünüm yetkisi gerekiyor</span>' +
+        GV.empty({ icon:'i-lock', title:'Finansal grafikler gizli',
+          desc:'Proje bütçesi ve gerçekleşen maliyet tutarlarını görüntülemek için finans yetkisi gerekir. Üst bardaki rol çipinden yetkili bir rolle deneyebilirsiniz.' }) +
+        '</div></div>';
+      return;
+    }
+
+    var aktifler = DB.projects.filter(aktif).slice().sort(function(a,b){ return b.butce - a.butce; });
+
+    /* 1) Proje bazlı bütçe – gerçekleşen maliyet karşılaştırması (bin ₺) */
+    var barData = [];
+    aktifler.forEach(function(p){
+      barData.push({ label:musteriKisa(p), value:Math.round(p.butce / 1000), tone:'2' });
+      barData.push({ label:'maliyet', value:Math.round(p.gerceklesenMaliyet / 1000), tone:asim(p) ? 'danger' : null });
+    });
+    var toplamButce = aktifler.reduce(function(s,p){ return s + p.butce; }, 0);
+    var toplamMaliyet = aktifler.reduce(function(s,p){ return s + p.gerceklesenMaliyet; }, 0);
+    var asanlar = aktifler.filter(asim);
+
+    var barLegend = [
+      { label:'Onaylı bütçe (bin ₺)', value:Math.round(toplamButce / 1000), color:'var(--info)' },
+      { label:'Gerçekleşen maliyet (bin ₺)', value:Math.round(toplamMaliyet / 1000), color:'var(--acc-ink)' },
+      { label:'Bütçesi aşan proje', value:asanlar.length, color:'var(--danger)' }
+    ];
+
+    /* 2) Sağlık durumuna göre bütçe dağılımı (bin ₺) */
+    var donutData = ['İyi','Dikkat','Riskli'].map(function(s){
+      return { label:s, color:sglRenk(s),
+        value:Math.round(aktifler.filter(function(p){ return p.saglik === s; })
+                                 .reduce(function(a,p){ return a + p.butce; }, 0) / 1000) };
+    }).filter(function(d){ return d.value > 0; });
+
+    host.innerHTML = '<div class="gv-charts">' +
+      '<div class="gv-chartcard">' +
+        '<h3>Bütçe ve gerçekleşen maliyet</h3>' +
+        '<span class="gv-ch-sub">Aktif projeler · değerler bin ₺ · kırmızı sütun bütçe aşımı</span>' +
+        GV.chart.bar(barData, { height:230, label:'Proje bazlı bütçe ve gerçekleşen maliyet karşılaştırması' }) +
+        GV.chart.legend(barLegend) +
+      '</div>' +
+      '<div class="gv-chartcard">' +
+        '<h3>Sağlık durumuna göre bütçe dağılımı</h3>' +
+        '<span class="gv-ch-sub">Aktif proje bütçelerinin proje sağlığına dağılımı · bin ₺</span>' +
+        GV.chart.donut(donutData, { size:220, thickness:28, center:F.moneyK(toplamButce), centerSub:'toplam bütçe',
+                                    label:'Sağlık durumuna göre bütçe dağılımı' }) +
+        GV.chart.legend(donutData) +
+      '</div>' +
+    '</div>';
+  })();
+
+  /* =================================================================
+     MALİYET DETAYI — satır aksiyonu (ortak modal bileşeni)
+     ================================================================= */
+  function maliyetDetay(p){
+    if(!canFinans){ GV.toast('Bu projenin maliyet detayını görüntüleme yetkiniz yok.', 'danger'); return; }
+    var k = kalan(p), s = sureSapma(p), sm = saatMaliyet(p);
+    var fat = faturalanan(p), tah = tahsilEdilen(p);
+    var satir = [
+      ['Sözleşme bedeli', F.money(p.sozlesmeTutari)],
+      ['Onaylı bütçe', F.money(p.butce)],
+      ['Gerçekleşen maliyet', F.money(p.gerceklesenMaliyet)],
+      ['Kalan bütçe', k < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(k)) + '</span>' : F.money(k)],
+      ['Bütçe kullanımı', '<span class="u-num' + (kullanim(p) > 100 ? ' u-danger u-b' : '') + '">%' + F.num(kullanim(p)) + '</span>'],
+      ['Tahmini süre', F.hours(p.tahminiSure)],
+      ['Harcanan süre', F.hours(p.harcananSure)],
+      ['Süre sapması', s > 0 ? '<span class="u-num u-danger u-b">+%' + F.num(s) + '</span>'
+                             : s < 0 ? '<span class="u-num u-ok">−%' + F.num(Math.abs(s)) + '</span>' : '%0'],
+      ['Ortalama saat maliyeti', sm == null ? '—' : F.money(sm) + ' / saat'],
+      ['Faturalanan (KDV dahil)', F.money(fat)],
+      ['Tahsil edilen', F.money(tah)],
+      ['Bekleyen tahsilat', F.money(fat - tah)],
+      ['Sözleşme – maliyet farkı', (p.sozlesmeTutari - p.gerceklesenMaliyet) < 0
+        ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(p.sozlesmeTutari - p.gerceklesenMaliyet)) + '</span>'
+        : '<span class="u-num u-ok u-b">' + F.money(p.sozlesmeTutari - p.gerceklesenMaliyet) + '</span>'],
+      ['Proje sağlığı', '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span>'],
+      ['Gecikme nedeni', p.gecikmeNedeni ? esc(p.gecikmeNedeni) : '<span class="u-faint">—</span>']
+    ];
+    GV.modal({
+      title:p.ad, text:p.kod + ' · ' + p.musteriAd + ' · ' + p.durum,
+      icon:'i-wallet', size:'lg',
+      body:'<div class="gv-summary">' + satir.map(function(r){
+        return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + r[0] + '</span>' +
+               '<span class="gv-summary-val">' + r[1] + '</span></div>';
+      }).join('') + '</div>',
+      actions:[
+        { label:'Faturaları gör', cls:'btn-line', icon:'i-receipt',
+          onClick:function(){ location.href = 'app-fatura.html?q=' + encodeURIComponent(p.kod); } },
+        { label:'Kapat', cls:'btn-acc' }
+      ]
+    });
+  }
+
+  /* =================================================================
+     LİSTE — PROMPT.md §6 standardı
+     ================================================================= */
+  GV.list({
+    mount:'#liste', id:'butce', key:'kod', source:function(){ return DB.projects; },
+    exportName:'proje-butce', exportTitle:'Proje Bütçe ve Maliyet', pageSize:10,
+    views:['table','card'],
+    search:{ placeholder:'Proje kodu, proje adı, müşteri veya proje türü ara',
+             fields:['kod','ad','musteriAd','tur','durum','saglik','faz'] },
+    defaultSort:'kullanim', defaultDir:'desc',
+
+    kpis:[
+      { label:'Toplam sözleşme bedeli', icon:'i-file-check',
+        format:function(v){ return mask(F.moneyK(v)); },
+        calc:function(a){ return a.reduce(function(s,p){ return s + p.sozlesmeTutari; }, 0); } },
+      { label:'Toplam onaylı bütçe', icon:'i-wallet', tone:'ok',
+        format:function(v){ return mask(F.moneyK(v)); },
+        calc:function(a){ return a.reduce(function(s,p){ return s + p.butce; }, 0); } },
+      { label:'Gerçekleşen maliyet', icon:'i-receipt', tone:'warn',
+        format:function(v){ return mask(F.moneyK(v)); },
+        calc:function(a){ return a.reduce(function(s,p){ return s + p.gerceklesenMaliyet; }, 0); } },
+      { label:'Bütçesi aşan proje', icon:'i-alert', tone:'danger',
+        format:function(v){ return mask(F.num(v)); },
+        calc:function(a){ return a.filter(asim).length; } }
+    ],
+
+    tabs:[
+      { key:'aktif',  label:'Aktif Projeler', icon:'i-briefcase',    filter:aktif },
+      { key:'asim',   label:'Bütçe Aşımı',    icon:'i-alert',        filter:asim },
+      { key:'riskli', label:'Riskli',         icon:'i-alert-circle', filter:function(p){ return p.saglik === 'Riskli'; } },
+      { key:'tamam',  label:'Tamamlanan',     icon:'i-check-circle', filter:function(p){ return p.durum === 'Teslim'; } },
+      { key:'tumu',   label:'Tümü',           icon:'i-list',         filter:null }
+    ],
+
+    columns:[
+      { key:'ad', label:'Proje', width:'24%', cellClass:'cell-wrap', locked:true,
+        render:function(p){ return '<a class="cell-main" href="app-proje-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
+          '<span class="cell-code">' + p.kod + ' · ' + esc(p.tur) + '</span>'; } },
+      { key:'musteriAd', label:'Müşteri', cellClass:'cell-wrap', render:function(p){
+          return '<a class="cell-main" href="app-musteri-detay.html?id=' + p.musteri + '">' + esc(p.musteriAd) + '</a>'; },
+        exportValue:function(p){ return p.musteriAd; } },
+      { key:'sozlesmeTutari', label:'Sözleşme bedeli', cellClass:'num',
+        render:function(p){ return para(p.sozlesmeTutari); },
+        exportValue:function(p){ return paraExp(p.sozlesmeTutari); } },
+      { key:'butce', label:'Onaylı bütçe', cellClass:'num',
+        render:function(p){ return para(p.butce); },
+        exportValue:function(p){ return paraExp(p.butce); } },
+      { key:'gerceklesenMaliyet', label:'Gerçekleşen maliyet', cellClass:'num',
+        render:function(p){ return para(p.gerceklesenMaliyet); },
+        exportValue:function(p){ return paraExp(p.gerceklesenMaliyet); } },
+      { key:'kalanButce', label:'Kalan bütçe', cellClass:'num',
+        sortValue:function(p){ return kalan(p); },
+        render:function(p){
+          if(!canFinans) return '<span class="cell-mask">••••••</span>';
+          var k = kalan(p);
+          return k < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(k)) + '</span>'
+                       : '<span class="cell-money">' + F.money(k) + '</span>'; },
+        exportValue:function(p){ return paraExp(kalan(p)); } },
+      { key:'kullanim', label:'Bütçe kullanımı', cellClass:'num',
+        sortValue:function(p){ return kullanim(p); },
+        render:function(p){
+          if(!canFinans) return '<span class="cell-mask">••••</span>';
+          var o = kullanim(p);
+          return GV.progress(o, { tone:o > 100 ? 'danger' : o > 85 ? 'warn' : 'ok' }); },
+        exportValue:function(p){ return canFinans ? kullanim(p) + '%' : ''; } },
+      { key:'harcananSure', label:'Tahmini / harcanan süre', visible:false, cellClass:'num',
+        render:function(p){ return '<span class="u-num">' + F.hours(p.tahminiSure) + ' / ' + F.hours(p.harcananSure) + '</span>'; },
+        exportValue:function(p){ return p.tahminiSure + ' / ' + p.harcananSure; } },
+      { key:'sureSapma', label:'Süre sapması', cellClass:'num',
+        sortValue:function(p){ return sureSapma(p); },
+        render:function(p){
+          var s = sureSapma(p);
+          if(s > 0) return '<span class="u-num u-danger u-b">+%' + F.num(s) + '</span>';
+          if(s < 0) return '<span class="u-num u-ok">−%' + F.num(Math.abs(s)) + '</span>';
+          return '<span class="u-faint">%0</span>'; },
+        exportValue:function(p){ return sureSapma(p) + '%'; } },
+      { key:'faturalanan', label:'Faturalanan', visible:false, cellClass:'num',
+        sortValue:function(p){ return faturalanan(p); },
+        render:function(p){ return para(faturalanan(p)); },
+        exportValue:function(p){ return paraExp(faturalanan(p)); } },
+      { key:'tahsilEdilen', label:'Tahsil edilen', visible:false, cellClass:'num',
+        sortValue:function(p){ return tahsilEdilen(p); },
+        render:function(p){ return para(tahsilEdilen(p)); },
+        exportValue:function(p){ return paraExp(tahsilEdilen(p)); } },
+      { key:'ilerleme', label:'İlerleme', render:function(p){ return GV.progress(p.ilerleme); },
+        exportValue:function(p){ return p.ilerleme + '%'; } },
+      { key:'saglik', label:'Sağlık', render:function(p){
+          return '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span>'; } },
+      { key:'durum', label:'Durum', render:function(p){ return GV.badge(p.durum); } }
+    ],
+
+    filters:[
+      { key:'durum', label:'Proje durumu', type:'multi', options:['Planlama','Geliştirme','Test','Teslim','Askıda'] },
+      { key:'saglik', label:'Proje sağlığı', type:'multi', options:['İyi','Dikkat','Riskli'] },
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'butceAsimi', label:'Bütçe aşımı', type:'select',
+        options:[{ value:'evet', label:'Evet — bütçesi aşılmış' }, { value:'hayir', label:'Hayır — bütçe içinde' }],
+        test:function(p, v){ return v === 'evet' ? asim(p) : !asim(p); } },
+      { key:'kullanimAralik', label:'Bütçe kullanım oranı', type:'select',
+        options:[{ value:'0-50', label:'%50 altı' }, { value:'50-85', label:'%50–85' },
+                 { value:'85-100', label:'%85–100' }, { value:'100+', label:'%100 üstü' }],
+        test:function(p, v){
+          var o = kullanim(p);
+          if(v === '0-50') return o < 50;
+          if(v === '50-85') return o >= 50 && o < 85;
+          if(v === '85-100') return o >= 85 && o <= 100;
+          return o > 100; } },
+      { key:'tur', label:'Proje türü', type:'multi', options:DB.services },
+      { key:'baslangic', label:'Proje başlangıcı', type:'daterange' }
+    ],
+
+    rowClass:function(p){ return asim(p) ? 'is-late' : ''; },
+
+    card:function(p){
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-proje-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
+        '<div class="cell-code">' + p.kod + ' · ' + esc(p.musteriAd) + '</div></div>' +
+        '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span></div>' +
+        '<div class="gv-rcard-meta"><span>Bütçe ' + mask(F.moneyK(p.butce)) + '</span>' +
+        '<span>Maliyet ' + mask(F.moneyK(p.gerceklesenMaliyet)) + '</span></div>' +
+        (canFinans ? GV.progress(kullanim(p), { tone:kullanim(p) > 100 ? 'danger' : kullanim(p) > 85 ? 'warn' : 'ok' }) : '') +
+        '<div class="gv-rcard-foot">' + GV.badge(p.durum) +
+        '<span class="u-num">Süre sapması ' + (sureSapma(p) > 0 ? '+' : '') + '%' + F.num(sureSapma(p)) + '</span></div>';
+    },
+
+    mobile:function(p){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
+        (canFinans ? '<span class="cell-money">' + F.moneyK(p.gerceklesenMaliyet) + '</span>' : '<span class="cell-mask">••••••</span>') + '</div>' +
+        '<div class="gv-mrow-code">' + p.kod + ' · ' + esc(p.musteriAd) + '</div>' +
+        '<div class="u-mt-0">' + (canFinans
+          ? GV.progress(kullanim(p), { tone:kullanim(p) > 100 ? 'danger' : kullanim(p) > 85 ? 'warn' : 'ok' })
+          : GV.progress(p.ilerleme)) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(p.durum) +
+        '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span>' +
+        (asim(p) ? '<span class="tag">Bütçe aşımı</span>' : '') + '</span>' +
+        '<span class="u-num">Bütçe ' + mask(F.moneyK(p.butce)) + '</span></div>';
+    },
+
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Proje kartını aç', href:function(p){ return 'app-proje-detay.html?id=' + p.kod; } },
+      { key:'fatura', icon:'i-receipt', label:'Projenin faturaları',
+        href:function(p){ return 'app-fatura.html?q=' + encodeURIComponent(p.kod); } },
+      { key:'maliyet', icon:'i-chart-bar', label:'Maliyet detayı', run:function(p){ maliyetDetay(p); } }
+    ],
+
+    bulk:[
+      { key:'revizyon', label:'Bütçe revizyonu iste', icon:'i-stamp',
+        confirm:'{n} proje için bütçe revizyon talebi oluşturulacak ve onay akışına düşecek. Onaylıyor musunuz?',
+        run:function(ids){ GV.toast(ids.length + ' proje için bütçe revizyon talebi onay akışına gönderildi', 'ok'); } },
+      { key:'uyari', label:'Proje yöneticisini uyar', icon:'i-send',
+        confirm:'{n} projenin yöneticisine bütçe kullanım uyarısı gönderilecek.',
+        run:function(ids){ GV.toast(ids.length + ' proje yöneticisine bütçe uyarısı gönderildi', 'ok'); } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+
+    emptyState:{ icon:'i-wallet', title:'Bu görünümde bütçe kaydı yok',
+      desc:'Filtreleri değiştirebilir veya bütçesi tanımlı bir proje seçebilirsiniz. Bütçe ve maliyet değerleri proje kartından yönetilir.',
+      action:'<a class="btn btn-line" href="app-proje.html"><svg class="ic" aria-hidden="true"><use href="#i-briefcase"></use></svg> Projelere git</a>' }
+  });
+});
+</script>
+</body>
+</html>
