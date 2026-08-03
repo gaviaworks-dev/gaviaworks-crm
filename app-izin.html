@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>İzin Yönetimi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="izin">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, me = GV.session.emp;
+  GV.pageHead({ eyebrow:'İnsan Kaynakları', title:'İzin Yönetimi',
+    actions:[{ label:'Departman Takvimi', icon:'i-calendar', href:'app-ajanda.html' },
+             { label:'İzin Talebi Oluştur', icon:'i-plus', cls:'btn-acc', href:'app-izin-form.html' }] });
+  GV.list({
+    mount:'#liste', id:'izin', key:'kod', source:function(){ return DB.leaves; },
+    exportName:'izinler', exportTitle:'İzin Talepleri', pageSize:10,
+    search:{ placeholder:'Personel, izin türü veya gerekçe ara', fields:['kod','tur','gerekce','durum'] },
+    defaultSort:'baslangic', defaultDir:'desc',
+    kpis:[
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length; } },
+      { label:'Onaylanan (bu ay)', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Onaylandı' && String(x.baslangic).slice(0,7) === DB.today.slice(0,7); }).length; } },
+      { label:'Toplam izinli gün', icon:'i-calendar', tone:'info',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Onaylandı'; }).reduce(function(s,x){ return s + x.gun; }, 0); } },
+      { label:'Çakışma uyarısı', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(x){ return x.cakisma; }).length; } }
+    ],
+    tabs:[
+      { key:'bekleyen', label:'Onay Bekleyenler', icon:'i-stamp', filter:function(x){ return x.durum === 'Onay bekliyor'; } },
+      { key:'benim', label:'İzinlerim', icon:'i-user', filter:function(x){ return x.personel === me; } },
+      { key:'onayim', label:'Onayımı Bekleyenler', icon:'i-inbox', filter:function(x){ return x.onaylayan === me && x.durum === 'Onay bekliyor'; } },
+      { key:'onayli', label:'Onaylananlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Onaylandı'; } },
+      { key:'red', label:'Reddedilenler', icon:'i-x-circle', filter:function(x){ return x.durum === 'Reddedildi'; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'personel', label:'Personel', width:'20%', locked:true, render:function(x){
+          var e = DB.emp(x.personel) || {};
+          return '<a class="cell-main" href="app-personel-detay.html?id=' + x.personel + '">' + esc(e.ad || x.personel) + '</a>' +
+                 '<span class="cell-sub">' + esc(e.depAd || '') + '</span><span class="cell-code">' + x.kod + '</span>'; },
+        sortValue:function(x){ return DB.empName(x.personel); }, exportValue:function(x){ return DB.empName(x.personel); } },
+      { key:'tur', label:'İzin türü', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
+      { key:'baslangic', label:'Başlangıç', render:function(x){ return '<span class="cell-date">' + F.date(x.baslangic) + '</span>'; } },
+      { key:'bitis', label:'Bitiş', render:function(x){ return '<span class="cell-date">' + F.date(x.bitis) + '</span>'; } },
+      { key:'gun', label:'Gün', cellClass:'num', render:function(x){ return '<b class="u-num">' + x.gun + '</b>'; } },
+      { key:'bakiye', label:'Kalan bakiye', cellClass:'num', sortable:false, render:function(x){
+          var e = DB.emp(x.personel) || {}; return '<span class="u-num">' + (e.izinBakiye != null ? e.izinBakiye + ' gün' : '—') + '</span>'; },
+        exportValue:function(x){ return (DB.emp(x.personel) || {}).izinBakiye; } },
+      { key:'vekil', label:'Vekil personel', render:function(x){
+          return x.vekil ? GV.user(x.vekil, { sm:true }) : '<span class="u-faint">Vekil yok</span>'; },
+        exportValue:function(x){ return x.vekil ? DB.empName(x.vekil) : ''; } },
+      { key:'gerekce', label:'Gerekçe', visible:false, cellClass:'cell-wrap' },
+      { key:'cakisma', label:'Çakışma', render:function(x){
+          return x.cakisma ? '<span class="badge is-danger">Çakışma var</span>' : '<span class="badge is-ok no-dot">Temiz</span>'; },
+        exportValue:function(x){ return x.cakisma ? 'Var' : 'Yok'; } },
+      { key:'onaylayan', label:'Onaylayan', visible:false, render:function(x){ return GV.user(x.onaylayan, { sm:true }); },
+        exportValue:function(x){ return DB.empName(x.onaylayan); } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[
+      { key:'durum', label:'Talep durumu', type:'multi', options:['Onay bekliyor','Onaylandı','Reddedildi'] },
+      { key:'tur', label:'İzin türü', type:'multi', options:DB.leaveTypes },
+      { key:'personel', label:'Personel', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'onaylayan', label:'Onaylayan', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'baslangic', label:'İzin tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return x.cakisma ? 'is-late' : ''; },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(DB.empName(x.personel)) + '</span>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.tur) + ' · ' + x.gun + ' gün</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-calendar','ic-sm') + F.dateShort(x.baslangic) + ' – ' + F.dateShort(x.bitis) + '</span></div>';
+    },
+    rowActions:[
+      { key:'onayla', icon:'i-check', label:'Onayla', run:function(x, refresh){
+          if(x.durum !== 'Onay bekliyor'){ GV.toast('Bu talep zaten sonuçlanmış.', 'info'); return; }
+          if(!GV.perm.can('onay')){ GV.toast('İzin onaylama yetkiniz yok.', 'danger'); return; }
+          GV.confirm({ title:'İzin talebini onayla',
+            text:DB.empName(x.personel) + ' · ' + x.tur + ' · ' + F.date(x.baslangic) + ' – ' + F.date(x.bitis) + ' (' + x.gun + ' gün)' +
+              (x.cakisma ? ' — DİKKAT: Bu tarihlerde ekip içinde çakışma var.' : ''),
+            tone:x.cakisma ? 'danger' : 'warn', okLabel:'Onayla' })
+            .then(function(ok){ if(!ok) return;
+              x.durum = 'Onaylandı'; x.onayTarihi = DB.today;
+              var e = DB.emp(x.personel); if(e && x.tur === 'Yıllık izin') e.izinBakiye -= x.gun;
+              GV.toast(x.kod + ' onaylandı', 'ok'); refresh(); }); } },
+      { key:'red', icon:'i-x', label:'Reddet', cls:'is-danger', run:function(x, refresh){
+          if(x.durum !== 'Onay bekliyor'){ GV.toast('Bu talep zaten sonuçlanmış.', 'info'); return; }
+          GV.modal({ title:'İzin talebini reddet', text:DB.empName(x.personel) + ' · ' + x.tur, icon:'i-x-circle', tone:'danger', size:'sm',
+            body:'<div class="field"><label for="redNot">Ret gerekçesi</label><textarea id="redNot" rows="3" placeholder="Personelin göreceği açıklama"></textarea></div>',
+            actions:[{ label:'Vazgeç', cls:'btn-line' },
+              { label:'Reddet', cls:'btn-danger', onClick:function(close, el){
+                  var n = el.querySelector('#redNot').value.trim();
+                  if(!n){ GV.toast('Ret gerekçesi zorunludur', 'danger'); return false; }
+                  x.durum = 'Reddedildi'; x.ret = n; GV.toast(x.kod + ' reddedildi', 'ok'); refresh(); } }] }); } }
+    ],
+    bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-calendar-check', title:'Bu görünümde izin talebi yok',
+      desc:'İzin talepleri onay akışından geçer, bakiyeden düşer ve departman takvimine yansır.',
+      action:'<a class="btn btn-acc" href="app-izin-form.html"><svg class="ic"><use href="#i-plus"></use></svg> İzin Talebi</a>' }
+  });
+
+});
+</script>
+</body>
+</html>
