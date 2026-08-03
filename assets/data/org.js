@@ -18,12 +18,12 @@ DB.company = {
 
 /* ---- Departmanlar (PROMPT.md §4 — 21 departman) ---------------------- */
 DB.departments = [
-  { kod:'DEP-01', ad:'Yönetim',                     kisa:'Yönetim',   yonetici:'EMP-001', aktif:true,  personel:2 },
+  { kod:'DEP-01', ad:'Yönetim',                     kisa:'Yönetim',   yonetici:'EMP-001', aktif:true,  personel:1 },
   { kod:'DEP-02', ad:'Satış ve İş Geliştirme',      kisa:'Satış',     yonetici:'EMP-002', aktif:true,  personel:2 },
-  { kod:'DEP-03', ad:'Müşteri İlişkileri',          kisa:'Müşteri İl.',yonetici:'EMP-013',aktif:true,  personel:1 },
-  { kod:'DEP-04', ad:'İş Analizi',                  kisa:'Analiz',    yonetici:'EMP-003', aktif:true,  personel:1 },
+  { kod:'DEP-03', ad:'Müşteri İlişkileri',          kisa:'Müşteri İl.',yonetici:'EMP-013',aktif:true,  personel:0 },
+  { kod:'DEP-04', ad:'İş Analizi',                  kisa:'Analiz',    yonetici:'EMP-003', aktif:true,  personel:0 },
   { kod:'DEP-05', ad:'Proje Yönetimi',              kisa:'Proje Y.',  yonetici:'EMP-003', aktif:true,  personel:1 },
-  { kod:'DEP-06', ad:'UI/UX Tasarım',               kisa:'Tasarım',   yonetici:'EMP-004', aktif:true,  personel:2 },
+  { kod:'DEP-06', ad:'UI/UX Tasarım',               kisa:'Tasarım',   yonetici:'EMP-004', aktif:true,  personel:1 },
   { kod:'DEP-07', ad:'Front-end Geliştirme',        kisa:'Front-end', yonetici:'EMP-006', aktif:true,  personel:2 },
   { kod:'DEP-08', ad:'Back-end Geliştirme',         kisa:'Back-end',  yonetici:'EMP-005', aktif:true,  personel:1 },
   { kod:'DEP-09', ad:'Mobil Uygulama Geliştirme',   kisa:'Mobil',     yonetici:'EMP-008', aktif:true,  personel:1 },
@@ -33,11 +33,11 @@ DB.departments = [
   { kod:'DEP-13', ad:'Teknik Destek',               kisa:'Destek',    yonetici:'EMP-013', aktif:true,  personel:1 },
   { kod:'DEP-14', ad:'İnsan Kaynakları',            kisa:'İK',        yonetici:'EMP-011', aktif:true,  personel:1 },
   { kod:'DEP-15', ad:'Muhasebe ve Finans',          kisa:'Finans',    yonetici:'EMP-012', aktif:true,  personel:1 },
-  { kod:'DEP-16', ad:'Satın Alma',                  kisa:'Satın Alma',yonetici:'EMP-012', aktif:true,  personel:1 },
-  { kod:'DEP-17', ad:'İdari İşler',                 kisa:'İdari',     yonetici:'EMP-011', aktif:true,  personel:1 },
-  { kod:'DEP-18', ad:'Pazarlama',                   kisa:'Pazarlama', yonetici:'EMP-002', aktif:true,  personel:1 },
+  { kod:'DEP-16', ad:'Satın Alma',                  kisa:'Satın Alma',yonetici:'EMP-012', aktif:true,  personel:0 },
+  { kod:'DEP-17', ad:'İdari İşler',                 kisa:'İdari',     yonetici:'EMP-011', aktif:true,  personel:0 },
+  { kod:'DEP-18', ad:'Pazarlama',                   kisa:'Pazarlama', yonetici:'EMP-002', aktif:true,  personel:0 },
   { kod:'DEP-19', ad:'İçerik Üretimi',              kisa:'İçerik',    yonetici:'EMP-002', aktif:false, personel:0 },
-  { kod:'DEP-20', ad:'Dış Kaynak Ekipler',          kisa:'Dış Kaynak',yonetici:'EMP-003', aktif:true,  personel:1 },
+  { kod:'DEP-20', ad:'Dış Kaynak Ekipler',          kisa:'Dış Kaynak',yonetici:'EMP-003', aktif:true,  personel:0 },
   { kod:'DEP-21', ad:'Freelancer ve Çözüm Ortakları',kisa:'Freelancer',yonetici:'EMP-003',aktif:true,  personel:1 }
 ];
 
