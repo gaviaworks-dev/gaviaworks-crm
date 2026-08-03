@@ -1,0 +1,140 @@
+/* =====================================================================
+   GAVIAWORKS CRM — İK VE ZAMAN VERİSİ
+   İzinler · Zaman kayıtları · Timesheet · Performans · Eğitim
+   ===================================================================== */
+window.DB = window.DB || {};
+
+DB.leaveTypes = ['Yıllık izin','Mazeret izni','Hastalık izni','Ücretsiz izin','Saatlik izin','Uzaktan çalışma'];
+
+/* ---- İzin talepleri (PROMPT.md §14) ------------------------------------ */
+DB.leaves = [
+  { kod:'IZN-2026-038', personel:'EMP-006', tur:'Yıllık izin', baslangic:'2026-08-10', bitis:'2026-08-14', gun:5,
+    vekil:'EMP-016', gerekce:'Yıllık izin planı', durum:'Onay bekliyor', onaylayan:'EMP-003',
+    talepTarihi:'2026-07-31', onayTarihi:null, cakisma:false, aktif:true },
+  { kod:'IZN-2026-039', personel:'EMP-016', tur:'Mazeret izni', baslangic:'2026-08-05', bitis:'2026-08-05', gun:1,
+    vekil:null, gerekce:'Üniversite sınav kaydı', durum:'Onay bekliyor', onaylayan:'EMP-006',
+    talepTarihi:'2026-08-02', onayTarihi:null, cakisma:false, aktif:true },
+  { kod:'IZN-2026-037', personel:'EMP-004', tur:'Uzaktan çalışma', baslangic:'2026-08-04', bitis:'2026-08-06', gun:3,
+    vekil:null, gerekce:'Şehir dışı aile ziyareti', durum:'Onaylandı', onaylayan:'EMP-003',
+    talepTarihi:'2026-07-28', onayTarihi:'2026-07-29', cakisma:false, aktif:true },
+  { kod:'IZN-2026-036', personel:'EMP-007', tur:'Yıllık izin', baslangic:'2026-08-17', bitis:'2026-08-21', gun:5,
+    vekil:'EMP-005', gerekce:'Yaz tatili', durum:'Onaylandı', onaylayan:'EMP-003',
+    talepTarihi:'2026-07-20', onayTarihi:'2026-07-22', cakisma:false, aktif:true },
+  { kod:'IZN-2026-035', personel:'EMP-009', tur:'Yıllık izin', baslangic:'2026-07-20', bitis:'2026-07-24', gun:5,
+    vekil:'EMP-006', gerekce:'Yıllık izin', durum:'Onaylandı', onaylayan:'EMP-003',
+    talepTarihi:'2026-07-10', onayTarihi:'2026-07-11', cakisma:false, aktif:true },
+  { kod:'IZN-2026-034', personel:'EMP-013', tur:'Hastalık izni', baslangic:'2026-07-06', bitis:'2026-07-07', gun:2,
+    vekil:'EMP-014', gerekce:'Rapor — grip', durum:'Onaylandı', onaylayan:'EMP-002',
+    talepTarihi:'2026-07-06', onayTarihi:'2026-07-06', cakisma:false, aktif:true },
+  { kod:'IZN-2026-033', personel:'EMP-005', tur:'Yıllık izin', baslangic:'2026-08-24', bitis:'2026-08-28', gun:5,
+    vekil:'EMP-010', gerekce:'Yıllık izin', durum:'Reddedildi', onaylayan:'EMP-003',
+    talepTarihi:'2026-07-15', onayTarihi:'2026-07-17', cakisma:true,
+    ret:'Marmara Faz 1 teslim haftasıyla çakışıyor', aktif:true }
+];
+
+/* ---- Zaman kayıtları (PROMPT.md §14) ----------------------------------- */
+DB.timelogs = [
+  { kod:'ZMN-9001', personel:'EMP-008', tarih:'2026-08-02', gorev:'GRV-2026-101', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:4.5, faturalanabilir:true, aciklama:'iOS PDF indirme hatası incelemesi', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9002', personel:'EMP-008', tarih:'2026-08-01', gorev:'GRV-2026-101', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:2, faturalanabilir:true, aciklama:'Hata yeniden üretimi', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9003', personel:'EMP-007', tarih:'2026-08-02', gorev:'GRV-2026-103', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:6, faturalanabilir:true, aciklama:'Model metrik hesaplaması', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9004', personel:'EMP-007', tarih:'2026-07-31', gorev:'GRV-2026-103', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:3, faturalanabilir:true, aciklama:'Test kümesi hazırlığı', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9005', personel:'EMP-006', tarih:'2026-08-01', gorev:'GRV-2026-104', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:7, faturalanabilir:true, aciklama:'Başvuru listesi bileşeni', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9006', personel:'EMP-006', tarih:'2026-07-31', gorev:'GRV-2026-108', proje:'PRJ-2026-005', musteri:'MUS-2026-007',
+    sure:5, faturalanabilir:true, aciklama:'Rezervasyon takvimi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9007', personel:'EMP-005', tarih:'2026-08-01', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:3, faturalanabilir:true, aciklama:'Logo API sözleşmesi', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9008', personel:'EMP-005', tarih:'2026-07-30', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:8, faturalanabilir:true, aciklama:'Senkronizasyon servisi taslağı', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9009', personel:'EMP-009', tarih:'2026-07-31', gorev:'GRV-2026-113', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:8, faturalanabilir:true, aciklama:'Regresyon test koşumu', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9010', personel:'EMP-004', tarih:'2026-08-01', gorev:'GRV-2026-102', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:5, faturalanabilir:true, aciklama:'Store görselleri', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9011', personel:'EMP-003', tarih:'2026-08-02', gorev:'GRV-2026-109', proje:'PRJ-2026-007', musteri:'MUS-2025-004',
+    sure:3, faturalanabilir:true, aciklama:'Bilgi mimarisi taslağı', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9012', personel:'EMP-012', tarih:'2026-08-01', gorev:'GRV-2026-112', proje:null, musteri:'MUS-2025-003',
+    sure:2, faturalanabilir:false, aciklama:'Tahsilat görüşmesi', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9013', personel:'EMP-010', tarih:'2026-08-01', gorev:'GRV-2026-110', proje:null, musteri:null,
+    sure:1, faturalanabilir:false, aciklama:'Maliyet raporu hazırlığı', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9014', personel:'EMP-002', tarih:'2026-08-02', gorev:'GRV-2026-120', proje:null, musteri:'MUS-2024-001',
+    sure:2, faturalanabilir:false, aciklama:'Yenileme teklifi hazırlığı', onay:'Bekliyor', aktif:true }
+];
+
+/* ---- Haftalık timesheet özeti ------------------------------------------ */
+DB.timesheets = [
+  { kod:'TSH-2026-030', personel:'EMP-005', hafta:'2026-W31', baslangic:'2026-07-27', bitis:'2026-08-02',
+    toplam:42, faturalanabilir:38, eksik:0, fazla:2, durum:'Onay bekliyor', onaylayan:'EMP-003', aktif:true },
+  { kod:'TSH-2026-031', personel:'EMP-006', hafta:'2026-W31', baslangic:'2026-07-27', bitis:'2026-08-02',
+    toplam:39, faturalanabilir:36, eksik:1, fazla:0, durum:'Onay bekliyor', onaylayan:'EMP-003', aktif:true },
+  { kod:'TSH-2026-032', personel:'EMP-007', hafta:'2026-W31', baslangic:'2026-07-27', bitis:'2026-08-02',
+    toplam:36, faturalanabilir:33, eksik:4, fazla:0, durum:'Onay bekliyor', onaylayan:'EMP-003', aktif:true },
+  { kod:'TSH-2026-033', personel:'EMP-008', hafta:'2026-W31', baslangic:'2026-07-27', bitis:'2026-08-02',
+    toplam:44, faturalanabilir:41, eksik:0, fazla:4, durum:'Onay bekliyor', onaylayan:'EMP-003', aktif:true },
+  { kod:'TSH-2026-034', personel:'EMP-009', hafta:'2026-W31', baslangic:'2026-07-27', bitis:'2026-08-02',
+    toplam:40, faturalanabilir:37, eksik:0, fazla:0, durum:'Onaylandı', onaylayan:'EMP-003', aktif:true },
+  { kod:'TSH-2026-035', personel:'EMP-004', hafta:'2026-W31', baslangic:'2026-07-27', bitis:'2026-08-02',
+    toplam:38, faturalanabilir:34, eksik:2, fazla:0, durum:'Onay bekliyor', onaylayan:'EMP-003', aktif:true }
+];
+
+/* ---- Performans değerlendirmeleri (§14 — karar desteği, otomatik karar YOK) */
+DB.performance = [
+  { kod:'PRF-2026-Q2-005', personel:'EMP-005', donem:'2026-Q2', durum:'Tamamlandı',
+    ozDegerlendirme:4.3, yoneticiDegerlendirme:4.5, pmDegerlendirme:4.4,
+    zamanindaTeslim:92, revizyonOrani:8, gorevSayisi:34, kaliteSonucu:4.6,
+    problemCozme:5, teknikGelisim:4, ekipCalismasi:4, iletisim:4, musteriGeriBildirim:4.5,
+    egitimIhtiyaci:['Sistem mimarisi'], gelisimPlani:'Mimari tasarım liderliği', aktif:true },
+  { kod:'PRF-2026-Q2-006', personel:'EMP-006', donem:'2026-Q2', durum:'Tamamlandı',
+    ozDegerlendirme:3.9, yoneticiDegerlendirme:4.1, pmDegerlendirme:4.0,
+    zamanindaTeslim:84, revizyonOrani:16, gorevSayisi:41, kaliteSonucu:4.0,
+    problemCozme:4, teknikGelisim:4, ekipCalismasi:5, iletisim:4, musteriGeriBildirim:3.8,
+    egitimIhtiyaci:['Erişilebilirlik','Test otomasyonu'], gelisimPlani:'WCAG sertifikasyonu', aktif:true },
+  { kod:'PRF-2026-Q2-007', personel:'EMP-004', donem:'2026-Q2', durum:'Tamamlandı',
+    ozDegerlendirme:4.5, yoneticiDegerlendirme:4.6, pmDegerlendirme:4.7,
+    zamanindaTeslim:95, revizyonOrani:11, gorevSayisi:28, kaliteSonucu:4.8,
+    problemCozme:4, teknikGelisim:5, ekipCalismasi:5, iletisim:5, musteriGeriBildirim:4.7,
+    egitimIhtiyaci:[], gelisimPlani:'Tasarım sistemi sahipliği', aktif:true },
+  { kod:'PRF-2026-Q2-009', personel:'EMP-009', donem:'2026-Q2', durum:'Tamamlandı',
+    ozDegerlendirme:4.0, yoneticiDegerlendirme:4.2, pmDegerlendirme:4.3,
+    zamanindaTeslim:97, revizyonOrani:4, gorevSayisi:22, kaliteSonucu:4.5,
+    problemCozme:4, teknikGelisim:4, ekipCalismasi:4, iletisim:4, musteriGeriBildirim:4.2,
+    egitimIhtiyaci:['Performans testi'], gelisimPlani:'Test otomasyon kapsamı artırma', aktif:true },
+  { kod:'PRF-2026-Q3-005', personel:'EMP-005', donem:'2026-Q3', durum:'Açık',
+    ozDegerlendirme:null, yoneticiDegerlendirme:null, pmDegerlendirme:null,
+    zamanindaTeslim:null, revizyonOrani:null, gorevSayisi:null, kaliteSonucu:null,
+    problemCozme:null, teknikGelisim:null, ekipCalismasi:null, iletisim:null, musteriGeriBildirim:null,
+    egitimIhtiyaci:[], gelisimPlani:'—', aktif:true }
+];
+
+/* ---- Eğitim ve yetkinlik ------------------------------------------------ */
+DB.trainings = [
+  { kod:'EGT-2026-011', ad:'İleri React Performans Optimizasyonu', tur:'Online kurs', saglayici:'Frontend Masters',
+    katilimci:['EMP-006','EMP-016'], baslangic:'2026-08-12', bitis:'2026-09-12', sure:24, maliyet:9800,
+    durum:'Planlandı', sertifika:false, aktif:true },
+  { kod:'EGT-2026-010', ad:'WCAG 2.2 Erişilebilirlik', tur:'Atölye', saglayici:'A11y TR',
+    katilimci:['EMP-004','EMP-006'], baslangic:'2026-06-15', bitis:'2026-06-16', sure:16, maliyet:14000,
+    durum:'Tamamlandı', sertifika:true, aktif:true },
+  { kod:'EGT-2026-009', ad:'AWS Solutions Architect Hazırlık', tur:'Online kurs', saglayici:'A Cloud Guru',
+    katilimci:['EMP-010'], baslangic:'2026-05-02', bitis:'2026-07-30', sure:48, maliyet:11200,
+    durum:'Tamamlandı', sertifika:true, aktif:true },
+  { kod:'EGT-2026-012', ad:'LLM Uygulama Güvenliği', tur:'Seminer', saglayici:'OWASP TR',
+    katilimci:['EMP-007','EMP-005'], baslangic:'2026-09-08', bitis:'2026-09-08', sure:8, maliyet:0,
+    durum:'Planlandı', sertifika:false, aktif:true }
+];
+
+/* ---- Kapasite (haftalık, saat) ----------------------------------------- */
+DB.capacity = [
+  { personel:'EMP-003', kapasite:40, planlanan:37, doluluk:92, izin:0 },
+  { personel:'EMP-004', kapasite:40, planlanan:34, doluluk:86, izin:3 },
+  { personel:'EMP-005', kapasite:40, planlanan:39, doluluk:97, izin:0 },
+  { personel:'EMP-006', kapasite:40, planlanan:32, doluluk:81, izin:5 },
+  { personel:'EMP-007', kapasite:40, planlanan:30, doluluk:74, izin:5 },
+  { personel:'EMP-008', kapasite:40, planlanan:35, doluluk:88, izin:0 },
+  { personel:'EMP-009', kapasite:40, planlanan:28, doluluk:69, izin:0 },
+  { personel:'EMP-010', kapasite:40, planlanan:28, doluluk:71, izin:0 },
+  { personel:'EMP-016', kapasite:20, planlanan:9,  doluluk:44, izin:1 },
+  { personel:'EMP-015', kapasite:20, planlanan:7,  doluluk:35, izin:0 }
+];
