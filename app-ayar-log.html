@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Log Kayıtları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="log">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var canLog  = GV.perm.can('log');        /* PROMPT.md §5 — "log kayıtlarına erişme" */
+  var canMaas = GV.perm.can('maas');       /* §23 — hassas alanların maskelenmesi */
+  var canExp  = GV.perm.can('disaAktar');  /* §5 — dışa aktarma */
+  var rolAd   = DB.roleName(GV.perm.role());
+
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Log Kayıtları',
+    actions:[
+      { label:'Yetki Matrisi', icon:'i-shield', href:'app-ayar-yetki.html' },
+      { label:'Otomasyon Kuralları', icon:'i-activity', href:'app-ayar-otomasyon.html' }
+    ]
+  });
+
+  /* =================================================================
+     YETKİ KAPISI — §5: yetkilendirme yalnız menü gizleme değildir.
+     'log' yetkisi yoksa liste HİÇ kurulmaz; veri kaynağına da
+     dokunulmaz, yalnız açıklayıcı yetkisiz durumu basılır.
+     ================================================================= */
+  if(!canLog){
+    document.getElementById('uyari').innerHTML = '<div class="u-mb-4">' + GV.notice({
+      tone:'warn', icon:'i-lock', title:'Log kayıtlarına erişim yetkiniz yok',
+      text:'“' + rolAd + '” rolü sistem log kayıtlarını görüntüleyemez. Log satırları kim · ne zaman · ' +
+           'hangi kayıtta · hangi alanı · hangi değerden hangi değere değiştirdi bilgisini taşır; bu nedenle ' +
+           'erişim yetki matrisinde ayrı bir eksen olarak tutulur.',
+      actions:[{ label:'Ana Panele Dön', href:'app-panel.html', cls:'btn-line' },
+               { label:'Yetki Matrisi', href:'app-ayar-yetki.html', cls:'btn-line' }]
+    }) + '</div>';
+
+    document.getElementById('liste').innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-lock', title:'Liste yüklenmedi',
+      desc:'Yetkisiz rollerde log listesi hiç kurulmaz — filtre, sayfalama ve çıktı alma da dâhil hiçbir ' +
+           'log verisi bu ekrana gelmez. Erişim gerekiyorsa sistem yöneticinizden “log kayıtlarına erişme” yetkisi isteyin.'
+    }) + '</div>';
+    return;
+  }
+
+  /* =================================================================
+     TÜRETİLMİŞ ALANLAR
+     DB.logs'ta işlem türü, etkilenen alan ve oturum bilgisi alanı YOK.
+     Aşağıdaki fonksiyonlar bu sütunları kaydın kendi metninden ve
+     eski/yeni değer çiftinden türetir — uydurma veri yazılmaz.
+     ================================================================= */
+
+  /* İşlem türü — islem metnindeki fiilden */
+  var TURLER = ['Ekleme','Düzenleme','Silme','Onay','Giriş / Çıkış','Hassas erişim'];
+  var TON = { 'Ekleme':'is-ok', 'Düzenleme':'is-info', 'Silme':'is-danger',
+              'Onay':'is-purple', 'Giriş / Çıkış':'is-neutral', 'Hassas erişim':'is-warn',
+              'Diğer':'is-neutral' };
+
+  function turu(x){
+    var s = String(x.islem || '').toLocaleLowerCase('tr');
+    if(/giriş yaptı|çıkış yaptı|oturum aç|oturum kapat/.test(s)) return 'Giriş / Çıkış';
+    if(/görüntüledi|indirdi|dışa aktardı|erişti/.test(s))        return 'Hassas erişim';
+    if(/onayladı|reddetti/.test(s))                              return 'Onay';
+    if(/sildi|kaldırdı|iptal etti/.test(s))                      return 'Silme';
+    if(/güncelledi|değiştirdi|düzenledi|revize/.test(s))         return 'Düzenleme';
+    if(/oluşturdu|ekledi|yükledi|başlattı/.test(s))              return 'Ekleme';
+    return 'Diğer';
+  }
+
+  /* Etkilenen alan — önce eski/yeni değerin ortak öneki (İlerleme %45 → %70),
+     yoksa işlem cümlesinin fiilsiz hâli (Proje sağlık durumu değiştirdi) */
+  function fiilsiz(s){
+    var p = String(s || '').trim().split(/\s+/);
+    if(p.length > 1) p.pop();
+    return p.join(' ');
+  }
+  function ortakOnek(a, b){
+    if(!a || !b) return '';
+    var pa = String(a).split(/\s+/), pb = String(b).split(/\s+/), out = [];
+    for(var i = 0; i < Math.min(pa.length, pb.length); i++){
+      if(pa[i] !== pb[i]) break;
+      out.push(pa[i]);
+    }
+    return out.join(' ');
+  }
+  function alan(x){
+    var t = turu(x);
+    if(t === 'Ekleme' || t === 'Silme') return 'Kaydın tamamı';
+    if(t === 'Onay') return 'Onay durumu';
+    var o = ortakOnek(x.eski, x.yeni);
+    if(o) return o;
+    return fiilsiz(x.islem) || '—';
+  }
+
+  /* Oturum kaynağı — IP bloğundan; cihaz/oturum kimliği veri setinde yok */
+  function agKaynagi(x){
+    var ip = String(x.ip || '');
+    if(!ip) return '—';
+    return /^88\.230\.14\./.test(ip) ? 'Ofis ağı' : 'Dış ağ';
+  }
+  function agBlok(x){
+    var p = String(x.ip || '').split('.');
+    return p.length === 4 ? p[0] + '.' + p[1] + '.' + p[2] + '.0/24' : '—';
+  }
+
+  /* Etkilenen kayıt — modüle göre ilgili detay ekranı.
+     Yayında olmayan hedefler shell'in markWip'i tarafından data-wip'e döner. */
+  var HREF = {
+    'Duyurular':'app-duyuru-detay.html?id=',
+    'Görevler':'app-gorev-detay.html?id=',
+    'Personel':'app-personel-detay.html?id=',
+    'Projeler':'app-proje-detay.html?id=',
+    'Teklifler':'app-teklif-detay.html?id=',
+    'İzinler':'app-izin.html?id=',
+    'Satın Alma':'app-satinalma-detay.html?id='
+  };
+  function kayitHref(x){ return x.kayit && HREF[x.modul] ? HREF[x.modul] + x.kayit : null; }
+  function kayitCell(x){
+    if(!x.kayit) return '<span class="u-faint">—</span>';
+    var h = kayitHref(x);
+    return (h ? '<a class="cell-main" href="' + h + '">' + esc(x.kayit) + '</a>'
+              : '<span class="cell-main">' + esc(x.kayit) + '</span>') +
+           '<span class="cell-sub">' + esc(x.modul) + '</span>';
+  }
+
+  /* Hassas erişim satırlarında değer sütunu maaş yetkisi olmayana maskelenir */
+  function gizli(x){ return turu(x) === 'Hassas erişim' && !canMaas; }
+
+  function degerMetni(x){
+    if(gizli(x)) return 'Maskelendi';
+    if(x.eski == null && x.yeni == null) return 'Değer değişmedi — yalnız okuma';
+    return (x.eski == null ? '(boş)' : x.eski) + ' → ' + (x.yeni == null ? '(boş)' : x.yeni);
+  }
+  function degerCell(x){
+    if(gizli(x)) return '<span class="cell-mask">••••••</span>';
+    if(x.eski == null && x.yeni == null)
+      return '<span class="u-faint u-sm">Değer değişmedi — yalnız okuma</span>';
+    return '<span class="cell-trunc" title="' + esc(degerMetni(x)) + '">' +
+      '<span class="u-faint">' + esc(x.eski == null ? '(boş)' : x.eski) + '</span> ' +
+      ico('i-arrow-right','ic-sm') + ' <b>' + esc(x.yeni == null ? '(boş)' : x.yeni) + '</b></span>';
+  }
+
+  function personAd(kod){ var e = DB.emp(kod); return e ? e.ad : (kod || '—'); }
+  function moduller(){
+    var m = [];
+    DB.logs.forEach(function(x){ if(x.modul && m.indexOf(x.modul) === -1) m.push(x.modul); });
+    return m.sort(function(a, b){ return a.localeCompare(b, 'tr'); });
+  }
+  /* En çok işlem yapan kullanıcı — tepe değeri paylaşan birden çok kullanıcı
+     varsa tek isim öne çıkarılmaz, dağılım olduğu gibi raporlanır. */
+  function enCok(a){
+    var m = {};
+    a.forEach(function(x){ m[x.kisi] = (m[x.kisi] || 0) + 1; });
+    var kodlar = Object.keys(m).sort(function(p, q){
+      return m[q] - m[p] || personAd(p).localeCompare(personAd(q), 'tr');
+    });
+    if(!kodlar.length) return { kod:null, ad:'—', n:0, esit:false, kullanici:0 };
+    var enUst = m[kodlar[0]];
+    var esit = kodlar.filter(function(k){ return m[k] === enUst; }).length > 1;
+    return { kod:kodlar[0], ad:esit ? 'Eşit dağılım' : personAd(kodlar[0]),
+             n:enUst, esit:esit, kullanici:kodlar.length };
+  }
+
+  /* =================================================================
+     DEĞİŞMEZLİK NOTU — log satırları bu ekrandan düzenlenemez/silinemez
+     ================================================================= */
+  document.getElementById('uyari').innerHTML = '<div class="u-mb-4">' + GV.notice({
+    tone:'neutral', icon:'i-shield-check', title:'Log kayıtları değiştirilemez',
+    text:'Bu ekran salt okunurdur: log satırında düzenleme, silme, arşivleme veya toplu işlem aksiyonu ' +
+         'yoktur. Gerçek sistemde log tablosu append-only tutulur (yalnız ekleme; güncelleme ve silme ' +
+         'yetkisi hiçbir role verilmez), her satır kullanıcı · zaman · modül · kayıt · alan · eski değer · ' +
+         'yeni değer · IP alanlarıyla yazılır ve veri saklama politikası süresince saklanır. ' +
+         'İşlem türü, etkilenen alan ve oturum kaynağı bu prototipte kayıt metninden ve IP bloğundan ' +
+         'türetilir; cihaz / oturum kimliği mock veri setinde tutulmadığı için boş görünür.'
+  }) + '</div>';
+
+  /* =================================================================
+     LİSTE
+     ================================================================= */
+  GV.list({
+    mount:'#liste', id:'log', key:'kod', source:function(){ return DB.logs; },
+    exportName:'log-kayitlari', exportTitle:'Sistem Log Kayıtları',
+    pageSize:25, archive:false, export:canExp,
+    search:{ placeholder:'Log no, kayıt kodu, işlem, modül veya IP ara',
+             fields:['kod','islem','kayit','modul','ip','eski','yeni'] },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam log kaydı', icon:'i-list',
+        calc:function(a){ return a.length; },
+        meta:function(a){ return ico('i-clock','ic-sm') + ' En eski kayıt: ' +
+          F.date(a.map(function(x){ return x.tarih; }).sort()[0] || ''); }, metaTone:'flat' },
+      { label:'Bugünkü işlem', icon:'i-activity', tone:'info',
+        calc:function(a){ return a.filter(function(x){ return String(x.tarih).slice(0,10) === DB.today; }).length; },
+        meta:function(){ return ico('i-calendar','ic-sm') + ' ' + F.date(DB.today); }, metaTone:'flat' },
+      { label:'En çok işlem yapan kullanıcı', icon:'i-user', tone:'accent',
+        format:function(v){ return esc(String(v)); },
+        calc:function(a){ return enCok(a).ad; },
+        meta:function(a){ var t = enCok(a);
+          return ico('i-tasks','ic-sm') + ' ' + (t.esit
+            ? t.kullanici + ' kullanıcı · her biri ' + t.n + ' işlem'
+            : t.n + ' işlem'); }, metaTone:'flat' },
+      { label:'Hassas alan erişimi', icon:'i-eye', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return turu(x) === 'Hassas erişim'; }).length; },
+        meta:function(){ return ico('i-shield','ic-sm') + ' Maaş / personel verisi okuma'; }, metaTone:'flat' }
+    ],
+    tabs:[
+      { key:'tumu',    label:'Tümü',          icon:'i-list',         filter:null },
+      { key:'ekleme',  label:'Ekleme',        icon:'i-plus',         filter:function(x){ return turu(x) === 'Ekleme'; } },
+      { key:'duzenle', label:'Düzenleme',     icon:'i-edit',         filter:function(x){ return turu(x) === 'Düzenleme'; } },
+      { key:'silme',   label:'Silme',         icon:'i-trash',        filter:function(x){ return turu(x) === 'Silme'; } },
+      { key:'onay',    label:'Onay',          icon:'i-stamp',        filter:function(x){ return turu(x) === 'Onay'; } },
+      { key:'oturum',  label:'Giriş / Çıkış', icon:'i-logout',       filter:function(x){ return turu(x) === 'Giriş / Çıkış'; } },
+      { key:'hassas',  label:'Hassas erişim', icon:'i-eye',          filter:function(x){ return turu(x) === 'Hassas erişim'; } }
+    ],
+    columns:[
+      { key:'tarih', label:'Zaman damgası', width:'13%', locked:true,
+        render:function(x){ return '<span class="cell-main">' + F.date(x.tarih) + '</span>' +
+          '<span class="cell-sub">' + esc(String(x.tarih).slice(11,16)) + ' · ' + x.kod + '</span>'; },
+        exportValue:function(x){ return String(x.tarih).replace('T',' '); } },
+      { key:'kisi', label:'Kullanıcı', width:'15%', sortValue:function(x){ return personAd(x.kisi); },
+        render:function(x){ var e = DB.emp(x.kisi);
+          return GV.user(x.kisi, { sm:true }) +
+            '<span class="cell-sub">' + esc(e ? DB.roleName(e.rol) : x.kisi) + '</span>'; },
+        exportValue:function(x){ return personAd(x.kisi); } },
+      { key:'tur', label:'İşlem türü', width:'11%', sortValue:turu,
+        render:function(x){ var t = turu(x); return GV.badge(t, TON[t]); },
+        exportValue:turu },
+      { key:'islem', label:'İşlem', width:'15%', cellClass:'cell-wrap',
+        render:function(x){ return '<span class="u-sm">' + esc(x.islem) + '</span>'; } },
+      { key:'modul', label:'Modül', width:'10%',
+        render:function(x){ return '<span class="tag">' + esc(x.modul) + '</span>'; } },
+      { key:'kayit', label:'Etkilenen kayıt', width:'13%', render:kayitCell,
+        exportValue:function(x){ return x.kayit || '—'; } },
+      { key:'alan', label:'Alan', width:'11%', sortValue:alan,
+        render:function(x){ return '<span class="u-sm">' + esc(alan(x)) + '</span>'; },
+        exportValue:alan },
+      { key:'deger', label:'Eski → Yeni değer', width:'18%', sortable:false,
+        render:degerCell, exportValue:degerMetni },
+      { key:'ip', label:'IP adresi', visible:false,
+        render:function(x){ return '<span class="u-num">' + esc(x.ip || '—') + '</span>'; } },
+      { key:'oturum', label:'Oturum / cihaz', visible:false, sortValue:agKaynagi,
+        render:function(x){ return '<span class="cell-main">' + esc(agKaynagi(x)) + '</span>' +
+          '<span class="cell-sub">' + esc(agBlok(x)) + ' · cihaz kaydı yok</span>'; },
+        exportValue:function(x){ return agKaynagi(x) + ' (' + agBlok(x) + ')'; } }
+    ],
+    filters:[
+      { key:'kisi', label:'Kullanıcı', type:'select',
+        options:DB.employees.filter(function(e){ return e.aktif !== false; })
+          .map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'tur', label:'İşlem türü', type:'multi', options:TURLER,
+        test:function(r, v){ return v.indexOf(turu(r)) !== -1; } },
+      { key:'modul', label:'Modül', type:'multi', options:moduller() },
+      { key:'tarih', label:'İşlem tarihi', type:'daterange' },
+      { key:'kayit', label:'Kayıt kodu', type:'text',
+        test:function(r, v){ return String(r.kayit || '').toLocaleLowerCase('tr')
+          .indexOf(String(v).toLocaleLowerCase('tr')) !== -1; } },
+      { key:'ip', label:'IP adresi', type:'text',
+        test:function(r, v){ return String(r.ip || '').indexOf(String(v).trim()) !== -1; } }
+    ],
+    rowClass:function(x){ var t = turu(x); return (t === 'Hassas erişim' || t === 'Silme') ? 'is-late' : ''; },
+    mobile:function(x){
+      var t = turu(x);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + F.dt(x.tarih) + '</span>' +
+          GV.badge(t, TON[t]) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.modul) + (x.kayit ? ' · ' + esc(x.kayit) : '') + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + esc(personAd(x.kisi)) + '</span>' +
+          '<span>' + esc(alan(x)) + '</span></div>' +
+        '<div class="gv-mrow-bottom">' + degerCell(x) + '</div>';
+    },
+    rowActions:[
+      { key:'detay', icon:'i-eye', label:'Kaydın tam detayı', run:function(x){ detayDrawer(x); } }
+    ],
+    emptyState:{ icon:'i-list', title:'Bu görünümde log kaydı yok',
+      desc:'Sistemde yapılan her ekleme, düzenleme, silme, onay ve hassas alan erişimi buraya ' +
+           'kullanıcı, zaman, etkilenen kayıt ve eski/yeni değer bilgisiyle düşer.' }
+  });
+
+  /* =================================================================
+     KAYDIN TAM DETAYI — tüm alanlar + eski/yeni değer karşılaştırması
+     ================================================================= */
+  function detayDrawer(x){
+    var e = DB.emp(x.kisi), t = turu(x), h = kayitHref(x);
+
+    var dl = '<dl class="gv-dl">' + [
+      ['Log kaydı',        '<span class="u-num">' + x.kod + '</span>'],
+      ['Zaman damgası',    F.dt(x.tarih)],
+      ['Kullanıcı',        GV.user(x.kisi)],
+      ['Rol',              e ? esc(DB.roleName(e.rol)) : '<span class="u-faint">—</span>'],
+      ['Departman',        e ? esc(e.depAd) : '<span class="u-faint">—</span>'],
+      ['İşlem türü',       GV.badge(t, TON[t])],
+      ['İşlem',            esc(x.islem)],
+      ['Modül',            '<span class="tag">' + esc(x.modul) + '</span>'],
+      ['Etkilenen kayıt',  x.kayit ? (h ? '<a href="' + h + '">' + esc(x.kayit) + '</a>' : esc(x.kayit))
+                                   : '<span class="u-faint">—</span>'],
+      ['Etkilenen alan',   esc(alan(x))],
+      ['IP adresi',        '<span class="u-num">' + esc(x.ip || '—') + '</span>'],
+      ['Oturum kaynağı',   esc(agKaynagi(x)) + ' · <span class="u-num">' + esc(agBlok(x)) + '</span>'],
+      ['Cihaz / oturum kimliği', '<span class="u-faint">Prototip veri setinde tutulmuyor</span>']
+    ].map(function(p){ return '<div><dt>' + esc(p[0]) + '</dt><dd>' + p[1] + '</dd></div>'; }).join('') + '</dl>';
+
+    var karsilastirma = gizli(x)
+      ? GV.notice({ tone:'warn', icon:'i-lock', title:'Değer karşılaştırması maskelendi',
+          text:'Bu satır hassas alan erişimi kaydı. Eski ve yeni değerleri görebilmek için maaş / özlük ' +
+               'verisi görüntüleme yetkisi gerekir.' })
+      : GV.activity([{
+          kisi:personAd(x.kisi), tarih:x.tarih, metin:x.islem + ' — ' + alan(x),
+          tone:t === 'Silme' ? 'danger' : t === 'Ekleme' ? 'ok' : t === 'Hassas erişim' ? 'warn' : 'info',
+          icon:t === 'Silme' ? 'i-trash' : t === 'Ekleme' ? 'i-plus' : t === 'Onay' ? 'i-stamp' :
+               t === 'Hassas erişim' ? 'i-eye' : 'i-edit',
+          eski:x.eski, yeni:x.yeni
+        }]);
+
+    var digerleri = DB.logs.filter(function(r){ return r.kisi === x.kisi && r.kod !== x.kod; })
+      .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); }).slice(0, 5);
+
+    var acts = [{ label:'Kapat', cls:'btn-line' }];
+    if(h && GV.isBuilt(h)) acts.unshift({ label:'Etkilenen kaydı aç', cls:'btn-acc',
+      onClick:function(){ location.href = h; } });
+
+    GV.drawer({
+      title:'Log kaydı · ' + x.kod,
+      body:'<div class="gv-rec-head"><div>' +
+             '<div class="gv-rec-id"><span class="gv-rec-code">' + x.kod + '</span>' +
+               GV.badge(t, TON[t]) + '<span class="tag">' + esc(x.modul) + '</span></div>' +
+             '<div class="gv-rec-meta"><span>' + ico('i-clock','ic-sm') + F.dt(x.tarih) + '</span>' +
+               '<span>' + ico('i-user','ic-sm') + esc(personAd(x.kisi)) + '</span>' +
+               '<span>' + ico('i-server','ic-sm') + esc(x.ip || '—') + '</span></div>' +
+           '</div></div>' +
+           '<h3 class="gc-title u-mt-0">Değer karşılaştırması</h3>' + karsilastirma +
+           dl +
+           '<h3 class="gc-title u-mt-4">Aynı kullanıcının son hareketleri</h3>' +
+           GV.activity(digerleri.map(function(r){
+             var rt = turu(r);
+             return { kisi:personAd(r.kisi), tarih:r.tarih, metin:r.islem + ' · ' + (r.kayit || r.modul),
+                      tone:rt === 'Silme' ? 'danger' : rt === 'Ekleme' ? 'ok' : 'info',
+                      eski:gizli(r) ? null : r.eski, yeni:gizli(r) ? null : r.yeni };
+           })) +
+           '<p class="u-sm u-muted u-mt-4">' + esc('Log satırları değiştirilemez. Bu pencerede düzenleme ve ' +
+             'silme aksiyonu bulunmaz; gerçek sistemde log tablosu append-only yazılır ve yalnız veri saklama ' +
+             'politikası süresi dolduğunda toplu olarak arşive alınır.') + '</p>',
+      actions:acts
+    });
+  }
+
+});
+</script>
+</body>
+</html>
