@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kaza ve Ceza — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="kaza">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  var arac = function(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || {}; };
+  var aracCol = { key:'arac', label:'Araç', width:'18%', locked:true, sortValue:function(x){ return arac(x.arac).plaka || ''; },
+    render:function(x){ var v = arac(x.arac);
+      return '<a class="cell-main" href="app-arac-detay.html?id=' + x.arac + '">' + esc(v.plaka || x.arac) + '</a>' +
+             '<span class="cell-sub">' + esc((v.marka || '') + ' ' + (v.model || '')) + '</span>'; },
+    exportValue:function(x){ return arac(x.arac).plaka || x.arac; } };
+  var aracFilter = { key:'arac', label:'Araç', type:'multi',
+    options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) };
+  GV.pageHead({ eyebrow:'Araç ve Filo', title:'Kaza, Hasar ve Trafik Cezaları',
+    actions:[{ label:'Araçlar', icon:'i-car', href:'app-arac.html' },
+             { label:'Kayıt Ekle', icon:'i-plus', cls:'btn-acc', href:'app-arac-kaza-form.html' }] });
+  /* Kaza ve ceza kayıtları tek listede birleşik gösterilir */
+  var birlesik = function(){
+    return DB.accidents.map(function(k){
+      return { kod:k.kod, kayitTuru:'Kaza', arac:k.arac, tarih:k.tarih, surucu:k.surucu,
+        aciklama:k.aciklama, konum:k.konum, tutar:k.onarimMaliyet, kusur:k.kusurOrani,
+        durum:k.durum, belge:k.tutanak, sigortaDosya:k.sigortaDosya, servis:k.onarimServis, aktif:true };
+    }).concat(DB.fines.map(function(c){
+      return { kod:c.kod, kayitTuru:'Trafik cezası', arac:c.arac, tarih:c.tarih, surucu:c.surucu,
+        aciklama:c.tur, konum:null, tutar:c.tutar, kusur:null,
+        durum:c.durum, belge:c.belge, sonOdeme:c.sonOdeme, aktif:true };
+    }));
+  };
+  GV.list({
+    mount:'#liste', id:'kaza', key:'kod', source:birlesik,
+    exportName:'kaza-ceza', exportTitle:'Kaza, Hasar ve Ceza Kayıtları', pageSize:25,
+    search:{ placeholder:'Kayıt no, açıklama, konum veya sürücü ara', fields:['kod','aciklama','konum','durum','kayitTuru'] },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam kayıt', icon:'i-alert', calc:function(a){ return a.length; } },
+      { label:'Kaza', icon:'i-car', tone:'danger', calc:function(a){ return a.filter(function(x){ return x.kayitTuru === 'Kaza'; }).length; } },
+      { label:'Trafik cezası', icon:'i-receipt', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.kayitTuru === 'Trafik cezası'; }).length; } },
+      { label:'Ödenmemiş ceza', icon:'i-wallet', tone:'danger', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum === 'Ödenmedi'; })
+          .reduce(function(s,x){ return s + (x.tutar || 0); }, 0) : 0; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Kayıtlar', icon:'i-list', filter:null },
+      { key:'kaza', label:'Kaza ve Hasar', icon:'i-car', filter:function(x){ return x.kayitTuru === 'Kaza'; } },
+      { key:'ceza', label:'Trafik Cezaları', icon:'i-receipt', filter:function(x){ return x.kayitTuru === 'Trafik cezası'; } },
+      { key:'odenmemis', label:'Ödenmemiş', icon:'i-alert', filter:function(x){ return x.durum === 'Ödenmedi'; } },
+      { key:'kapali', label:'Kapananlar', icon:'i-check-circle', filter:function(x){ return ['Kapandı','Ödendi'].indexOf(x.durum) !== -1; } }
+    ],
+    columns:[
+      { key:'kod', label:'Kayıt', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<span class="cell-main">' + x.kod + '</span><span class="cell-sub">' + esc(x.aciklama) + '</span>'; } },
+      { key:'kayitTuru', label:'Kayıt türü', render:function(x){
+          return '<span class="badge ' + (x.kayitTuru === 'Kaza' ? 'is-danger' : 'is-warn') + ' no-dot">' + esc(x.kayitTuru) + '</span>'; } },
+      aracCol,
+      { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      { key:'surucu', label:'Sürücü', render:function(x){ return GV.user(x.surucu, { sm:true }); },
+        sortValue:function(x){ return DB.empName(x.surucu); }, exportValue:function(x){ return DB.empName(x.surucu); } },
+      { key:'konum', label:'Konum', visible:false, render:function(x){ return x.konum ? esc(x.konum) : '<span class="u-faint">—</span>'; } },
+      { key:'kusur', label:'Kusur oranı', cellClass:'num', render:function(x){
+          return x.kusur != null ? '<span class="u-num">%' + x.kusur + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'tutar', label:'Tutar', cellClass:'num', render:function(x){
+          if(!canFinans) return '<span class="cell-mask">••••</span>';
+          return x.tutar ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '<span class="u-faint">Sigortadan karşılandı</span>'; },
+        exportValue:function(x){ return canFinans ? x.tutar : ''; } },
+      { key:'belge', label:'Belge', sortable:false, render:function(x){
+          return '<a data-wip="Belge önizleme" class="u-sm">' + GV.ico('i-file','ic-sm') + ' ' + esc(x.belge) + '</a>'; },
+        exportValue:function(x){ return x.belge; } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[ aracFilter,
+      { key:'kayitTuru', label:'Kayıt türü', type:'select', options:['Kaza','Trafik cezası'] },
+      { key:'surucu', label:'Sürücü', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'durum', label:'Durum', type:'multi', options:['Ödendi','Ödenmedi','Kapandı'] },
+      { key:'tarih', label:'Olay tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return x.durum === 'Ödenmedi' ? 'is-late' : ''; },
+    mobile:function(x){ var v = arac(x.arac);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.aciklama) + '</span>' +
+        '<span class="badge ' + (x.kayitTuru === 'Kaza' ? 'is-danger' : 'is-warn') + ' no-dot">' + esc(x.kayitTuru) + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(v.plaka || x.arac) + ' · ' + F.date(x.tarih) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+        (canFinans && x.tutar ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '') + '</div>'; },
+    rowActions:[
+      { key:'arac', icon:'i-car', label:'Aracı aç', href:function(x){ return 'app-arac-detay.html?id=' + x.arac; } },
+      { key:'ode', icon:'i-wallet', label:'Ödendi işaretle', run:function(x, refresh){
+          if(x.kayitTuru !== 'Trafik cezası'){ GV.toast('Bu işlem yalnız trafik cezaları için geçerli.', 'info'); return; }
+          if(x.durum === 'Ödendi'){ GV.toast('Bu ceza zaten ödenmiş.', 'info'); return; }
+          GV.confirm({ title:'Cezayı ödendi işaretle', text:F.money(x.tutar) + ' tutarındaki ceza ödendi olarak kaydedilecek.',
+            okLabel:'Ödendi' }).then(function(ok){ if(!ok) return;
+              var c = DB.fines.filter(function(f){ return f.kod === x.kod; })[0];
+              if(c) c.durum = 'Ödendi';
+              GV.toast(x.kod + ' ödendi olarak işaretlendi', 'ok'); refresh(); }); } }
+    ],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-alert', title:'Kaza veya ceza kaydı yok', desc:'Filoda kayıtlı kaza, hasar ve trafik cezası bulunmuyor.' }
+  });
+
+});
+</script>
+</body>
+</html>
