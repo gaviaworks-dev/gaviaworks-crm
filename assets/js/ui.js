@@ -1308,7 +1308,7 @@
       function show(files){
         list.innerHTML = Array.prototype.map.call(files, function(f){
           return '<div class="gv-file"><span class="gv-file-ico">' + ico('i-file','ic-sm') + '</span>' +
-            '<span><span class="gv-file-name">' + esc(f.name) + '</span>' +
+            '<span class="gv-file-body"><span class="gv-file-name">' + esc(f.name) + '</span>' +
             '<span class="gv-file-meta">' + (f.size / 1024 > 1024 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.round(f.size / 1024) + ' KB') + '</span></span>' +
             '<button type="button" class="ia is-danger" data-rmfile aria-label="Kaldır">' + ico('i-x','ic-sm') + '</button></div>';
         }).join('');
@@ -1555,6 +1555,65 @@
     }
   };
   GV.chart = Chart;
+
+  /* ===================================================================
+     9c. DOSYA YÜKLEME — GV.upload(cfg)
+     Form dışında da kullanılabilen bağımsız yükleme alanı.
+     GV.upload({ mount, accept, multiple, maxMB, hint, files:[{ad,boyut}], onChange })
+     → { files(), clear(), el }
+     =================================================================== */
+  GV.upload = function(cfg){
+    cfg = cfg || {};
+    var host = typeof cfg.mount === 'string' ? document.querySelector(cfg.mount) : cfg.mount;
+    if(!host) return null;
+    var maxMB = cfg.maxMB || 20;
+    var picked = (cfg.files || []).slice();
+
+    host.innerHTML =
+      '<div class="gv-upload" data-gvup tabindex="0" role="button" aria-label="Dosya seçin veya sürükleyip bırakın">' +
+        ico('i-upload','ic-lg') +
+        '<div class="gv-upload-title">' + esc(cfg.title || 'Dosya seçin veya sürükleyip bırakın') + '</div>' +
+        '<div class="gv-upload-hint">' + esc(cfg.hint || 'PDF, DOCX, XLSX, PNG, JPG · en fazla ' + maxMB + ' MB') + '</div>' +
+        '<input type="file" hidden' + (cfg.multiple === false ? '' : ' multiple') +
+          (cfg.accept ? ' accept="' + esc(cfg.accept) + '"' : '') + '>' +
+      '</div><div class="gv-filelist" data-gvuplist></div>';
+
+    var zone = host.querySelector('[data-gvup]');
+    var input = zone.querySelector('input[type=file]');
+    var list = host.querySelector('[data-gvuplist]');
+
+    function sizeText(b){ return b == null ? '' : (b / 1024 > 1024 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'); }
+    function draw(){
+      list.innerHTML = picked.map(function(f, i){
+        return '<div class="gv-file"><span class="gv-file-ico">' + ico('i-file','ic-sm') + '</span>' +
+          '<span class="gv-file-body"><span class="gv-file-name">' + esc(f.ad) + '</span>' +
+          '<span class="gv-file-meta">' + esc(sizeText(f.boyut)) + '</span></span>' +
+          '<button type="button" class="ia is-danger" data-rm="' + i + '" aria-label="Kaldır">' + ico('i-x','ic-sm') + '</button></div>';
+      }).join('');
+      if(cfg.onChange) cfg.onChange(picked);
+    }
+    function accept(fileList){
+      Array.prototype.forEach.call(fileList, function(f){
+        if(f.size > maxMB * 1048576){ GV.toast('“' + f.name + '” ' + maxMB + ' MB sınırını aşıyor.', 'danger'); return; }
+        picked.push({ ad:f.name, boyut:f.size });
+      });
+      draw();
+    }
+
+    zone.addEventListener('click', function(){ input.click(); });
+    zone.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); input.click(); } });
+    zone.addEventListener('dragover', function(e){ e.preventDefault(); zone.classList.add('is-over'); });
+    zone.addEventListener('dragleave', function(){ zone.classList.remove('is-over'); });
+    zone.addEventListener('drop', function(e){ e.preventDefault(); zone.classList.remove('is-over'); accept(e.dataTransfer.files); });
+    input.addEventListener('change', function(){ accept(input.files); input.value = ''; });
+    list.addEventListener('click', function(e){
+      var b = e.target.closest('[data-rm]');
+      if(b){ picked.splice(+b.dataset.rm, 1); draw(); }
+    });
+
+    draw();
+    return { files:function(){ return picked.slice(); }, clear:function(){ picked = []; draw(); }, el:host };
+  };
 
   /* ===================================================================
      9b. RAPOR İSKELETİ — GV.report(cfg)   (PROMPT.md §20)
