@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Görev Raporları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="rapor" data-screen="raporgorev">
+<div id="rapor"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+
+  /* =================================================================
+     0. SÖZLÜK VE TÜRETİLMİŞ ÖLÇÜLER
+     Referans tarih daima DB.today (2026-08-03) — new Date() kullanılmaz.
+     ================================================================= */
+  var KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  var AYK = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+
+  function acik(t){ return KAPALI.indexOf(t.durum) === -1; }
+  function geciken(t){ return acik(t) && !!t.termin && F.days(t.termin) < 0; }
+  function gecikmeGun(t){ var d = t.termin ? F.days(t.termin) : null; return (d != null && d < 0) ? -d : 0; }
+  function zamaninda(t){ return !!(t.tamamlanma && t.termin && t.tamamlanma <= t.termin); }
+  function kapandi(t){ return !!t.tamamlanma; }
+  function sapma(t){ return (t.gercekSure || 0) - (t.tahminiSure || 0); }
+  function atanmamis(t){ return !t.sorumlu || t.durum === 'Havuzda' || t.durum === 'Atama bekliyor'; }
+  function kalanEfor(t){ return Math.max(0, (t.tahminiSure || 0) - (t.gercekSure || 0)); }
+
+  /* Termin sonucu — tamamlananlarda gerçek sonuç, açıklarda termin ihlali */
+  function terminSonuc(t){
+    if(!t.termin) return null;
+    if(t.tamamlanma) return t.tamamlanma <= t.termin ? 'Zamanında' : 'Geç tamamlandı';
+    return geciken(t) ? 'Termin aşıldı' : null;
+  }
+  function terminAsim(t){
+    if(t.tamamlanma && t.termin){ var d = F.days(t.termin, t.tamamlanma); return d < 0 ? -d : 0; }
+    return gecikmeGun(t);
+  }
+
+  /* Kalite puanı — varsayım: revizyon, yeniden açılma, termin aşımı ve
+     efor sapması ceza olarak düşülür (tasks/assumptions.md'ye yazılmalı). */
+  function kalitePuan(t){
+    var p = 100;
+    p -= (t.revizyon || 0) * 10;
+    p -= (t.yenidenAcilma || 0) * 15;
+    if(terminAsim(t) > 0) p -= 15;
+    if((t.tahminiSure || 0) > 0 && sapma(t) > (t.tahminiSure * 0.2)) p -= 10;
+    return Math.max(0, Math.min(100, p));
+  }
+  function kaliteSinif(t){ var p = kalitePuan(t); return p >= 85 ? 'İyi' : p >= 60 ? 'Kabul edilebilir' : 'Zayıf'; }
+  function kaliteBadge(t){
+    var s = kaliteSinif(t);
+    return GV.badge(s, s === 'İyi' ? 'is-ok' : s === 'Zayıf' ? 'is-danger' : 'is-warn');
+  }
+
+  /* ---- kayıt arayıcılar ---- */
+  function pr(kod){ return DB.projects.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function cu(kod){ return DB.customers.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function ch(kod){ return DB.channels.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function mt(kod){ return DB.meetings.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function gv(kod){ return DB.tasks.filter(function(x){ return x.kod === kod; })[0] || null; }
+  function depKisa(kod){ var d = DB.dep(kod); return d ? d.kisa : '—'; }
+  function projeAd(kod){ var p = pr(kod); return p ? p.ad : (kod || 'İç iş'); }
+  function musteriAd(kod){ var c = cu(kod); return c ? c.kisa : (kod || 'İç iş'); }
+
+  /* ---- sohbet / toplantı kaynak eşlemesi (gerçek alanlardan türetilir) ----
+     DB.messages: m.gorev alanı ya da mesaj metnindeki GRV kodu
+     DB.decisions: karar.gorev alanı                                     */
+  var SOHBET = (function(){
+    var map = {};
+    DB.messages.forEach(function(m){
+      var kods = [];
+      if(m.gorev) kods.push(m.gorev);
+      (String(m.metin || '').match(/GRV-\d{4}-\d{3}/g) || []).forEach(function(k){
+        if(kods.indexOf(k) === -1) kods.push(k);
+      });
+      kods.forEach(function(k){ if(!map[k]) map[k] = m; });
+    });
+    return map;
+  })();
+
+  /* =================================================================
+     1. ORTAK FİLTRE
+     ================================================================= */
+  function base(f){
+    return DB.tasks.filter(function(t){
+      if(f.dep && t.dep !== f.dep) return false;
+      if(f.personel && t.sorumlu !== f.personel && t.veren !== f.personel &&
+         (t.yardimci || []).indexOf(f.personel) === -1) return false;
+      if(f.proje && t.proje !== f.proje) return false;
+      if(f.musteri && t.musteri !== f.musteri) return false;
+      if(f.durum && t.durum !== f.durum) return false;
+      if(f.tarih){
+        var d = t.tamamlanma || t.termin || t.baslangic;
+        if(!d || d < f.tarih) return false;
+      }
+      return true;
+    });
+  }
+
+  /* =================================================================
+     2. TOPLAMA VE GRAFİK YARDIMCILARI
+     ================================================================= */
+  function tally(rows, keyFn){
+    var m = {}, order = [];
+    rows.forEach(function(t){
+      var k = keyFn(t);
+      if(k == null || k === '') k = '—';
+      if(!(k in m)){ m[k] = 0; order.push(k); }
+      m[k]++;
+    });
+    return order.map(function(k){ return { label:k, value:m[k] }; })
+                .sort(function(a, b){ return b.value - a.value; });
+  }
+  function top(arr, n){ return arr.slice(0, n || 10); }
+  function ayEtiket(ym){ var p = ym.split('-'); return AYK[parseInt(p[1], 10) - 1] + ' ' + p[0].slice(2); }
+
+  /* Aylık oran trendi — termin ayına göre gruplanır */
+  function oranTrend(list, payFn){
+    var ay = [];
+    list.forEach(function(t){
+      if(!t.termin) return;
+      var m = t.termin.slice(0, 7);
+      if(ay.indexOf(m) === -1) ay.push(m);
+    });
+    ay.sort();
+    return {
+      labels:ay.map(ayEtiket),
+      values:ay.map(function(m){
+        var g = list.filter(function(t){ return t.termin && t.termin.slice(0, 7) === m; });
+        return g.length ? Math.round(g.filter(payFn).length * 100 / g.length) : 0;
+      })
+    };
+  }
+  function trendKart(baslik, alt, tr){
+    if(tr.labels.length < 2) return null;
+    return { title:baslik, sub:alt, wide:true,
+             html:GV.chart.line([{ values:tr.values }], tr.labels, { label:baslik }) };
+  }
+
+  /* Departman / durum / öncelik standart kartları */
+  function kartDurum(rows){
+    var d = tally(rows, function(t){ return t.durum; });
+    return { title:'Durum dağılımı', html:GV.chart.donut(d, { center:String(rows.length), centerSub:'görev' }), legend:d };
+  }
+  function kartOncelik(rows){
+    var d = tally(rows, function(t){ return t.oncelik; });
+    return { title:'Öncelik dağılımı', html:GV.chart.donut(d, { center:String(rows.length), centerSub:'görev' }), legend:d };
+  }
+  function kartDep(rows, baslik){
+    var d = tally(rows, function(t){ return depKisa(t.dep); });
+    return { title:baslik || 'Departman bazlı dağılım', sub:'görev adedi', wide:true, html:GV.chart.bar(top(d, 10)) };
+  }
+  function kartSorumlu(rows, baslik){
+    var d = tally(rows, function(t){ return DB.empName(t.sorumlu); });
+    return { title:baslik || 'Sorumlu bazlı dağılım', sub:'görev adedi', wide:true, html:GV.chart.bar(top(d, 10)) };
+  }
+  function kartSure(rows, baslik, n){
+    var d = rows.slice().sort(function(a, b){ return Math.abs(sapma(b)) - Math.abs(sapma(a)); })
+      .slice(0, n || 12)
+      .map(function(t){ return { label:t.kod.slice(-3), value:t.tahminiSure || 0, value2:t.gercekSure || 0 }; });
+    var leg = [
+      { label:'Tahmini', value:rows.reduce(function(s, t){ return s + (t.tahminiSure || 0); }, 0) },
+      { label:'Gerçekleşen', value:rows.reduce(function(s, t){ return s + (t.gercekSure || 0); }, 0) }
+    ];
+    return { title:baslik || 'Tahmini ve gerçekleşen süre', sub:'saat · sapması en yüksek görevler',
+             wide:true, html:GV.chart.bar(d), legend:leg };
+  }
+
+  /* Departman / proje / müşteri kırılımı — özet satır üretir */
+  function grupla(rows, keyFn, adFn){
+    var m = {}, order = [];
+    rows.forEach(function(t){
+      var k = keyFn(t) || '—';
+      if(!m[k]){
+        m[k] = { kod:k, ad:adFn(k), toplam:0, acik:0, geciken:0, tamam:0, zamaninda:0,
+                 tahmini:0, gercek:0, revizyon:0, yeniden:0, revizyonlu:0 };
+        order.push(k);
+      }
+      var a = m[k];
+      a.toplam++;
+      if(acik(t)) a.acik++;
+      if(geciken(t)) a.geciken++;
+      if(kapandi(t)){ a.tamam++; if(zamaninda(t)) a.zamaninda++; }
+      a.tahmini += t.tahminiSure || 0;
+      a.gercek += t.gercekSure || 0;
+      a.revizyon += t.revizyon || 0;
+      a.yeniden += t.yenidenAcilma || 0;
+      if((t.revizyon || 0) > 0) a.revizyonlu++;
+    });
+    return order.map(function(k){
+      var a = m[k];
+      a.sapma = a.gercek - a.tahmini;
+      a.oran = a.tamam ? Math.round(a.zamaninda * 100 / a.tamam) : null;
+      return a;
+    }).sort(function(x, y){ return y.toplam - x.toplam; });
+  }
+
+  /* =================================================================
+     3. KOLON SÖZLÜĞÜ — her çağrıda yeni nesne (GV.list kolon durumu tutar)
+     ================================================================= */
+  var C = {
+    gorev:function(w){ return { key:'baslik', label:'Görev', width:w || '24%', cellClass:'cell-wrap', locked:true,
+      render:function(t){
+        return '<a class="cell-main" href="app-gorev-detay.html?id=' + t.kod + '">' + esc(t.baslik) + '</a>' +
+               '<span class="cell-code">' + t.kod + ' · ' + esc(t.tur) + '</span>'; },
+      exportValue:function(t){ return t.kod + ' — ' + t.baslik; } }; },
+
+    proje:function(){ return { key:'proje', label:'Proje / Müşteri',
+      render:function(t){
+        if(!t.proje && !t.musteri) return '<span class="u-faint">İç iş</span>';
+        var p = pr(t.proje), m = cu(t.musteri);
+        return '<span class="cell-main">' + esc(p ? p.ad : (m ? m.kisa : '—')) + '</span>' +
+               (p && m ? '<span class="cell-sub">' + esc(m.kisa) + '</span>' : ''); },
+      exportValue:function(t){ return t.proje || t.musteri || 'İç iş'; } }; },
+
+    dep:function(vis){ return { key:'dep', label:'Departman', visible:vis !== false,
+      render:function(t){ return esc(DB.depName(t.dep)); },
+      exportValue:function(t){ return DB.depName(t.dep); } }; },
+
+    sorumlu:function(){ return { key:'sorumlu', label:'Sorumlu',
+      render:function(t){ return GV.user(t.sorumlu); },
+      exportValue:function(t){ return DB.empName(t.sorumlu); } }; },
+
+    veren:function(){ return { key:'veren', label:'Görevi veren',
+      render:function(t){ return GV.user(t.veren); },
+      exportValue:function(t){ return DB.empName(t.veren); } }; },
+
+    kontrolEden:function(){ return { key:'kontrolEden', label:'Kontrol eden',
+      render:function(t){ return GV.user(t.kontrolEden); },
+      exportValue:function(t){ return DB.empName(t.kontrolEden); } }; },
+
+    termin:function(){ return { key:'termin', label:'Termin',
+      render:function(t){ return GV.dateCell(t.termin, { done:!!t.tamamlanma }); } }; },
+
+    tamamlanma:function(){ return { key:'tamamlanma', label:'Tamamlanma',
+      render:function(t){ return t.tamamlanma
+        ? '<span class="cell-date is-done">' + F.dateShort(t.tamamlanma) + '</span>'
+        : '<span class="u-faint">—</span>'; } }; },
+
+    oncelik:function(){ return { key:'oncelik', label:'Öncelik',
+      render:function(t){ return GV.pri(t.oncelik); } }; },
+
+    ilerleme:function(vis){ return { key:'ilerleme', label:'İlerleme', visible:vis !== false,
+      render:function(t){ return GV.progress(t.ilerleme); } }; },
+
+    durum:function(){ return { key:'durum', label:'Durum',
+      render:function(t){ return GV.badge(t.durum); } }; },
+
+    tahmini:function(){ return { key:'tahminiSure', label:'Tahmini', cellClass:'num',
+      render:function(t){ return '<span class="u-num">' + F.hours(t.tahminiSure) + '</span>'; } }; },
+
+    gercek:function(){ return { key:'gercekSure', label:'Gerçekleşen', cellClass:'num',
+      render:function(t){ return '<span class="u-num">' + F.hours(t.gercekSure) + '</span>'; } }; },
+
+    sure:function(){ return { key:'gercekSure', label:'Tahmini / Gerçek', cellClass:'num',
+      render:function(t){ return '<span class="u-num">' + F.hours(t.tahminiSure) + ' / <b>' + F.hours(t.gercekSure) + '</b></span>'; },
+      exportValue:function(t){ return t.tahminiSure + ' / ' + t.gercekSure; } }; },
+
+    sapma:function(){ return { key:'sapma', label:'Sapma', cellClass:'num', sortValue:sapma,
+      render:function(t){
+        var s = sapma(t);
+        if(!s) return '<span class="u-faint">—</span>';
+        return '<span class="u-num ' + (s > 0 ? 'u-danger' : 'u-ok') + '">' + (s > 0 ? '+' : '−') + F.hours(Math.abs(s)) + '</span>'; },
+      exportValue:function(t){ return sapma(t); } }; },
+
+    faturalanabilir:function(vis){ return { key:'faturalanabilir', label:'Faturalanabilir', cellClass:'num', visible:vis !== false,
+      render:function(t){ return '<span class="u-num">' + F.hours(t.faturalanabilir) + '</span>'; } }; },
+
+    gecikme:function(){ return { key:'gecikme', label:'Gecikme', cellClass:'num', sortValue:gecikmeGun,
+      render:function(t){
+        var g = gecikmeGun(t);
+        return g ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>' : '<span class="u-faint">—</span>'; },
+      exportValue:function(t){ return gecikmeGun(t); } }; },
+
+    asim:function(){ return { key:'asim', label:'Termin aşımı', cellClass:'num', sortValue:terminAsim,
+      render:function(t){
+        var g = terminAsim(t);
+        return g ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>' : '<span class="u-num u-ok">0 gün</span>'; },
+      exportValue:function(t){ return terminAsim(t); } }; },
+
+    sonuc:function(){ return { key:'sonuc', label:'Termin sonucu', sortValue:function(t){ return terminSonuc(t) || 'zzz'; },
+      render:function(t){
+        var s = terminSonuc(t);
+        if(!s) return '<span class="u-faint">Sonuç belli değil</span>';
+        return GV.badge(s, s === 'Zamanında' ? 'is-ok' : s === 'Geç tamamlandı' ? 'is-warn' : 'is-danger'); },
+      exportValue:function(t){ return terminSonuc(t) || '—'; } }; },
+
+    revizyon:function(){ return { key:'revizyon', label:'Revizyon', cellClass:'num',
+      render:function(t){
+        return (t.revizyon || 0) > 0
+          ? '<span class="u-num u-warn">' + F.num(t.revizyon) + '</span>'
+          : '<span class="u-faint">0</span>'; } }; },
+
+    yeniden:function(){ return { key:'yenidenAcilma', label:'Yeniden açılma', cellClass:'num',
+      render:function(t){
+        return (t.yenidenAcilma || 0) > 0
+          ? '<span class="u-num u-danger">' + F.num(t.yenidenAcilma) + '</span>'
+          : '<span class="u-faint">0</span>'; } }; },
+
+    kalite:function(){ return { key:'kalite', label:'Kalite puanı', cellClass:'num', sortValue:kalitePuan,
+      render:function(t){ return GV.progress(kalitePuan(t)); },
+      exportValue:function(t){ return kalitePuan(t); } }; },
+
+    kaliteSinif:function(){ return { key:'kaliteSinif', label:'Sonuç', sortValue:kalitePuan,
+      render:function(t){ return kaliteBadge(t); },
+      exportValue:function(t){ return kaliteSinif(t); } }; },
+
+    engelNedeni:function(){ return { key:'engelNedeni', label:'Engel nedeni', cellClass:'cell-wrap', width:'24%',
+      render:function(t){ return t.engelNedeni ? esc(t.engelNedeni) : '<span class="u-faint">Belirtilmedi</span>'; } }; },
+
+    revizeNot:function(){ return { key:'revizeNot', label:'Revize notu', cellClass:'cell-wrap', width:'22%',
+      render:function(t){ return t.revizeNot ? esc(t.revizeNot) : '<span class="u-faint">—</span>'; } }; },
+
+    cikti:function(vis){ return { key:'teslimEdilenCikti', label:'Teslim edilen çıktı', visible:vis !== false,
+      render:function(t){ return t.teslimEdilenCikti ? esc(t.teslimEdilenCikti) : '<span class="u-faint">—</span>'; } }; },
+
+    kaynakKanal:function(){ return { key:'kaynak', label:'Kaynak sohbet', cellClass:'cell-wrap',
+      sortValue:function(t){ var m = SOHBET[t.kod]; return m ? m.tarih : ''; },
+      render:function(t){
+        var m = SOHBET[t.kod];
+        if(!m) return '<span class="u-faint">—</span>';
+        var k = ch(m.kanal);
+        return '<span class="cell-main">' + esc(k ? k.ad : m.kanal) + '</span>' +
+               '<span class="cell-sub">' + esc(DB.empName(m.kisi)) + ' · ' + F.dt(m.tarih) + '</span>'; },
+      exportValue:function(t){ var m = SOHBET[t.kod], k = m ? ch(m.kanal) : null; return k ? k.ad : '—'; } }; }
+  };
+
+  /* Özet (kırılım) tablosu kolonları */
+  var A = {
+    ad:function(baslik){ return { key:'ad', label:baslik, width:'24%', cellClass:'cell-wrap', locked:true,
+      render:function(a){ return '<span class="cell-main">' + esc(a.ad) + '</span>' +
+        '<span class="cell-code">' + esc(a.kod) + '</span>'; },
+      exportValue:function(a){ return a.ad; } }; },
+    toplam:function(){ return { key:'toplam', label:'Toplam görev', cellClass:'num',
+      render:function(a){ return '<span class="u-num u-b">' + F.num(a.toplam) + '</span>'; } }; },
+    acikAdet:function(){ return { key:'acik', label:'Açık', cellClass:'num',
+      render:function(a){ return '<span class="u-num">' + F.num(a.acik) + '</span>'; } }; },
+    gecikenAdet:function(){ return { key:'geciken', label:'Geciken', cellClass:'num',
+      render:function(a){ return a.geciken ? '<span class="u-num u-danger">' + F.num(a.geciken) + '</span>' : '<span class="u-faint">0</span>'; } }; },
+    tamamAdet:function(){ return { key:'tamam', label:'Tamamlanan', cellClass:'num',
+      render:function(a){ return '<span class="u-num u-ok">' + F.num(a.tamam) + '</span>'; } }; },
+    sure:function(){ return { key:'gercek', label:'Tahmini / Gerçek', cellClass:'num',
+      render:function(a){ return '<span class="u-num">' + F.hours(a.tahmini) + ' / <b>' + F.hours(a.gercek) + '</b></span>'; },
+      exportValue:function(a){ return a.tahmini + ' / ' + a.gercek; } }; },
+    sapma:function(){ return { key:'sapma', label:'Sapma', cellClass:'num',
+      render:function(a){
+        if(!a.sapma) return '<span class="u-faint">—</span>';
+        return '<span class="u-num ' + (a.sapma > 0 ? 'u-danger' : 'u-ok') + '">' + (a.sapma > 0 ? '+' : '−') + F.hours(Math.abs(a.sapma)) + '</span>'; } }; },
+    oran:function(){ return { key:'oran', label:'Zamanında %', cellClass:'num',
+      render:function(a){ return a.oran == null ? '<span class="u-faint">—</span>' : GV.progress(a.oran); },
+      exportValue:function(a){ return a.oran; } }; },
+    revizyon:function(){ return { key:'revizyon', label:'Revizyon turu', cellClass:'num',
+      render:function(a){ return a.revizyon ? '<span class="u-num u-warn">' + F.num(a.revizyon) + '</span>' : '<span class="u-faint">0</span>'; } }; }
+  };
+
+  /* =================================================================
+     4. ORTAK TABLO / MOBİL / BOŞ DURUM
+     ================================================================= */
+  function mTask(t){
+    return '<div class="gv-mrow-top"><a class="cell-main" href="app-gorev-detay.html?id=' + t.kod + '">' + esc(t.baslik) + '</a>' +
+      GV.pri(t.oncelik) + '</div>' +
+      '<div class="gv-mrow-code">' + t.kod + ' · ' + esc(t.tur) + '</div>' +
+      '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(DB.empName(t.sorumlu)) + '</span>' +
+      '<span>' + ico('i-calendar','ic-sm') + F.dateShort(t.termin) + '</span>' +
+      '<span>' + ico('i-timer','ic-sm') + F.hours(t.gercekSure) + '</span></div>' +
+      '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(t.durum) + '</span></div>';
+  }
+  function mAgg(a){
+    return '<div class="gv-mrow-top"><span class="cell-main">' + esc(a.ad) + '</span>' +
+      '<span class="u-num u-b">' + F.num(a.toplam) + '</span></div>' +
+      '<div class="gv-mrow-code">' + esc(a.kod) + '</div>' +
+      '<div class="gv-mrow-meta"><span>Açık ' + F.num(a.acik) + '</span>' +
+      '<span>Geciken ' + F.num(a.geciken) + '</span>' +
+      '<span>Tamamlanan ' + F.num(a.tamam) + '</span>' +
+      '<span>' + F.hours(a.gercek) + '</span></div>';
+  }
+  function araGorev(){
+    return { placeholder:'Görev, tür, proje veya etiket ara',
+             fields:['kod','baslik','tur','aciklama','proje','musteri','etiketler'] };
+  }
+  function bos(baslik, aciklama){
+    return { icon:'i-tasks', title:baslik || 'Bu raporda kayıt yok',
+             desc:aciklama || 'Ortak filtreleri temizleyerek ya da tarih aralığını genişleterek kapsamı büyütebilirsiniz.' };
+  }
+  /* Görev tablosu iskeleti — tekrar eden GV.list ayarları tek yerde */
+  function tGorev(o){
+    return { key:'kod', pageSize:o.pageSize || 10, archive:false,
+      exportName:o.exportName, exportTitle:o.exportTitle,
+      search:o.search || araGorev(),
+      defaultSort:o.defaultSort || 'termin', defaultDir:o.defaultDir || 'asc',
+      tabs:o.tabs, columns:o.columns, mobile:o.mobile || mTask,
+      emptyState:o.emptyState || bos() };
+  }
+
+  /* =================================================================
+     5. SAYFA
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Raporlar', title:'Görev Raporları',
+    sub:'19 rapor · referans tarih ' + F.date(DB.today),
+    actions:[
+      { label:'Görev Listesi', icon:'i-tasks', href:'app-gorev.html' },
+      { label:'Departman Talepleri', icon:'i-arrow-right', href:'app-istalebi.html' }
+    ]
+  });
+
+  GV.report({
+    mount:'#rapor', id:'raporgorev',
+
+    filters:[
+      { key:'tarih', label:'Tarihten itibaren', type:'date' },
+      { key:'dep', label:'Departman', type:'select',
+        options:DB.departments.filter(function(d){ return d.aktif; })
+          .map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'personel', label:'Personel', type:'select',
+        options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'durum', label:'Durum', type:'select', options:DB.taskStatuses }
+    ],
+
+    reports:[
+
+      /* ============================ DURUM ============================ */
+      { key:'acik', label:'Açık görevler', icon:'i-tasks', group:'Durum',
+        title:'Açık Görevler', desc:'Tamamlanmamış, iptal edilmemiş ve arşivlenmemiş tüm görevler; kalan efor ve termin baskısı ile birlikte.',
+        rows:function(f){ return base(f).filter(acik); },
+        kpis:[
+          { label:'Açık görev', icon:'i-tasks', calc:function(r){ return r.length; } },
+          { label:'Geciken', icon:'i-alert', tone:'danger', calc:function(r){ return r.filter(geciken).length; } },
+          { label:'Bu hafta terminli', icon:'i-calendar', tone:'warn', calc:function(r){
+              return r.filter(function(t){ var d = t.termin ? F.days(t.termin) : null; return d != null && d >= 0 && d <= 7; }).length; } },
+          { label:'Kalan efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + kalanEfor(t); }, 0); } }
+        ],
+        charts:function(r){ return r.length ? [kartDep(r, 'Departman bazlı açık görev'), kartDurum(r)] : []; },
+        table:tGorev({ exportName:'gorev-rapor-acik', exportTitle:'Açık Görevler Raporu',
+          columns:[C.gorev(), C.proje(), C.dep(false), C.sorumlu(), C.termin(), C.oncelik(),
+                   C.ilerleme(), C.sure(), C.durum()],
+          emptyState:bos('Açık görev yok', 'Seçilen kapsamda tüm görevler kapanmış görünüyor.') }) },
+
+      { key:'geciken', label:'Geciken görevler', icon:'i-alert', group:'Durum',
+        title:'Geciken Görevler', desc:'Termini geçmiş ve hâlâ açık olan görevler; gecikme günü ve etkilenen proje kırılımıyla.',
+        rows:function(f){ return base(f).filter(geciken); },
+        kpis:[
+          { label:'Geciken görev', icon:'i-alert', tone:'danger', calc:function(r){ return r.length; } },
+          { label:'Ortalama gecikme', icon:'i-clock', tone:'warn', format:function(v){ return F.num(v) + ' gün'; },
+            calc:function(r){ return r.length ? Math.round(r.reduce(function(s, t){ return s + gecikmeGun(t); }, 0) / r.length) : 0; } },
+          { label:'En uzun gecikme', icon:'i-hourglass', tone:'danger', format:function(v){ return F.num(v) + ' gün'; },
+            calc:function(r){ return r.reduce(function(m, t){ return Math.max(m, gecikmeGun(t)); }, 0); } },
+          { label:'Kritik öncelikli', icon:'i-flag', tone:'danger',
+            calc:function(r){ return r.filter(function(t){ return t.oncelik === 'Kritik'; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var d = r.slice().sort(function(a, b){ return gecikmeGun(b) - gecikmeGun(a); }).slice(0, 12)
+            .map(function(t){ return { label:t.kod.slice(-3), value:gecikmeGun(t), tone:'danger' }; });
+          return [{ title:'Görev bazlı gecikme', sub:'gün', wide:true, html:GV.chart.bar(d) }, kartDep(r, 'Departman bazlı gecikme')];
+        },
+        table:tGorev({ exportName:'gorev-rapor-geciken', exportTitle:'Geciken Görevler Raporu',
+          defaultSort:'gecikme', defaultDir:'desc',
+          columns:[C.gorev(), C.proje(), C.dep(false), C.sorumlu(), C.termin(), C.gecikme(),
+                   C.oncelik(), C.ilerleme(false), C.durum()],
+          emptyState:bos('Geciken görev yok', 'Seçilen kapsamda termini aşan açık görev bulunmuyor.') }) },
+
+      { key:'engellenen', label:'Engellenen görevler', icon:'i-lock', group:'Durum',
+        title:'Engellenen Görevler', desc:'Durumu “Engellendi” olan görevler; engel nedeni, bekleyen efor ve engelin bloke ettiği bağımlı görevler.',
+        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Engellendi'; }); },
+        kpis:[
+          { label:'Engellenen görev', icon:'i-lock', tone:'danger', calc:function(r){ return r.length; } },
+          { label:'Etkilenen proje', icon:'i-briefcase', tone:'warn', calc:function(r){
+              var s = {}; r.forEach(function(t){ if(t.proje) s[t.proje] = 1; }); return Object.keys(s).length; } },
+          { label:'Bloke bağımlı görev', icon:'i-link', tone:'danger', calc:function(r){
+              var kods = r.map(function(t){ return t.kod; });
+              return DB.taskDeps.filter(function(d){ return d.bagimli && kods.indexOf(d.bagimli) !== -1; }).length; } },
+          { label:'Bekleyen efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + kalanEfor(t); }, 0); } }
+        ],
+        charts:function(r){ return r.length ? [kartDep(r, 'Departman bazlı engel'), kartOncelik(r)] : []; },
+        table:tGorev({ exportName:'gorev-rapor-engellenen', exportTitle:'Engellenen Görevler Raporu',
+          columns:[C.gorev('22%'), C.engelNedeni(), C.proje(), C.sorumlu(), C.termin(), C.gecikme(),
+                   C.oncelik(), C.durum()],
+          emptyState:bos('Engellenen görev yok', 'Seçilen kapsamda engel kaydı bulunmuyor.') }) },
+
+      { key:'atanmamis', label:'Atanmamış görevler', icon:'i-user-plus', group:'Durum',
+        title:'Atanmamış Görevler', desc:'İş havuzunda bekleyen ya da sorumlusu belirlenmemiş görevler; dağıtılmayı bekleyen efor.',
+        rows:function(f){ return base(f).filter(atanmamis); },
+        kpis:[
+          { label:'Atanmamış görev', icon:'i-layers', tone:'warn', calc:function(r){ return r.length; } },
+          { label:'Termini geçmiş', icon:'i-alert', tone:'danger', calc:function(r){
+              return r.filter(function(t){ return t.termin && F.days(t.termin) < 0; }).length; } },
+          { label:'Bekleyen efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.tahminiSure || 0); }, 0); } },
+          { label:'Kritik / Yüksek', icon:'i-flag', tone:'danger', calc:function(r){
+              return r.filter(function(t){ return t.oncelik === 'Kritik' || t.oncelik === 'Yüksek'; }).length; } }
+        ],
+        charts:function(r){ return r.length ? [kartDep(r, 'Departman bazlı havuz yükü'), kartOncelik(r)] : []; },
+        table:tGorev({ exportName:'gorev-rapor-atanmamis', exportTitle:'Atanmamış Görevler Raporu',
+          columns:[C.gorev(), C.proje(), C.dep(), C.veren(), C.termin(), C.oncelik(), C.tahmini(), C.durum()],
+          emptyState:bos('Atanmamış görev yok', 'Havuzdaki tüm işler bir sorumluya bağlanmış.') }) },
+
+      { key:'kabul', label:'Kabul bekleyen görevler', icon:'i-hourglass', group:'Durum',
+        title:'Kabul Bekleyen Görevler', desc:'Sorumluya atanmış fakat henüz kabul edilmemiş görevler — atama ile başlangıç arasındaki bekleme.',
+        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Kabul bekliyor'; }); },
+        kpis:[
+          { label:'Kabul bekleyen', icon:'i-hourglass', tone:'warn', calc:function(r){ return r.length; } },
+          { label:'7 gün içinde terminli', icon:'i-calendar', tone:'danger', calc:function(r){
+              return r.filter(function(t){ var d = t.termin ? F.days(t.termin) : null; return d != null && d <= 7; }).length; } },
+          { label:'Bekleyen efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.tahminiSure || 0); }, 0); } },
+          { label:'Farklı sorumlu', icon:'i-users', tone:'purple', calc:function(r){
+              var s = {}; r.forEach(function(t){ if(t.sorumlu) s[t.sorumlu] = 1; }); return Object.keys(s).length; } }
+        ],
+        charts:function(r){ return r.length ? [kartSorumlu(r, 'Sorumlu bazlı kabul bekleyen'), kartDurum(r)] : []; },
+        table:tGorev({ exportName:'gorev-rapor-kabul', exportTitle:'Kabul Bekleyen Görevler Raporu',
+          columns:[C.gorev(), C.proje(), C.dep(), C.veren(), C.sorumlu(), C.termin(), C.oncelik(), C.tahmini(), C.durum()],
+          emptyState:bos('Kabul bekleyen görev yok', 'Atanan tüm görevler sorumlular tarafından kabul edilmiş.') }) },
+
+      { key:'kontrol', label:'Kontrol bekleyen görevler', icon:'i-clipboard-check', group:'Durum',
+        title:'Kontrol Bekleyen Görevler', desc:'Sorumlusu işi bitirmiş, kontrol edenin incelemesini bekleyen görevler.',
+        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Kontrol bekliyor'; }); },
+        kpis:[
+          { label:'Kontrol bekleyen', icon:'i-clipboard-check', tone:'info', calc:function(r){ return r.length; } },
+          { label:'Termini geçmiş', icon:'i-alert', tone:'danger', calc:function(r){
+              return r.filter(function(t){ return t.termin && F.days(t.termin) < 0; }).length; } },
+          { label:'Onay bekleyen', icon:'i-stamp', tone:'purple', calc:function(r, f){
+              return base(f).filter(function(t){ return t.durum === 'Onay bekliyor'; }).length; } },
+          { label:'Ortalama ilerleme', icon:'i-gauge', tone:'ok', format:F.pct, calc:function(r){
+              return r.length ? Math.round(r.reduce(function(s, t){ return s + (t.ilerleme || 0); }, 0) / r.length) : 0; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var d = tally(r, function(t){ return DB.empName(t.kontrolEden); });
+          return [{ title:'Kontrol eden bazlı kuyruk', sub:'görev adedi', wide:true, html:GV.chart.bar(d) }, kartDurum(r)];
+        },
+        table:tGorev({ exportName:'gorev-rapor-kontrol', exportTitle:'Kontrol Bekleyen Görevler Raporu',
+          columns:[C.gorev(), C.proje(), C.sorumlu(), C.kontrolEden(), C.termin(), C.gecikme(),
+                   C.ilerleme(), C.cikti(false), C.durum()],
+          emptyState:bos('Kontrol kuyruğu boş', 'Seçilen kapsamda kontrol bekleyen görev yok.') }) },
+
+      { key:'revize', label:'Revizedeki görevler', icon:'i-refresh', group:'Durum',
+        title:'Revizedeki Görevler', desc:'Kontrolden dönmüş, revize bekleyen ya da revizede olan görevler; revizyon turu ve ek efor.',
+        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Revizede' || t.durum === 'Revize bekliyor'; }); },
+        kpis:[
+          { label:'Revizedeki görev', icon:'i-refresh', tone:'warn', calc:function(r){ return r.length; } },
+          { label:'Toplam revizyon turu', icon:'i-edit', tone:'danger',
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.revizyon || 0); }, 0); } },
+          { label:'En çok revizyon', icon:'i-flag', tone:'danger',
+            calc:function(r){ return r.reduce(function(m, t){ return Math.max(m, t.revizyon || 0); }, 0); } },
+          { label:'Revizyondan gelen ek efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + Math.max(0, sapma(t)); }, 0); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var d = r.map(function(t){ return { label:t.kod.slice(-3), value:t.revizyon || 0, tone:'warn' }; });
+          var m = tally(r, function(t){ return musteriAd(t.musteri); });
+          return [{ title:'Görev bazlı revizyon turu', sub:'tur adedi', wide:true, html:GV.chart.bar(d) },
+                  { title:'Müşteri kırılımı', html:GV.chart.donut(m, { center:String(r.length), centerSub:'görev' }), legend:m }];
+        },
+        table:tGorev({ exportName:'gorev-rapor-revize', exportTitle:'Revizedeki Görevler Raporu',
+          defaultSort:'revizyon', defaultDir:'desc',
+          columns:[C.gorev('22%'), C.revizeNot(), C.proje(), C.sorumlu(), C.revizyon(), C.termin(),
+                   C.gecikme(), C.sapma(), C.durum()],
+          emptyState:bos('Revizede görev yok', 'Seçilen kapsamda revizyon turunda bekleyen görev bulunmuyor.') }) },
+
+      { key:'tamamlanan', label:'Tamamlanan görevler', icon:'i-check-circle', group:'Durum',
+        title:'Tamamlanan Görevler', desc:'Tamamlanma tarihi girilmiş görevler; zamanında kapanma, gerçekleşen efor ve teslim edilen çıktı.',
+        rows:function(f){ return base(f).filter(kapandi); },
+        kpis:[
+          { label:'Tamamlanan görev', icon:'i-check-circle', tone:'ok', calc:function(r){ return r.length; } },
+          { label:'Zamanında kapanan', icon:'i-target', tone:'ok', calc:function(r){ return r.filter(zamaninda).length; } },
+          { label:'Zamanında oranı', icon:'i-percent', tone:'info', format:F.pct,
+            calc:function(r){ return r.length ? Math.round(r.filter(zamaninda).length * 100 / r.length) : 0; } },
+          { label:'Gerçekleşen efor', icon:'i-timer', tone:'purple', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.gercekSure || 0); }, 0); } }
+        ],
+        charts:function(r){ return r.length ? [kartSure(r, 'Tamamlanan görevlerde tahmini ve gerçekleşen süre'), kartDep(r, 'Departman bazlı tamamlanan')] : []; },
+        table:tGorev({ exportName:'gorev-rapor-tamamlanan', exportTitle:'Tamamlanan Görevler Raporu',
+          defaultSort:'tamamlanma', defaultDir:'desc',
+          columns:[C.gorev(), C.proje(), C.sorumlu(), C.termin(), C.tamamlanma(), C.asim(),
+                   C.sure(), C.sapma(), C.revizyon(), C.cikti(false), C.durum()],
+          emptyState:bos('Tamamlanan görev yok', 'Seçilen kapsamda kapanmış görev bulunmuyor.') }) },
+
+      /* =========================== DAĞILIM =========================== */
+      { key:'departman', label:'Departman bazlı görevler', icon:'i-users', group:'Dağılım',
+        title:'Departman Bazlı Görevler', desc:'Her departmanın görev yükü, gecikmesi, efor sapması ve zamanında tamamlama oranı.',
+        rows:function(f){ return grupla(base(f), function(t){ return t.dep; }, DB.depName); },
+        kpis:[
+          { label:'Departman', icon:'i-users', calc:function(r){ return r.length; } },
+          { label:'Toplam görev', icon:'i-tasks', tone:'info',
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.toplam; }, 0); } },
+          { label:'En yüklü departman', icon:'i-layers', tone:'purple',
+            format:function(v){ return esc(String(v)); },
+            calc:function(r){ return r.length ? r[0].ad : '—'; } },
+          { label:'Geciken görev', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.geciken; }, 0); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var bar = top(r, 12).map(function(a){ return { label:depKisa(a.kod), value:a.toplam }; });
+          var don = r.filter(function(a){ return a.acik; }).map(function(a){ return { label:depKisa(a.kod), value:a.acik }; });
+          return [{ title:'Departman bazlı toplam görev', sub:'görev adedi', wide:true, html:GV.chart.bar(bar) },
+                  don.length ? { title:'Açık görev dağılımı', html:GV.chart.donut(don, { center:String(don.reduce(function(s, d){ return s + d.value; }, 0)), centerSub:'açık' }), legend:don } : null];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'gorev-rapor-departman', exportTitle:'Departman Bazlı Görev Raporu',
+          search:{ placeholder:'Departman ara', fields:['kod','ad'] },
+          defaultSort:'toplam', defaultDir:'desc',
+          columns:[A.ad('Departman'), A.toplam(), A.acikAdet(), A.gecikenAdet(), A.tamamAdet(),
+                   A.sure(), A.sapma(), A.revizyon(), A.oran()],
+          mobile:mAgg,
+          emptyState:{ icon:'i-users', title:'Departman kırılımı boş', desc:'Seçilen filtrelerde görev bulunmuyor.' } } },
+
+      { key:'projeBazli', label:'Proje bazlı görevler', icon:'i-briefcase', group:'Dağılım',
+        title:'Proje Bazlı Görevler', desc:'Proje başına görev yükü, gecikme, efor sapması ve zamanında tamamlama oranı; iç işler ayrı satırda.',
+        rows:function(f){ return grupla(base(f), function(t){ return t.proje || 'İç iş'; }, projeAd); },
+        kpis:[
+          { label:'Proje', icon:'i-briefcase', calc:function(r){ return r.filter(function(a){ return a.kod !== 'İç iş'; }).length; } },
+          { label:'Toplam görev', icon:'i-tasks', tone:'info',
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.toplam; }, 0); } },
+          { label:'Açık görev', icon:'i-layers', tone:'warn',
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.acik; }, 0); } },
+          { label:'Efor sapması', icon:'i-timer', tone:'danger', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.sapma; }, 0); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var bar = top(r, 10).map(function(a){ return { label:a.kod === 'İç iş' ? 'İç iş' : a.kod.slice(-3), value:a.toplam }; });
+          var sure = top(r, 10).map(function(a){ return { label:a.kod === 'İç iş' ? 'İç iş' : a.kod.slice(-3), value:a.tahmini, value2:a.gercek }; });
+          return [{ title:'Proje bazlı görev adedi', sub:'proje kodu son 3 hane', wide:true, html:GV.chart.bar(bar) },
+                  { title:'Proje bazlı tahmini ve gerçekleşen süre', sub:'saat', wide:true, html:GV.chart.bar(sure),
+                    legend:[{ label:'Tahmini', value:r.reduce(function(s, a){ return s + a.tahmini; }, 0) },
+                            { label:'Gerçekleşen', value:r.reduce(function(s, a){ return s + a.gercek; }, 0) }] }];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'gorev-rapor-proje', exportTitle:'Proje Bazlı Görev Raporu',
+          search:{ placeholder:'Proje ara', fields:['kod','ad'] },
+          defaultSort:'toplam', defaultDir:'desc',
+          columns:[A.ad('Proje'),
+            { key:'projeDurum', label:'Proje durumu', sortValue:function(a){ var p = pr(a.kod); return p ? p.durum : 'zzz'; },
+              render:function(a){ var p = pr(a.kod); return p ? GV.badge(p.durum) : '<span class="u-faint">—</span>'; },
+              exportValue:function(a){ var p = pr(a.kod); return p ? p.durum : '—'; } },
+            A.toplam(), A.acikAdet(), A.gecikenAdet(), A.tamamAdet(), A.sure(), A.sapma(), A.oran()],
+          mobile:mAgg,
+          emptyState:{ icon:'i-briefcase', title:'Proje kırılımı boş', desc:'Seçilen filtrelerde görev bulunmuyor.' } } },
+
+      { key:'musteriBazli', label:'Müşteri bazlı görevler', icon:'i-building', group:'Dağılım',
+        title:'Müşteri Bazlı Görevler', desc:'Müşteri başına düşen görev yükü, revizyon turu ve termin performansı; müşteri bağı olmayan işler “İç iş” satırında.',
+        rows:function(f){ return grupla(base(f), function(t){ return t.musteri || 'İç iş'; }, musteriAd); },
+        kpis:[
+          { label:'Müşteri', icon:'i-building', calc:function(r){ return r.filter(function(a){ return a.kod !== 'İç iş'; }).length; } },
+          { label:'Müşteri görevi', icon:'i-tasks', tone:'info',
+            calc:function(r){ return r.filter(function(a){ return a.kod !== 'İç iş'; }).reduce(function(s, a){ return s + a.toplam; }, 0); } },
+          { label:'Açık görev', icon:'i-layers', tone:'warn',
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.acik; }, 0); } },
+          { label:'Geciken görev', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.reduce(function(s, a){ return s + a.geciken; }, 0); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var bar = top(r, 10).map(function(a){ return { label:a.ad.slice(0, 10), value:a.toplam }; });
+          var don = r.filter(function(a){ return a.acik; }).map(function(a){ return { label:a.ad, value:a.acik }; });
+          return [{ title:'Müşteri bazlı görev adedi', sub:'görev adedi', wide:true, html:GV.chart.bar(bar) },
+                  don.length ? { title:'Açık görev dağılımı', html:GV.chart.donut(don, { center:String(don.reduce(function(s, d){ return s + d.value; }, 0)), centerSub:'açık' }), legend:don } : null];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'gorev-rapor-musteri', exportTitle:'Müşteri Bazlı Görev Raporu',
+          search:{ placeholder:'Müşteri ara', fields:['kod','ad'] },
+          defaultSort:'toplam', defaultDir:'desc',
+          columns:[A.ad('Müşteri'), A.toplam(), A.acikAdet(), A.gecikenAdet(), A.tamamAdet(),
+                   A.revizyon(), A.sure(), A.oran()],
+          mobile:mAgg,
+          emptyState:{ icon:'i-building', title:'Müşteri kırılımı boş', desc:'Seçilen filtrelerde görev bulunmuyor.' } } },
+
+      /* ========================== VERİMLİLİK ========================== */
+      { key:'sure', label:'Tahmini ve gerçekleşen süre', icon:'i-timer', group:'Verimlilik',
+        title:'Tahmini ve Gerçekleşen Süre', desc:'Görev bazında tahmin doğruluğu: planlanan efor, harcanan efor, sapma ve faturalanabilir süre.',
+        rows:function(f){ return base(f); },
+        kpis:[
+          { label:'Tahmini efor', icon:'i-clock', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.tahminiSure || 0); }, 0); } },
+          { label:'Gerçekleşen efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.gercekSure || 0); }, 0); } },
+          { label:'Sapma', icon:'i-trend-up', tone:'warn', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + sapma(t); }, 0); } },
+          { label:'Faturalanabilir', icon:'i-wallet', tone:'ok', format:F.hours,
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.faturalanabilir || 0); }, 0); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var g = grupla(r, function(t){ return t.dep; }, DB.depName);
+          return [kartSure(r, 'Görev bazlı tahmini ve gerçekleşen süre'),
+                  { title:'Departman bazlı efor', sub:'saat', wide:true,
+                    html:GV.chart.bar(top(g, 10).map(function(a){ return { label:depKisa(a.kod), value:a.tahmini, value2:a.gercek }; })),
+                    legend:[{ label:'Tahmini', value:g.reduce(function(s, a){ return s + a.tahmini; }, 0) },
+                            { label:'Gerçekleşen', value:g.reduce(function(s, a){ return s + a.gercek; }, 0) }] }];
+        },
+        table:tGorev({ exportName:'gorev-rapor-sure', exportTitle:'Tahmini ve Gerçekleşen Süre Raporu',
+          defaultSort:'sapma', defaultDir:'desc', pageSize:25,
+          tabs:[
+            { key:'hepsi', label:'Tüm görevler', icon:'i-tasks', filter:function(){ return true; } },
+            { key:'asan', label:'Tahmini aşanlar', icon:'i-trend-up', filter:function(t){ return sapma(t) > 0; } },
+            { key:'kapali', label:'Kapanmış görevler', icon:'i-check-circle', filter:kapandi }
+          ],
+          columns:[C.gorev(), C.proje(), C.dep(false), C.sorumlu(), C.tahmini(), C.gercek(),
+                   C.sapma(), C.faturalanabilir(), C.ilerleme(false), C.durum()],
+          emptyState:bos('Süre kaydı yok', 'Seçilen kapsamda efor girilmiş görev bulunmuyor.') }) },
+
+      { key:'zamaninda', label:'Zamanında tamamlama oranı', icon:'i-target', group:'Verimlilik',
+        title:'Zamanında Tamamlama Oranı', desc:'Termin sonucu belli olan görevler üzerinden hesaplanır: termininde kapananlar ile termini aşanların oranı. Aşağıdaki tablo oranı düşüren görevleri gösterir.',
+        rows:function(f){ return base(f).filter(function(t){ return terminSonuc(t) !== null; }); },
+        kpis:[
+          { label:'Zamanında tamamlama oranı', icon:'i-percent', tone:'ok', format:F.pct,
+            calc:function(r){ return r.length ? Math.round(r.filter(zamaninda).length * 100 / r.length) : 0; },
+            meta:function(r){ return ico('i-tasks','ic-sm') + ' ' + F.num(r.length) + ' görev üzerinden'; }, metaTone:'flat' },
+          { label:'Sonucu belli görev', icon:'i-tasks', tone:'info', calc:function(r){ return r.length; } },
+          { label:'Zamanında kapanan', icon:'i-check-circle', tone:'ok', calc:function(r){ return r.filter(zamaninda).length; } },
+          { label:'Termini aşan', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(t){ return terminAsim(t) > 0; }).length; } }
+        ],
+        charts:function(r, f){
+          if(!r.length) return [];
+          var tr = trendKart('Aylık zamanında tamamlama oranı', 'termin ayına göre, %',
+                             oranTrend(r, zamaninda));
+          var g = grupla(r, function(t){ return t.dep; }, DB.depName).filter(function(a){ return a.tamam || a.geciken; });
+          var bar = g.length ? { title:'Departman bazlı termin performansı', sub:'zamanında kapanan / sonucu belli görev, %', wide:!tr,
+            html:GV.chart.bar(top(g, 10).map(function(a){
+              var toplam = r.filter(function(t){ return t.dep === a.kod; });
+              var oran = toplam.length ? Math.round(toplam.filter(zamaninda).length * 100 / toplam.length) : 0;
+              return { label:depKisa(a.kod), value:oran, tone:oran >= 80 ? 'ok' : oran >= 50 ? 'warn' : 'danger' };
+            })) } : null;
+          return [tr, bar];
+        },
+        table:tGorev({ exportName:'gorev-rapor-zamaninda', exportTitle:'Zamanında Tamamlama Oranı Raporu',
+          defaultSort:'asim', defaultDir:'desc', pageSize:25,
+          tabs:[
+            { key:'dusuren', label:'Oranı düşürenler', icon:'i-alert', filter:function(t){ return terminAsim(t) > 0; } },
+            { key:'zamaninda', label:'Zamanında kapananlar', icon:'i-check-circle', filter:zamaninda },
+            { key:'hepsi', label:'Sonucu belli tüm görevler', icon:'i-tasks', filter:function(){ return true; } }
+          ],
+          columns:[C.gorev(), C.proje(), C.dep(false), C.sorumlu(), C.termin(), C.tamamlanma(),
+                   C.asim(), C.sonuc(), C.durum()],
+          emptyState:bos('Termin sonucu belli görev yok', 'Seçilen kapsamda kapanmış ya da termini aşmış görev bulunmuyor.') }) },
+
+      { key:'revizyonOrani', label:'Revizyon oranı', icon:'i-edit', group:'Verimlilik',
+        title:'Revizyon Oranı', desc:'En az bir revizyon turu almış görevlerin tüm görevlere oranı; revizyonun getirdiği ek efor ve oranı yükselten görevler.',
+        rows:function(f){ return base(f); },
+        kpis:[
+          { label:'Revizyon oranı', icon:'i-percent', tone:'warn', format:F.pct,
+            calc:function(r){ return r.length ? Math.round(r.filter(function(t){ return (t.revizyon || 0) > 0; }).length * 100 / r.length) : 0; },
+            meta:function(r){ return ico('i-tasks','ic-sm') + ' ' + F.num(r.length) + ' görev üzerinden'; }, metaTone:'flat' },
+          { label:'Revizyon alan görev', icon:'i-refresh', tone:'danger',
+            calc:function(r){ return r.filter(function(t){ return (t.revizyon || 0) > 0; }).length; } },
+          { label:'Toplam revizyon turu', icon:'i-edit', tone:'warn',
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.revizyon || 0); }, 0); } },
+          { label:'Revizyondan gelen ek efor', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return r.filter(function(t){ return (t.revizyon || 0) > 0; })
+              .reduce(function(s, t){ return s + Math.max(0, sapma(t)); }, 0); } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var tr = trendKart('Aylık revizyon oranı', 'termin ayına göre, %',
+                             oranTrend(r, function(t){ return (t.revizyon || 0) > 0; }));
+          var rev = r.filter(function(t){ return (t.revizyon || 0) > 0; })
+            .sort(function(a, b){ return (b.revizyon || 0) - (a.revizyon || 0); }).slice(0, 12)
+            .map(function(t){ return { label:t.kod.slice(-3), value:t.revizyon, tone:'warn' }; });
+          var bar = rev.length ? { title:'Oranı yükselten görevler', sub:'revizyon turu adedi', wide:!tr, html:GV.chart.bar(rev) } : null;
+          return [tr, bar];
+        },
+        table:tGorev({ exportName:'gorev-rapor-revizyon', exportTitle:'Revizyon Oranı Raporu',
+          defaultSort:'revizyon', defaultDir:'desc', pageSize:25,
+          tabs:[
+            { key:'revizyonlu', label:'Revizyon alanlar', icon:'i-refresh', filter:function(t){ return (t.revizyon || 0) > 0; } },
+            { key:'hepsi', label:'Tüm görevler', icon:'i-tasks', filter:function(){ return true; } }
+          ],
+          columns:[C.gorev(), C.proje(), C.dep(false), C.sorumlu(), C.kontrolEden(), C.revizyon(),
+                   C.sapma(), C.termin(), C.durum()],
+          emptyState:bos('Revizyon kaydı yok', 'Seçilen kapsamda revizyon almış görev bulunmuyor.') }) },
+
+      { key:'yenidenAcilma', label:'Yeniden açılma oranı', icon:'i-refresh', group:'Verimlilik',
+        title:'Yeniden Açılma Oranı', desc:'Kapandıktan sonra tekrar açılan görevlerin oranı — kontrol ve kabul kriterinin ne kadar tuttuğunu gösterir.',
+        rows:function(f){ return base(f); },
+        kpis:[
+          { label:'Yeniden açılma oranı', icon:'i-percent', tone:'danger', format:F.pct,
+            calc:function(r){ return r.length ? Math.round(r.filter(function(t){ return (t.yenidenAcilma || 0) > 0; }).length * 100 / r.length) : 0; },
+            meta:function(r){ return ico('i-tasks','ic-sm') + ' ' + F.num(r.length) + ' görev üzerinden'; }, metaTone:'flat' },
+          { label:'Yeniden açılan görev', icon:'i-refresh', tone:'danger',
+            calc:function(r){ return r.filter(function(t){ return (t.yenidenAcilma || 0) > 0; }).length; } },
+          { label:'Toplam yeniden açılma', icon:'i-alert', tone:'warn',
+            calc:function(r){ return r.reduce(function(s, t){ return s + (t.yenidenAcilma || 0); }, 0); } },
+          { label:'Etkilenen proje', icon:'i-briefcase', tone:'info', calc:function(r){
+              var s = {}; r.forEach(function(t){ if((t.yenidenAcilma || 0) > 0 && t.proje) s[t.proje] = 1; });
+              return Object.keys(s).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var tr = trendKart('Aylık yeniden açılma oranı', 'termin ayına göre, %',
+                             oranTrend(r, function(t){ return (t.yenidenAcilma || 0) > 0; }));
+          var ya = r.filter(function(t){ return (t.yenidenAcilma || 0) > 0; })
+            .sort(function(a, b){ return (b.yenidenAcilma || 0) - (a.yenidenAcilma || 0); }).slice(0, 12)
+            .map(function(t){ return { label:t.kod.slice(-3), value:t.yenidenAcilma, tone:'danger' }; });
+          var bar = ya.length ? { title:'Oranı yükselten görevler', sub:'yeniden açılma adedi', wide:!tr, html:GV.chart.bar(ya) } : null;
+          return [tr, bar];
+        },
+        table:tGorev({ exportName:'gorev-rapor-yeniden-acilma', exportTitle:'Yeniden Açılma Oranı Raporu',
+          defaultSort:'yenidenAcilma', defaultDir:'desc', pageSize:25,
+          tabs:[
+            { key:'yeniden', label:'Yeniden açılanlar', icon:'i-refresh', filter:function(t){ return (t.yenidenAcilma || 0) > 0; } },
+            { key:'hepsi', label:'Tüm görevler', icon:'i-tasks', filter:function(){ return true; } }
+          ],
+          columns:[C.gorev(), C.proje(), C.dep(false), C.sorumlu(), C.kontrolEden(), C.yeniden(),
+                   C.revizyon(), C.asim(), C.durum()],
+          emptyState:bos('Yeniden açılma kaydı yok', 'Seçilen kapsamda kapandıktan sonra tekrar açılan görev bulunmuyor.') }) },
+
+      { key:'kalite', label:'Görev kalite sonuçları', icon:'i-award', group:'Verimlilik',
+        title:'Görev Kalite Sonuçları', desc:'Kontrol sürecine girmiş görevlerin kalite puanı. Puan 100’den başlar; revizyon (−10), yeniden açılma (−15), termin aşımı (−15) ve %20 üzeri efor sapması (−10) düşülür.',
+        rows:function(f){
+          return base(f).filter(function(t){
+            return kapandi(t) || ['Kontrol bekliyor','Onay bekliyor','Revize bekliyor','Revizede'].indexOf(t.durum) !== -1;
+          });
+        },
+        kpis:[
+          { label:'Ortalama kalite puanı', icon:'i-award', tone:'ok', format:F.pct,
+            calc:function(r){ return r.length ? Math.round(r.reduce(function(s, t){ return s + kalitePuan(t); }, 0) / r.length) : 0; } },
+          { label:'İlk seferde geçen', icon:'i-check-circle', tone:'ok', calc:function(r){
+              return r.filter(function(t){ return !(t.revizyon || 0) && !(t.yenidenAcilma || 0); }).length; } },
+          { label:'İlk seferde geçme oranı', icon:'i-percent', tone:'info', format:F.pct, calc:function(r){
+              return r.length ? Math.round(r.filter(function(t){ return !(t.revizyon || 0) && !(t.yenidenAcilma || 0); }).length * 100 / r.length) : 0; } },
+          { label:'Zayıf sonuçlu görev', icon:'i-alert', tone:'danger',
+            calc:function(r){ return r.filter(function(t){ return kaliteSinif(t) === 'Zayıf'; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var bar = r.slice().sort(function(a, b){ return kalitePuan(a) - kalitePuan(b); }).slice(0, 12)
+            .map(function(t){
+              var p = kalitePuan(t);
+              return { label:t.kod.slice(-3), value:p, tone:p >= 85 ? 'ok' : p >= 60 ? 'warn' : 'danger' };
+            });
+          var don = tally(r, kaliteSinif);
+          return [{ title:'Görev bazlı kalite puanı', sub:'0–100 · en düşük 12 görev', wide:true, html:GV.chart.bar(bar) },
+                  { title:'Kalite sınıfı dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'görev' }), legend:don }];
+        },
+        table:tGorev({ exportName:'gorev-rapor-kalite', exportTitle:'Görev Kalite Sonuçları Raporu',
+          defaultSort:'kalite', defaultDir:'asc', pageSize:25,
+          columns:[C.gorev(), C.proje(), C.sorumlu(), C.kontrolEden(), C.revizyon(), C.yeniden(),
+                   C.asim(), C.sapma(), C.kalite(), C.kaliteSinif()],
+          mobile:function(t){
+            return '<div class="gv-mrow-top"><a class="cell-main" href="app-gorev-detay.html?id=' + t.kod + '">' + esc(t.baslik) + '</a>' +
+              kaliteBadge(t) + '</div>' +
+              '<div class="gv-mrow-code">' + t.kod + ' · ' + esc(DB.empName(t.sorumlu)) + '</div>' +
+              GV.progress(kalitePuan(t)) +
+              '<div class="gv-mrow-meta"><span>Revizyon ' + F.num(t.revizyon || 0) + '</span>' +
+              '<span>Yeniden açılma ' + F.num(t.yenidenAcilma || 0) + '</span></div>';
+          },
+          emptyState:bos('Kalite sonucu yok', 'Seçilen kapsamda kontrol sürecine girmiş görev bulunmuyor.') }) },
+
+      /* ============================ KAYNAK ============================ */
+      { key:'talep', label:'Departmanlar arası talepler', icon:'i-arrow-right', group:'Kaynak',
+        title:'Departmanlar Arası Talepler', desc:'Bir departmanın diğerinden istediği işler; onay durumu, termin ve geciken talepler.',
+        rows:function(f){
+          return DB.deptRequests.filter(function(x){
+            if(f.dep && x.talepEdenDep !== f.dep && x.talepEdilenDep !== f.dep) return false;
+            if(f.personel && x.talepEden !== f.personel && x.sorumlu !== f.personel) return false;
+            if(f.proje && x.proje !== f.proje) return false;
+            if(f.musteri && x.musteri !== f.musteri) return false;
+            if(f.durum && x.durum !== f.durum) return false;
+            if(f.tarih && (!x.olusturma || x.olusturma < f.tarih)) return false;
+            return true;
+          });
+        },
+        kpis:[
+          { label:'Talep', icon:'i-arrow-right', calc:function(r){ return r.length; } },
+          { label:'Açık talep', icon:'i-layers', tone:'info',
+            calc:function(r){ return r.filter(function(x){ return x.durum !== 'Tamamlandı'; }).length; } },
+          { label:'Geciken talep', icon:'i-alert', tone:'danger', calc:function(r){
+              return r.filter(function(x){ return x.durum !== 'Tamamlandı' && x.termin && F.days(x.termin) < 0; }).length; } },
+          { label:'Onay bekleyen', icon:'i-stamp', tone:'warn',
+            calc:function(r){ return r.filter(function(x){ return x.onay === 'Bekliyor'; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var hedef = tally(r, function(x){ return depKisa(x.talepEdilenDep); });
+          var durum = tally(r, function(x){ return x.durum; });
+          return [{ title:'Talep edilen departman', sub:'talep adedi', wide:true, html:GV.chart.bar(hedef) },
+                  { title:'Talep durumu', html:GV.chart.donut(durum, { center:String(r.length), centerSub:'talep' }), legend:durum }];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'gorev-rapor-departman-talep', exportTitle:'Departmanlar Arası Talep Raporu',
+          search:{ placeholder:'Talep, tür veya açıklama ara', fields:['kod','baslik','tur','aciklama','beklenenCikti'] },
+          defaultSort:'termin', defaultDir:'asc',
+          columns:[
+            { key:'baslik', label:'Talep', width:'26%', cellClass:'cell-wrap', locked:true,
+              render:function(x){ return '<span class="cell-main">' + esc(x.baslik) + '</span>' +
+                '<span class="cell-code">' + x.kod + ' · ' + esc(x.tur) + '</span>'; },
+              exportValue:function(x){ return x.kod + ' — ' + x.baslik; } },
+            { key:'talepEdenDep', label:'Talep akışı', sortable:false,
+              render:function(x){ return '<span class="chain-cell"><span class="cc-from">' + esc(depKisa(x.talepEdenDep)) + '</span>' +
+                ico('i-arrow-right','ic-sm') + '<span class="cc-to">' + esc(depKisa(x.talepEdilenDep)) + '</span></span>'; },
+              exportValue:function(x){ return DB.depName(x.talepEdenDep) + ' → ' + DB.depName(x.talepEdilenDep); } },
+            { key:'talepEden', label:'Talep eden', visible:false,
+              render:function(x){ return GV.user(x.talepEden); },
+              exportValue:function(x){ return DB.empName(x.talepEden); } },
+            { key:'sorumlu', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); },
+              exportValue:function(x){ return DB.empName(x.sorumlu); } },
+            { key:'proje', label:'Proje / Müşteri', visible:false,
+              render:function(x){
+                if(!x.proje && !x.musteri) return '<span class="u-faint">İç talep</span>';
+                return esc(x.proje ? projeAd(x.proje) : musteriAd(x.musteri)); },
+              exportValue:function(x){ return x.proje || x.musteri || 'İç talep'; } },
+            { key:'termin', label:'Termin',
+              render:function(x){ return GV.dateCell(x.termin, { done:x.durum === 'Tamamlandı' }); } },
+            { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
+            { key:'onay', label:'Onay', render:function(x){ return GV.badge(x.onay); } },
+            { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+          ],
+          mobile:function(x){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.baslik) + '</span>' + GV.pri(x.oncelik) + '</div>' +
+              '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.tur) + '</div>' +
+              '<div class="gv-mrow-meta"><span>' + esc(depKisa(x.talepEdenDep)) + ' → ' + esc(depKisa(x.talepEdilenDep)) + '</span>' +
+              '<span>' + ico('i-calendar','ic-sm') + F.dateShort(x.termin) + '</span></div>' +
+              '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + GV.badge(x.onay) + '</span></div>';
+          },
+          emptyState:{ icon:'i-arrow-right', title:'Departman talebi yok',
+            desc:'Seçilen kapsamda departmanlar arası iş talebi bulunmuyor.' } } },
+
+      { key:'sohbet', label:'Sohbetten oluşan görevler', icon:'i-chat', group:'Kaynak',
+        title:'Sohbetten Oluşan Görevler', desc:'Kanal mesajlarından doğan görevler — mesajda bağlanan ya da metinde geçen görev kodları üzerinden eşleştirilir.',
+        rows:function(f){ return base(f).filter(function(t){ return !!SOHBET[t.kod]; }); },
+        kpis:[
+          { label:'Sohbetten oluşan görev', icon:'i-chat', tone:'purple', calc:function(r){ return r.length; } },
+          { label:'Kaynak kanal', icon:'i-layers', tone:'info', calc:function(r){
+              var s = {}; r.forEach(function(t){ var m = SOHBET[t.kod]; if(m) s[m.kanal] = 1; }); return Object.keys(s).length; } },
+          { label:'Açık görev', icon:'i-tasks', tone:'warn', calc:function(r){ return r.filter(acik).length; } },
+          { label:'Geciken', icon:'i-alert', tone:'danger', calc:function(r){ return r.filter(geciken).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var kanal = tally(r, function(t){ var m = SOHBET[t.kod], k = m ? ch(m.kanal) : null; return k ? k.ad : '—'; });
+          return [{ title:'Kanal bazlı görev üretimi', sub:'görev adedi', wide:true, html:GV.chart.bar(kanal) }, kartDurum(r)];
+        },
+        table:tGorev({ exportName:'gorev-rapor-sohbet', exportTitle:'Sohbetten Oluşan Görevler Raporu',
+          defaultSort:'kaynak', defaultDir:'desc',
+          columns:[C.gorev(), C.kaynakKanal(), C.proje(), C.sorumlu(), C.termin(), C.oncelik(), C.durum()],
+          emptyState:{ icon:'i-chat', title:'Sohbetten oluşan görev yok',
+            desc:'Seçilen kapsamda mesajlara bağlanmış görev bulunmuyor.' } }) },
+
+      { key:'toplanti', label:'Toplantıdan oluşan görevler', icon:'i-calendar-check', group:'Kaynak',
+        title:'Toplantıdan Oluşan Görevler', desc:'Toplantı kararları ve aksiyonları ile bunların göreve dönüşme oranı; göreve bağlanmayan kararlar takipsiz kalan işlerdir.',
+        rows:function(f){
+          return DB.decisions.filter(function(k){
+            var t = k.gorev ? gv(k.gorev) : null, m = mt(k.toplanti);
+            if(f.dep && (!t || t.dep !== f.dep)) return false;
+            if(f.personel && k.sorumlu !== f.personel) return false;
+            if(f.proje && !(m && m.proje === f.proje) && !(t && t.proje === f.proje)) return false;
+            if(f.musteri && !(m && m.musteri === f.musteri) && !(t && t.musteri === f.musteri)) return false;
+            if(f.durum && k.durum !== f.durum) return false;
+            if(f.tarih && (!k.termin || k.termin < f.tarih)) return false;
+            return true;
+          });
+        },
+        kpis:[
+          { label:'Toplantı kararı', icon:'i-calendar-check', calc:function(r){ return r.length; } },
+          { label:'Göreve dönüşen', icon:'i-tasks', tone:'ok',
+            calc:function(r){ return r.filter(function(k){ return !!k.gorev; }).length; } },
+          { label:'Göreve dönüşme oranı', icon:'i-percent', tone:'info', format:F.pct,
+            calc:function(r){ return r.length ? Math.round(r.filter(function(k){ return !!k.gorev; }).length * 100 / r.length) : 0; } },
+          { label:'Geciken karar', icon:'i-alert', tone:'danger', calc:function(r){
+              return r.filter(function(k){ return k.durum !== 'Tamamlandı' && k.termin && F.days(k.termin) < 0; }).length; } }
+        ],
+        charts:function(r){
+          if(!r.length) return [];
+          var top1 = tally(r, function(k){ var m = mt(k.toplanti); return m ? m.ad : k.toplanti; });
+          var don = [
+            { label:'Göreve dönüşen', value:r.filter(function(k){ return !!k.gorev; }).length },
+            { label:'Göreve dönüşmeyen', value:r.filter(function(k){ return !k.gorev; }).length }
+          ].filter(function(d){ return d.value; });
+          return [{ title:'Toplantı bazlı karar adedi', sub:'karar / aksiyon', wide:true, html:GV.chart.bar(top1) },
+                  { title:'Göreve dönüşüm', html:GV.chart.donut(don, { center:String(r.length), centerSub:'karar' }), legend:don }];
+        },
+        table:{ key:'kod', pageSize:25, archive:false,
+          exportName:'gorev-rapor-toplanti', exportTitle:'Toplantıdan Oluşan Görevler Raporu',
+          search:{ placeholder:'Karar veya toplantı ara', fields:['kod','karar','toplanti','gorev'] },
+          defaultSort:'termin', defaultDir:'asc',
+          columns:[
+            { key:'karar', label:'Karar / Aksiyon', width:'28%', cellClass:'cell-wrap', locked:true,
+              render:function(k){ return '<span class="cell-main">' + esc(k.karar) + '</span>' +
+                '<span class="cell-code">' + k.kod + '</span>'; },
+              exportValue:function(k){ return k.kod + ' — ' + k.karar; } },
+            { key:'toplanti', label:'Toplantı',
+              render:function(k){
+                var m = mt(k.toplanti);
+                return '<span class="cell-main">' + esc(m ? m.ad : k.toplanti) + '</span>' +
+                       (m ? '<span class="cell-sub">' + esc(m.tur) + ' · ' + F.dt(m.tarih) + '</span>' : ''); },
+              exportValue:function(k){ var m = mt(k.toplanti); return m ? m.ad : k.toplanti; } },
+            { key:'sorumlu', label:'Sorumlu', render:function(k){ return GV.user(k.sorumlu); },
+              exportValue:function(k){ return DB.empName(k.sorumlu); } },
+            { key:'termin', label:'Termin',
+              render:function(k){ return GV.dateCell(k.termin, { done:k.durum === 'Tamamlandı' }); } },
+            { key:'gorev', label:'Oluşan görev',
+              render:function(k){
+                if(!k.gorev) return '<span class="u-faint">Göreve dönüşmedi</span>';
+                var t = gv(k.gorev);
+                return '<a class="cell-main" href="app-gorev-detay.html?id=' + k.gorev + '">' + k.gorev + '</a>' +
+                       (t ? '<span class="cell-sub">' + esc(t.baslik) + '</span>' : ''); },
+              exportValue:function(k){ return k.gorev || '—'; } },
+            { key:'gorevDurum', label:'Görev durumu', sortValue:function(k){ var t = k.gorev ? gv(k.gorev) : null; return t ? t.durum : 'zzz'; },
+              render:function(k){ var t = k.gorev ? gv(k.gorev) : null; return t ? GV.badge(t.durum) : '<span class="u-faint">—</span>'; },
+              exportValue:function(k){ var t = k.gorev ? gv(k.gorev) : null; return t ? t.durum : '—'; } },
+            { key:'durum', label:'Karar durumu', render:function(k){ return GV.badge(k.durum); } }
+          ],
+          mobile:function(k){
+            return '<div class="gv-mrow-top"><span class="cell-main">' + esc(k.karar) + '</span></div>' +
+              '<div class="gv-mrow-code">' + k.kod + ' · ' + esc((mt(k.toplanti) || {}).ad || k.toplanti) + '</div>' +
+              '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(DB.empName(k.sorumlu)) + '</span>' +
+              '<span>' + ico('i-calendar','ic-sm') + F.dateShort(k.termin) + '</span></div>' +
+              '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(k.durum) + '</span>' +
+              (k.gorev ? '<a class="cell-main" href="app-gorev-detay.html?id=' + k.gorev + '">' + k.gorev + '</a>' : '') + '</div>';
+          },
+          emptyState:{ icon:'i-calendar-check', title:'Toplantı kararı yok',
+            desc:'Seçilen kapsamda toplantıdan doğan karar ya da aksiyon bulunmuyor.' } } }
+
+    ]
+  });
+});
+</script>
+</body>
+</html>
