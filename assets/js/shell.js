@@ -589,6 +589,7 @@
     'app-ayar-bildirim.html',
     'app-ayar-log.html',
     'app-ayar-kullanici.html',
+    'app-ayar-entegrasyon.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
