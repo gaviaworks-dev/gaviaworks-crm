@@ -149,19 +149,20 @@
     ]},
 
     ayarlar:{ ic:'i-settings', eyebrow:'Sistem', title:'Ayarlar ve Yetkilendirme', menu:[
-      { ic:'i-building',     lbl:'Şirket Bilgileri', href:'app-ayar-sirket.html',        screen:'sirket' },
-      { ic:'i-users',        lbl:'Departmanlar',     href:'app-ayar-departman.html',     screen:'departmanlar' },
+      { ic:'i-building',     lbl:'Şirket Bilgileri', href:'app-ayar-sirket.html',        screen:'sirket', roles:['sahip','genelmudur','sistem'] },
+      { ic:'i-users',        lbl:'Departmanlar',     href:'app-ayar-departman.html',     screen:'departmanlar', roles:['sahip','genelmudur','sistem','operasyon','ik'] },
       { seclbl:'Erişim' },
-      { ic:'i-user',         lbl:'Kullanıcılar',     href:'app-ayar-kullanici.html',     screen:'kullanicilar' },
-      { ic:'i-shield',       lbl:'Roller',           href:'app-ayar-rol.html',           screen:'roller' },
-      { ic:'i-key',          lbl:'Yetki Matrisi',    href:'app-ayar-yetki.html',         screen:'yetki' },
-      { ic:'i-stamp',        lbl:'Onay Akışları',    href:'app-ayar-onay.html',          screen:'onayakis' },
+      { ic:'i-user',         lbl:'Kullanıcılar',     href:'app-ayar-kullanici.html',     screen:'kullanicilar', roles:['sahip','genelmudur','sistem'] },
+      { ic:'i-shield',       lbl:'Roller',           href:'app-ayar-rol.html',           screen:'roller', roles:['sahip','genelmudur','sistem'] },
+      { ic:'i-key',          lbl:'Yetki Matrisi',    href:'app-ayar-yetki.html',         screen:'yetki', roles:['sahip','genelmudur','sistem'] },
+      { ic:'i-stamp',        lbl:'Onay Akışları',    href:'app-ayar-onay.html',          screen:'onayakis', roles:['sahip','genelmudur','sistem','operasyon'] },
       { seclbl:'Sistem' },
       { ic:'i-bell',         lbl:'Bildirim Tercihleri', href:'app-ayar-bildirim.html',   screen:'bildirimtercih' },
-      { ic:'i-activity',     lbl:'Otomasyonlar',     href:'app-ayar-otomasyon.html',     screen:'otomasyon' },
-      { ic:'i-link',         lbl:'Entegrasyonlar',   href:'app-ayar-entegrasyon.html',   screen:'entegrasyon' },
+      { ic:'i-activity',     lbl:'Otomasyonlar',     href:'app-ayar-otomasyon.html',     screen:'otomasyon', roles:['sahip','genelmudur','sistem','operasyon'] },
+      { ic:'i-link',         lbl:'Entegrasyonlar',   href:'app-ayar-entegrasyon.html',   screen:'entegrasyon', roles:['sahip','genelmudur','sistem','devops'] },
       { ic:'i-list',         lbl:'Log Kayıtları',    href:'app-ayar-log.html',           screen:'log', roles:['sahip','genelmudur','sistem','operasyon','devops'] },
-      { ic:'i-archive',      lbl:'Arşiv',            href:'app-ayar-arsiv.html',         screen:'arsiv' }
+      { ic:'i-user',         lbl:'Profilim',         href:'app-ayar-profil.html',        screen:'profil' },
+      { ic:'i-archive',      lbl:'Arşiv',            href:'app-ayar-arsiv.html',         screen:'arsiv', roles:['sahip','genelmudur','sistem','operasyon'] }
     ]}
   };
 
@@ -170,34 +171,51 @@
 
   /* Rol → görebileceği bölümler ---------------------------------------- */
   var ALL = RAIL_ORDER.slice();
+  /* Ekran seviyesinde yetki — bölüm erişimi tek başına yetmez.
+     Ayarlar bölümü herkese açıktır (herkes kendi profilini ve bildirim
+     tercihlerini yönetir), ama yönetim ekranları bu haritayla kapatılır.
+     Haritada olmayan ekran, bölüm erişimi olan herkese açıktır. */
+  var SCREEN_PERM = {
+    sirket:       ['sahip','genelmudur','sistem'],
+    departmanlar: ['sahip','genelmudur','sistem','operasyon','ik'],
+    kullanicilar: ['sahip','genelmudur','sistem'],
+    roller:       ['sahip','genelmudur','sistem'],
+    yetki:        ['sahip','genelmudur','sistem'],
+    onayakis:     ['sahip','genelmudur','sistem','operasyon'],
+    otomasyon:    ['sahip','genelmudur','sistem','operasyon'],
+    entegrasyon:  ['sahip','genelmudur','sistem','devops'],
+    log:          ['sahip','genelmudur','sistem','operasyon','devops'],
+    arsiv:        ['sahip','genelmudur','sistem','operasyon']
+  };
+
   var SEC_BY_ROLE = {
     sahip:        ALL,
     genelmudur:   ALL,
     sistem:       ALL,
-    operasyon:    ['panel','satis','musteri','proje','gorev','destek','sohbet','personel','varlik','satinalma','finans','dokuman','toplanti','rapor'],
-    depmudur:     ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor'],
-    satismudur:   ['panel','satis','musteri','proje','gorev','sohbet','finans','dokuman','toplanti','rapor'],
-    satistemsilci:['panel','satis','musteri','gorev','sohbet','dokuman','toplanti'],
-    musteritems:  ['panel','musteri','destek','gorev','sohbet','dokuman','toplanti'],
-    analist:      ['panel','satis','musteri','proje','gorev','sohbet','dokuman','toplanti'],
-    pm:           ['panel','musteri','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','finans'],
-    takimlideri:  ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor'],
-    tasarimci:    ['panel','proje','gorev','sohbet','dokuman','toplanti'],
-    frontend:     ['panel','proje','gorev','sohbet','dokuman','toplanti'],
-    backend:      ['panel','proje','gorev','sohbet','dokuman','toplanti'],
-    mobil:        ['panel','proje','gorev','sohbet','dokuman','toplanti'],
-    ai:           ['panel','proje','gorev','sohbet','dokuman','toplanti'],
-    qa:           ['panel','proje','gorev','destek','sohbet','dokuman','toplanti'],
+    operasyon:    ['panel','satis','musteri','proje','gorev','destek','sohbet','personel','varlik','satinalma','finans','dokuman','toplanti','rapor','ayarlar'],
+    depmudur:     ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','ayarlar'],
+    satismudur:   ['panel','satis','musteri','proje','gorev','sohbet','finans','dokuman','toplanti','rapor','ayarlar'],
+    satistemsilci:['panel','satis','musteri','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    musteritems:  ['panel','musteri','destek','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    analist:      ['panel','satis','musteri','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    pm:           ['panel','musteri','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','finans','ayarlar'],
+    takimlideri:  ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','ayarlar'],
+    tasarimci:    ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    frontend:     ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    backend:      ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    mobil:        ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    ai:           ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    qa:           ['panel','proje','gorev','destek','sohbet','dokuman','toplanti','ayarlar'],
     devops:       ['panel','proje','gorev','destek','sohbet','varlik','dokuman','toplanti','ayarlar'],
-    destek:       ['panel','musteri','destek','gorev','proje','sohbet','dokuman','toplanti'],
-    ik:           ['panel','personel','gorev','sohbet','varlik','dokuman','toplanti','rapor'],
-    muhasebe:     ['panel','musteri','finans','satinalma','varlik','gorev','sohbet','dokuman','toplanti','rapor'],
-    satinalma:    ['panel','satinalma','varlik','finans','gorev','sohbet','dokuman','toplanti','rapor'],
-    idari:        ['panel','varlik','satinalma','personel','gorev','sohbet','dokuman','toplanti'],
-    freelancer:   ['panel','gorev','sohbet','dokuman'],
-    diskaynak:    ['panel','gorev','sohbet','dokuman'],
-    stajyer:      ['panel','gorev','sohbet','dokuman'],
-    musteri:      ['panel','destek','dokuman']
+    destek:       ['panel','musteri','destek','gorev','proje','sohbet','dokuman','toplanti','ayarlar'],
+    ik:           ['panel','personel','gorev','sohbet','varlik','dokuman','toplanti','rapor','ayarlar'],
+    muhasebe:     ['panel','musteri','finans','satinalma','varlik','gorev','sohbet','dokuman','toplanti','rapor','ayarlar'],
+    satinalma:    ['panel','satinalma','varlik','finans','gorev','sohbet','dokuman','toplanti','rapor','ayarlar'],
+    idari:        ['panel','varlik','satinalma','personel','gorev','sohbet','dokuman','toplanti','ayarlar'],
+    freelancer:   ['panel','gorev','sohbet','dokuman','ayarlar'],
+    diskaynak:    ['panel','gorev','sohbet','dokuman','ayarlar'],
+    stajyer:      ['panel','gorev','sohbet','dokuman','ayarlar'],
+    musteri:      ['panel','destek','dokuman','ayarlar'],
   };
 
   /* ===================================================================
@@ -513,8 +531,9 @@
   /* ===================================================================
      7. YETKİ KAPISI — 403
      =================================================================== */
-  function guard(activeSec){
-    if(Perm.sec(activeSec)) return true;
+  function guard(activeSec, activeScreen){
+    var screenOk = !SCREEN_PERM[activeScreen] || SCREEN_PERM[activeScreen].indexOf(Perm.role()) !== -1;
+    if(Perm.sec(activeSec) && screenOk) return true;
     var main = document.querySelector('.gv-page');
     if(!main) return false;
     main.innerHTML =
@@ -591,6 +610,8 @@
     'app-ayar-kullanici.html',
     'app-ayar-entegrasyon.html',
     'app-ayar-rol.html',
+    'app-ayar-departman.html',
+    'app-ayar-profil.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
@@ -761,7 +782,7 @@
       bell.insertAdjacentHTML('beforeend', '<span class="gv-dot">' + (cnt.bildirim > 9 ? '9+' : cnt.bildirim) + '</span>');
     }
 
-    var allowed = guard(activeSec);
+    var allowed = guard(activeSec, activeScreen);
     markWip(document);
     watchWip();
     /* Yetki kapısı kapandıysa sayfa config'i ÇALIŞMAZ: 403 markup'ı mount
