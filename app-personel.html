@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Personel — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="personel">
+<a class="gv-skip" href="#gvMain">İçeriğe atla</a>
+
+<div class="gv-app">
+  <aside class="gv-rail" id="gvRail"></aside>
+  <nav class="gv-menu" id="gvMenu"></nav>
+  <button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">
+    <span><svg class="ic ic-sm" aria-hidden="true"><use href="#i-chev-left"></use></svg></span>
+  </button>
+  <div class="gv-overlay" id="gvOverlay"></div>
+  <header class="gv-top" id="gvTop"></header>
+
+  <main class="gv-main" id="gvMain">
+    <div class="gv-page">
+      <nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>
+      <div class="gv-page-head">
+        <div>
+          <div class="ph-eyebrow">İnsan Kaynakları</div>
+          <h1>Personel</h1>
+          <div class="ph-sub" data-listcount>—</div>
+        </div>
+        <div class="ph-actions">
+          <a class="btn btn-line" href="app-kapasite.html">
+            <svg class="ic" aria-hidden="true"><use href="#i-chart-bar"></use></svg> Kapasite
+          </a>
+          <a class="btn btn-acc" href="app-personel-form.html">
+            <svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg> Yeni Personel
+          </a>
+        </div>
+      </div>
+      <div id="liste"></div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt;
+  /* Maaş alan bazlı yetkiye tabidir (KVKK — tasks/assumptions.md V-12) */
+  var canMaas = GV.perm.can('maas');
+  var cap = function(kod){ return DB.capacity.filter(function(c){ return c.personel === kod; })[0] || { doluluk:0, planlanan:0, kapasite:40 }; };
+  var openTasks = function(kod){
+    return DB.tasks.filter(function(t){
+      return t.sorumlu === kod && ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; }).length;
+  };
+
+  GV.list({
+    mount:'#liste', id:'personel', key:'kod', source:function(){ return DB.employees; },
+    exportName:'personel', exportTitle:'Personel Listesi', pageSize:25, views:['table','card'],
+    search:{ placeholder:'Ad, pozisyon, departman veya yetkinlik ara',
+             fields:['kod','ad','pozisyon','depAd','eposta','yetkinlik','teknoloji'] },
+    defaultSort:'ad',
+
+    kpis:[
+      { label:'Aktif personel', icon:'i-users', calc:function(a){ return a.filter(function(e){ return e.aktif; }).length; } },
+      { label:'Ortalama doluluk', icon:'i-chart-bar', tone:'info', format:function(v){ return '%' + v; },
+        calc:function(){ return Math.round(DB.capacity.reduce(function(s,c){ return s + c.doluluk; }, 0) / DB.capacity.length); } },
+      { label:'Aşırı yüklü', icon:'i-alert', tone:'danger',
+        calc:function(){ return DB.capacity.filter(function(c){ return c.doluluk >= 95; }).length; } },
+      { label:'Bekleyen izin talebi', icon:'i-calendar-check', tone:'warn', href:'app-izin.html',
+        calc:function(){ return DB.leaves.filter(function(l){ return l.durum === 'Onay bekliyor'; }).length; } }
+    ],
+
+    tabs:[
+      { key:'aktif',   label:'Aktif Personel', icon:'i-users',      filter:function(e){ return e.aktif && ['freelancer','diskaynak'].indexOf(e.rol) === -1; } },
+      { key:'tamzam',  label:'Tam Zamanlı',    icon:'i-user-check', filter:function(e){ return e.calismaTuru === 'Tam zamanlı'; } },
+      { key:'dis',     label:'Dış Kaynak',     icon:'i-user-plus',  filter:function(e){ return ['freelancer','diskaynak','stajyer'].indexOf(e.rol) !== -1; } },
+      { key:'yuklu',   label:'Aşırı Yüklü',    icon:'i-alert',      filter:function(e){ return cap(e.kod).doluluk >= 95; } },
+      { key:'musait',  label:'Müsait',         icon:'i-check-circle', filter:function(e){ return cap(e.kod).doluluk > 0 && cap(e.kod).doluluk < 75; } },
+      { key:'tumu',    label:'Tümü',           icon:'i-list',       filter:null }
+    ],
+
+    columns:[
+      { key:'ad', label:'Personel', width:'22%', locked:true, cellClass:'cell-wrap',
+        render:function(e){ return '<a class="cell-main" href="app-personel-detay.html?id=' + e.kod + '">' + GV.esc(e.ad) + '</a>' +
+          '<span class="cell-sub">' + GV.esc(e.pozisyon) + '</span><span class="cell-code">' + e.kod + '</span>'; } },
+      { key:'depAd', label:'Departman' },
+      { key:'rol', label:'Sistem rolü', render:function(e){ return '<span class="tag">' + GV.esc(DB.roleName(e.rol)) + '</span>'; },
+        exportValue:function(e){ return DB.roleName(e.rol); } },
+      { key:'calismaTuru', label:'Çalışma türü', visible:false },
+      { key:'girisTarihi', label:'İşe giriş', render:function(e){ return '<span class="cell-date">' + F.date(e.girisTarihi) + '</span>'; } },
+      { key:'doluluk', label:'Doluluk', sortValue:function(e){ return cap(e.kod).doluluk; },
+        render:function(e){ var c = cap(e.kod);
+          return GV.progress(c.doluluk, { tone:c.doluluk >= 95 ? 'danger' : c.doluluk >= 85 ? 'warn' : '' }); },
+        exportValue:function(e){ return cap(e.kod).doluluk + '%'; } },
+      { key:'acikGorev', label:'Açık görev', cellClass:'num', sortValue:function(e){ return openTasks(e.kod); },
+        render:function(e){ return '<b class="u-num">' + openTasks(e.kod) + '</b>'; },
+        exportValue:function(e){ return openTasks(e.kod); } },
+      { key:'izinBakiye', label:'İzin bakiyesi', cellClass:'num',
+        render:function(e){ return '<span class="u-num">' + e.izinBakiye + ' gün</span>'; } },
+      { key:'maas', label:'Maaş', cellClass:'num', visible:false,
+        render:function(e){ return canMaas
+          ? '<span class="cell-money">' + F.money(e.maas) + '</span>'
+          : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>'; },
+        exportValue:function(e){ return canMaas ? e.maas : ''; } },
+      { key:'lokasyon', label:'Lokasyon', visible:false },
+      { key:'aktif', label:'Durum', render:function(e){ return GV.badge(e.aktif ? 'Aktif' : 'Pasif'); } }
+    ],
+
+    filters:[
+      { key:'dep', label:'Departman', type:'multi',
+        options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'rol', label:'Sistem rolü', type:'multi',
+        options:DB.roles.map(function(r){ return { value:r.key, label:r.ad }; }) },
+      { key:'calismaTuru', label:'Çalışma türü', type:'select',
+        options:['Tam zamanlı','Yarı zamanlı','Proje bazlı'] },
+      { key:'sozlesme', label:'Sözleşme türü', type:'select',
+        options:['Belirsiz süreli','Belirli süreli','Hizmet sözleşmesi','Staj sözleşmesi'] },
+      { key:'doluluk', label:'Doluluk (en az %)', type:'text',
+        test:function(e,v){ return cap(e.kod).doluluk >= (parseFloat(v) || 0); } },
+      { key:'girisTarihi', label:'İşe giriş tarihi', type:'daterange' }
+    ],
+
+    rowClass:function(e){ return cap(e.kod).doluluk >= 95 ? 'is-late' : (e.aktif ? '' : 'is-passive'); },
+
+    card:function(e){
+      return '<div class="gv-rcard-top"><span class="gv-user">' +
+        '<span class="gv-user-ava is-lg">' + GV.esc(e.ini) + '</span>' +
+        '<span><a class="cell-main" href="app-personel-detay.html?id=' + e.kod + '">' + GV.esc(e.ad) + '</a>' +
+        '<span class="cell-sub">' + GV.esc(e.pozisyon) + '</span></span></span></div>' +
+        '<div class="gv-rcard-meta"><span>' + GV.esc(e.depAd) + '</span><span>' + openTasks(e.kod) + ' açık görev</span></div>' +
+        GV.progress(cap(e.kod).doluluk, { tone:cap(e.kod).doluluk >= 95 ? 'danger' : '' }) +
+        '<div class="gv-rcard-foot"><span class="u-xs u-muted">İzin ' + e.izinBakiye + ' gün</span>' +
+        GV.badge(e.aktif ? 'Aktif' : 'Pasif') + '</div>';
+    },
+
+    mobile:function(e){
+      return '<div class="gv-mrow-top"><span class="gv-user">' +
+        '<span class="gv-user-ava">' + GV.esc(e.ini) + '</span>' +
+        '<span><a class="cell-main" href="app-personel-detay.html?id=' + e.kod + '">' + GV.esc(e.ad) + '</a>' +
+        '<span class="cell-sub">' + GV.esc(e.pozisyon) + '</span></span></span></div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-users','ic-sm') + GV.esc(e.depAd) + '</span>' +
+        '<span>' + GV.ico('i-tasks','ic-sm') + openTasks(e.kod) + ' açık görev</span></div>' +
+        '<div class="u-mt-0">' + GV.progress(cap(e.kod).doluluk) + '</div>';
+    },
+
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Personel kartını aç', href:function(e){ return 'app-personel-detay.html?id=' + e.kod; } },
+      { key:'gorev', icon:'i-tasks', label:'Görevleri', href:function(e){ return 'app-gorev.html?t=tumu&f_sorumlu=' + e.kod; } },
+      { key:'izin', icon:'i-calendar-check', label:'İzinleri', href:function(e){ return 'app-izin.html?f_personel=' + e.kod; } }
+    ],
+
+    bulk:[
+      { key:'dep', label:'Departman değiştir', icon:'i-users' },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+
+    emptyState:{ icon:'i-users', title:'Bu görünümde personel yok',
+      desc:'Filtreleri değiştirebilir veya yeni bir personel kaydı oluşturabilirsiniz.' }
+  });
+});
+</script>
+</body>
+</html>

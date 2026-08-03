@@ -539,7 +539,9 @@
     'app-gorev.html',
     'app-gorev-detay.html',
     'app-musteri.html',
-    'app-proje.html'
+    'app-proje.html',
+    'app-teklif.html',
+    'app-personel.html'
   ];
   GV.built = BUILT;
 
