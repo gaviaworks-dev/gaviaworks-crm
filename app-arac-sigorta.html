@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sigorta ve Kasko — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="sigorta">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  var arac = function(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || {}; };
+  var aracCol = { key:'arac', label:'Araç', width:'18%', locked:true, sortValue:function(x){ return arac(x.arac).plaka || ''; },
+    render:function(x){ var v = arac(x.arac);
+      return '<a class="cell-main" href="app-arac-detay.html?id=' + x.arac + '">' + esc(v.plaka || x.arac) + '</a>' +
+             '<span class="cell-sub">' + esc((v.marka || '') + ' ' + (v.model || '')) + '</span>'; },
+    exportValue:function(x){ return arac(x.arac).plaka || x.arac; } };
+  var aracFilter = { key:'arac', label:'Araç', type:'multi',
+    options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) };
+  GV.pageHead({ eyebrow:'Araç ve Filo', title:'Sigorta ve Kasko',
+    actions:[{ label:'Araçlar', icon:'i-car', href:'app-arac.html' },
+             { label:'Poliçe Ekle', icon:'i-plus', cls:'btn-acc', href:'app-arac-sigorta-form.html' }] });
+  GV.list({
+    mount:'#liste', id:'police', key:'kod', source:function(){ return DB.policies; },
+    exportName:'police', exportTitle:'Trafik Sigortası ve Kasko Poliçeleri', pageSize:25,
+    search:{ placeholder:'Poliçe no, sigorta şirketi veya acente ara', fields:['kod','police','sirket','acente','tur'] },
+    defaultSort:'bitis',
+    kpis:[
+      { label:'Aktif poliçe', icon:'i-shield', calc:function(a){ return a.length; } },
+      { label:'60 gün içinde', icon:'i-clock', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.kalanGun <= 60; }).length; } },
+      { label:'30 gün içinde', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(x){ return x.kalanGun <= 30; }).length; } },
+      { label:'Yıllık prim', icon:'i-wallet', tone:'info', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + (x.prim || 0); }, 0) : 0; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Poliçeler', icon:'i-list', filter:null },
+      { key:'trafik', label:'Trafik Sigortası', icon:'i-shield', filter:function(x){ return x.tur === 'Trafik Sigortası'; } },
+      { key:'kasko', label:'Kasko', icon:'i-shield-check', filter:function(x){ return x.tur === 'Kasko'; } },
+      { key:'y60', label:'60 Gün İçinde', icon:'i-clock', filter:function(x){ return x.kalanGun <= 60; } },
+      { key:'y30', label:'30 Gün İçinde', icon:'i-alert', filter:function(x){ return x.kalanGun <= 30; } },
+      { key:'yenileme', label:'Yenileme Bekleyen', icon:'i-refresh', filter:function(x){ return x.yenileme === 'Bekliyor' || x.yenileme === 'Teklif alındı'; } }
+    ],
+    columns:[ aracCol,
+      { key:'tur', label:'Poliçe türü', render:function(x){
+          return '<span class="badge ' + (x.tur === 'Kasko' ? 'is-purple' : 'is-info') + ' no-dot">' + esc(x.tur) + '</span>'; } },
+      { key:'sirket', label:'Sigorta şirketi', render:function(x){
+          return '<span class="cell-main">' + esc(x.sirket) + '</span><span class="cell-sub">' + esc(x.acente) + '</span>'; } },
+      { key:'police', label:'Poliçe no', cellClass:'u-num' },
+      { key:'baslangic', label:'Başlangıç', visible:false, render:function(x){ return '<span class="cell-date">' + F.date(x.baslangic) + '</span>'; } },
+      { key:'bitis', label:'Bitiş tarihi', render:function(x){
+          return GV.dateCell(x.bitis) + (x.kalanGun <= 60 ? '<span class="cell-sub">' + x.kalanGun + ' gün kaldı</span>' : ''); } },
+      { key:'prim', label:'Prim', cellClass:'num', render:function(x){
+          if(!canFinans) return '<span class="cell-mask">••••</span>';
+          return x.prim ? '<span class="cell-money">' + F.money(x.prim) + '</span>' : '<span class="tag">Sözleşmeye dahil</span>'; },
+        exportValue:function(x){ return canFinans ? x.prim : ''; } },
+      { key:'kaskoBedeli', label:'Kasko bedeli', cellClass:'num', visible:false, render:function(x){
+          return x.kaskoBedeli ? '<span class="u-num">' + F.money(x.kaskoBedeli) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'teminat', label:'Teminat', cellClass:'cell-wrap', visible:false },
+      { key:'hasarsizlik', label:'Hasarsızlık', cellClass:'num', visible:false },
+      { key:'yenileme', label:'Yenileme', render:function(x){
+          return x.yenileme === '—' ? '<span class="u-faint">—</span>' : GV.badge(x.yenileme === 'Bekliyor' ? 'Bekliyor' : 'Teklif alındı'); },
+        exportValue:function(x){ return x.yenileme; } },
+      { key:'odeme', label:'Ödeme', render:function(x){ return GV.badge(x.odeme === 'Ödendi' ? 'Ödendi' : 'Bekliyor'); },
+        exportValue:function(x){ return x.odeme; } }
+    ],
+    filters:[ aracFilter,
+      { key:'tur', label:'Poliçe türü', type:'multi', options:['Trafik Sigortası','Kasko'] },
+      { key:'sirket', label:'Sigorta şirketi', type:'multi',
+        options:['Anadolu Sigorta','Allianz','Axa','Kiralama firması'] },
+      { key:'yenileme', label:'Yenileme durumu', type:'select', options:['Bekliyor','Teklif alındı','—'] },
+      { key:'bitis', label:'Bitiş tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return x.kalanGun <= 30 ? 'is-late' : ''; },
+    mobile:function(x){ var v = arac(x.arac);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(v.plaka || x.arac) + '</span>' +
+        '<span class="badge ' + (x.tur === 'Kasko' ? 'is-purple' : 'is-info') + ' no-dot">' + esc(x.tur) + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(x.sirket) + ' · ' + esc(x.police) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-calendar','ic-sm') + 'Bitiş ' + F.date(x.bitis) + '</span></div>'; },
+    rowActions:[
+      { key:'arac', icon:'i-car', label:'Aracı aç', href:function(x){ return 'app-arac-detay.html?id=' + x.arac; } },
+      { key:'yenile', icon:'i-refresh', label:'Yenileme başlat', run:function(x, refresh){
+          if(x.kalanGun > 60){ GV.toast('Yenileme süreci bitişe 60 gün kala başlatılır.', 'info'); return; }
+          GV.confirm({ title:'Poliçe yenileme',
+            text:arac(x.arac).plaka + ' · ' + x.tur + ' poliçesi için acenteden teklif istenecek ve görev oluşturulacak.',
+            okLabel:'Yenilemeyi başlat' }).then(function(ok){ if(ok){ x.yenileme = 'Teklif alındı';
+              GV.toast('Yenileme süreci başlatıldı', 'ok'); refresh(); } }); } }
+    ],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-shield', title:'Poliçe kaydı yok', desc:'Trafik sigortası ve kasko bitiş tarihleri kademeli uyarı üretir.' }
+  });
+
+});
+</script>
+</body>
+</html>
