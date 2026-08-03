@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Entegrasyonlar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="entegrasyon">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+
+  /* =================================================================
+     YETKİ — entegrasyon ayarı sistem seviyesi bir işlemdir.
+     PROMPT.md §23: yetki oturumdan türetilir, URL'e güvenilmez.
+     ================================================================= */
+  var rol = GV.perm.role();
+  var canEdit = GV.perm.can('log') || rol === 'sahip' || rol === 'sistem';
+  var canExp  = GV.perm.can('disaAktar');
+  var L = null;
+
+  /* =================================================================
+     TÜRETİLMİŞ ALANLAR
+     DB.integrations yalnızca { kod, ad, kategori, durum, aciklama, aktif }
+     tutuyor. Aşağıdaki tablo; sağlayıcı (ürünün gerçek üreticisi),
+     veri yönü ve kullanan modüller kayıttaki `aciklama` metninden,
+     sorumlu ise `kategori` ↔ departman eşlemesinden türetilir.
+     Uydurma alan yazılmaz — türetilen değerler sayfa açılışında
+     kaydın üzerine YAZILIR ki drawer/test aksiyonları gerçekten
+     DB.integrations kaydını güncellesin.
+     ================================================================= */
+  var YONLER = ['Gelen','Giden','Çift yönlü'];
+  var SIKLIK = ['Anlık (webhook)','15 dakikada bir','Saatlik','Günlük','Haftalık','Manuel'];
+
+  var META = {
+    /* aciklama: "Depo ve PR bağlantıları proje kartına yansır" → dışarıdan içeri */
+    'ENT-001':{ saglayici:'GitHub, Inc.', yon:'Gelen', moduller:['Projeler','Görevler','Sprint'],
+                sorumlu:'EMP-010', siklik:'Anlık (webhook)', ucNokta:'https://api.github.com', gun:0, saat:'08:40' },
+    'ENT-002':{ saglayici:'GitLab B.V.', yon:'Gelen', moduller:['Projeler','Görevler'],
+                sorumlu:'EMP-010', siklik:'Saatlik', ucNokta:'' },
+    /* aciklama: "Toplantılar iki yönlü senkronize edilir" */
+    'ENT-003':{ saglayici:'Google LLC', yon:'Çift yönlü', moduller:['Ajanda','Toplantılar'],
+                sorumlu:'EMP-011', siklik:'15 dakikada bir', ucNokta:'https://www.googleapis.com/calendar/v3', gun:0, saat:'09:15' },
+    /* aciklama: "Bildirimler kanala düşer" → yalnızca giden */
+    'ENT-004':{ saglayici:'Salesforce, Inc.', yon:'Giden', moduller:['Bildirimler','Sohbet'],
+                sorumlu:'EMP-010', siklik:'Anlık (webhook)', ucNokta:'' },
+    'ENT-005':{ saglayici:'Microsoft Corp.', yon:'Giden', moduller:['Bildirimler','Sohbet'],
+                sorumlu:'EMP-010', siklik:'Anlık (webhook)', ucNokta:'' },
+    /* aciklama: "Fatura ve cari aktarımı" → CRM'den muhasebeye */
+    'ENT-006':{ saglayici:'Logo Yazılım', yon:'Giden', moduller:['Faturalar','Müşteriler'],
+                sorumlu:'EMP-012', siklik:'Günlük', ucNokta:'' },
+    /* aciklama: "Fatura kesme ve tahsilat takibi" → kesme giden, tahsilat gelen */
+    'ENT-007':{ saglayici:'Paraşüt Yazılım', yon:'Çift yönlü', moduller:['Faturalar','Tahsilatlar','Müşteriler'],
+                sorumlu:'EMP-012', siklik:'Saatlik', ucNokta:'https://api.parasut.com/v4', gun:1, saat:'18:00' },
+    /* aciklama: "Sözleşme dijital imzalama" → gönder + imzalı dön */
+    'ENT-008':{ saglayici:'TÜBİTAK KamuSM', yon:'Çift yönlü', moduller:['Sözleşmeler','Dokümanlar'],
+                sorumlu:'EMP-011', siklik:'Manuel', ucNokta:'' },
+    /* aciklama: "Ön analiz ve özetleme özellikleri" → istek gider, yanıt gelir */
+    'ENT-009':{ saglayici:'OpenAI', yon:'Çift yönlü', moduller:['Ön Analiz','Toplantılar','Destek'],
+                sorumlu:'EMP-007', siklik:'Anlık (webhook)', ucNokta:'https://api.openai.com/v1', gun:0, saat:'07:30' },
+    /* aciklama: "Müşteri bildirimleri" → yalnızca giden */
+    'ENT-010':{ saglayici:'Meta Platforms', yon:'Giden', moduller:['Bildirimler','Müşteriler'],
+                sorumlu:'EMP-013', siklik:'Manuel', ucNokta:'' }
+  };
+
+  /* Sabit tarih ekseni — sistem saati okunmaz, her şey DB.today üzerinden */
+  function gecmis(gunOnce, saat){
+    var d = new Date(DB.today + 'T00:00:00');
+    d.setDate(d.getDate() - (gunOnce || 0));
+    var ay = ('0' + (d.getMonth() + 1)).slice(-2), gun = ('0' + d.getDate()).slice(-2);
+    return d.getFullYear() + '-' + ay + '-' + gun + 'T' + saat;
+  }
+
+  DB.integrations.forEach(function(x){
+    var m = META[x.kod] || {};
+    var bagli = x.durum === 'Bağlı';
+    if(x.saglayici === undefined)      x.saglayici = m.saglayici || x.ad;
+    if(x.veriYonu === undefined)       x.veriYonu = m.yon || 'Giden';
+    if(x.moduller === undefined)       x.moduller = m.moduller || [];
+    if(x.sorumlu === undefined)        x.sorumlu = m.sorumlu || null;
+    if(x.hataKisi === undefined)       x.hataKisi = x.sorumlu;
+    if(x.senkronSikligi === undefined) x.senkronSikligi = bagli ? (m.siklik || 'Günlük') : 'Manuel';
+    if(x.ucNokta === undefined)        x.ucNokta = bagli ? (m.ucNokta || '') : '';
+    /* Anahtarın KENDİSİ hiçbir zaman tutulmaz — yalnızca "tanımlı mı" bilgisi */
+    if(x.apiAnahtar === undefined)     x.apiAnahtar = bagli;
+    if(x.sonSenkron === undefined)     x.sonSenkron = (bagli && m.saat) ? gecmis(m.gun, m.saat) : null;
+  });
+
+  var KATEGORILER = (function(){
+    var out = [];
+    DB.integrations.forEach(function(x){ if(out.indexOf(x.kategori) === -1) out.push(x.kategori); });
+    return out.sort(function(a,b){ return a.localeCompare(b,'tr'); });
+  })();
+
+  var MODULLER = (function(){
+    var out = [];
+    DB.integrations.forEach(function(x){
+      x.moduller.forEach(function(m){ if(out.indexOf(m) === -1) out.push(m); });
+    });
+    return out.sort(function(a,b){ return a.localeCompare(b,'tr'); });
+  })();
+
+  var SORUMLULAR = (function(){
+    var out = [];
+    DB.integrations.forEach(function(x){
+      if(x.sorumlu && out.indexOf(x.sorumlu) === -1) out.push(x.sorumlu);
+    });
+    return out.map(function(k){ var e = DB.emp(k); return { value:k, label:e ? e.ad : k }; });
+  })();
+
+  function bagliMi(x){ return x.durum === 'Bağlı'; }
+  function aktifMi(x){ return x.aktif !== false; }
+  function durumTon(x){
+    return x.durum === 'Bağlı' ? 'is-ok' : x.durum === 'Bağlı değil' ? 'is-neutral' : '';
+  }
+
+  /* =================================================================
+     Sayfa başlığı
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Entegrasyonlar',
+    sub:'Dış sistem bağlantıları, veri yönü ve senkron ayarları. Kimlik bilgileri sunucu tarafında saklanır.',
+    actions:[
+      { label:'Bildirim Tercihleri', icon:'i-bell', href:'app-ayar-bildirim.html' },
+      { label:'Otomasyon Kuralları', icon:'i-activity', href:'app-ayar-otomasyon.html' }
+    ]
+  });
+
+  /* =================================================================
+     Güvenlik + yetki uyarıları
+     ================================================================= */
+  document.getElementById('uyari').innerHTML =
+    GV.notice({ tone:'warn', icon:'i-shield',
+      title:'API anahtarları arayüzde asla açık gösterilmez',
+      text:'Anahtarlar sunucu tarafında şifreli saklanır; listede ve çıktılarda yalnızca maskeli görünür (PROMPT.md §23 — hassas alan maskeleme). ' +
+           'Bu statik prototipte gerçek bir bağlantı kurulmaz: test, kaydet ve bağlantıyı kes işlemleri yalnızca ekrandaki kaydı günceller.' }) +
+    (canEdit ? '' : GV.notice({ tone:'warn', icon:'i-lock',
+      title:'Salt okunur görünüm',
+      text:'Entegrasyon ayarları yalnızca şirket sahibi, genel müdür ve sistem yöneticisi rollerinde değiştirilebilir. ' +
+           'Bağlantıyı test etme, ayar düzenleme, bağlantıyı kesme ve aç/kapat anahtarları rolünüzde devre dışıdır.' }));
+
+  /* =================================================================
+     Ayar drawer'ı
+     ================================================================= */
+  function empOptions(sec){
+    return DB.employees.filter(function(e){ return e.aktif !== false; }).map(function(e){
+      return '<option value="' + e.kod + '"' + (e.kod === sec ? ' selected' : '') + '>' +
+        esc(e.ad) + ' — ' + esc(e.depAd) + '</option>';
+    }).join('');
+  }
+
+  function ayarDrawer(x){
+    var ro = canEdit ? '' : ' disabled';
+    var body =
+      '<div class="gv-rec-head"><div><div class="gv-rec-id">' +
+        '<span class="gv-rec-code">' + x.kod + '</span>' +
+        GV.badge(x.durum, durumTon(x)) +
+        '<span class="tag">' + esc(x.kategori) + '</span>' +
+        '<span class="tag">' + esc(x.veriYonu) + '</span></div>' +
+        '<div class="gv-rec-meta">' + esc(x.saglayici) + ' · ' + esc(x.aciklama) + '</div></div></div>' +
+      '<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="eUc">Uç nokta (URL)</label>' +
+          '<input type="url" class="inp" id="eUc" value="' + esc(x.ucNokta || '') + '"' + ro +
+            ' placeholder="https://api.saglayici.com/v1">' +
+          '<div class="f-hint">Yalnızca https adresleri kabul edilir. Uç nokta ve anahtar birlikte tanımlıysa bağlantı kurulur.</div></div>' +
+        '<div class="field f-col-12"><label for="eKey">API anahtarı</label>' +
+          '<div class="u-row">' +
+            '<input type="password" class="inp" id="eKey" autocomplete="off"' + ro +
+              ' placeholder="' + (x.apiAnahtar ? 'Anahtar tanımlı — değiştirmek için yeni anahtarı yapıştırın' : 'Yeni anahtarı yapıştırın') + '">' +
+            '<button type="button" class="ia" id="eEye" aria-label="Anahtarı göster">' +
+              ico('i-eye','ic-sm') + '</button>' +
+          '</div>' +
+          '<div class="f-hint">Mevcut anahtar hiçbir koşulda geri okunmaz; alan boş bırakılırsa kayıtlı anahtar korunur.</div></div>' +
+        '<div class="field f-col-6"><label for="eYon">Veri yönü</label><select id="eYon"' + ro + '>' +
+          YONLER.map(function(v){
+            return '<option value="' + esc(v) + '"' + (v === x.veriYonu ? ' selected' : '') + '>' + esc(v) + '</option>';
+          }).join('') + '</select></div>' +
+        '<div class="field f-col-6"><label for="eSik">Senkron sıklığı</label><select id="eSik"' + ro + '>' +
+          SIKLIK.map(function(v){
+            return '<option value="' + esc(v) + '"' + (v === x.senkronSikligi ? ' selected' : '') + '>' + esc(v) + '</option>';
+          }).join('') + '</select></div>' +
+        '<div class="field f-col-12"><label for="eHata">Hata bildirimi alacak kişi</label>' +
+          '<select id="eHata"' + ro + '>' + empOptions(x.hataKisi || x.sorumlu) + '</select>' +
+          '<div class="f-hint">Senkron hatası oluştuğunda bu kişiye sistem içi bildirim ve e-posta gönderilir.</div></div>' +
+      '</div>' +
+      '<dl class="gv-dl">' +
+        [['Kullanan modüller', x.moduller.length
+            ? x.moduller.map(function(m){ return '<span class="tag">' + esc(m) + '</span>'; }).join(' ')
+            : '<span class="u-faint">—</span>'],
+         ['Teknik sorumlu', GV.user(x.sorumlu)],
+         ['Son senkron', x.sonSenkron ? F.dt(x.sonSenkron) : 'Hiç senkronlanmadı'],
+         ['API anahtarı', x.apiAnahtar ? '<span class="cell-mask">••••••••</span> tanımlı'
+                                       : '<span class="u-faint">Tanımlı değil</span>']
+        ].map(function(p){ return '<div><dt>' + esc(p[0]) + '</dt><dd>' + p[1] + '</dd></div>'; }).join('') +
+      '</dl>';
+
+    var acts = [{ label:canEdit ? 'Vazgeç' : 'Kapat', cls:'btn-line' }];
+    if(canEdit){
+      acts.push({ label:'Kaydet', cls:'btn-acc', onClick:function(close, el){
+        var uc = el.querySelector('#eUc').value.trim();
+        var key = el.querySelector('#eKey').value.trim();
+        if(uc && !/^https:\/\//i.test(uc)){
+          GV.toast('Uç nokta https:// ile başlamalıdır.', 'danger'); return false;
+        }
+        x.ucNokta = uc;
+        x.veriYonu = el.querySelector('#eYon').value;
+        x.senkronSikligi = el.querySelector('#eSik').value;
+        x.hataKisi = el.querySelector('#eHata').value;
+        /* Anahtarın kendisi kayda YAZILMAZ — yalnızca tanımlı olduğu bilgisi tutulur */
+        if(key) x.apiAnahtar = true;
+
+        var yeniBaglanti = false;
+        if(!bagliMi(x) && x.ucNokta && x.apiAnahtar){
+          x.durum = 'Bağlı'; x.sonSenkron = DB.today; yeniBaglanti = true;
+        }
+        if(bagliMi(x) && (!x.ucNokta || !x.apiAnahtar)){
+          x.durum = 'Bağlı değil'; x.sonSenkron = null;
+        }
+        GV.toast(x.kod + ' — ayarlar kaydedildi' + (yeniBaglanti ? ' ve bağlantı kuruldu' : ''),
+                 yeniBaglanti ? 'ok' : 'info');
+        if(L) L.refresh();
+      } });
+    }
+
+    GV.drawer({
+      title:x.ad + (canEdit ? ' — Bağlantı Ayarları' : ' — Bağlantı Ayarları (salt okunur)'),
+      body:body, actions:acts,
+      onOpen:function(el){
+        var eye = el.querySelector('#eEye'), inp = el.querySelector('#eKey');
+        if(!eye || !inp) return;
+        eye.addEventListener('click', function(){
+          var goster = inp.type === 'password';
+          inp.type = goster ? 'text' : 'password';
+          eye.setAttribute('aria-label', goster ? 'Anahtarı gizle' : 'Anahtarı göster');
+          eye.innerHTML = ico(goster ? 'i-eye-off' : 'i-eye','ic-sm');
+        });
+      }
+    });
+  }
+
+  /* =================================================================
+     Satır aksiyonları
+     ================================================================= */
+  function testEt(x, refresh){
+    if(!canEdit){ GV.toast('Entegrasyon bağlantısını test etme yetkiniz yok.', 'danger'); return; }
+    GV.confirm({
+      title:'Bağlantıyı test et',
+      text:x.ad + ' için tanımlı uç noktaya bir yoklama isteği gönderilecek. Kayıt değiştirilmez, yalnızca senkron zamanı güncellenir.',
+      okLabel:'Testi başlat'
+    }).then(function(ok){
+      if(!ok) return;
+      if(!bagliMi(x)){
+        GV.toast(x.ad + ' — bağlantı kurulu değil (' + x.durum + '). Önce uç nokta ve API anahtarı tanımlanmalı.', 'warn', 6000);
+        return;
+      }
+      if(!aktifMi(x)){
+        GV.toast(x.ad + ' — entegrasyon pasif durumda, test isteği gönderilmedi.', 'warn', 6000);
+        return;
+      }
+      x.sonSenkron = DB.today;
+      GV.toast(x.ad + ' — bağlantı başarılı, senkron zamanı ' + F.date(DB.today) + ' olarak güncellendi.', 'ok', 5000);
+      refresh();
+    });
+  }
+
+  function baglantiKes(x, refresh){
+    if(!canEdit){ GV.toast('Entegrasyon bağlantısını kesme yetkiniz yok.', 'danger'); return; }
+    if(!bagliMi(x)){ GV.toast(x.ad + ' zaten bağlı değil (' + x.durum + ').', 'info'); return; }
+    GV.confirm({
+      title:'Bağlantıyı kes', tone:'danger',
+      text:x.ad + ' bağlantısı kesilecek; uç nokta ve API anahtarı silinecek. ' +
+           (x.moduller.length ? x.moduller.join(', ') + ' modüllerinde veri akışı duracak.' : 'Veri akışı duracak.'),
+      okLabel:'Bağlantıyı kes'
+    }).then(function(ok){
+      if(!ok) return;
+      x.durum = 'Bağlı değil';
+      x.apiAnahtar = false;
+      x.ucNokta = '';
+      x.sonSenkron = null;
+      x.senkronSikligi = 'Manuel';
+      GV.toast(x.kod + ' — bağlantı kesildi ve kimlik bilgileri silindi', 'warn');
+      refresh();
+    });
+  }
+
+  /* =================================================================
+     Liste
+     ================================================================= */
+  function anahtar(x){
+    return '<label class="f-switch" title="' + (aktifMi(x) ? 'Entegrasyonu kapat' : 'Entegrasyonu aç') + '">' +
+      '<input type="checkbox" data-ent="' + esc(x.kod) + '"' + (aktifMi(x) ? ' checked' : '') +
+      (canEdit ? '' : ' disabled') + ' aria-label="' + esc(x.ad) + ' entegrasyonunu aç/kapat"><span class="sw"></span></label>';
+  }
+
+  var rowActs = [
+    { key:'ayar', icon:'i-settings', label:canEdit ? 'Ayarları düzenle' : 'Ayarları görüntüle',
+      run:function(x){ ayarDrawer(x); } }
+  ];
+  if(canEdit){
+    rowActs.unshift({ key:'test', icon:'i-activity', label:'Bağlantıyı test et', run:testEt });
+    rowActs.push({ key:'kes', icon:'i-x-circle', cls:'is-danger', label:'Bağlantıyı kes', run:baglantiKes });
+  }
+
+  L = GV.list({
+    mount:'#liste', id:'entegrasyon', key:'kod', source:function(){ return DB.integrations; },
+    exportName:'entegrasyonlar', exportTitle:'Entegrasyonlar', export:canExp,
+    pageSize:10, archive:false,
+    search:{ placeholder:'Entegrasyon, sağlayıcı, kategori veya modül ara',
+             fields:['kod','ad','saglayici','kategori','durum','aciklama','veriYonu','moduller'] },
+    defaultSort:'kategori', defaultDir:'asc',
+    kpis:[
+      { label:'Tanımlı entegrasyon', icon:'i-link', calc:function(a){ return a.length; } },
+      { label:'Bağlı', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(bagliMi).length; } },
+      { label:'Bağlı değil', icon:'i-alert', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Bağlı değil'; }).length; } },
+      { label:'Planlandı', icon:'i-hourglass', tone:'info',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Planlandı'; }).length; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'muhasebe', label:'Muhasebe', icon:'i-receipt', filter:function(x){ return x.kategori === 'Muhasebe'; } },
+      { key:'kod', label:'Kaynak Kod', icon:'i-git', filter:function(x){ return x.kategori === 'Kaynak kod'; } },
+      { key:'iletisim', label:'İletişim', icon:'i-chat', filter:function(x){ return x.kategori === 'İletişim'; } },
+      { key:'dokuman', label:'Doküman / E-imza', icon:'i-file-check', filter:function(x){ return x.kategori === 'Doküman'; } },
+      { key:'takvim', label:'Takvim', icon:'i-calendar', filter:function(x){ return x.kategori === 'Takvim'; } },
+      { key:'ai', label:'Yapay Zekâ', icon:'i-cpu', filter:function(x){ return x.kategori === 'Yapay zekâ'; } },
+      { key:'bagli', label:'Bağlı Olanlar', icon:'i-check-circle', filter:bagliMi }
+    ],
+    columns:[
+      { key:'ad', label:'Entegrasyon', width:'20%', locked:true, cellClass:'cell-wrap',
+        render:function(x){
+          return '<span class="cell-main">' + esc(x.ad) + '</span>' +
+                 '<span class="cell-sub">' + esc(x.saglayici) + '</span>' +
+                 '<span class="cell-code">' + x.kod + '</span>'; },
+        exportValue:function(x){ return x.kod + ' · ' + x.ad + ' · ' + x.saglayici; } },
+      { key:'kategori', label:'Kategori',
+        render:function(x){ return '<span class="tag">' + esc(x.kategori) + '</span>'; } },
+      { key:'durum', label:'Bağlantı durumu',
+        render:function(x){ return GV.badge(x.durum, durumTon(x)); } },
+      { key:'moduller', label:'Kullanan modüller', sortable:false, cellClass:'cell-wrap',
+        render:function(x){
+          return x.moduller.length
+            ? x.moduller.map(function(m){ return '<span class="tag">' + esc(m) + '</span>'; }).join(' ')
+            : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return x.moduller.join(' · '); } },
+      { key:'veriYonu', label:'Veri yönü',
+        render:function(x){ return '<span class="tag">' + esc(x.veriYonu) + '</span>'; } },
+      { key:'sonSenkron', label:'Son senkron',
+        sortValue:function(x){ return x.sonSenkron || ''; },
+        render:function(x){
+          return x.sonSenkron
+            ? '<span class="cell-date">' + F.dt(x.sonSenkron) + '</span>'
+            : '<span class="u-faint u-sm">Hiç senkronlanmadı</span>'; },
+        exportValue:function(x){ return x.sonSenkron ? F.dt(x.sonSenkron) : 'Hiç senkronlanmadı'; } },
+      { key:'senkronSikligi', label:'Senkron sıklığı', visible:false,
+        render:function(x){ return '<span class="u-sm">' + esc(x.senkronSikligi) + '</span>'; } },
+      { key:'sorumlu', label:'Teknik sorumlu',
+        sortValue:function(x){ var e = DB.emp(x.sorumlu); return e ? e.ad : ''; },
+        render:function(x){ return GV.user(x.sorumlu, { sm:true }); },
+        exportValue:function(x){ var e = DB.emp(x.sorumlu); return e ? e.ad : '—'; } },
+      /* API anahtarı — HER ZAMAN maskeli, çıktıya asla girmez (§23 hassas alan) */
+      { key:'apiAnahtar', label:'API anahtarı', sortable:false, exportable:false,
+        render:function(x){
+          return x.apiAnahtar
+            ? '<span class="cell-mask">••••••••</span>'
+            : '<span class="u-faint u-sm">Tanımsız</span>'; },
+        exportValue:function(){ return ''; } },
+      { key:'aciklama', label:'Açıklama', visible:false, cellClass:'cell-wrap',
+        render:function(x){ return '<span class="u-sm u-muted">' + esc(x.aciklama) + '</span>'; } },
+      { key:'aktif', label:'Aktif / Pasif', sortable:false, exportable:false, cellClass:'cell-sw',
+        render:anahtar }
+    ],
+    filters:[
+      { key:'kategori', label:'Kategori', type:'multi', options:KATEGORILER,
+        test:function(r, v){ return v.indexOf(r.kategori) !== -1; } },
+      { key:'durum', label:'Bağlantı durumu', type:'multi', options:['Bağlı','Bağlı değil','Planlandı'],
+        test:function(r, v){ return v.indexOf(r.durum) !== -1; } },
+      { key:'veriYonu', label:'Veri yönü', type:'select', options:YONLER,
+        test:function(r, v){ return r.veriYonu === v; } },
+      { key:'moduller', label:'Kullanan modül', type:'multi', options:MODULLER,
+        test:function(r, v){ return r.moduller.some(function(m){ return v.indexOf(m) !== -1; }); } },
+      { key:'sorumlu', label:'Teknik sorumlu', type:'select', options:SORUMLULAR,
+        test:function(r, v){ return r.sorumlu === v; } },
+      { key:'senkronSikligi', label:'Senkron sıklığı', type:'select', options:SIKLIK,
+        test:function(r, v){ return r.senkronSikligi === v; } }
+    ],
+    rowClass:function(x){ return aktifMi(x) ? '' : 'is-passive'; },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' + anahtar(x) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.saglayici) + ' · ' + esc(x.kategori) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + esc(x.veriYonu) + '</span>' +
+          '<span>' + (x.sonSenkron ? F.dt(x.sonSenkron) : 'Hiç senkronlanmadı') + '</span>' +
+          '<span>' + (x.apiAnahtar ? 'Anahtar: <span class="cell-mask">••••••••</span>' : 'Anahtar tanımsız') + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum, durumTon(x)) +
+          x.moduller.map(function(m){ return '<span class="tag">' + esc(m) + '</span>'; }).join(' ') + '</span></div>';
+    },
+    rowActions:rowActs,
+    bulk:canEdit ? [
+      { key:'test', label:'Seçilenleri test et', icon:'i-activity',
+        confirm:'{n} entegrasyon için yoklama isteği gönderilecek. Yalnızca bağlı ve aktif olanlar senkronlanır.',
+        run:function(ids){
+          var ok = 0, atlanan = 0;
+          ids.forEach(function(id){
+            var x = DB.integrations.filter(function(r){ return r.kod === id; })[0];
+            if(!x) return;
+            if(bagliMi(x) && aktifMi(x)){ x.sonSenkron = DB.today; ok++; } else { atlanan++; }
+          });
+          GV.toast(ok + ' entegrasyon senkronlandı' + (atlanan ? ', ' + atlanan + ' tanesi bağlı/aktif olmadığı için atlandı' : ''),
+                   ok ? 'ok' : 'warn', 6000);
+        } },
+      { key:'kapat', label:'Seçilenleri pasife al', icon:'i-pause', tone:'danger',
+        confirm:'{n} entegrasyon pasife alınacak; veri akışı duracak. Bağlantı bilgileri korunur.',
+        run:function(ids){
+          ids.forEach(function(id){
+            var x = DB.integrations.filter(function(r){ return r.kod === id; })[0];
+            if(x) x.aktif = false;
+          });
+          GV.toast(ids.length + ' entegrasyon pasife alındı', 'warn');
+        } }
+    ] : null,
+    emptyState:{ icon:'i-link', title:'Bu görünümde entegrasyon yok',
+      desc:'Entegrasyonlar CRM ile muhasebe, kaynak kod, takvim, iletişim ve yapay zekâ servisleri arasında veri akışını kurar. ' +
+           'Filtreleri temizleyerek tüm bağlantıları görebilirsiniz.' },
+    onRender:function(){
+      Array.prototype.slice.call(document.querySelectorAll('#liste [data-ent]')).forEach(function(inp){
+        inp.addEventListener('change', function(){
+          if(!canEdit){ inp.checked = !inp.checked; return; }
+          var x = DB.integrations.filter(function(r){ return r.kod === inp.dataset.ent; })[0];
+          if(!x) return;
+          x.aktif = inp.checked;
+          GV.toast(x.kod + ' — entegrasyon ' + (inp.checked ? 'aktifleştirildi' : 'pasife alındı'),
+                   inp.checked ? 'ok' : 'warn');
+          if(L) L.refresh();
+        });
+      });
+    }
+  });
+
+});
+</script>
+</body>
+</html>
