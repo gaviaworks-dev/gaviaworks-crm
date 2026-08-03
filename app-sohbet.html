@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sohbet — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="sohbet" data-screen="sohbet">
+<div class="gv-card" id="sohbet"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var card = document.getElementById('sohbet');
+  var ME = GV.session.emp;
+
+  /* PROMPT.md §13 — 11 sohbet türü */
+  var TURLER = ['Birebir sohbet','Departman içi kanal','Departmanlar arası kanal','Proje kanalı',
+    'Müşteri iç ekip kanalı','Görev sohbeti','Satış fırsatı sohbeti','Satın alma sohbeti',
+    'Araç veya demirbaş sohbeti','Şirket duyuruları','Geçici çalışma grupları'];
+
+  var TUR_IKON = {
+    'Birebir sohbet':'i-user', 'Departman içi kanal':'i-users', 'Departmanlar arası kanal':'i-git',
+    'Proje kanalı':'i-briefcase', 'Müşteri iç ekip kanalı':'i-building', 'Görev sohbeti':'i-tasks',
+    'Satış fırsatı sohbeti':'i-funnel', 'Satın alma sohbeti':'i-cart',
+    'Araç veya demirbaş sohbeti':'i-car', 'Şirket duyuruları':'i-megaphone',
+    'Geçici çalışma grupları':'i-layers'
+  };
+
+  var CIPLER = [
+    { key:'tumu',   lbl:'Tümü',                ic:'i-list',      test:function(){ return true; } },
+    { key:'proje',  lbl:'Proje kanalları',     ic:'i-briefcase', test:function(c){ return c.tur === 'Proje kanalı'; } },
+    { key:'dep',    lbl:'Departman',           ic:'i-users',     test:function(c){ return c.tur === 'Departman içi kanal'; } },
+    { key:'capraz', lbl:'Departmanlar arası',  ic:'i-git',       test:function(c){ return c.tur === 'Departmanlar arası kanal'; } },
+    { key:'birebir',lbl:'Birebir',             ic:'i-user',      test:function(c){ return c.tur === 'Birebir sohbet'; } },
+    { key:'duyuru', lbl:'Duyuru',              ic:'i-megaphone', test:function(c){ return c.tur === 'Şirket duyuruları'; } }
+  ];
+
+  var EMOJI = ['👍','🎉','✅','👀','🙏','🔥','❤️','😀'];
+
+  /* ---- Durum ---- */
+  var qp = new URLSearchParams(location.search);
+  var state = {
+    sel:qp.get('k') || null,
+    cip:qp.get('f') || 'tumu',
+    ara:qp.get('q') || '',
+    arsiv:false
+  };
+  var mq = window.matchMedia('(max-width:900px)');
+
+  /* ---- Yardımcılar ---- */
+  function kanal(kod){ return DB.channels.filter(function(c){ return c.kod === kod; })[0] || null; }
+  function mesajlar(kod){
+    return DB.messages.filter(function(m){ return m.kanal === kod; })
+      .sort(function(a,b){ return a.tarih < b.tarih ? -1 : a.tarih > b.tarih ? 1 : 0; });
+  }
+  function uniq(a){ return a.filter(function(v,i,s){ return v && s.indexOf(v) === i; }); }
+
+  function kanalZaman(iso){
+    if(!iso) return '—';
+    var d = F.days(iso);
+    if(d === 0) return String(iso).slice(11,16);
+    if(d === -1) return 'dün';
+    return F.dateShort(iso);
+  }
+
+  /* Yeni mesaj saati — referans tarih DB.today, sistem saati kullanılmaz */
+  function sonrakiZaman(kod){
+    var ms = mesajlar(kod);
+    var son = ms.length ? ms[ms.length - 1].tarih : null;
+    var base = (son && String(son).slice(0,10) === DB.today) ? String(son).slice(11,16) : '09:00';
+    var h = parseInt(base.slice(0,2), 10), m = parseInt(base.slice(3,5), 10) + 7;
+    if(m >= 60){ m -= 60; h = (h + 1) % 24; }
+    return DB.today + 'T' + ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);
+  }
+
+  function sonrakiKod(list, alan, on){
+    var n = list.map(function(x){ return parseInt(String(x[alan]).split('-').pop(), 10); })
+      .filter(function(x){ return !isNaN(x); });
+    return on + (n.length ? Math.max.apply(null, n) + 1 : 1);
+  }
+
+  function tarihArti(gun){
+    var d = new Date(DB.today + 'T00:00:00');
+    d.setDate(d.getDate() + gun);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  /* Kanal üyeleri — kanal kaydında üye listesi değil sayı tutuluyor,
+     üyeler ilişkili kayıttan türetilir (tasks/assumptions.md kapsamı). */
+  function uyeler(c){
+    if(!c) return [];
+    if(c.tur === 'Birebir sohbet'){
+      var o = DB.employees.filter(function(e){ return e.ad === c.ad; })[0];
+      return uniq([ME, o ? o.kod : null]);
+    }
+    if(c.proje){
+      var p = DB.projects.filter(function(x){ return x.kod === c.proje; })[0];
+      if(p) return uniq([p.pm].concat(p.ekip || []));
+    }
+    if(c.dep){
+      return DB.employees.filter(function(e){ return e.dep === c.dep && e.aktif; })
+        .map(function(e){ return e.kod; });
+    }
+    if(c.tur === 'Şirket duyuruları'){
+      return DB.employees.filter(function(e){ return e.aktif; }).map(function(e){ return e.kod; });
+    }
+    return uniq(mesajlar(c.kod).map(function(m){ return m.kisi; }).concat([ME]));
+  }
+
+  function gorunenKanallar(){
+    var cip = CIPLER.filter(function(x){ return x.key === state.cip; })[0] || CIPLER[0];
+    var q = state.ara.trim().toLocaleLowerCase('tr');
+    return DB.channels.filter(function(c){
+      if(state.arsiv ? c.aktif : !c.aktif) return false;
+      if(!cip.test(c)) return false;
+      if(!q) return true;
+      var hav = [c.ad, c.tur, c.sonMesajOzet].join(' ').toLocaleLowerCase('tr');
+      if(hav.indexOf(q) !== -1) return true;
+      return mesajlar(c.kod).some(function(m){ return m.metin.toLocaleLowerCase('tr').indexOf(q) !== -1; });
+    });
+  }
+
+  function urlYaz(){
+    var p = new URLSearchParams();
+    if(state.sel) p.set('k', state.sel);
+    if(state.cip !== 'tumu') p.set('f', state.cip);
+    if(state.ara) p.set('q', state.ara);
+    var s = p.toString();
+    history.replaceState({}, '', location.pathname + (s ? '?' + s : ''));
+  }
+
+  /* ===================================================================
+     İSKELET
+     =================================================================== */
+  card.innerHTML =
+    '<div class="gv-listhead">' +
+      '<div class="lh-row">' +
+        '<div class="lh-search">' + ico('i-search') +
+          '<input type="search" id="ara" placeholder="Kanal, kişi veya mesaj ara" value="' + esc(state.ara) + '">' +
+        '</div>' +
+        '<div class="lh-acts">' +
+          '<span class="gv-count" id="sayac"></span>' +
+          '<label class="lh-toggle">' + ico('i-archive','ic-sm') +
+            '<input type="checkbox" id="arsiv"><span>Arşivlenenler</span></label>' +
+        '</div>' +
+      '</div>' +
+      '<div class="lh-tabs"><div class="chipbar-wrap">' +
+        '<button type="button" class="cb-arrow cb-prev" aria-label="Sola kaydır" hidden>' + ico('i-chev-left','ic-sm') + '</button>' +
+        '<div class="chipbar" role="tablist" id="cipler">' +
+          CIPLER.map(function(x){
+            var n = DB.channels.filter(function(c){ return c.aktif && x.test(c); }).length;
+            return '<button type="button" class="chip" role="tab" data-cip="' + x.key + '"' +
+              ' aria-selected="' + (state.cip === x.key ? 'true' : 'false') + '">' +
+              ico(x.ic,'ic-sm') + esc(x.lbl) + '<span class="chip-cnt">' + n + '</span></button>';
+          }).join('') +
+        '</div>' +
+        '<button type="button" class="cb-arrow cb-next" aria-label="Sağa kaydır" hidden>' + ico('i-chev-right','ic-sm') + '</button>' +
+      '</div></div>' +
+    '</div>' +
+    '<div class="gv-chatwrap">' +
+      '<div class="gv-chatlist" id="chanList"></div>' +
+      '<div class="gv-chatmain" id="chatMain"></div>' +
+    '</div>';
+
+  GV.pageHead({
+    eyebrow:'İş Birliği', title:'Sohbet',
+    sub:'Departman kanalları, proje kanalları ve birebir yazışmalar tek akışta',
+    actions:[
+      { label:'İş Talepleri', icon:'i-send', href:'app-istalebi.html' },
+      { label:'Yeni Kanal', icon:'i-plus', cls:'btn-acc', id:'btnKanal' }
+    ]
+  });
+
+  var elList = document.getElementById('chanList');
+  var elMain = document.getElementById('chatMain');
+  var elSayac = document.getElementById('sayac');
+
+  /* ===================================================================
+     KANAL LİSTESİ
+     =================================================================== */
+  function renderList(){
+    var ks = gorunenKanallar();
+    if(state.sel && !ks.some(function(c){ return c.kod === state.sel; })) state.sel = null;
+    if(!state.sel && ks.length && !mq.matches) state.sel = ks[0].kod;
+    if(!state.sel && mq.matches) listeAc();
+
+    var okunmamis = ks.reduce(function(a,c){ return a + (c.okunmamis || 0); }, 0);
+    elSayac.innerHTML = '<b>' + ks.length + '</b> kanal' + (okunmamis ? ' · <b>' + okunmamis + '</b> okunmamış mesaj' : '');
+
+    if(!ks.length){
+      elList.innerHTML = GV.empty({
+        icon:'i-chat', title:'Kanal bulunamadı',
+        desc:'Bu filtre ve aramayla eşleşen kanal yok. Aramayı temizleyip tekrar deneyin.',
+        action:'<button type="button" class="btn btn-line" id="btnTemizle">' + ico('i-filter-x') + ' Filtreyi temizle</button>'
+      });
+      return;
+    }
+
+    elList.innerHTML = ks.map(function(c){
+      return '<button type="button" class="gv-chan" data-kanal="' + c.kod + '"' +
+        ' aria-selected="' + (state.sel === c.kod ? 'true' : 'false') + '">' +
+        '<span class="gv-user-ava is-sm">' + esc(kanalIni(c)) + '</span>' +
+        '<span class="gv-chan-body">' +
+          '<span class="gv-chan-name">' + ico(TUR_IKON[c.tur] || 'i-chat','ic-sm') + esc(c.ad) +
+            (c.sessiz ? ico('i-eye-off','ic-sm') : '') + '</span>' +
+          '<span class="gv-chan-last">' +
+            (c.sonMesajKisi ? esc(DB.empName(c.sonMesajKisi).split(' ')[0]) + ': ' : '') +
+            esc(c.sonMesajOzet || 'Henüz mesaj yok') + '</span>' +
+        '</span>' +
+        '<span class="gv-chan-time">' + esc(kanalZaman(c.sonMesaj)) + '</span>' +
+        (c.okunmamis ? '<span class="gv-chan-unread">' + c.okunmamis + '</span>' : '') +
+        '</button>';
+    }).join('');
+  }
+
+  function kanalIni(c){
+    if(c.tur === 'Birebir sohbet') return F.initials(c.ad);
+    var s = String(c.ad).replace(/^#/, '');
+    return s.slice(0, 2).toLocaleUpperCase('tr');
+  }
+
+  /* ===================================================================
+     MESAJ AKIŞI
+     =================================================================== */
+  function renderMain(){
+    var eskiMetin = '';
+    var ta = document.getElementById('msgText');
+    if(ta) eskiMetin = ta.value;
+
+    var c = kanal(state.sel);
+    if(!c){
+      elMain.innerHTML = GV.empty({
+        icon:'i-chat', title:'Kanal seçilmedi',
+        desc:'Soldaki listeden bir kanal seçin. Kanal başına mesaj akışı, dosyalar ve görev devri burada açılır.'
+      });
+      return;
+    }
+
+    var us = uyeler(c);
+    var eksik = Math.max(0, (c.uyeler || 0) - us.length);
+    var q = state.ara.trim().toLocaleLowerCase('tr');
+    var ms = mesajlar(c.kod);
+    var gorunen = q ? ms.filter(function(m){ return m.metin.toLocaleLowerCase('tr').indexOf(q) !== -1; }) : ms;
+
+    var head =
+      '<div class="gv-chat-head">' +
+        '<button type="button" class="ia" id="btnGeri" aria-label="Kanal listesine dön" hidden>' + ico('i-arrow-left','ic-sm') + '</button>' +
+        '<span class="gv-user-ava">' + esc(kanalIni(c)) + '</span>' +
+        '<span class="gv-chan-body">' +
+          '<span class="gv-chan-name">' + esc(c.ad) + GV.badge(c.tur) +
+            (c.sessiz ? '<span class="tag">' + ico('i-eye-off','ic-sm') + ' Sessiz</span>' : '') + '</span>' +
+          '<span class="gv-chan-last">' + c.uyeler + ' üye · ' + ms.length + ' mesaj' +
+            (c.okunmamis ? ' · ' + c.okunmamis + ' okunmamış' : '') +
+            (eksik ? ' · ' + us.length + ' üye listelenebiliyor' : '') + '</span>' +
+        '</span>' +
+        '<span class="lh-acts">' +
+          '<button type="button" class="btn btn-line btn-sm" id="btnDosya">' + ico('i-paperclip','ic-sm') + ' Dosya paylaş</button>' +
+          '<button type="button" class="ia" id="btnSessiz" aria-label="' + (c.sessiz ? 'Sessizi kaldır' : 'Sessize al') + '" title="' +
+            (c.sessiz ? 'Sessizi kaldır' : 'Sessize al') + '">' + ico(c.sessiz ? 'i-eye' : 'i-eye-off','ic-sm') + '</button>' +
+          '<button type="button" class="ia" id="btnBilgi" aria-label="Kanal bilgisi" title="Kanal bilgisi">' + ico('i-info','ic-sm') + '</button>' +
+        '</span>' +
+      '</div>';
+
+    var body = '<div class="gv-chat-body" id="chatBody">' +
+      (gorunen.length
+        ? gorunen.map(mesajHtml).join('')
+        : GV.empty({
+            icon:'i-chat',
+            title:q ? 'Eşleşen mesaj yok' : 'Kanalda henüz mesaj yok',
+            desc:q ? '“' + state.ara + '” aramasıyla eşleşen mesaj bu kanalda bulunamadı.'
+                   : 'İlk mesajı siz yazın. Yazdığınız mesaj tek işlemle göreve de dönüştürülebilir.'
+          })) +
+      '</div>';
+
+    var foot = '<div class="gv-chat-foot">' +
+      '<span class="gv-user-ava is-sm">' + esc(GV.session.ini) + '</span>' +
+      '<textarea id="msgText" rows="1" placeholder="' + esc(c.ad) + ' kanalına mesaj yazın… (@ ile kişi, # ile departman etiketleyin)"></textarea>' +
+      '<button type="button" class="btn btn-acc" id="btnGonder">' + ico('i-send') + ' Gönder</button>' +
+      '</div>';
+
+    elMain.innerHTML = head + body + foot;
+
+    var yeni = document.getElementById('msgText');
+    if(yeni) yeni.value = eskiMetin;
+    geriButonu();
+    var cb = document.getElementById('chatBody');
+    if(cb) cb.scrollTop = cb.scrollHeight;
+  }
+
+  function mesajHtml(m){
+    var e = DB.emp(m.kisi);
+    var ben = m.kisi === ME;
+    var tepki = (m.tepki || []).reduce(function(acc, t){ acc[t] = (acc[t] || 0) + 1; return acc; }, {});
+    var tepkiKeys = Object.keys(tepki);
+
+    return '<div class="gv-msg' + (ben ? ' is-me' : '') + '" data-msg="' + m.kod + '">' +
+      '<span class="gv-user-ava is-sm">' + esc(e ? e.ini : '?') + '</span>' +
+      '<div>' +
+        '<div class="gv-msg-who">' + esc(e ? e.ad : m.kisi) + (e ? ' · ' + esc(e.pozisyon) : '') + '</div>' +
+        '<div class="gv-msg-bubble">' + esc(m.metin) + '</div>' +
+        (m.gorev ? '<div class="u-row u-wrap u-mt-4"><a class="tag" href="app-gorev-detay.html?id=' + m.gorev + '">' +
+          ico('i-tasks','ic-sm') + ' ' + m.gorev + '</a></div>' : '') +
+        (tepkiKeys.length ? '<div class="u-row u-wrap u-mt-4">' + tepkiKeys.map(function(t){
+            return '<button type="button" class="btn btn-xs btn-line" data-tepki="' + esc(t) + '">' + esc(t) + ' ' + tepki[t] + '</button>';
+          }).join('') + '</div>' : '') +
+        '<div class="gv-msg-time">' + F.dt(m.tarih) + '</div>' +
+        '<div class="gv-msg-acts">' +
+          '<button type="button" class="btn btn-xs btn-ghost" data-act="gorev">' + ico('i-tasks','ic-sm') + ' Görev oluştur</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" data-act="yanit">' + ico('i-quote','ic-sm') + ' Yanıtla</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" data-act="tepki">' + ico('i-star','ic-sm') + ' Tepki ekle</button>' +
+        '</div>' +
+      '</div></div>';
+  }
+
+  /* ---- Mobil kanal listesi anahtarı (CSS body.chat-list-open) ---- */
+  function geriButonu(){
+    var b = document.getElementById('btnGeri');
+    if(b) b.hidden = !mq.matches;
+  }
+  function listeAc(){ document.body.classList.add('chat-list-open'); }
+  function listeKapat(){ document.body.classList.remove('chat-list-open'); }
+  if(mq.matches && !qp.get('k')) listeAc();
+  mq.addEventListener('change', function(){
+    geriButonu();
+    if(!mq.matches) listeKapat();
+    else if(!state.sel) listeAc();
+  });
+
+  /* ===================================================================
+     MESAJ GÖNDERME
+     =================================================================== */
+  function mesajEkle(kanalKod, metin, kisi){
+    var kod = sonrakiKod(DB.messages, 'kod', 'MSG-');
+    var tarih = sonrakiZaman(kanalKod);
+    DB.messages.push({ kanal:kanalKod, kod:kod, kisi:kisi || ME, tarih:tarih, metin:metin, tepki:[] });
+    var c = kanal(kanalKod);
+    if(c){
+      c.sonMesaj = tarih;
+      c.sonMesajKisi = kisi || ME;
+      c.sonMesajOzet = metin.length > 64 ? metin.slice(0, 64) + '…' : metin;
+    }
+    return kod;
+  }
+
+  /* ===================================================================
+     SOHBETTEN GÖREV OLUŞTURMA — PROMPT.md §13 (16 alanlı devir)
+     =================================================================== */
+  function empSelect(id, secili, bos){
+    return '<select id="' + id + '">' +
+      (bos ? '<option value="">— Seçilmedi —</option>' : '') +
+      DB.employees.filter(function(e){ return e.aktif; }).map(function(e){
+        return '<option value="' + e.kod + '"' + (e.kod === secili ? ' selected' : '') + '>' +
+          esc(e.ad) + ' — ' + esc(e.pozisyon) + '</option>';
+      }).join('') + '</select>';
+  }
+
+  function izleyiciAdaylari(c, m){
+    return uniq((c ? uyeler(c) : []).concat([m.kisi, ME]));
+  }
+
+  function gorevModal(m){
+    var c = kanal(m.kanal);
+    var gonderen = DB.emp(m.kisi);
+    var proje = c && c.proje ? DB.projects.filter(function(p){ return p.kod === c.proje; })[0] : null;
+    var musteriKod = proje ? proje.musteri : '';
+    var depKod = (c && c.dep) || (gonderen ? gonderen.dep : (DB.emp(ME) || {}).dep);
+    var baslik = m.metin.replace(/\s+/g,' ').trim();
+    if(baslik.length > 90) baslik = baslik.slice(0, 90) + '…';
+
+    GV.modal({
+      title:'Mesajdan Görev Oluştur', icon:'i-tasks', size:'lg',
+      text:(c ? c.ad + ' · ' : '') + m.kod + ' · ' + (gonderen ? gonderen.ad : m.kisi),
+      body:'<div class="gv-fields">' +
+        /* 1 */ '<div class="field f-col-12"><label for="gMsg">Mesaj bağlantısı</label>' +
+          '<input type="text" class="inp" id="gMsg" readonly value="' + esc(m.kanal + ' / ' + m.kod + ' · ' + F.dt(m.tarih)) + '">' +
+          '<div class="f-hint">Görev, kaynağı olan mesaja bağlı kalır; kanalda otomatik durum mesajı yayınlanır.</div></div>' +
+        /* 2 */ '<div class="field f-col-12"><label for="gBaslik">Görev başlığı</label>' +
+          '<input type="text" class="inp" id="gBaslik" value="' + esc(baslik) + '"></div>' +
+        /* 3 */ '<div class="field f-col-12"><label for="gAciklama">Açıklama</label>' +
+          '<textarea id="gAciklama" rows="3">' + esc(m.metin) + '</textarea></div>' +
+        /* 4 */ '<div class="field f-col-6"><label for="gTalep">Talep eden kişi</label>' + empSelect('gTalep', m.kisi) + '</div>' +
+        /* 5 */ '<div class="field f-col-6"><label for="gSorumlu">Sorumlu kişi</label>' + empSelect('gSorumlu', ME) + '</div>' +
+        /* 6 */ '<div class="field f-col-6"><label for="gDep">Departman</label><select id="gDep">' +
+          DB.departments.filter(function(d){ return d.aktif; }).map(function(d){
+            return '<option value="' + d.kod + '"' + (d.kod === depKod ? ' selected' : '') + '>' + esc(d.ad) + '</option>';
+          }).join('') + '</select></div>' +
+        /* 7 */ '<div class="field f-col-6"><label for="gTur">Görev türü</label><select id="gTur">' +
+          DB.taskTypes.map(function(t){
+            return '<option value="' + esc(t) + '"' + (t === 'Genel görev' ? ' selected' : '') + '>' + esc(t) + '</option>';
+          }).join('') + '</select></div>' +
+        /* 8 */ '<div class="field f-col-6"><label for="gMusteri">Müşteri</label><select id="gMusteri">' +
+          '<option value="">— Yok —</option>' +
+          DB.customers.map(function(x){
+            return '<option value="' + x.kod + '"' + (x.kod === musteriKod ? ' selected' : '') + '>' + esc(x.unvan) + '</option>';
+          }).join('') + '</select></div>' +
+        /* 9 */ '<div class="field f-col-6"><label for="gProje">Proje</label><select id="gProje">' +
+          '<option value="">— Yok —</option>' +
+          DB.projects.map(function(p){
+            return '<option value="' + p.kod + '"' + (proje && p.kod === proje.kod ? ' selected' : '') + '>' + esc(p.ad) + '</option>';
+          }).join('') + '</select></div>' +
+        /* 10 */ '<div class="field f-col-4"><label for="gOncelik">Öncelik</label><select id="gOncelik">' +
+          DB.priorities.map(function(p){
+            return '<option value="' + esc(p) + '"' + (p === 'Yüksek' ? ' selected' : '') + '>' + esc(p) + '</option>';
+          }).join('') + '</select></div>' +
+        /* 11 */ '<div class="field f-col-4"><label for="gTermin">Termin</label>' +
+          '<input type="date" class="inp" id="gTermin" value="' + tarihArti(3) + '"></div>' +
+        /* 12 */ '<div class="field f-col-4"><label for="gOnay">Onaylayacak kişi</label>' + empSelect('gOnay', 'EMP-003') + '</div>' +
+        /* 13 */ '<div class="field f-col-6"><label for="gCikti">Beklenen çıktı</label>' +
+          '<input type="text" class="inp" id="gCikti" placeholder="Örn. Düzeltme PR + test raporu"></div>' +
+        /* 14 */ '<div class="field f-col-6"><label for="gKabul">Kabul kriteri</label>' +
+          '<input type="text" class="inp" id="gKabul" placeholder="Örn. 3 cihazda doğrulandı, log temiz"></div>' +
+        /* 15 */ '<div class="field f-col-12"><span class="f-lbl">İzleyiciler</span>' +
+          '<div class="gv-fields">' + izleyiciAdaylari(c, m).map(function(k){
+            var e = DB.emp(k);
+            return '<label class="f-check f-col-6"><input type="checkbox" data-izleyici="' + k + '"' +
+              (k === m.kisi ? ' checked' : '') + '><span>' + esc(e ? e.ad : k) +
+              '<span class="u-xs u-faint"> · ' + esc(e ? e.depAd : '—') + '</span></span></label>';
+          }).join('') + '</div>' +
+          '<div class="f-hint">Kanal üyeleri ve mesaj sahibi aday olarak listelenir.</div></div>' +
+        /* 16 */ '<div class="field f-col-6"><label for="gDosya">Dosyalar</label>' +
+          '<input type="file" class="inp" id="gDosya" multiple>' +
+          '<div class="f-hint">Mesaja eklenen dosyalar göreve taşınır · en fazla 20 MB</div></div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Görevi oluştur', cls:'btn-acc', icon:'i-tasks', onClick:function(close, el){
+            var baslikV = el.querySelector('#gBaslik').value.trim();
+            var terminV = el.querySelector('#gTermin').value;
+            if(!baslikV){ GV.toast('Görev başlığı zorunludur', 'danger'); return false; }
+            if(!terminV){ GV.toast('Termin tarihi zorunludur', 'danger'); return false; }
+            if(F.days(terminV) < 0){ GV.toast('Termin geçmiş bir tarih olamaz', 'danger'); return false; }
+
+            var kod = sonrakiKod(DB.tasks, 'kod', 'GRV-' + DB.today.slice(0,4) + '-');
+            var sorumlu = el.querySelector('#gSorumlu').value;
+            var talep = el.querySelector('#gTalep').value;
+            var izleyiciler = Array.prototype.map.call(el.querySelectorAll('[data-izleyici]:checked'), function(o){ return o.dataset.izleyici; });
+            var dosyaAdet = (el.querySelector('#gDosya').files || []).length;
+
+            DB.tasks.unshift({
+              kod:kod, baslik:baslikV, tur:el.querySelector('#gTur').value,
+              proje:el.querySelector('#gProje').value || null, modul:null, sprint:null,
+              musteri:el.querySelector('#gMusteri').value || null, dep:el.querySelector('#gDep').value,
+              olusturan:ME, veren:talep, sorumlu:sorumlu, yardimci:[], izleyiciler:izleyiciler,
+              kontrolEden:talep, onaylayan:el.querySelector('#gOnay').value,
+              oncelik:el.querySelector('#gOncelik').value, etki:'Orta', aciliyet:'Orta',
+              durum:'Atandı', baslangic:DB.today, termin:terminV, tamamlanma:null,
+              tahminiSure:4, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
+              aciklama:el.querySelector('#gAciklama').value.trim(),
+              amac:'Sohbet mesajından devredilen iş — kaynak ' + m.kanal + ' / ' + m.kod,
+              kabulKriteri:el.querySelector('#gKabul').value.trim() || null,
+              beklenenCikti:el.querySelector('#gCikti').value.trim() || null,
+              etiketler:['Sohbetten'], aktif:true
+            });
+
+            DB.activities.unshift({
+              kayit:kod, tarih:sonrakiZaman(m.kanal), kisi:GV.session.ad,
+              metin:'Görev sohbet mesajından oluşturuldu (' + m.kanal + ' / ' + m.kod + ')' +
+                (dosyaAdet ? ' · ' + dosyaAdet + ' dosya taşındı' : ''),
+              eski:null, yeni:'Atandı', tone:'accent', icon:'i-tasks'
+            });
+
+            m.gorev = kod;
+            mesajEkle(m.kanal, kod + ' görevi bu mesajdan oluşturuldu · Sorumlu ' +
+              DB.empName(sorumlu) + ' · Termin ' + F.date(terminV) + ' · Durum “Atandı”', ME);
+
+            GV.toast(kod + ' görevi oluşturuldu ve ' + DB.empName(sorumlu) + ' kişisine atandı', 'ok', 4000);
+            renderList(); renderMain();
+          } }
+      ]
+    });
+  }
+
+  /* ===================================================================
+     OLAYLAR
+     =================================================================== */
+  card.addEventListener('click', function(ev){
+    /* Filtre çipi */
+    var chip = ev.target.closest('[data-cip]');
+    if(chip){
+      state.cip = chip.dataset.cip;
+      Array.prototype.forEach.call(card.querySelectorAll('[data-cip]'), function(b){
+        b.setAttribute('aria-selected', b.dataset.cip === state.cip ? 'true' : 'false');
+      });
+      renderList(); renderMain(); urlYaz();
+      return;
+    }
+
+    if(ev.target.closest('#btnTemizle')){
+      state.ara = ''; state.cip = 'tumu'; state.arsiv = false;
+      document.getElementById('ara').value = '';
+      document.getElementById('arsiv').checked = false;
+      Array.prototype.forEach.call(card.querySelectorAll('[data-cip]'), function(b){
+        b.setAttribute('aria-selected', b.dataset.cip === 'tumu' ? 'true' : 'false');
+      });
+      renderList(); renderMain(); urlYaz();
+      return;
+    }
+
+    /* Kanal seçimi */
+    var ch = ev.target.closest('[data-kanal]');
+    if(ch){
+      state.sel = ch.dataset.kanal;
+      var c = kanal(state.sel);
+      if(c) c.okunmamis = 0;
+      listeKapat();
+      renderList(); renderMain(); urlYaz();
+      return;
+    }
+
+    if(ev.target.closest('#btnGeri')){ listeAc(); return; }
+
+    /* Sessize alma */
+    if(ev.target.closest('#btnSessiz')){
+      var cs = kanal(state.sel);
+      if(cs){
+        cs.sessiz = !cs.sessiz;
+        GV.toast(cs.ad + (cs.sessiz ? ' sessize alındı' : ' bildirimleri yeniden açıldı'), 'ok');
+        renderList(); renderMain();
+      }
+      return;
+    }
+
+    if(ev.target.closest('#btnBilgi')){ bilgiDrawer(); return; }
+    if(ev.target.closest('#btnDosya')){ dosyaModal(); return; }
+
+    /* Gönder */
+    if(ev.target.closest('#btnGonder')){
+      var ta = document.getElementById('msgText');
+      var v = ta.value.trim();
+      if(!v){ GV.toast('Mesaj boş olamaz', 'danger'); ta.focus(); return; }
+      mesajEkle(state.sel, v, ME);
+      ta.value = '';
+      renderList(); renderMain();
+      GV.toast('Mesaj gönderildi', 'ok', 1600);
+      return;
+    }
+
+    /* Hazır tepkiye tıklama */
+    var rb = ev.target.closest('[data-tepki]');
+    if(rb){
+      var mr = mesajOf(rb);
+      if(mr){ mr.tepki = (mr.tepki || []).concat([rb.dataset.tepki]); renderMain(); GV.toast('Tepki eklendi', 'ok', 1400); }
+      return;
+    }
+
+    /* Mesaj aksiyonları */
+    var ab = ev.target.closest('[data-act]');
+    if(!ab) return;
+    var m = mesajOf(ab);
+    if(!m) return;
+
+    if(ab.dataset.act === 'gorev') gorevModal(m);
+
+    if(ab.dataset.act === 'yanit'){
+      var t = document.getElementById('msgText');
+      var kisi = DB.empName(m.kisi);
+      var alinti = m.metin.length > 120 ? m.metin.slice(0, 120) + '…' : m.metin;
+      t.value = '> ' + kisi + ' (' + F.dt(m.tarih) + '): ' + alinti + '\n\n' + t.value;
+      t.focus();
+      t.setSelectionRange(t.value.length, t.value.length);
+      GV.toast(kisi + ' mesajı alıntılandı', 'ok', 1600);
+    }
+
+    if(ab.dataset.act === 'tepki'){
+      GV.modal({
+        title:'Tepki ekle', icon:'i-star', size:'sm',
+        text:DB.empName(m.kisi) + ' · ' + F.dt(m.tarih),
+        body:'<div class="u-row u-wrap">' + EMOJI.map(function(e){
+          return '<button type="button" class="btn btn-line" data-emoji="' + esc(e) + '">' + esc(e) + '</button>';
+        }).join('') + '</div>',
+        actions:[{ label:'Kapat', cls:'btn-line' }]
+      }).el.addEventListener('click', function(e2){
+        var b = e2.target.closest('[data-emoji]');
+        if(!b) return;
+        m.tepki = (m.tepki || []).concat([b.dataset.emoji]);
+        renderMain();
+        GV.toast(b.dataset.emoji + ' tepkisi eklendi', 'ok', 1600);
+      });
+    }
+  });
+
+  function mesajOf(el){
+    var w = el.closest('[data-msg]');
+    if(!w) return null;
+    return DB.messages.filter(function(x){ return x.kod === w.dataset.msg; })[0] || null;
+  }
+
+  /* Arama + arşiv */
+  var araTimer = null;
+  document.getElementById('ara').addEventListener('input', function(e){
+    state.ara = e.target.value;
+    clearTimeout(araTimer);
+    araTimer = setTimeout(function(){ renderList(); renderMain(); urlYaz(); }, 220);
+  });
+  document.getElementById('arsiv').addEventListener('change', function(e){
+    state.arsiv = e.target.checked;
+    state.sel = null;
+    renderList(); renderMain();
+  });
+
+  /* Enter ile gönder */
+  card.addEventListener('keydown', function(e){
+    if(e.target.id !== 'msgText') return;
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      var b = document.getElementById('btnGonder');
+      if(b) b.click();
+    }
+  });
+
+  /* ===================================================================
+     KANAL BİLGİSİ · DOSYA PAYLAŞ · YENİ KANAL
+     =================================================================== */
+  function bilgiDrawer(){
+    var c = kanal(state.sel);
+    if(!c) return;
+    var us = uyeler(c);
+    var eksik = Math.max(0, (c.uyeler || 0) - us.length);
+    var proje = c.proje ? DB.projects.filter(function(p){ return p.kod === c.proje; })[0] : null;
+    var ms = mesajlar(c.kod);
+
+    GV.drawer({
+      title:c.ad,
+      body:'<div class="gv-summary">' +
+          [['Kanal kodu', c.kod],
+           ['Kanal türü', GV.badge(c.tur)],
+           ['Üye sayısı', '<b>' + c.uyeler + '</b>'],
+           ['Mesaj sayısı', '<b>' + ms.length + '</b>'],
+           ['Okunmamış', '<b>' + (c.okunmamis || 0) + '</b>'],
+           ['Son mesaj', c.sonMesaj ? F.dt(c.sonMesaj) : '—'],
+           ['Bildirim', c.sessiz ? '<span class="tag">Sessiz</span>' : '<span class="badge is-ok">Açık</span>'],
+           ['Durum', GV.badge(c.aktif ? 'Aktif' : 'Arşiv')],
+           ['Bağlı departman', c.dep ? esc(DB.depName(c.dep)) : '—'],
+           ['Bağlı proje', proje ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' : '—']
+          ].map(function(p){
+            return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+              '<span class="gv-summary-val">' + p[1] + '</span></div>';
+          }).join('') +
+        '</div>' +
+        '<div class="gv-form-sec u-mt-8"><div class="gv-form-sec-head"><h3>Üyeler</h3></div>' +
+          '<div class="u-col">' + us.map(function(k){
+            var e = DB.emp(k);
+            return '<div class="u-row-between">' + GV.user(k, { sm:true }) +
+              '<span class="tag">' + esc(e ? e.depAd : '—') + '</span></div>';
+          }).join('') + '</div>' +
+          (eksik ? '<p class="u-sm u-faint u-mt-4">Kanal kaydında ' + c.uyeler + ' üye görünüyor; ' +
+            eksik + ' üye ilgili proje/departman kaydından türetilemedi.</p>' : '') +
+        '</div>',
+      actions:[{ label:'Kapat', cls:'btn-line' }]
+    });
+  }
+
+  function dosyaModal(){
+    var c = kanal(state.sel);
+    if(!c) return;
+    var secilen = [];
+    var mo = GV.modal({
+      title:'Dosya paylaş', icon:'i-paperclip', size:'sm', text:c.ad + ' kanalına dosya gönderilecek',
+      body:'<div class="gv-upload" id="upl" tabindex="0" role="button">' + ico('i-upload','ic-lg') +
+        '<div class="gv-upload-title">Dosya seçin veya sürükleyip bırakın</div>' +
+        '<div class="gv-upload-hint">PDF, DOCX, PNG, JPG, MP4, ZIP · en fazla 20 MB</div>' +
+        '<input type="file" id="uplIn" hidden multiple></div>' +
+        '<div class="gv-filelist" id="uplList"></div>' +
+        '<div class="field u-mt-4"><label for="uplNot">Açıklama</label>' +
+        '<input type="text" class="inp" id="uplNot" placeholder="Dosya ile birlikte gönderilecek not"></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Paylaş', cls:'btn-acc', icon:'i-send', onClick:function(close, el){
+            if(!secilen.length){ GV.toast('En az bir dosya seçin', 'danger'); return false; }
+            var not = el.querySelector('#uplNot').value.trim();
+            mesajEkle(c.kod, (not ? not + ' — ' : '') + secilen.length + ' dosya paylaşıldı: ' +
+              secilen.map(function(f){ return f.name; }).join(', '), ME);
+            GV.toast(secilen.length + ' dosya ' + c.ad + ' kanalında paylaşıldı', 'ok');
+            renderList(); renderMain();
+          } }
+      ]
+    });
+
+    var root = mo.el;
+    var up = root.querySelector('#upl'), upIn = root.querySelector('#uplIn'), fl = root.querySelector('#uplList');
+    function goster(files){
+      secilen = Array.prototype.slice.call(files);
+      fl.innerHTML = secilen.map(function(f, i){
+        return '<div class="gv-file" data-i="' + i + '"><span class="gv-file-ico">' + ico('i-file','ic-sm') + '</span>' +
+          '<span><span class="gv-file-name">' + esc(f.name) + '</span>' +
+          '<span class="gv-file-meta">' + (f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : Math.round(f.size/1024) + ' KB') + '</span></span>' +
+          '<button type="button" class="ia is-danger" data-rm aria-label="Kaldır">' + ico('i-x','ic-sm') + '</button></div>';
+      }).join('');
+    }
+    up.addEventListener('click', function(){ upIn.click(); });
+    up.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); upIn.click(); } });
+    up.addEventListener('dragover', function(e){ e.preventDefault(); up.classList.add('is-over'); });
+    up.addEventListener('dragleave', function(){ up.classList.remove('is-over'); });
+    up.addEventListener('drop', function(e){ e.preventDefault(); up.classList.remove('is-over'); goster(e.dataTransfer.files); });
+    upIn.addEventListener('change', function(){ goster(upIn.files); });
+    fl.addEventListener('click', function(e){
+      var b = e.target.closest('[data-rm]');
+      if(!b) return;
+      var row = b.closest('[data-i]');
+      secilen.splice(+row.dataset.i, 1);
+      goster(secilen);
+    });
+  }
+
+  document.getElementById('btnKanal').addEventListener('click', function(){
+    GV.modal({
+      title:'Yeni Kanal', icon:'i-plus', size:'sm', text:'Kanal türü sohbetin yetki ve görünürlüğünü belirler.',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="kAd">Kanal adı</label>' +
+          '<input type="text" class="inp" id="kAd" placeholder="#kanal-adi veya kişi adı"></div>' +
+        '<div class="field f-col-12"><label for="kTur">Kanal türü</label><select id="kTur">' +
+          TURLER.map(function(t){ return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') +
+          '</select></div>' +
+        '<div class="field f-col-6"><label for="kDep">Bağlı departman</label><select id="kDep">' +
+          '<option value="">— Yok —</option>' +
+          DB.departments.filter(function(d){ return d.aktif; }).map(function(d){
+            return '<option value="' + d.kod + '">' + esc(d.ad) + '</option>'; }).join('') +
+          '</select></div>' +
+        '<div class="field f-col-6"><label for="kProje">Bağlı proje</label><select id="kProje">' +
+          '<option value="">— Yok —</option>' +
+          DB.projects.map(function(p){ return '<option value="' + p.kod + '">' + esc(p.ad) + '</option>'; }).join('') +
+          '</select></div>' +
+        '<div class="field f-col-6"><label for="kUye">Üye sayısı</label>' +
+          '<input type="number" class="inp" id="kUye" min="2" step="1" value="4"></div>' +
+        '<div class="field f-col-6"><label class="f-check"><input type="checkbox" id="kSessiz"><span>Sessiz başlat</span></label></div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Kanalı oluştur', cls:'btn-acc', onClick:function(close, el){
+            var ad = el.querySelector('#kAd').value.trim();
+            if(!ad){ GV.toast('Kanal adı zorunludur', 'danger'); return false; }
+            if(DB.channels.some(function(c){ return c.ad.toLocaleLowerCase('tr') === ad.toLocaleLowerCase('tr'); })){
+              GV.toast('Bu isimde bir kanal zaten var', 'danger'); return false;
+            }
+            var no = DB.channels.map(function(x){ return parseInt(String(x.kod).split('-').pop(), 10); })
+              .filter(function(x){ return !isNaN(x); });
+            var kod = 'KNL-' + ('00' + (Math.max.apply(null, no) + 1)).slice(-3);
+            DB.channels.unshift({
+              kod:kod, ad:ad, tur:el.querySelector('#kTur').value,
+              dep:el.querySelector('#kDep').value || undefined,
+              proje:el.querySelector('#kProje').value || undefined,
+              uyeler:parseInt(el.querySelector('#kUye').value, 10) || 2, okunmamis:0,
+              sonMesaj:null, sonMesajKisi:null, sonMesajOzet:null,
+              sessiz:el.querySelector('#kSessiz').checked, aktif:true
+            });
+            state.sel = kod; state.cip = 'tumu'; state.ara = '';
+            document.getElementById('ara').value = '';
+            Array.prototype.forEach.call(card.querySelectorAll('[data-cip]'), function(b){
+              b.setAttribute('aria-selected', b.dataset.cip === 'tumu' ? 'true' : 'false');
+            });
+            renderList(); renderMain(); urlYaz();
+            GV.toast(ad + ' kanalı oluşturuldu', 'ok');
+          } }
+      ]
+    });
+  });
+
+  /* ---- İlk çizim ---- */
+  var ilk = kanal(state.sel);
+  if(ilk) ilk.okunmamis = 0;
+  renderList();
+  renderMain();
+  GV.chipbar(card);
+  urlYaz();
+});
+</script>
+</body>
+</html>
