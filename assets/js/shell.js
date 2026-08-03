@@ -584,6 +584,7 @@
     'app-rapor-filo.html',
     'app-rapor-finans.html',
     'app-rapor-proje.html',
+    'app-ayar-yetki.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
@@ -754,10 +755,14 @@
       bell.insertAdjacentHTML('beforeend', '<span class="gv-dot">' + (cnt.bildirim > 9 ? '9+' : cnt.bildirim) + '</span>');
     }
 
-    guard(activeSec);
+    var allowed = guard(activeSec);
     markWip(document);
     watchWip();
-    document.dispatchEvent(new CustomEvent('gv:ready', { detail:{ session:session, counters:cnt } }));
+    /* Yetki kapısı kapandıysa sayfa config'i ÇALIŞMAZ: 403 markup'ı mount
+       düğümlerini sildiği için sayfa script'leri null üzerinde patlıyordu.
+       Ekranını 403 durumunda da bir şey yapması gerekenler 'gv:denied' dinler. */
+    document.dispatchEvent(new CustomEvent(allowed ? 'gv:ready' : 'gv:denied',
+      { detail:{ session:session, counters:cnt, section:activeSec } }));
   }
 
   GV.shell = {
