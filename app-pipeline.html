@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Satış Pipeline — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satis" data-screen="pipeline">
+<a class="gv-skip" href="#gvMain">İçeriğe atla</a>
+<div class="gv-app">
+  <aside class="gv-rail" id="gvRail"></aside>
+  <nav class="gv-menu" id="gvMenu"></nav>
+  <button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">
+    <span><svg class="ic ic-sm" aria-hidden="true"><use href="#i-chev-left"></use></svg></span>
+  </button>
+  <div class="gv-overlay" id="gvOverlay"></div>
+  <header class="gv-top" id="gvTop"></header>
+  <main class="gv-main" id="gvMain">
+    <div class="gv-page">
+      <nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>
+      <div class="gv-page-head">
+        <div>
+          <div class="ph-eyebrow">Satış ve CRM</div>
+          <h1>Satış Pipeline</h1>
+          <div class="ph-sub" data-listcount>—</div>
+        </div>
+        <div class="ph-actions">
+          <button type="button" class="btn btn-line" id="btnKural">
+            <svg class="ic" aria-hidden="true"><use href="#i-sliders"></use></svg> Aşama Kuralları
+          </button>
+          <a class="btn btn-acc" href="app-lead-form.html">
+            <svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg> Yeni Fırsat
+          </a>
+        </div>
+      </div>
+      <div id="liste"></div>
+    </div>
+  </main>
+</div>
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var ST = DB.pipelineStages;
+  var stage = function(k){ return ST.filter(function(s){ return s.key === k; })[0] || {}; };
+  var acik = function(l){ return ['Kazanıldı','Kaybedildi','Beklemeye alındı'].indexOf(l.asama) === -1; };
+  var agirlikli = function(l){ return l.butce * ((stage(l.asama).olasilik || 0) / 100); };
+  /* Aşamada beklemesi kuralı aşan fırsat */
+  var tikanan = function(l){
+    var st = stage(l.asama);
+    return acik(l) && st.maxGun && l.sonIletisim && Math.abs(F.days(l.sonIletisim)) > st.maxGun;
+  };
+
+  /* Aşama kuralları penceresi — PROMPT.md §8.2'deki 10 kural ekseni */
+  document.getElementById('btnKural').addEventListener('click', function(){
+    GV.modal({
+      title:'Satış Aşaması Kuralları', text:'Her aşama için zorunlu işlem, sorumlu, belge, onay ve bekleme süresi tanımlıdır.',
+      icon:'i-sliders', size:'lg',
+      body:'<div class="gv-tablewrap"><table class="gtable"><thead><tr>' +
+        '<th>Aşama</th><th class="num">Olasılık</th><th>Sorumlu</th><th>Beklenen işlem</th><th>Belge</th>' +
+        '<th>Onay</th><th class="num">Maks. bekleme</th><th>Otomatik görev</th></tr></thead><tbody>' +
+        ST.map(function(s){
+          return '<tr><td><b>' + esc(s.key) + '</b></td>' +
+            '<td class="num">%' + s.olasilik + '</td>' +
+            '<td>' + esc(s.sorumlu) + '</td>' +
+            '<td>' + esc(s.beklenen) + '</td>' +
+            '<td>' + esc(s.belge) + '</td>' +
+            '<td>' + (s.onay ? '<span class="badge is-warn">Gerekli</span>' : '<span class="u-faint">—</span>') + '</td>' +
+            '<td class="num">' + (s.maxGun ? s.maxGun + ' gün' : '—') + '</td>' +
+            '<td>' + esc(s.otoGorev) + '</td></tr>';
+        }).join('') + '</tbody></table></div>',
+      actions:[{ label:'Kapat', cls:'btn-acc' }]
+    });
+  });
+
+  GV.list({
+    mount:'#liste', id:'pipeline', key:'kod', source:function(){ return DB.leads; },
+    exportName:'satis-pipeline', exportTitle:'Satış Pipeline', pageSize:25,
+    views:['kanban','table'],
+    search:{ placeholder:'Firma, yetkili veya hizmet ara', fields:['kod','firma','yetkili','hizmet','ozet'] },
+    defaultSort:'butce', defaultDir:'desc',
+
+    kpis:[
+      { label:'Açık fırsat', icon:'i-funnel', calc:function(a){ return a.filter(acik).length; } },
+      { label:'Pipeline değeri', icon:'i-wallet', tone:'info', format:F.moneyK,
+        calc:function(a){ return a.filter(acik).reduce(function(s,l){ return s + l.butce; }, 0); } },
+      { label:'Ağırlıklı tahmin', icon:'i-trend-up', tone:'ok', format:F.moneyK,
+        calc:function(a){ return a.filter(acik).reduce(function(s,l){ return s + agirlikli(l); }, 0); } },
+      { label:'Kuralı aşan fırsat', icon:'i-hourglass', tone:'danger',
+        calc:function(a){ return a.filter(tikanan).length; } }
+    ],
+
+    tabs:[
+      { key:'acik',   label:'Açık Fırsatlar', icon:'i-funnel',       filter:acik },
+      { key:'erken',  label:'Erken Aşama',    icon:'i-user-plus',    filter:function(l){ return acik(l) && stage(l.asama).sira <= 4; } },
+      { key:'analiz', label:'Analiz ve Fiyat',icon:'i-clipboard',    filter:function(l){ return acik(l) && stage(l.asama).sira >= 5 && stage(l.asama).sira <= 8; } },
+      { key:'kapanis',label:'Kapanışa Yakın', icon:'i-check-circle', filter:function(l){ return acik(l) && stage(l.asama).sira >= 9; } },
+      { key:'tikanan',label:'Kuralı Aşanlar', icon:'i-hourglass',    filter:tikanan },
+      { key:'tumu',   label:'Tümü',           icon:'i-list',         filter:null }
+    ],
+
+    columns:[
+      { key:'firma', label:'Fırsat', width:'26%', cellClass:'cell-wrap', locked:true,
+        render:function(l){ return '<a class="cell-main" href="app-lead-detay.html?id=' + l.kod + '">' + esc(l.firma) + '</a>' +
+          '<span class="cell-sub">' + esc(l.ozet) + '</span><span class="cell-code">' + l.kod + '</span>'; } },
+      { key:'asama', label:'Aşama', render:function(l){ return GV.badge(l.asama); },
+        sortValue:function(l){ return stage(l.asama).sira || 99; } },
+      { key:'olasilik', label:'Olasılık', cellClass:'num', sortValue:function(l){ return stage(l.asama).olasilik || 0; },
+        render:function(l){ return GV.progress(stage(l.asama).olasilik || 0); },
+        exportValue:function(l){ return (stage(l.asama).olasilik || 0) + '%'; } },
+      { key:'butce', label:'Fırsat değeri', cellClass:'num',
+        render:function(l){ return '<span class="cell-money">' + F.money(l.butce) + '</span>'; } },
+      { key:'agirlikli', label:'Ağırlıklı değer', cellClass:'num', sortValue:agirlikli,
+        render:function(l){ return '<span class="u-num u-b">' + F.money(Math.round(agirlikli(l))) + '</span>'; },
+        exportValue:function(l){ return Math.round(agirlikli(l)); } },
+      { key:'sorumlu', label:'Sorumlu', render:function(l){ return GV.user(l.sorumlu, { sm:true }); },
+        sortValue:function(l){ return DB.empName(l.sorumlu); }, exportValue:function(l){ return DB.empName(l.sorumlu); } },
+      { key:'sonIletisim', label:'Aşamada bekleme', sortValue:function(l){ return F.days(l.sonIletisim); },
+        render:function(l){
+          if(!l.sonIletisim) return '<span class="u-faint">—</span>';
+          var g = Math.abs(F.days(l.sonIletisim)), max = stage(l.asama).maxGun;
+          return '<span class="cell-date ' + (max && g > max ? 'is-late' : '') + '">' + g + ' gün</span>' +
+                 (max ? '<span class="cell-sub">kural: ' + max + ' gün</span>' : ''); },
+        exportValue:function(l){ return Math.abs(F.days(l.sonIletisim)) + ' gün'; } },
+      { key:'kapanisTahmini', label:'Tahmini kapanış', render:function(l){ return GV.dateCell(l.kapanisTahmini, { done:!acik(l) }); } }
+    ],
+
+    filters:[
+      { key:'asama', label:'Aşama', type:'multi', options:ST.map(function(s){ return s.key; }) },
+      { key:'sorumlu', label:'Satış sorumlusu', type:'select',
+        options:DB.employees.filter(function(e){ return ['satismudur','satistemsilci','sahip'].indexOf(e.rol) !== -1; })
+                            .map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'hizmet', label:'Hizmet', type:'multi', options:DB.services },
+      { key:'sicaklik', label:'Sıcaklık', type:'select', options:['Sıcak','Ilık','Soğuk'] },
+      { key:'butce', label:'Fırsat değeri (en az)', type:'text', test:function(l,v){ return l.butce >= (parseFloat(v) || 0); } },
+      { key:'kapanisTahmini', label:'Tahmini kapanış', type:'daterange' }
+    ],
+
+    rowClass:function(l){ return tikanan(l) ? 'is-late' : ''; },
+
+    kanban:{ groupBy:'asama',
+      columns:ST.filter(function(s){ return s.sira <= 13; }).map(function(s){ return { key:s.key, label:s.key }; }),
+      card:function(l){
+        var st = stage(l.asama);
+        return '<a class="gv-kcard-title" href="app-lead-detay.html?id=' + l.kod + '">' + esc(l.firma) + '</a>' +
+          '<div class="gv-kcard-meta"><span>' + esc(l.hizmet) + '</span></div>' +
+          '<div class="gv-kcard-meta"><span class="cell-money">' + F.money(l.butce) + '</span>' +
+          '<span class="u-xs u-muted">%' + (st.olasilik || 0) + '</span></div>' +
+          '<div class="gv-kcard-meta">' + GV.user(l.sorumlu, { sm:true }) +
+          (tikanan(l) ? '<span class="badge is-danger">Kural aşıldı</span>' : GV.dateCell(l.kapanisTahmini)) + '</div>';
+      } },
+
+    mobile:function(l){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-lead-detay.html?id=' + l.kod + '">' + esc(l.firma) + '</a>' +
+        '<span class="cell-money">' + F.moneyK(l.butce) + '</span></div>' +
+        '<div class="gv-mrow-code">' + l.kod + ' · ' + esc(l.hizmet) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(l.asama) + '</span>' +
+        GV.dateCell(l.kapanisTahmini) + '</div>';
+    },
+
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Fırsatı aç', href:function(l){ return 'app-lead-detay.html?id=' + l.kod; } },
+      { key:'ilerlet', icon:'i-arrow-right', label:'Sonraki aşamaya taşı', run:function(l, refresh){
+          var st = stage(l.asama);
+          var next = ST.filter(function(s){ return s.sira === st.sira + 1; })[0];
+          if(!next || st.sira >= 13){ GV.toast('Bu fırsat kapanış aşamasında, ileri taşınamaz.', 'warn'); return; }
+          GV.confirm({ title:'Aşamayı ilerlet',
+            text:l.firma + ' fırsatı “' + next.key + '” aşamasına taşınacak.' +
+                 (next.onay ? ' Bu aşama yönetici onayı gerektirir.' : '') +
+                 ' Otomatik görev: ' + next.otoGorev + '.',
+            okLabel:'İlerlet' }).then(function(ok){
+              if(!ok) return;
+              var eski = l.asama; l.asama = next.key; l.sonIletisim = DB.today;
+              DB.activities.unshift({ kayit:l.kod, tarih:DB.today + 'T09:00', kisi:GV.session.ad,
+                metin:'Satış aşaması ilerletildi', eski:eski, yeni:next.key, tone:'ok', icon:'i-funnel' });
+              GV.toast(l.kod + ' → ' + next.key, 'ok'); refresh(); }); } }
+    ],
+
+    bulk:[
+      { key:'sorumlu', label:'Sorumlu ata', icon:'i-user-check' },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+
+    emptyState:{ icon:'i-funnel', title:'Bu görünümde fırsat yok',
+      desc:'Filtreleri değiştirebilir veya yeni bir müşteri adayı ekleyerek pipeline\'a fırsat ekleyebilirsiniz.',
+      action:'<a class="btn btn-acc" href="app-lead-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Fırsat</a>' }
+  });
+});
+</script>
+</body>
+</html>
