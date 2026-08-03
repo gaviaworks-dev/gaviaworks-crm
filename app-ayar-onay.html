@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Onay Akışları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="onayakis">
+<div id="uyari"></div>
+<div id="akislar"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  /* =====================================================================
+     ONAY AKIŞLARI — Ayarlar
+     Bu ekran "kim onaylar" değil, "hangi kayıt hangi sırayla kimin önüne
+     düşer" eksenidir. Yedi modülün onay zinciri burada tanımlanır.
+
+     Üç disiplin:
+     (1) Makam bir ROLDÜR (DB.roles.key), kişi çalışma anında çözülür —
+         departman yöneticisi talep edenin `yonetici` alanından, proje
+         yöneticisi DB.projects.pm alanından okunur. Adıma kişi yazılmaz.
+     (2) Koşullar veri alanları üzerinden çalışır (tutar, süre, kategori,
+         proje bağı). Uydurma alan yok.
+     (3) Canlı etki önizlemesi tahmin değil: gerçek DB koleksiyonlarındaki
+         bekleyen kayıtlar bu adımlardan geçirilerek hesaplanır (L-08).
+     ===================================================================== */
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var ME = GV.session.emp;
+  var LSK = 'gv.onayakis';
+  var mount = document.getElementById('akislar');
+
+  /* ---- Yetki kapısı — app-ayar-rol.html ile AYNI kalıp -----------------
+     SCREEN_PERM bu ekranı zaten sahip/genelmudur/sistem/operasyon'a açar;
+     burada yalnızca YAZMA hakkı ayrıca daraltılır. */
+  var MYM = DB.permMatrix[GV.perm.role()] || {};
+  var canEdit = !!GV.perm.can('duzenle') && MYM.sil === 'tum';
+
+  function logKaydi(islem, kayit, eski, yeni){
+    DB.logs.unshift({
+      kod:'LOG-' + (88400 + DB.logs.length), tarih:DB.today + 'T00:00',
+      kisi:ME, islem:islem, kayit:kayit, modul:'Ayarlar', ip:'—', eski:eski, yeni:yeni
+    });
+  }
+
+  /* =====================================================================
+     1. KOŞUL TİPLERİ
+     Her koşul normalize edilmiş kayıt nesnesi üzerinde çalışır.
+     ===================================================================== */
+  var KOSUL = {
+    hep:        { ad:'Her kayıt',                    esik:false },
+    tutar:      { ad:'Tutar eşiği',                  esik:true,  para:true },
+    projetutar: { ad:'Projeye bağlı + tutar eşiği',  esik:true,  para:true },
+    sure:       { ad:'Süre eşiği',                   esik:true,  para:false },
+    proje:      { ad:'Projeye bağlı kayıt',          esik:false },
+    kategori:   { ad:'Kategori listesi',             esik:false, liste:true }
+  };
+
+  function kosulGecer(st, it){
+    if(st.kosul === 'hep') return true;
+    if(st.kosul === 'tutar') return it.tutar != null && it.tutar >= (st.esik || 0);
+    if(st.kosul === 'projetutar') return !!it.proje && it.tutar != null && it.tutar >= (st.esik || 0);
+    if(st.kosul === 'sure')  return it.sure  != null && it.sure  >= (st.esik || 0);
+    if(st.kosul === 'proje') return !!it.proje;
+    if(st.kosul === 'kategori') return !!it.kategori && (st.liste || []).indexOf(it.kategori) !== -1;
+    return true;
+  }
+
+  function kosulMetin(st, ak){
+    if(st.kosul === 'hep') return 'Her ' + ak.birimTek;
+    if(st.kosul === 'tutar') return st.esik ? F.money(st.esik) + ' ve üzeri' : 'Tutar farkı gözetmeksizin';
+    if(st.kosul === 'projetutar') return 'Projeye bağlı ve ' + F.money(st.esik || 0) + ' ve üzeri';
+    if(st.kosul === 'sure') return (st.esik || 0) + ' ' + ak.sureBirim + ' ve üzeri';
+    if(st.kosul === 'proje') return 'Yalnızca projeye bağlı kayıtlar';
+    if(st.kosul === 'kategori') return 'Kategori: ' + ((st.liste || []).join(', ') || 'seçilmedi');
+    return '—';
+  }
+
+  /* =====================================================================
+     2. MAKAM → KİŞİ ÇÖZÜMÜ
+     Adımda rol tutulur, kişi kayıttan türetilir. Departman yöneticisi
+     talep edenin `yonetici` alanıdır (DB.purchaseApprovals ve DB.leaves
+     kayıtlarındaki onaylayan değerleriyle bu kural birebir doğrulanır:
+     EMP-010 → EMP-005, EMP-006 → EMP-003, EMP-016 → EMP-006).
+     ===================================================================== */
+  function rolTasiyan(rolKey){
+    return DB.employees.filter(function(e){ return e.roller.indexOf(rolKey) !== -1; })[0] || null;
+  }
+  function makamKisi(rolKey, it){
+    var e;
+    if(rolKey === 'depmudur'){
+      e = it && it.kisi ? DB.emp(it.kisi) : null;
+      if(e && e.yonetici) return e.yonetici;
+      var d = e ? DB.dep(e.dep) : null;
+      return d ? d.yonetici : null;
+    }
+    if(rolKey === 'pm'){
+      var p = it && it.proje ? DB.projects.filter(function(x){ return x.kod === it.proje; })[0] : null;
+      if(p) return p.pm;
+    }
+    var t = rolTasiyan(rolKey);
+    return t ? t.kod : null;
+  }
+  function makamKisiAd(rolKey, it){
+    var k = makamKisi(rolKey, it);
+    return k ? DB.empName(k) : (MAKAM_NOT[rolKey] || 'Atanmadı');
+  }
+  /* Bir makamı hangi kişiler taşıyor — vekil zincirinin kaynağı */
+  function makamHavuz(rolKey){
+    return DB.employees.filter(function(e){ return e.roller.indexOf(rolKey) !== -1; });
+  }
+
+  /* Onay yetkisi olmayan role adım bağlanması yapılandırma hatasıdır */
+  function onaylayabilir(rolKey){ return !!(DB.permMatrix[rolKey] || {}).onay; }
+
+  /* =====================================================================
+     3. AKIŞ TANIMLARI
+     `bekleyen()` gerçek DB koleksiyonundan normalize kayıt üretir:
+       { kod, baslik, kisi, tarih, tutar, sure, kategori, proje, adim, href }
+     `adim` yalnızca veride adım sayacı olan akışlarda doludur.
+     ===================================================================== */
+  function benzersiz(arr){
+    var out = [];
+    arr.forEach(function(v){ if(v && out.indexOf(v) === -1) out.push(v); });
+    return out.sort();
+  }
+
+  var AKIS = [
+    /* ---- 1 · SATIN ALMA — PROMPT.md §17, altı onay makamı --------------
+       Eşikler DB.purchases (6 talep) ve DB.purchaseApprovals (5 adım)
+       kayıtlarından geri türetilmiştir: bu değerlerle hesaplanan zincir,
+       veride yazılı onayToplam ve makam sırasının birebir aynısını üretir.
+       Eşik değiştirildiğinde uyum satırı farkı anında gösterir. */
+    { kod:'satinalma', ad:'Satın Alma Talebi', icon:'i-cart', grup:'Mali onaylar',
+      birimTek:'talep', sureBirim:'gün', kaynak:'DB.purchases · DB.purchaseApprovals',
+      tarihLbl:'Talep tarihi', tutarLbl:'Tahmini maliyet',
+      aciklama:'Talep tutarı, kategori ve proje bağına göre altı onay makamından hangilerinin ' +
+               'devreye gireceğini belirler. Zincir yukarıdan aşağı hiyerarşik ilerler.',
+      href:'app-satinalma.html',
+      kosullar:['hep','tutar','projetutar','proje','kategori'],
+      kategoriler:function(){ return benzersiz(DB.purchases.map(function(x){ return x.kategori; })); },
+      adimlar:[
+        { rol:'depmudur',  kosul:'tutar',      esik:100000, sla:1, atlanabilir:false,
+          vekil:'Yönetici izinliyse bir üst yönetici (Genel Müdür)' },
+        { rol:'pm',        kosul:'projetutar', esik:100000, sla:1, atlanabilir:true,
+          vekil:'Proje yöneticisi yoksa Operasyon Yöneticisi' },
+        { rol:'satinalma', kosul:'tutar',      esik:250000, sla:2, atlanabilir:false,
+          vekil:'Satın alma sorumlusu yoksa Muhasebe' },
+        { rol:'muhasebe',  kosul:'hep',        esik:null,   sla:2, atlanabilir:false,
+          vekil:'Muhasebe yoksa Genel Müdür' },
+        { rol:'genelmudur',kosul:'tutar',      esik:500000, sla:3, atlanabilir:true,
+          vekil:'Genel müdür yoksa Şirket Sahibi' },
+        { rol:'sahip',     kosul:'hep',        esik:null,   sla:3, atlanabilir:false,
+          vekil:'Nihai onay — devredilemez' }
+      ],
+      bekleyen:function(){
+        return DB.purchases.filter(function(x){ return x.aktif && x.durum === 'Onay bekliyor'; })
+          .map(function(x){
+            /* Kaydın kaçıncı adımda olduğu önce GERÇEK onay zincirinden okunur
+               (kaç adım Onaylandı), zincir kaydı yoksa onayAdim sayacına düşülür. */
+            var z = DB.purchaseApprovals.filter(function(a){ return a.talep === x.kod; });
+            var onayli = z.filter(function(a){ return a.durum === 'Onaylandı'; }).length;
+            return { kod:x.kod, baslik:x.urun, kisi:x.talepEden, tarih:x.olusturma,
+                     tutar:x.tahminiMaliyet, sure:null, kategori:x.kategori, proje:x.proje,
+                     adim:z.length ? onayli : x.onayAdim, ref:x };
+          });
+      } },
+
+    /* ---- 2 · İZİN — PROMPT.md §14 ------------------------------------- */
+    { kod:'izin', ad:'İzin Talebi', icon:'i-calendar-check', grup:'İnsan kaynakları',
+      birimTek:'izin talebi', sureBirim:'gün', kaynak:'DB.leaves',
+      tarihLbl:'Talep tarihi', tutarLbl:'İzin süresi',
+      aciklama:'İzin süresi ve türüne göre onay makamları belirlenir. Vekil personel alanı ' +
+               'talepte zorunludur; vekil ataması yapılmadan zincir başlatılmaz.',
+      href:'app-izin.html',
+      kosullar:['hep','sure','kategori'],
+      kategoriler:function(){ return DB.leaveTypes.slice(); },
+      adimlar:[
+        { rol:'depmudur',  kosul:'hep',  esik:null, sla:2, atlanabilir:false,
+          vekil:'Yönetici izinliyse Genel Müdür' },
+        { rol:'ik',        kosul:'sure', esik:3,    sla:2, atlanabilir:true,
+          vekil:'İK yoksa İdari İşler Sorumlusu' },
+        { rol:'genelmudur',kosul:'sure', esik:10,   sla:3, atlanabilir:true,
+          vekil:'Genel müdür yoksa Şirket Sahibi' }
+      ],
+      bekleyen:function(){
+        return DB.leaves.filter(function(x){ return x.aktif && x.durum === 'Onay bekliyor'; })
+          .map(function(x){
+            return { kod:x.kod, baslik:x.tur + ' · ' + x.gun + ' gün', kisi:x.personel,
+                     tarih:x.talepTarihi, tutar:null, sure:x.gun, kategori:x.tur, proje:null,
+                     adim:null, ref:x };
+          });
+      } },
+
+    /* ---- 3 · ZAMAN KAYDI — PROMPT.md §14, haftalık timesheet ---------- */
+    { kod:'timesheet', ad:'Zaman Kaydı (Timesheet)', icon:'i-timer', grup:'İnsan kaynakları',
+      birimTek:'haftalık timesheet', sureBirim:'saat', kaynak:'DB.timesheets · DB.timelogs',
+      tarihLbl:'Hafta bitişi', tutarLbl:'Haftalık toplam',
+      aciklama:'Haftalık zaman kaydı yöneticide onaylanır. Fazla mesai eşiğini aşan haftalar ' +
+               'bordro etkisi nedeniyle ayrıca muhasebeye düşer.',
+      href:'app-zaman.html',
+      kosullar:['hep','sure'],
+      kategoriler:function(){ return []; },
+      adimlar:[
+        { rol:'depmudur', kosul:'hep',  esik:null, sla:2, atlanabilir:false,
+          vekil:'Yönetici izinliyse Proje Yöneticisi' },
+        { rol:'muhasebe', kosul:'sure', esik:42,   sla:3, atlanabilir:true,
+          vekil:'Muhasebe yoksa Genel Müdür' }
+      ],
+      bekleyen:function(){
+        return DB.timesheets.filter(function(x){ return x.aktif && x.durum === 'Onay bekliyor'; })
+          .map(function(x){
+            return { kod:x.kod, baslik:DB.empName(x.personel) + ' · ' + x.hafta, kisi:x.personel,
+                     tarih:x.bitis, tutar:null, sure:x.toplam, kategori:null, proje:null,
+                     adim:null, ref:x };
+          });
+      } },
+
+    /* ---- 4 · TEKLİF İÇ ONAYI — PROMPT.md §10 -------------------------- */
+    { kod:'teklif', ad:'Teklif İç Onayı', icon:'i-quote', grup:'Satış',
+      birimTek:'teklif', sureBirim:'gün', kaynak:'DB.quotes (icOnay alanı)',
+      tarihLbl:'Teklif tarihi', tutarLbl:'Teklif toplamı',
+      aciklama:'Teklif müşteriye iletilmeden önceki iç onay zinciridir. Yüksek tutarlı ' +
+               'tekliflerde teknik efor ve mali koşullar ayrıca doğrulanır.',
+      href:'app-teklif.html',
+      kosullar:['hep','tutar'],
+      kategoriler:function(){ return []; },
+      adimlar:[
+        { rol:'satismudur', kosul:'hep',   esik:null,   sla:1, atlanabilir:false,
+          vekil:'Satış yöneticisi yoksa Genel Müdür' },
+        { rol:'pm',         kosul:'tutar', esik:250000, sla:2, atlanabilir:true,
+          vekil:'Proje yöneticisi yoksa İş Analisti değerlendirmesi' },
+        { rol:'muhasebe',   kosul:'tutar', esik:500000, sla:1, atlanabilir:true,
+          vekil:'Muhasebe yoksa Genel Müdür' },
+        { rol:'sahip',      kosul:'tutar', esik:500000, sla:2, atlanabilir:false,
+          vekil:'Nihai onay — devredilemez' }
+      ],
+      bekleyen:function(){
+        return DB.quotes.filter(function(x){ return x.aktif && x.icOnay === 'Bekliyor'; })
+          .map(function(x){
+            return { kod:x.kod, baslik:x.firma, kisi:x.hazirlayan, tarih:x.tarih,
+                     tutar:x.toplam, sure:null, kategori:null, proje:null, adim:null, ref:x };
+          });
+      } },
+
+    /* ---- 5 · DEĞİŞİKLİK TALEBİ — PROMPT.md §11 ------------------------ */
+    { kod:'degisiklik', ad:'Değişiklik Talebi', icon:'i-refresh', grup:'Teslimat',
+      birimTek:'değişiklik talebi', sureBirim:'saat', kaynak:'DB.changeRequests',
+      tarihLbl:'Talep tarihi', tutarLbl:'Maliyet etkisi',
+      aciklama:'Kapsam değişikliğinin süre ve maliyet etkisine göre onay makamları belirlenir. ' +
+               'Maliyet etkisi olan değişiklik müşteri onayı alınmadan uygulanmaz.',
+      href:'app-proje.html',
+      kosullar:['hep','tutar','sure','proje'],
+      kategoriler:function(){ return []; },
+      adimlar:[
+        { rol:'pm',         kosul:'hep',   esik:null,   sla:1, atlanabilir:false,
+          vekil:'Proje yöneticisi yoksa Operasyon Yöneticisi' },
+        { rol:'muhasebe',   kosul:'tutar', esik:10000,  sla:2, atlanabilir:true,
+          vekil:'Muhasebe yoksa Genel Müdür' },
+        { rol:'genelmudur', kosul:'tutar', esik:100000, sla:2, atlanabilir:true,
+          vekil:'Genel müdür yoksa Şirket Sahibi' },
+        { rol:'musteri',    kosul:'tutar', esik:10000,  sla:5, atlanabilir:true,
+          vekil:'Müşteri yanıt vermezse Müşteri Temsilcisi eskalasyonu' }
+      ],
+      bekleyen:function(){
+        return DB.changeRequests.filter(function(x){
+            return x.aktif && (x.durum === 'Onay bekliyor' || x.durum === 'Değerlendiriliyor'); })
+          .map(function(x){
+            return { kod:x.kod, baslik:x.baslik, kisi:x.sorumlu, tarih:x.tarih,
+                     tutar:x.etkiMaliyet, sure:x.etkiSure, kategori:null, proje:x.proje,
+                     adim:null, ref:x };
+          });
+      } },
+
+    /* ---- 6 · GÖREV KONTROLÜ — PROMPT.md §12 --------------------------- */
+    { kod:'gorevkontrol', ad:'Görev Kontrolü', icon:'i-clipboard-check', grup:'Teslimat',
+      birimTek:'teslim edilen görev', sureBirim:'saat', kaynak:'DB.tasks (kontrolEden · onaylayan)',
+      tarihLbl:'Termin', tutarLbl:'Tahmini süre',
+      aciklama:'Görev tamamlandı işaretlendiğinde kontrol süreci otomatik başlar. Kontrol ' +
+               'reddedilirse görev "Revize bekliyor" durumuna döner ve zincir baştan işler.',
+      href:'app-gorev.html',
+      kosullar:['hep','sure','proje','kategori'],
+      kategoriler:function(){ return DB.taskTypes.slice(); },
+      adimlar:[
+        { rol:'takimlideri', kosul:'hep',   esik:null, sla:1, atlanabilir:false,
+          vekil:'Takım lideri yoksa Proje Yöneticisi' },
+        { rol:'pm',          kosul:'hep',   esik:null, sla:1, atlanabilir:false,
+          vekil:'Proje yöneticisi yoksa Operasyon Yöneticisi' },
+        { rol:'musteri',     kosul:'proje', esik:null, sla:3, atlanabilir:true,
+          vekil:'Müşteri yanıt vermezse Müşteri Temsilcisi eskalasyonu' }
+      ],
+      bekleyen:function(){
+        var D = ['Kontrol bekliyor','Revize bekliyor','Onay bekliyor'];
+        return DB.tasks.filter(function(x){ return x.aktif && D.indexOf(x.durum) !== -1; })
+          .map(function(x){
+            return { kod:x.kod, baslik:x.baslik, kisi:x.sorumlu, tarih:x.termin,
+                     tutar:null, sure:x.tahminiSure, kategori:x.tur, proje:x.proje,
+                     adim:x.durum === 'Onay bekliyor' ? 1 : 0, ref:x };
+          });
+      } },
+
+    /* ---- 7 · SÖZLEŞME — PROMPT.md §19 --------------------------------- */
+    { kod:'sozlesme', ad:'Sözleşme Onayı', icon:'i-file-check', grup:'Mali onaylar',
+      birimTek:'sözleşme', sureBirim:'gün', kaynak:'DB.contracts · DB.quotes',
+      tarihLbl:'Referans tarih', tutarLbl:'Sözleşme tutarı',
+      aciklama:'Kazanılan teklifin sözleşmeye dönüşmesi ve yenileme tarihi yaklaşan ' +
+               'sözleşmelerin uzatılması aynı zinciri kullanır. İmza yetkisi devredilemez.',
+      href:'app-sozlesme.html',
+      kosullar:['hep','tutar'],
+      kategoriler:function(){ return []; },
+      adimlar:[
+        { rol:'satismudur', kosul:'hep',   esik:null,   sla:2, atlanabilir:false,
+          vekil:'Satış yöneticisi yoksa Genel Müdür' },
+        { rol:'muhasebe',   kosul:'tutar', esik:100000, sla:2, atlanabilir:true,
+          vekil:'Muhasebe yoksa Genel Müdür' },
+        { rol:'genelmudur', kosul:'tutar', esik:500000, sla:3, atlanabilir:true,
+          vekil:'Genel müdür yoksa Şirket Sahibi' },
+        { rol:'sahip',      kosul:'hep',   esik:null,   sla:2, atlanabilir:false,
+          vekil:'İmza yetkisi devredilemez' }
+      ],
+      bekleyen:function(){
+        var out = [];
+        /* (a) kazanılmış ama sözleşmesi açılmamış teklifler */
+        DB.quotes.filter(function(q){ return q.aktif && q.durum === 'Kazanıldı'; }).forEach(function(q){
+          var v = DB.contracts.filter(function(c){ return c.teklif === q.kod; }).length;
+          if(!v) out.push({ kod:q.kod, baslik:q.firma + ' — sözleşme açılacak', kisi:q.hazirlayan,
+                            tarih:q.tarih, tutar:q.toplam, sure:null, kategori:null, proje:null,
+                            adim:null, ref:q });
+        });
+        /* (b) yenileme tarihine 60 gün ve daha az kalan sözleşmeler */
+        DB.contracts.filter(function(c){
+          if(!c.aktif || !c.yenileme || !c.yenilemeTarihi) return false;
+          var d = F.days(c.yenilemeTarihi);
+          return d != null && d >= 0 && d <= 60;
+        }).forEach(function(c){
+          out.push({ kod:c.kod, baslik:c.musteriAd + ' — yenileme onayı', kisi:rolTasiyan('satismudur') ?
+                     rolTasiyan('satismudur').kod : null, tarih:c.yenilemeTarihi, tutar:c.tutar,
+                     sure:null, kategori:null, proje:c.proje, adim:null, ref:c });
+        });
+        return out;
+      } }
+  ];
+
+  var AKIS_BY = {};
+  AKIS.forEach(function(a){ AKIS_BY[a.kod] = a; });
+
+  /* Fabrika varsayılanı — "varsayılana dön" bunun derin kopyasıdır */
+  var VARSAYILAN = JSON.parse(JSON.stringify(
+    AKIS.reduce(function(o, a){ o[a.kod] = a.adimlar; return o; }, {})
+  ));
+
+  /* =====================================================================
+     4. DURUM — oturum içi düzenlemeler localStorage'da tutulur
+     ===================================================================== */
+  var ST = JSON.parse(JSON.stringify(VARSAYILAN));
+  var kayitli = false;
+
+  function gecerliAdim(a, st){
+    if(!st || typeof st !== 'object') return null;
+    if(!DB.permMatrix[st.rol]) return null;                 /* silinmiş rol yüklenmez */
+    if(!KOSUL[st.kosul]) return null;
+    return { rol:st.rol, kosul:st.kosul,
+             esik:st.esik == null ? null : Number(st.esik),
+             sla:Math.max(0, Number(st.sla) || 0),
+             atlanabilir:!!st.atlanabilir,
+             liste:Array.isArray(st.liste) ? st.liste.slice() : null,
+             vekil:String(st.vekil || 'Tanımlanmadı') };
+  }
+
+  function yukle(){
+    var raw;
+    try { raw = window.localStorage.getItem(LSK); } catch(e){ return false; }
+    if(!raw) return false;
+    var o;
+    try { o = JSON.parse(raw); } catch(e){ return false; }
+    if(!o || o.v !== 1 || !o.akis) return false;
+    var bulundu = false;
+    AKIS.forEach(function(a){
+      var arr = o.akis[a.kod];
+      if(!Array.isArray(arr) || !arr.length) return;
+      var temiz = arr.map(function(s){ return gecerliAdim(a, s); }).filter(Boolean);
+      if(temiz.length){ ST[a.kod] = temiz; bulundu = true; }
+    });
+    return bulundu;
+  }
+  function kaydet(){
+    try {
+      window.localStorage.setItem(LSK, JSON.stringify({
+        v:1, akis:ST, tarih:DB.today, kisi:ME
+      }));
+      kayitli = true;
+      return true;
+    } catch(e){ return false; }
+  }
+  function temizle(){ try { window.localStorage.removeItem(LSK); } catch(e){ /* yok sayılır */ } }
+
+  kayitli = yukle();
+
+  /* Seçili akış URL'de tutulur — ?akis=<kod> */
+  function urlAkis(){
+    var q = new URLSearchParams(location.search).get('akis');
+    return AKIS_BY[q] ? q : AKIS[0].kod;
+  }
+  var secili = urlAkis();
+  function urlYaz(){
+    var q = new URLSearchParams(location.search);
+    q.set('akis', secili);
+    history.replaceState({}, '', location.pathname + '?' + q.toString() + location.hash);
+  }
+
+  function adimlar(k){ return ST[k] || []; }
+  function akis(){ return AKIS_BY[secili]; }
+
+  /* =====================================================================
+     5. HESAP — zincir, bekleyen kayıtlar, SLA, veri uyumu
+     ===================================================================== */
+  /* Bir kayda uygulanacak adımlar — sıra korunur */
+  function uygulanan(k, it){
+    return adimlar(k).filter(function(st){ return kosulGecer(st, it); });
+  }
+
+  /* Kaydın takıldığı adım — veride adım sayacı varsa o, yoksa ilk adım */
+  function takiliIndex(it, uyg){
+    if(!uyg.length) return -1;
+    var i = it.adim == null ? 0 : it.adim;
+    return Math.max(0, Math.min(i, uyg.length - 1));
+  }
+
+  function beklemeGun(it){
+    var d = F.days(it.tarih);
+    return d == null ? null : -d;              /* geçmiş tarih → pozitif bekleme */
+  }
+  function slaAsim(it, st){
+    var b = beklemeGun(it);
+    if(b == null || !st) return null;
+    return b - st.sla;                          /* > 0 → SLA aşıldı */
+  }
+
+  function bekleyenler(k){
+    var ak = AKIS_BY[k];
+    return (ak.bekleyen() || []).map(function(it){
+      var uyg = uygulanan(k, it);
+      var ix = takiliIndex(it, uyg);
+      it.uyg = uyg;
+      it.ix = ix;
+      it.st = ix >= 0 ? uyg[ix] : null;
+      it.asim = slaAsim(it, it.st);
+      return it;
+    });
+  }
+
+  /* Adım başına takılan kayıt sayısı */
+  function adimYuk(k){
+    var say = adimlar(k).map(function(){ return 0; });
+    bekleyenler(k).forEach(function(it){
+      if(it.ix < 0 || !it.st) return;
+      var g = adimlar(k).indexOf(it.st);
+      if(g >= 0) say[g]++;
+    });
+    return say;
+  }
+
+  /* ---- Veri uyumu — yalnız satın almada denetlenebilir ----------------
+     DB.purchases.onayToplam ve DB.purchaseApprovals.rol dizisi, buradaki
+     adımlardan hesaplanan zincirle karşılaştırılır. Fark çıkarsa eşikler
+     veriyle uyumsuzdur; kullanıcı bunu anında görür (L-08). */
+  function uyumRapor(){
+    var sapan = [], sayac = [], toplam = 0;
+    DB.purchases.filter(function(x){ return x.aktif; }).forEach(function(x){
+      toplam++;
+      var it = { tutar:x.tahminiMaliyet, sure:null, kategori:x.kategori, proje:x.proje };
+      var uyg = uygulanan('satinalma', it);
+      var hesapAd = uyg.map(function(s){ return DB.roleName(s.rol); });
+      var z = DB.purchaseApprovals.filter(function(a){ return a.talep === x.kod; })
+        .sort(function(a, b){ return a.sira - b.sira; });
+      var veriZincir = z.map(function(a){ return a.rol; });
+      var fark = null;
+      if(uyg.length !== x.onayToplam){
+        fark = 'Adım sayısı ' + uyg.length + ', veride ' + x.onayToplam;
+      } else if(veriZincir.length && veriZincir.join(' → ') !== hesapAd.join(' → ')){
+        fark = 'Makam sırası: ' + hesapAd.join(' → ') + ' · veride ' + veriZincir.join(' → ');
+      }
+      if(fark) sapan.push({ kod:x.kod, fark:fark });
+
+      /* Ayrı eksen: kaydın onayAdim sayacı, zincirdeki onaylı adım sayısıyla
+         tutuyor mu? Bu eşiklerle ilgili değil, verinin kendi içindeki
+         tutarlılığıdır (L-08) — ekran onu düzeltmez, görünür kılar. */
+      if(z.length){
+        var onayli = z.filter(function(a){ return a.durum === 'Onaylandı'; }).length;
+        if(onayli !== x.onayAdim){
+          sayac.push({ kod:x.kod, onayli:onayli, sayac:x.onayAdim });
+        }
+      }
+    });
+    return { toplam:toplam, sapan:sapan, sayac:sayac };
+  }
+
+  /* =====================================================================
+     6. MAKAM AÇIKLAMALARI
+     ===================================================================== */
+  var MAKAM_NOT = {
+    depmudur:'Talep edenin yöneticisi (personel kartındaki yönetici alanı)',
+    pm:'İlgili projenin yöneticisi (proje kartındaki PM alanı)',
+    musteri:'Müşteri tarafındaki yetkili kullanıcı'
+  };
+  function makamAciklama(rolKey){
+    if(MAKAM_NOT[rolKey]) return MAKAM_NOT[rolKey];
+    var h = makamHavuz(rolKey);
+    if(!h.length) return 'Bu rolü taşıyan kullanıcı yok — adım askıda kalır';
+    return h.map(function(e){ return e.ad; }).join(' · ');
+  }
+  function makamSorun(rolKey){
+    if(!onaylayabilir(rolKey)) return 'Bu rolün yetki matrisinde onaylama yetkisi kapalı';
+    if(!MAKAM_NOT[rolKey] && !makamHavuz(rolKey).length) return 'Bu rolü taşıyan kullanıcı yok';
+    return null;
+  }
+  function sorunlar(k){
+    return adimlar(k).map(function(st, i){
+      var s = makamSorun(st.rol);
+      return s ? { i:i, rol:st.rol, sorun:s } : null;
+    }).filter(Boolean);
+  }
+
+  /* =====================================================================
+     7. SAYFA BAŞLIĞI VE UYARILAR
+     ===================================================================== */
+  var phActions = [
+    { label:'Onay Kuyruğu', icon:'i-inbox', cls:'btn-line', href:'app-panel-onaylar.html' },
+    { label:'Yetki Matrisi', icon:'i-key', cls:'btn-line', href:'app-ayar-yetki.html' }
+  ];
+  if(canEdit) phActions.push({ label:'Adım ekle', icon:'i-plus', cls:'btn-acc',
+    run:function(){ acEkleModal(); } });
+
+  GV.pageHead({ eyebrow:'Ayarlar', title:'Onay Akışları', sub:'—', actions:phActions });
+  GV.shell.crumb('Onay Akışları');
+
+  function setSub(){
+    var el = document.querySelector('.gv-page-head .ph-sub');
+    if(!el) return;
+    var toplamAdim = AKIS.reduce(function(s, a){ return s + adimlar(a.kod).length; }, 0);
+    var toplamBek = AKIS.reduce(function(s, a){ return s + bekleyenler(a.kod).length; }, 0);
+    el.textContent = AKIS.length + ' akış · ' + toplamAdim + ' onay adımı · ' + toplamBek +
+      ' kayıt onay bekliyor · ' + F.date(DB.today) + ' eksenli';
+  }
+
+  function uyarilar(){
+    var out = '';
+    if(!canEdit){
+      out += '<div class="u-mb-4">' + GV.notice({
+        tone:'warn', title:'Bu ekran sizin için salt okunur',
+        text:'Onay adımı eklemek, silmek, sırasını ya da eşiklerini değiştirmek için düzenleme ' +
+             'yetkisi ve “tüm şirket” silme kapsamı gerekir. Oturum rolünüz “' +
+             DB.roleName(GV.perm.role()) + '” bu koşulu karşılamıyor; akışları ve bekleyen ' +
+             'kayıtların hangi adımda takıldığını inceleyebilir, değişiklik yapamazsınız.',
+        actions:[{ label:'Rolümün yetkilerini gör', href:'app-ayar-yetki.html?rol=' + GV.perm.role() }]
+      }) + '</div>';
+    }
+    out += '<div class="u-mb-4">' + GV.notice({
+      tone:'info', title:'Adımda kişi değil makam tutulur',
+      text:'Onay adımı bir role bağlanır; onaylayacak kişi kayıt işlenirken çözülür. ' +
+           '“Departman Yöneticisi” talep edenin personel kartındaki yönetici alanından, ' +
+           '“Proje Yöneticisi” proje kartındaki PM alanından okunur — bu kural veriyle ' +
+           'doğrulanabilir: SAT-2026-014 talebini Tolga Bayrak açmış, onay zincirinin ilk ' +
+           'adımı yöneticisi Mert Özkan’a düşmüştür. Diğer makamlar rolü taşıyan kullanıcıya gider. ' +
+           'Satın alma eşikleri mevcut altı talep ve beş onay adımı kaydından geri türetilmiştir; ' +
+           'eşiği değiştirdiğinizde veri uyumu satırı farkı anında gösterir.'
+    }) + '</div>';
+    var u = uyumRapor();
+    if(u.sapan.length){
+      out += '<div class="u-mb-4">' + GV.notice({
+        tone:'warn', title:'Satın alma eşikleri mevcut veriyle uyuşmuyor',
+        text:u.toplam + ' talebin ' + u.sapan.length + ' tanesinde hesaplanan zincir, kayıtta yazılı ' +
+             'onay adımından farklı: ' + u.sapan.map(function(s){ return s.kod + ' — ' + s.fark; }).join(' · ') +
+             '. Eşikleri eski değerine döndürün ya da bu farkın bilinçli olduğunu kabul edin.'
+      }) + '</div>';
+    }
+    document.getElementById('uyari').innerHTML = out;
+  }
+
+  /* =====================================================================
+     8. PARÇALAR
+     ===================================================================== */
+  function navHtml(){
+    var grup = '';
+    var out = '<nav class="gv-rp-nav" aria-label="Onay akışları">' +
+              '<div class="gv-rp-navhead">Akışlar</div><div class="gv-rp-list">';
+    AKIS.forEach(function(a){
+      if(a.grup !== grup){ grup = a.grup; out += '<div class="gv-rp-group">' + esc(grup) + '</div>'; }
+      var n = bekleyenler(a.kod).length;
+      out += '<button type="button" class="gv-rp-item' + (a.kod === secili ? ' is-on' : '') +
+        '" data-akis="' + esc(a.kod) + '" aria-current="' + (a.kod === secili ? 'true' : 'false') + '">' +
+        ico(a.icon) + '<span>' + esc(a.ad) + '</span>' +
+        '<span class="chip-cnt">' + adimlar(a.kod).length + (n ? ' · ' + n : '') + '</span></button>';
+    });
+    return out + '</div></nav>';
+  }
+
+  function kpiHtml(){
+    var ak = akis(), bek = bekleyenler(secili), ad = adimlar(secili);
+    var asan = bek.filter(function(it){ return it.asim != null && it.asim > 0; });
+    var srn = sorunlar(secili);
+    var ortSla = ad.length ? Math.round(ad.reduce(function(s, x){ return s + x.sla; }, 0) * 10 / ad.length) / 10 : 0;
+    var enUzun = 0;
+    bek.forEach(function(it){ if(it.uyg.length > enUzun) enUzun = it.uyg.length; });
+
+    var cards = [
+      { ic:ak.icon, tone:'accent', num:ad.length + ' adım',
+        lbl:'Zincirin en uzun hâli · bekleyen kayıtlarda en fazla ' + enUzun + ' adım devrede' },
+      { ic:'i-inbox', tone:bek.length ? 'info' : 'neutral', num:F.num(bek.length),
+        lbl:'Bu akışta onay bekleyen kayıt · ' + esc(ak.kaynak) },
+      { ic:'i-clock', tone:asan.length ? 'danger' : 'ok', num:F.num(asan.length),
+        lbl:'SLA süresi aşılmış kayıt · ortalama adım SLA’sı ' + ortSla + ' gün' },
+      { ic:'i-shield-check', tone:srn.length ? 'warn' : 'ok', num:F.num(srn.length),
+        lbl:srn.length ? 'Yapılandırma uyarısı: ' + esc(srn.map(function(s){ return DB.roleName(s.rol); }).join(', '))
+                       : 'Tüm makamların onay yetkisi ve kullanıcısı var' }
+    ];
+    return cards.map(function(c){
+      return '<div class="kpi is-' + c.tone + '"><div class="kpi-ico">' + ico(c.ic,'ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">' + esc(c.num) + '</div>' +
+        '<div class="kpi-lbl">' + c.lbl + '</div></div></div>';
+    }).join('');
+  }
+
+  function zincirHtml(){
+    var ak = akis(), ad = adimlar(secili), yuk = adimYuk(secili);
+    if(!ad.length){
+      return GV.empty({ icon:'i-stamp', title:'Bu akışta hiç onay adımı yok',
+        desc:'Adım tanımlanmadığı için ' + ak.birimTek + ' kayıtları oluşturulduğu anda onaylanmış ' +
+             'sayılır. En az bir onay makamı eklemeniz önerilir.' });
+    }
+    return GV.chain(ad.map(function(st, i){
+      return {
+        rol:(i + 1) + ' · ' + DB.roleName(st.rol),
+        kisi:makamAciklama(st.rol),
+        durum:yuk[i] ? 'Bekliyor' : 'Kuyruk boş',
+        not:kosulMetin(st, ak) + ' · SLA ' + st.sla + ' gün' +
+            (st.atlanabilir ? ' · atlanabilir' : ' · zorunlu') +
+            (yuk[i] ? ' · ' + yuk[i] + ' kayıt takılı' : '')
+      };
+    }));
+  }
+
+  function esikHucre(st, i, ak){
+    var k = KOSUL[st.kosul] || {};
+    if(!k.esik){
+      return '<span class="cell-main">' + esc(kosulMetin(st, ak)) + '</span>' +
+             '<span class="cell-sub">' + esc(k.ad || '—') + '</span>';
+    }
+    return '<span class="cell-main">' + esc(k.ad) +
+        ' <span class="u-xs u-muted">(' + (k.para ? '₺' : esc(ak.sureBirim)) + ')</span></span>' +
+      '<input class="inp" type="number" min="0" step="' + (k.para ? '1000' : '1') + '" ' +
+        'value="' + (st.esik == null ? '' : st.esik) + '" data-esik="' + i + '"' +
+        (canEdit ? '' : ' disabled') +
+        ' aria-label="' + esc(DB.roleName(st.rol) + ' adımının eşik değeri') + '">' +
+      '<span class="cell-sub">' + esc(kosulMetin(st, ak)) + '</span>';
+  }
+
+  function adimTabloHtml(){
+    var ak = akis(), ad = adimlar(secili), yuk = adimYuk(secili);
+    if(!ad.length) return '';
+    var body = ad.map(function(st, i){
+      var srn = makamSorun(st.rol);
+      return '<tr' + (srn ? ' class="is-passive"' : '') + '>' +
+        '<td><span class="cell-main u-num">' + (i + 1) + '</span></td>' +
+        '<td class="cell-wrap"><span class="cell-main">' + esc(DB.roleName(st.rol)) + '</span>' +
+          '<span class="cell-sub">' + esc(makamAciklama(st.rol)) + '</span>' +
+          (srn ? '<span class="cell-sub u-warn">' + esc(srn) + '</span>' : '') + '</td>' +
+        '<td class="cell-wrap">' + esikHucre(st, i, ak) + '</td>' +
+        '<td class="num"><input class="inp" type="number" min="0" max="30" step="1" value="' + st.sla +
+          '" data-sla="' + i + '"' + (canEdit ? '' : ' disabled') +
+          ' aria-label="' + esc(DB.roleName(st.rol) + ' adımının SLA günü') + '">' +
+          '<span class="cell-sub">gün içinde yanıt</span></td>' +
+        '<td><label class="f-switch"><input type="checkbox" data-atla="' + i + '"' +
+          (st.atlanabilir ? ' checked' : '') + (canEdit ? '' : ' disabled') +
+          ' aria-label="' + esc(DB.roleName(st.rol) + ' adımı atlanabilir mi') + '">' +
+          '<span class="sw"></span></label>' +
+          '<span class="cell-sub">' + (st.atlanabilir ? 'Makam yoksa atlanır' : 'Atlanamaz') + '</span></td>' +
+        '<td class="cell-wrap"><span class="cell-sub">' + esc(st.vekil) + '</span></td>' +
+        '<td class="num">' + (yuk[i]
+          ? '<span class="badge is-warn">' + yuk[i] + '</span>'
+          : '<span class="u-faint">0</span>') + '</td>' +
+        '<td class="u-nowrap">' + adimAksiyon(i, ad.length) + '</td></tr>';
+    }).join('');
+
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-list') + ' Onay Adımları</h3></div>' +
+      '<p class="u-sm u-muted">Adımlar yukarıdan aşağı sırayla işler. Koşulu sağlamayan adım o kayıt ' +
+      'için hiç oluşmaz. SLA süresi dolan adım yöneticiye eskalasyon üretir; “atlanabilir” işaretli ' +
+      'adım, makamı boşsa veya vekil de yoksa sessizce atlanır — işaretli değilse kayıt askıda kalır.</p>' +
+      '<div class="gv-tablewrap is-sticky1 u-mt-4"><table class="gtable"><thead><tr>' +
+      '<th class="th-narrow">Sıra</th><th>Onay makamı</th><th>Koşul ve eşik</th>' +
+      '<th class="th-narrow num">SLA</th><th class="th-narrow">Atlanabilir</th>' +
+      '<th>Vekil kuralı</th><th class="th-narrow num">Bekleyen</th><th class="th-narrow">İşlem</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + adimKartHtml() + '</div></div>';
+  }
+
+  function adimAksiyon(i, n){
+    if(!canEdit) return '<span class="u-faint">—</span>';
+    return '<span class="u-row">' +
+      '<button type="button" class="ia" data-mv="up" data-i="' + i + '"' + (i === 0 ? ' disabled' : '') +
+        ' title="Bir yukarı taşı" aria-label="Adımı bir yukarı taşı">' + ico('i-chev-up','ic-sm') + '</button>' +
+      '<button type="button" class="ia" data-mv="down" data-i="' + i + '"' + (i === n - 1 ? ' disabled' : '') +
+        ' title="Bir aşağı taşı" aria-label="Adımı bir aşağı taşı">' + ico('i-chev-down','ic-sm') + '</button>' +
+      '<button type="button" class="ia is-danger" data-sil="' + i + '"' +
+        ' title="Adımı sil" aria-label="Adımı sil">' + ico('i-trash','ic-sm') + '</button>' +
+      '</span>';
+  }
+
+  function adimKartHtml(){
+    var ak = akis(), ad = adimlar(secili), yuk = adimYuk(secili);
+    return ad.map(function(st, i){
+      return '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+        '<span class="cell-main">' + (i + 1) + ' · ' + esc(DB.roleName(st.rol)) + '</span>' +
+        '<div class="gv-mrow-code">' + esc(makamAciklama(st.rol)) + '</div></div>' +
+        (yuk[i] ? '<span class="badge is-warn">' + yuk[i] + ' bekliyor</span>'
+                : '<span class="badge is-neutral">Kuyruk boş</span>') + '</div>' +
+        '<div class="gv-mrow-meta">' +
+        '<span>' + ico('i-filter','ic-sm') + esc(kosulMetin(st, ak)) + '</span>' +
+        '<span>' + ico('i-clock','ic-sm') + 'SLA ' + st.sla + ' gün</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + esc(st.vekil) + '</span></div>' +
+        '<div class="u-row u-wrap u-mt-4">' +
+        '<label class="f-switch"><input type="checkbox" data-atla="' + i + '"' +
+          (st.atlanabilir ? ' checked' : '') + (canEdit ? '' : ' disabled') +
+          ' aria-label="' + esc(DB.roleName(st.rol) + ' adımı atlanabilir mi') + '">' +
+          '<span class="sw"></span><span>Atlanabilir</span></label>' +
+        adimAksiyon(i, ad.length) + '</div></div>';
+    }).join('');
+  }
+
+  /* ---- Canlı etki önizlemesi ------------------------------------------
+     Sayılar tahmin değil; gerçek koleksiyondaki bekleyen kayıtlar yukarıdaki
+     adımlardan geçirilerek hesaplanır. Eşiği değiştirdiğinizde bu tablo
+     anında değişir. */
+  function slaHucre(it){
+    var b = beklemeGun(it);
+    if(b == null) return '<span class="u-faint">—</span>';
+    if(b < 0){
+      /* Referans tarih ileride (termin, yenileme tarihi) — SLA sayacı başlamadı */
+      return '<span class="cell-main">' + esc(F.rel(it.tarih)) + '</span>' +
+             '<span class="cell-sub">SLA sayacı henüz başlamadı</span>';
+    }
+    if(it.asim != null && it.asim > 0){
+      return '<span class="badge is-danger">' + it.asim + ' gün aşım</span>' +
+             '<span class="cell-sub">' + b + ' gündür bekliyor</span>';
+    }
+    return '<span class="cell-main u-num">' + b + ' gün</span>' +
+           '<span class="cell-sub">SLA' + (it.st ? ' ' + it.st.sla + ' gün' : '') + ' içinde</span>';
+  }
+  function olcuHucre(it, ak){
+    if(it.tutar != null) return '<span class="cell-money">' + F.money(it.tutar) + '</span>';
+    if(it.sure != null) return '<span class="cell-main u-num">' + it.sure + ' ' + esc(ak.sureBirim) + '</span>';
+    return '<span class="u-faint">—</span>';
+  }
+
+  function onizlemeHtml(){
+    var ak = akis(), bek = bekleyenler(secili);
+    var head = '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-chart-bar') + ' Canlı Etki — Bu Akışta Bekleyen Kayıtlar</h3></div>' +
+      '<p class="u-sm u-muted">Kaynak: <b>' + esc(ak.kaynak) + '</b>. Aşağıdaki kayıtlar ' +
+      'yukarıdaki adımlardan geçirilerek hesaplanmıştır; adım eklediğinizde, sildiğinizde ya da ' +
+      'eşiği değiştirdiğinizde “takıldığı adım” kolonu anında değişir. ' +
+      (secili === 'satinalma'
+        ? 'Satın almada kayıt üzerinde adım sayacı (onayAdim) tutulduğu için kaydın kaçıncı adımda ' +
+          'olduğu veriden okunur.'
+        : 'Bu modülde kayıt üzerinde adım sayacı tutulmaz; kayıtlar zincirin ilk uygulanabilir ' +
+          'adımında gösterilir.') + '</p>';
+
+    if(!bek.length){
+      return head + '<div class="u-mt-4">' + GV.empty({
+        icon:'i-check-circle', title:'Bu akışta bekleyen kayıt yok',
+        desc:'Kaynak koleksiyonda onay bekleyen ' + ak.birimTek + ' bulunmuyor. Adım ve eşik ' +
+             'değişiklikleri yine de geçerlidir; yeni kayıtlar bu zincire göre yönlendirilir.'
+      }) + '</div></div>';
+    }
+
+    var rows = bek.map(function(it){
+      var srn = it.st ? makamSorun(it.st.rol) : null;
+      return '<tr' + (it.asim != null && it.asim > 0 ? ' class="is-passive"' : '') + '>' +
+        '<td class="cell-wrap"><span class="cell-main">' + esc(it.baslik) + '</span>' +
+          '<span class="cell-code">' + esc(it.kod) + '</span></td>' +
+        '<td>' + (it.kisi ? GV.user(it.kisi, { sm:true }) : '<span class="u-faint">—</span>') + '</td>' +
+        '<td>' + GV.dateCell(it.tarih) + '<span class="cell-sub">' + esc(ak.tarihLbl) + '</span></td>' +
+        '<td class="num">' + olcuHucre(it, ak) + '</td>' +
+        '<td class="cell-wrap">' + (it.st
+          ? '<span class="cell-main">' + (it.ix + 1) + ' / ' + it.uyg.length + ' · ' +
+            esc(DB.roleName(it.st.rol)) + '</span>' +
+            '<span class="cell-sub">' + esc(makamKisiAd(it.st.rol, it)) + '</span>' +
+            (srn ? '<span class="cell-sub u-warn">' + esc(srn) + '</span>' : '')
+          : '<span class="badge is-ok">Onay gerekmiyor</span>' +
+            '<span class="cell-sub">Hiçbir adımın koşulu sağlanmıyor</span>') + '</td>' +
+        '<td>' + slaHucre(it) + '</td>' +
+        '<td class="cell-wrap"><span class="u-xs u-muted">' +
+          esc(it.uyg.map(function(s){ return DB.roleName(s.rol); }).join(' → ') || 'Zincir boş') +
+          '</span></td></tr>';
+    }).join('');
+
+    var kartlar = bek.map(function(it){
+      return '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+        '<span class="cell-main">' + esc(it.baslik) + '</span>' +
+        '<div class="gv-mrow-code">' + esc(it.kod) + '</div></div>' +
+        (it.asim != null && it.asim > 0
+          ? '<span class="badge is-danger">' + it.asim + ' gün aşım</span>'
+          : '<span class="badge is-info">Sürede</span>') + '</div>' +
+        '<div class="gv-mrow-meta">' +
+        '<span>' + ico('i-user','ic-sm') + esc(it.kisi ? DB.empName(it.kisi) : '—') + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + F.date(it.tarih) + '</span>' +
+        (it.tutar != null ? '<span>' + ico('i-wallet','ic-sm') + F.money(it.tutar) + '</span>' : '') +
+        '<span>' + ico('i-stamp','ic-sm') +
+          (it.st ? (it.ix + 1) + '/' + it.uyg.length + ' · ' + esc(DB.roleName(it.st.rol))
+                 : 'Onay gerekmiyor') + '</span></div></div>';
+    }).join('');
+
+    return head +
+      '<div class="gv-tablewrap u-mt-4"><table class="gtable"><thead><tr>' +
+      '<th>Kayıt</th><th>Talep eden</th><th>' + esc(ak.tarihLbl) + '</th>' +
+      '<th class="num">' + esc(ak.tutarLbl || 'Ölçü') + '</th><th>Takıldığı adım</th>' +
+      '<th>Bekleme</th><th>Uygulanan zincir</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + kartlar + '</div>' +
+      '<div class="u-row u-wrap u-mt-4">' +
+        '<a class="btn btn-line btn-sm" href="' + esc(ak.href) + '">' + ico('i-external','ic-sm') +
+        ' ' + esc(ak.ad) + ' listesini aç</a>' +
+        '<a class="btn btn-line btn-sm" href="app-panel-onaylar.html">' + ico('i-inbox','ic-sm') +
+        ' Onay kuyruğunda gör</a></div></div>';
+  }
+
+  /* ---- Satın alma: veri uyumu bölümü ---------------------------------- */
+  function uyumHtml(){
+    if(secili !== 'satinalma') return '';
+    var u = uyumRapor();
+    var rows = DB.purchases.filter(function(x){ return x.aktif; }).map(function(x){
+      var it = { tutar:x.tahminiMaliyet, sure:null, kategori:x.kategori, proje:x.proje };
+      var uyg = uygulanan('satinalma', it);
+      var hesap = uyg.map(function(s){ return DB.roleName(s.rol); });
+      var veri = DB.purchaseApprovals.filter(function(a){ return a.talep === x.kod; })
+        .sort(function(a, b){ return a.sira - b.sira; });
+      var ok = uyg.length === x.onayToplam &&
+               (!veri.length || veri.map(function(a){ return a.rol; }).join('|') === hesap.join('|'));
+      return '<tr>' +
+        '<td><span class="cell-main">' + esc(x.urun) + '</span>' +
+          '<span class="cell-code">' + esc(x.kod) + '</span></td>' +
+        '<td class="num"><span class="cell-money">' + F.money(x.tahminiMaliyet) + '</span></td>' +
+        '<td><span class="tag">' + esc(x.kategori) + '</span></td>' +
+        '<td class="cell-wrap"><span class="u-xs">' + esc(hesap.join(' → ') || '—') + '</span></td>' +
+        '<td class="num"><b class="u-num">' + uyg.length + '</b>' +
+          '<span class="cell-sub">veride ' + x.onayToplam + '</span></td>' +
+        '<td class="cell-wrap"><span class="u-xs u-muted">' +
+          esc(veri.length ? veri.map(function(a){ return a.rol + ' (' + a.durum + ')'; }).join(' → ')
+                          : 'Zincir kaydı yok — yalnız adım sayısı karşılaştırılır') + '</span></td>' +
+        '<td>' + (ok ? GV.badge('Uyumlu','is-ok') : GV.badge('Sapma','is-danger')) + '</td></tr>';
+    }).join('');
+
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-shield-check') + ' Veri Uyumu — Eşikler Mevcut Talepleri Doğru Yönlendiriyor mu?</h3></div>' +
+      '<p class="u-sm u-muted">Satın alma, kayıt üzerinde onay adım sayacı taşıyan tek modüldür ' +
+      '(<b>onayAdim / onayToplam</b>) ve beş adımlık gerçek onay zinciri kaydı vardır ' +
+      '(<b>DB.purchaseApprovals</b>). Bu tablo, buradaki eşiklerle hesaplanan zinciri o kayıtlarla ' +
+      'karşılaştırır. Eşiği değiştirdiğinizde sapma satırları anında görünür — ayar ekranı ile ' +
+      'işlem verisi arasındaki çelişki gizlenmez.</p>' +
+      '<div class="u-row u-wrap u-mt-4">' +
+        (u.sapan.length ? GV.badge(u.sapan.length + ' talepte sapma','is-danger')
+                        : GV.badge(u.toplam + ' talebin tamamı uyumlu','is-ok')) +
+        '<span class="u-sm u-muted">Toplam ' + u.toplam + ' talep · ' +
+        DB.purchaseApprovals.length + ' kayıtlı onay adımı</span></div>' +
+      (u.sayac.length
+        ? '<div class="u-mt-4">' + GV.notice({
+            tone:'warn', title:'Kayıttaki adım sayacı, onay zinciriyle tutmuyor',
+            text:u.sayac.map(function(s){
+                   return s.kod + ' talebinde zincirde ' + s.onayli + ' adım onaylanmış, ' +
+                          'kayıttaki onayAdim sayacı ise ' + s.sayac + ' diyor';
+                 }).join(' · ') +
+                 '. Bu bir eşik sorunu değil, verinin kendi içindeki çelişkisidir; türetilebilir ' +
+                 'sayaç kayda yazıldığı için oluşur. Bu ekran kaydın nerede takıldığını hesaplarken ' +
+                 'sayaca değil GERÇEK onay zincirine (DB.purchaseApprovals) bakar.'
+          }) + '</div>'
+        : '') +
+      '<div class="gv-tablewrap u-mt-4"><table class="gtable"><thead><tr>' +
+      '<th>Talep</th><th class="num">Tutar</th><th>Kategori</th><th>Hesaplanan zincir</th>' +
+      '<th class="num">Adım</th><th>Veride kayıtlı zincir</th><th>Uyum</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
+
+  function footHtml(){
+    var ad = adimlar(secili);
+    return '<div class="gc-foot">' +
+      '<span class="gv-count" id="akFoot">' + esc(footText()) + '</span>' +
+      '<span class="u-row">' +
+        (canEdit
+          ? '<button type="button" class="btn btn-line btn-sm" data-act="sifirla">' +
+              ico('i-refresh','ic-sm') + ' Varsayılana dön</button>' +
+            '<button type="button" class="btn btn-acc btn-sm" data-act="ekle">' +
+              ico('i-plus','ic-sm') + ' Adım ekle</button>'
+          : '<span class="u-sm u-faint">' + ad.length + ' adım · salt okunur</span>') +
+      '</span></div>';
+  }
+  function footText(){
+    var ad = adimlar(secili), bek = bekleyenler(secili);
+    return akis().ad + ' · ' + ad.length + ' adım · ' + bek.length + ' kayıt bekliyor · ' +
+      (kayitli ? 'düzenlemeler tarayıcıda saklı (localStorage: ' + LSK + ')'
+               : 'fabrika varsayılanı kullanılıyor');
+  }
+
+  /* =====================================================================
+     9. RENDER
+     ===================================================================== */
+  function render(){
+    var ak = akis();
+    mount.innerHTML =
+      '<div class="gv-rp">' + navHtml() +
+      '<div class="gv-rp-body">' +
+        '<section class="gv-rp-intro"><h2>' + esc(ak.ad) + '</h2>' +
+        '<p>' + esc(ak.aciklama) + '</p></section>' +
+        '<div class="kpi-grid">' + kpiHtml() + '</div>' +
+        '<div class="gv-card">' +
+          '<div class="gc-head"><div>' +
+            '<h2 class="gc-title">' + ico(ak.icon) + esc(ak.ad) + ' Zinciri</h2>' +
+            '<div class="gc-sub">' + esc(ak.grup) + ' · kaynak ' + esc(ak.kaynak) + '</div>' +
+          '</div><div class="gc-head-acts">' +
+            '<span class="tag">' + adimlar(secili).length + ' adım</span>' +
+            '<span class="tag">' + bekleyenler(secili).length + ' bekleyen</span>' +
+          '</div></div>' +
+          '<div class="gc-body">' +
+            '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+              '<h3>' + ico('i-stamp') + ' Zincir Görünümü</h3></div>' +
+              '<p class="u-sm u-muted">Yeşil olmayan kutular henüz kimsenin önünde beklemeyen ' +
+              'adımlardır; sarı kutu o makamda takılı kayıt olduğunu gösterir.</p>' +
+              '<div class="u-mt-4">' + zincirHtml() + '</div></div>' +
+            adimTabloHtml() +
+            onizlemeHtml() +
+            uyumHtml() +
+          '</div>' +
+          footHtml() +
+        '</div>' +
+      '</div></div>';
+    uyarilar();
+    setSub();
+    baglaNav();
+  }
+
+  function baglaNav(){
+    Array.prototype.forEach.call(mount.querySelectorAll('[data-akis]'), function(b){
+      b.addEventListener('click', function(){
+        if(b.dataset.akis === secili) return;
+        secili = b.dataset.akis;
+        urlYaz(); render();
+        var body = mount.querySelector('.gv-rp-body');
+        if(body && window.innerWidth <= 980) body.scrollIntoView({ behavior:'smooth', block:'start' });
+      });
+    });
+  }
+
+  /* =====================================================================
+     10. DÜZENLEME — adım ekle / sil / sırala / eşik ve SLA
+     Her değişiklik localStorage'a yazılır, DB.logs'a eski → yeni kaydı
+     düşer ve GV.toast ile geri bildirim verilir.
+     ===================================================================== */
+  function zincirMetin(k){
+    var ad = adimlar(k);
+    if(!ad.length) return 'Adım yok';
+    return ad.map(function(s, i){ return (i + 1) + '. ' + DB.roleName(s.rol); }).join(' → ');
+  }
+
+  function uygula(islem, eski){
+    if(!kaydet()){
+      GV.toast('Tarayıcı deposuna yazılamadı — değişiklik yalnız bu oturumda geçerli', 'warn', 4000);
+    }
+    logKaydi(islem, akis().ad, eski, zincirMetin(secili));
+    render();
+  }
+
+  function yetkiYok(){
+    GV.toast('Onay akışını değiştirme yetkiniz yok', 'danger');
+    return false;
+  }
+
+  /* ---- Eşik / SLA / atlanabilir ---- */
+  mount.addEventListener('change', function(e){
+    var t = e.target;
+    var ad = adimlar(secili);
+
+    if(t.matches('input[data-esik]')){
+      if(!canEdit) return yetkiYok();
+      var i = +t.dataset.esik, st = ad[i];
+      if(!st) return;
+      var v = parseInt(t.value, 10);
+      if(isNaN(v) || v < 0){
+        t.value = st.esik == null ? '' : st.esik;
+        GV.toast('Eşik değeri negatif olamaz', 'danger');
+        return;
+      }
+      var oncekiEsik = st.esik;
+      if(oncekiEsik === v) return;
+      st.esik = v;
+      logKaydi('Onay eşiğini değiştirdi', akis().ad + ' · ' + DB.roleName(st.rol),
+               oncekiEsik == null ? '—' : String(oncekiEsik), String(v));
+      if(!kaydet()) GV.toast('Tarayıcı deposuna yazılamadı — değişiklik yalnız bu oturumda geçerli', 'warn', 4000);
+      render();
+      GV.toast(DB.roleName(st.rol) + ' eşiği ' +
+        (KOSUL[st.kosul].para ? F.money(oncekiEsik) + ' → ' + F.money(v)
+                              : oncekiEsik + ' → ' + v + ' ' + akis().sureBirim) +
+        ' olarak güncellendi', 'ok', 3200);
+      return;
+    }
+
+    if(t.matches('input[data-sla]')){
+      if(!canEdit) return yetkiYok();
+      var j = +t.dataset.sla, s2 = ad[j];
+      if(!s2) return;
+      var g = parseInt(t.value, 10);
+      if(isNaN(g) || g < 0 || g > 30){
+        t.value = s2.sla;
+        GV.toast('SLA 0 ile 30 gün arasında olmalı', 'danger');
+        return;
+      }
+      if(s2.sla === g) return;
+      var eskiSla = s2.sla;
+      s2.sla = g;
+      logKaydi('Onay SLA süresini değiştirdi', akis().ad + ' · ' + DB.roleName(s2.rol),
+               eskiSla + ' gün', g + ' gün');
+      if(!kaydet()) GV.toast('Tarayıcı deposuna yazılamadı', 'warn');
+      render();
+      GV.toast(DB.roleName(s2.rol) + ' SLA süresi ' + eskiSla + ' → ' + g + ' gün', 'ok', 2600);
+      return;
+    }
+
+    if(t.matches('input[data-atla]')){
+      if(!canEdit){ t.checked = !t.checked; return yetkiYok(); }
+      var m = +t.dataset.atla, s3 = ad[m];
+      if(!s3) return;
+      s3.atlanabilir = t.checked;
+      logKaydi('Onay adımı atlanabilirliğini değiştirdi', akis().ad + ' · ' + DB.roleName(s3.rol),
+               t.checked ? 'Atlanamaz' : 'Atlanabilir', t.checked ? 'Atlanabilir' : 'Atlanamaz');
+      if(!kaydet()) GV.toast('Tarayıcı deposuna yazılamadı', 'warn');
+      render();
+      GV.toast(DB.roleName(s3.rol) + ' adımı ' + (t.checked ? 'atlanabilir' : 'zorunlu') + ' yapıldı',
+        t.checked ? 'warn' : 'ok', 2600);
+      return;
+    }
+  });
+
+  /* ---- Sırala / sil / ekle / sıfırla ---- */
+  mount.addEventListener('click', function(e){
+    var mv = e.target.closest('[data-mv]');
+    if(mv && !mv.disabled){
+      if(!canEdit) return yetkiYok();
+      var ad = adimlar(secili), i = +mv.dataset.i;
+      var j = mv.dataset.mv === 'up' ? i - 1 : i + 1;
+      if(j < 0 || j >= ad.length) return;
+      var eski = zincirMetin(secili);
+      var adA = DB.roleName(ad[i].rol), adB = DB.roleName(ad[j].rol);
+      var tmp = ad[i]; ad[i] = ad[j]; ad[j] = tmp;
+      uygula('Onay adımı sırasını değiştirdi', eski);
+      GV.toast(adA + ' artık ' + (j + 1) + '. sırada · ' + adB + ' ' + (i + 1) + '. sırada',
+        'ok', 2800);
+      return;
+    }
+
+    var sil = e.target.closest('[data-sil]');
+    if(sil){
+      if(!canEdit) return yetkiYok();
+      acSilOnay(+sil.dataset.sil);
+      return;
+    }
+
+    if(e.target.closest('[data-act=ekle]')){ acEkleModal(); return; }
+    if(e.target.closest('[data-act=sifirla]')){ acSifirla(); return; }
+  });
+
+  function acSilOnay(i){
+    var ad = adimlar(secili), st = ad[i];
+    if(!st) return;
+    var yuk = adimYuk(secili)[i] || 0;
+    GV.confirm({
+      title:'Onay adımını sil', tone:'danger', okLabel:'Adımı sil',
+      text:akis().ad + ' zincirinden “' + DB.roleName(st.rol) + '” makamı kaldırılacak.',
+      body:'<div class="gv-summary">' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Koşul</span>' +
+          '<span class="gv-summary-val">' + esc(kosulMetin(st, akis())) + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">SLA</span>' +
+          '<span class="gv-summary-val">' + st.sla + ' gün</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Bu adımda bekleyen kayıt</span>' +
+          '<span class="gv-summary-val">' + (yuk
+            ? '<span class="badge is-warn">' + yuk + ' kayıt</span>' : '0') + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Kalan adım</span>' +
+          '<span class="gv-summary-val">' + (ad.length - 1) + '</span></div>' +
+        '</div>' +
+        '<p class="u-sm u-muted u-mt-4">' + (yuk
+          ? 'Bu adımda bekleyen ' + yuk + ' kayıt, zincirin bir sonraki uygulanabilir adımına düşer; ' +
+            'onay geçmişi silinmez.'
+          : 'Bu adımda bekleyen kayıt yok; silme işlemi mevcut kuyruğu etkilemez.') +
+        ' Değişiklik log kayıtlarına yazılır.</p>'
+    }).then(function(ok){
+      if(!ok) return;
+      var eski = zincirMetin(secili);
+      ad.splice(i, 1);
+      uygula('Onay adımı sildi', eski);
+      GV.toast('“' + DB.roleName(st.rol) + '” adımı silindi · zincir ' + ad.length + ' adım', 'ok', 3200);
+    });
+  }
+
+  function acSifirla(){
+    if(!canEdit) return yetkiYok();
+    GV.confirm({
+      title:'Varsayılana dön', tone:'danger', okLabel:'Varsayılana dön',
+      text:'Yedi akışın tamamı fabrika tanımına döner: adım sırası, eşikler, SLA süreleri ve ' +
+           'atlanabilirlik ayarları sıfırlanır. Tarayıcıda saklanan düzenlemeler silinir.'
+    }).then(function(ok){
+      if(!ok) return;
+      var eski = zincirMetin(secili);
+      ST = JSON.parse(JSON.stringify(VARSAYILAN));
+      temizle();
+      kayitli = false;
+      logKaydi('Onay akışlarını varsayılana döndürdü', 'Tüm akışlar', eski, zincirMetin(secili));
+      render();
+      GV.toast('Onay akışları fabrika tanımına döndürüldü', 'ok');
+    });
+  }
+
+  /* ---- Adım ekle (GV.modal) ------------------------------------------- */
+  function acEkleModal(){
+    if(!canEdit) return yetkiYok();
+    var ak = akis(), ad = adimlar(secili);
+    var mevcut = ad.map(function(s){ return s.rol; });
+
+    /* Makam seçenekleri — kademeye göre sıralı, onay yetkisi işaretli */
+    var rolOpts = DB.roles.slice().sort(function(a, b){
+      return a.kademe - b.kademe || a.ad.localeCompare(b.ad, 'tr');
+    }).map(function(r){
+      var kul = MAKAM_NOT[r.key] ? '' : (makamHavuz(r.key).length ? '' : ' · kullanıcısı yok');
+      return '<option value="' + esc(r.key) + '"' + (mevcut.indexOf(r.key) !== -1 ? ' disabled' : '') + '>' +
+        esc(r.ad) + (onaylayabilir(r.key) ? '' : ' · onay yetkisi kapalı') + esc(kul) +
+        (mevcut.indexOf(r.key) !== -1 ? ' · zincirde var' : '') + '</option>';
+    }).join('');
+
+    var kosulOpts = ak.kosullar.map(function(k){
+      return '<option value="' + esc(k) + '">' + esc(KOSUL[k].ad) + '</option>';
+    }).join('');
+
+    var siraOpts = '';
+    for(var i = 0; i <= ad.length; i++){
+      siraOpts += '<option value="' + i + '"' + (i === ad.length ? ' selected' : '') + '>' +
+        (i + 1) + '. sıra' + (i === ad.length ? ' (sona ekle)' : ' — ' + esc(DB.roleName(ad[i].rol)) + ' öncesine') +
+        '</option>';
+    }
+
+    var katListe = ak.kategoriler();
+    var katHtml = katListe.length
+      ? katListe.map(function(c){
+          return '<label class="f-check"><input type="checkbox" data-kat value="' + esc(c) + '">' +
+                 '<span>' + esc(c) + '</span></label>';
+        }).join('')
+      : '<p class="u-sm u-muted">Bu akışta kategori alanı yok.</p>';
+
+    var m = GV.modal({
+      title:'Onay adımı ekle', icon:'i-plus', size:'lg',
+      text:ak.ad + ' · şu an ' + ad.length + ' adım',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-6"><label for="nRol">Onay makamı (rol)</label>' +
+          '<select class="inp" id="nRol"><option value="">Seçiniz…</option>' + rolOpts + '</select>' +
+          '<div class="f-hint" id="nRolHint">Adıma kişi değil rol bağlanır; onaylayacak kişi kayıt ' +
+          'işlenirken çözülür. Zincirde zaten bulunan makamlar seçilemez.</div></div>' +
+        '<div class="field f-col-6"><label for="nSira">Zincirdeki yeri</label>' +
+          '<select class="inp" id="nSira">' + siraOpts + '</select>' +
+          '<div class="f-hint">Adımlar yukarıdan aşağı sırayla işler; sırayı sonradan ok ' +
+          'düğmeleriyle de değiştirebilirsiniz.</div></div>' +
+        '<div class="field f-col-6"><label for="nKosul">Koşul</label>' +
+          '<select class="inp" id="nKosul">' + kosulOpts + '</select>' +
+          '<div class="f-hint">Koşulu sağlamayan kayıtta bu adım hiç oluşmaz.</div></div>' +
+        '<div class="field f-col-3" id="nEsikWrap"><label for="nEsik">Eşik değeri</label>' +
+          '<input class="inp" type="number" id="nEsik" min="0" step="1000" value="100000">' +
+          '<div class="f-hint" id="nEsikHint">Bu değer ve üzeri kayıtlarda adım devreye girer.</div></div>' +
+        '<div class="field f-col-3"><label for="nSla">SLA (gün)</label>' +
+          '<input class="inp" type="number" id="nSla" min="0" max="30" step="1" value="2">' +
+          '<div class="f-hint">Süre dolduğunda eskalasyon bildirimi üretilir.</div></div>' +
+        '<div class="field f-col-12" id="nKatWrap"><span class="f-lbl">Kategoriler</span>' +
+          '<div class="u-row u-wrap">' + katHtml + '</div></div>' +
+        '<div class="field f-col-6"><label for="nVekil">Vekil kuralı</label>' +
+          '<input class="inp" type="text" id="nVekil" maxlength="80" autocomplete="off" ' +
+          'value="Makam boşsa bir üst yönetici"></div>' +
+        '<div class="field f-col-6"><span class="f-lbl">Atlanabilir mi</span>' +
+          '<label class="f-switch"><input type="checkbox" id="nAtla"><span class="sw"></span>' +
+          '<span>Makam ve vekil yoksa adım atlansın</span></label>' +
+          '<div class="f-hint">Kapalıysa makam bulunamadığında kayıt askıda kalır.</div></div>' +
+      '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Adımı ekle', cls:'btn-acc', icon:'i-plus', onClick:function(close, scrim){
+            var rol = scrim.querySelector('#nRol').value;
+            var kosul = scrim.querySelector('#nKosul').value;
+            var sira = parseInt(scrim.querySelector('#nSira').value, 10) || 0;
+            var sla = parseInt(scrim.querySelector('#nSla').value, 10);
+            var vekil = (scrim.querySelector('#nVekil').value || '').trim();
+            var esik = parseInt(scrim.querySelector('#nEsik').value, 10);
+            var liste = Array.prototype.map.call(
+              scrim.querySelectorAll('[data-kat]:checked'), function(x){ return x.value; });
+
+            if(!rol){ GV.toast('Onay makamı seçmelisiniz', 'danger'); return false; }
+            if(mevcut.indexOf(rol) !== -1){
+              GV.toast('“' + DB.roleName(rol) + '” bu zincirde zaten var', 'danger'); return false; }
+            if(isNaN(sla) || sla < 0 || sla > 30){
+              GV.toast('SLA 0 ile 30 gün arasında olmalı', 'danger'); return false; }
+            if(vekil.length < 3){
+              GV.toast('Vekil kuralı en az 3 karakter olmalı', 'danger'); return false; }
+            if(KOSUL[kosul].esik && (isNaN(esik) || esik < 0)){
+              GV.toast('Eşik değeri 0 veya daha büyük olmalı', 'danger'); return false; }
+            if(kosul === 'kategori' && !liste.length){
+              GV.toast('En az bir kategori seçmelisiniz', 'danger'); return false; }
+
+            var eski = zincirMetin(secili);
+            adimlar(secili).splice(sira, 0, {
+              rol:rol, kosul:kosul,
+              esik:KOSUL[kosul].esik ? esik : null,
+              sla:sla, atlanabilir:!!scrim.querySelector('#nAtla').checked,
+              liste:kosul === 'kategori' ? liste : null,
+              vekil:vekil
+            });
+            uygula('Onay adımı ekledi', eski);
+            GV.toast('“' + DB.roleName(rol) + '” makamı ' + (sira + 1) + '. sıraya eklendi', 'ok', 3400);
+            if(!onaylayabilir(rol)){
+              GV.toast(DB.roleName(rol) + ' rolünün yetki matrisinde onaylama yetkisi kapalı — ' +
+                'adım işlemez', 'warn', 5200);
+            }
+          } }
+      ]
+    });
+
+    /* Koşul tipine göre alanları göster / gizle */
+    var el = m.el;
+    var kSel = el.querySelector('#nKosul'), eWrap = el.querySelector('#nEsikWrap'),
+        kWrap = el.querySelector('#nKatWrap'), eHint = el.querySelector('#nEsikHint'),
+        eInp = el.querySelector('#nEsik');
+    function senkron(){
+      var k = KOSUL[kSel.value] || {};
+      eWrap.classList.toggle('u-hide', !k.esik);
+      kWrap.classList.toggle('u-hide', kSel.value !== 'kategori');
+      if(k.esik){
+        eInp.step = k.para ? '1000' : '1';
+        eHint.textContent = k.para
+          ? 'Bu tutar ve üzeri kayıtlarda adım devreye girer (₺).'
+          : 'Bu ' + ak.sureBirim + ' değeri ve üzeri kayıtlarda adım devreye girer.';
+      }
+    }
+    kSel.addEventListener('change', senkron);
+    el.querySelector('#nRol').addEventListener('change', function(){
+      var h = el.querySelector('#nRolHint'), r = this.value;
+      if(!r){ h.textContent = 'Adıma kişi değil rol bağlanır.'; return; }
+      var s = makamSorun(r);
+      h.textContent = (s ? '⚠ ' + s + ' · ' : '') + 'Çözülecek kişi: ' + makamAciklama(r);
+    });
+    senkron();
+  }
+
+  /* =====================================================================
+     11. BAŞLAT
+     ===================================================================== */
+  urlYaz();
+  render();
+  if(kayitli) GV.toast('Kayıtlı onay akışı düzenlemeleriniz yüklendi', 'info', 2400);
+});
+</script>
+</body>
+</html>
