@@ -114,15 +114,26 @@
     'Ödendi':'ok', 'Kısmi':'warn', 'Ödenmedi':'danger', 'İletildi':'purple',
     'Serviste':'warn', 'Tahsisli':'info', 'Ortak kullanım':'accent', 'Kiralık':'info',
     'Zimmetli':'info', 'Depoda':'neutral', 'Hurda':'neutral', 'Onarımda':'warn',
-    'Onay bekliyor ':'warn', 'Sipariş verildi':'info', 'Teslim alındı':'ok', 'İptal':'neutral'
+    'Onay bekliyor ':'warn', 'Sipariş verildi':'info', 'Teslim alındı':'ok', 'İptal':'neutral',
+    /* proje sağlığı — §11 */
+    'İyi':'ok', 'Dikkat':'warn', 'Kritik':'danger', 'Sağlıklı':'ok',
+    /* finans */
+    'Yenilenecek':'warn', 'Süresi doldu':'danger', 'Yenilendi':'ok', 'Faturalandı':'info',
+    'Tahsil edildi':'ok', 'Kısmi tahsilat':'warn', 'Vadesi yaklaşıyor':'warn',
+    /* doküman / sözleşme */
+    'Geçerli':'ok', 'Yürürlükte':'ok', 'Feshedildi':'danger', 'İmza bekliyor':'purple'
   };
 
   function tone(v){ return TONE[v] || 'neutral'; }
   GV.tone = tone;
 
+  /* extra içinde açık bir is-<ton> verilirse sözlükten türetilen ton yerine O kullanılır.
+     (CSS özgüllük yarışına girmemek için — lessons L-01) */
   GV.badge = function(v, extra){
     if(v == null || v === '') return '<span class="u-faint">—</span>';
-    return '<span class="badge is-' + tone(v) + (extra ? ' ' + extra : '') + '">' + esc(v) + '</span>';
+    var forced = extra && /(^|\s)is-[a-z]+/.exec(extra);
+    var cls = forced ? extra.trim() : 'is-' + tone(v) + (extra ? ' ' + extra : '');
+    return '<span class="badge ' + cls + '">' + esc(v) + '</span>';
   };
 
   GV.pri = function(v){
@@ -1428,27 +1439,39 @@
      9. BASİT SVG GRAFİKLER
      =================================================================== */
   var Chart = {
+    /* data: [{label, value, value2?, tone?}]
+       value2 verilirse aynı slotta ikinci (karşılaştırma) çubuğu çizilir — bütçe/maliyet gibi.
+       opt.money:true → eksen ve ipucu para biçiminde. opt.series:['Bütçe','Maliyet'] legend için. */
     bar:function(data, opt){
       opt = opt || {};
-      var w = opt.width || 640, h = opt.height || 220, pad = 32, padL = opt.padL || 48;
-      var max = Math.max.apply(null, data.map(function(d){ return d.value; }).concat([1]));
+      var w = opt.width || 640, h = opt.height || 220, pad = 32, padL = opt.padL || (opt.money ? 62 : 48);
+      var paired = data.some(function(d){ return d.value2 != null; });
+      var fmtV = opt.money ? Fmt.moneyK : Fmt.num;
+      var vals = data.map(function(d){ return d.value; }).concat(paired ? data.map(function(d){ return d.value2 || 0; }) : []);
+      var max = Math.max.apply(null, vals.concat([1]));
       var bw = (w - padL - pad) / data.length;
       var svg = '<svg class="gv-chart" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc(opt.label || 'Sütun grafik') + '">';
       for(var g = 0; g <= 4; g++){
         var y = pad + (h - pad * 2) * (g / 4);
         svg += '<line class="gridline" x1="' + padL + '" y1="' + y + '" x2="' + (w - pad) + '" y2="' + y + '"/>';
         svg += '<text class="lbl" x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end">' +
-               Fmt.num(Math.round(max * (1 - g / 4))) + '</text>';
+               fmtV(Math.round(max * (1 - g / 4))) + '</text>';
       }
       data.forEach(function(d, i){
-        var bh = (h - pad * 2) * (d.value / max);
-        var x = padL + i * bw + bw * 0.18;
-        var bwid = bw * 0.64;
-        svg += '<rect class="bar' + (d.tone ? ' is-' + d.tone : '') + '" x="' + x + '" y="' + (h - pad - bh) +
-               '" width="' + bwid + '" height="' + Math.max(2, bh) + '" rx="4"><title>' + esc(d.label) + ': ' + Fmt.num(d.value) + '</title></rect>';
-        svg += '<text class="lbl" x="' + (x + bwid / 2) + '" y="' + (h - pad + 16) + '" text-anchor="middle">' + esc(d.label) + '</text>';
-        if(opt.showValues !== false)
-          svg += '<text class="val" x="' + (x + bwid / 2) + '" y="' + (h - pad - bh - 6) + '" text-anchor="middle">' + Fmt.num(d.value) + '</text>';
+        var slot = padL + i * bw;
+        var bwid = paired ? bw * 0.30 : bw * 0.64;
+        var x1 = paired ? slot + bw * 0.12 : slot + bw * 0.18;
+        function drawBar(val, x, cls){
+          var bh = (h - pad * 2) * ((val || 0) / max);
+          svg += '<rect class="bar' + cls + '" x="' + x + '" y="' + (h - pad - bh) +
+                 '" width="' + bwid + '" height="' + Math.max(2, bh) + '" rx="4"><title>' +
+                 esc(d.label) + ': ' + fmtV(val || 0) + '</title></rect>';
+          if(opt.showValues !== false && !paired)
+            svg += '<text class="val" x="' + (x + bwid / 2) + '" y="' + (h - pad - bh - 6) + '" text-anchor="middle">' + fmtV(val || 0) + '</text>';
+        }
+        drawBar(d.value, x1, d.tone ? ' is-' + d.tone : '');
+        if(paired) drawBar(d.value2, x1 + bwid + bw * 0.06, ' is-2');
+        svg += '<text class="lbl" x="' + (slot + bw / 2) + '" y="' + (h - pad + 16) + '" text-anchor="middle">' + esc(d.label) + '</text>';
       });
       return svg + '</svg>';
     },
