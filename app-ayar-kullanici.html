@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kullanıcılar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="kullanicilar">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  /* =====================================================================
+     KULLANICILAR — Ayarlar / Erişim
+     Bu ekran personel listesinin İK ekseni DEĞİLDİR: aynı canonical kayıt
+     (DB.employees) sistem erişimi ekseninden yönetilir — rol, erişim kapsamı,
+     oturum durumu, hesap aktif/pasif. Maaş, TCKN, doğum tarihi gibi İK/KVKK
+     alanları bu ekranda hiç gösterilmez (PROMPT.md §5 · assumptions V-12).
+     ===================================================================== */
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var ORDER = GV.shell.railOrder, SEC = GV.shell.sections, BYROLE = GV.shell.secByRole;
+  var ME = GV.session.emp;
+  var L;
+
+  /* ---- Rol / yetki yardımcıları (org.js DB.permMatrix'ten türetilir) ---- */
+  var SCOPE_LBL = { tum:'Tüm şirket', departman:'Departman', proje:'Proje',
+                    kendi:'Yalnız kendi kayıtları', yok:'Yok' };
+  var SCOPE_ORDER = ['tum','departman','proje','kendi','yok'];
+  var KADEME = [[1,'Yönetim Kademesi'],[2,'Orta Kademe'],[3,'Uzman Kademesi'],[4,'Dış ve Kısıtlı Erişim']];
+  var KADEME_TONE = { 1:'is-accent', 2:'is-info', 3:'is-neutral', 4:'is-warn' };
+
+  function mtx(rol){ return DB.permMatrix[rol] || null; }
+  function rolKademe(rol){
+    var r = DB.roles.filter(function(x){ return x.key === rol; })[0];
+    return r ? r.kademe : 4;
+  }
+  function kapsam(e){ var m = mtx(e.rol); return m ? m.gor : 'yok'; }
+  /* Yönetici yetkisi: silme kapsamı tüm şirket VEYA log kayıtlarına erişim */
+  function yoneticiMi(e){ var m = mtx(e.rol); return !!m && (m.sil === 'tum' || m.log === true); }
+
+  /* Bu ekranın kendi yetkisi: düzenleme yetkisi + silme kapsamı "tüm şirket"
+     (yalnız Şirket Sahibi / Genel Müdür / Sistem Yöneticisi bu koşulu sağlar) */
+  var MYM = mtx(GV.perm.role()) || {};
+  var canEdit = !!GV.perm.can('duzenle') && MYM.sil === 'tum';
+
+  /* ---- Sistem etkinliği: DB.logs'tan türetilir ------------------------
+     DB.logs'ta "giriş yaptı" tipinde kayıt YOK; en son işlem tarihi son
+     etkinlik olarak kullanılır ve kolon adı da bunu söyler (uydurma alan yok). */
+  function sonLog(kod){
+    var out = null;
+    DB.logs.forEach(function(l){ if(l.kisi === kod && (!out || l.tarih > out.tarih)) out = l; });
+    return out;
+  }
+  function oturum(e){
+    if(e.kod === ME) return { lbl:'Bu oturum', tone:'is-ok' };
+    if(!e.aktif) return { lbl:'Erişim kapalı', tone:'is-danger' };
+    var l = sonLog(e.kod);
+    if(!l) return { lbl:'Etkinlik yok', tone:'is-neutral' };
+    var d = F.days(l.tarih);
+    if(d === 0) return { lbl:'Bugün etkin', tone:'is-ok' };
+    if(d >= -7) return { lbl:'Son 7 gün', tone:'is-info' };
+    return { lbl:'Uzun süredir sessiz', tone:'is-warn' };
+  }
+
+  function logKaydi(islem, kayit, eski, yeni){
+    DB.logs.unshift({
+      kod:'LOG-' + (88300 + DB.logs.length), tarih:DB.today + 'T00:00',
+      kisi:ME, islem:islem, kayit:kayit, modul:'Ayarlar', ip:'—', eski:eski, yeni:yeni
+    });
+  }
+
+  function ozetSatir(lbl, val){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(lbl) + '</span>' +
+           '<span class="gv-summary-val">' + val + '</span></div>';
+  }
+  function rolOzet(rol){
+    var m = mtx(rol) || {};
+    var secs = (BYROLE[rol] || []).length;
+    return '<div class="gv-summary">' +
+      ozetSatir('Sistem rolü', GV.badge(DB.roleName(rol), KADEME_TONE[rolKademe(rol)])) +
+      ozetSatir('Görüntüleme kapsamı', esc(SCOPE_LBL[m.gor] || '—')) +
+      ozetSatir('Ekleme kapsamı', esc(SCOPE_LBL[m.ekle] || '—')) +
+      ozetSatir('Düzenleme kapsamı', esc(SCOPE_LBL[m.duzenle] || '—')) +
+      ozetSatir('Silme kapsamı', esc(SCOPE_LBL[m.sil] || '—')) +
+      ozetSatir('Raporlama kapsamı', esc(SCOPE_LBL[m.rapor] || '—')) +
+      ozetSatir('Personel verisi kapsamı', esc(SCOPE_LBL[m.personel] || '—')) +
+      ozetSatir('Onaylama', GV.badge(m.onay ? 'Açık' : 'Kapalı', m.onay ? 'is-ok' : 'is-neutral')) +
+      ozetSatir('Finansal bilgi', GV.badge(m.finans ? 'Açık' : 'Kapalı', m.finans ? 'is-ok' : 'is-neutral')) +
+      ozetSatir('Maaş bilgisi', GV.badge(m.maas ? 'Açık' : 'Kapalı', m.maas ? 'is-ok' : 'is-neutral')) +
+      ozetSatir('Log kayıtlarına erişim', GV.badge(m.log ? 'Açık' : 'Kapalı', m.log ? 'is-ok' : 'is-neutral')) +
+      ozetSatir('Dışa aktarma', GV.badge(m.disaAktar ? 'Açık' : 'Kapalı', m.disaAktar ? 'is-ok' : 'is-neutral')) +
+      ozetSatir('Erişebildiği bölüm', '<b class="u-num">' + secs + ' / ' + ORDER.length + '</b>') +
+    '</div>';
+  }
+
+  /* =====================================================================
+     AKSİYON 1 — ROL DEĞİŞTİR (GV.modal)
+     ===================================================================== */
+  function acRolModal(e){
+    if(!e) return;
+    if(!canEdit){ GV.toast('Kullanıcı rolü değiştirme yetkiniz yok', 'danger'); return; }
+    if(e.kod === ME){
+      GV.toast('Kendi sistem rolünüzü bu ekrandan değiştiremezsiniz — yetki kaybı riski', 'danger', 4200);
+      return;
+    }
+
+    var opts = KADEME.map(function(g){
+      var arr = DB.roles.filter(function(r){ return r.kademe === g[0]; });
+      return '<optgroup label="' + esc(g[1]) + '">' + arr.map(function(r){
+        return '<option value="' + r.key + '"' + (r.key === e.rol ? ' selected' : '') + '>' +
+               esc(r.ad) + '</option>';
+      }).join('') + '</optgroup>';
+    }).join('');
+
+    var m = GV.modal({
+      title:'Sistem rolünü değiştir',
+      text:e.ad + ' · ' + e.pozisyon,
+      icon:'i-shield',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><span class="f-lbl">Kullanıcı</span>' +
+          GV.user(e.kod) +
+          '<div class="f-hint">' + esc(e.kod + ' · ' + e.depAd + ' · ' + e.eposta) + '</div></div>' +
+        '<div class="field f-col-12"><span class="f-lbl">Mevcut rol</span>' +
+          GV.badge(DB.roleName(e.rol), KADEME_TONE[rolKademe(e.rol)]) +
+          '<div class="f-hint">Erişim kapsamı: ' + esc(SCOPE_LBL[kapsam(e)]) + '</div></div>' +
+        '<div class="field f-col-12"><label for="kRol">Yeni sistem rolü</label>' +
+          '<select class="inp" id="kRol">' + opts + '</select>' +
+          '<div class="f-hint">Rol değişikliği kullanıcının gördüğü bölümleri, kayıt kapsamını ve ' +
+          'onay/finans yetkilerini anında değiştirir. İşlem log kayıtlarına eski → yeni değerle yazılır.</div></div>' +
+        '<div class="field f-col-12"><span class="f-lbl">Yeni rolün yetkileri</span>' +
+          '<div id="kOnizleme"></div></div>' +
+      '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Rolü değiştir', cls:'btn-acc', icon:'i-check', onClick:function(close, scrim){
+            var yeni = scrim.querySelector('#kRol').value;
+            if(yeni === e.rol){ GV.toast('Rol değişmedi', 'info'); return; }
+            var eskiAd = DB.roleName(e.rol);
+            e.rol = yeni;
+            if(e.roller.indexOf(yeni) === -1) e.roller.push(yeni);
+            logKaydi('Kullanıcı sistem rolünü değiştirdi', e.kod, eskiAd, DB.roleName(yeni));
+            GV.toast(e.ad + ' · rol “' + eskiAd + '” → “' + DB.roleName(yeni) + '”', 'ok', 4200);
+            if(L) L.refresh();
+          } }
+      ]
+    });
+
+    var sel = m.el.querySelector('#kRol'), onz = m.el.querySelector('#kOnizleme');
+    function ciz(){ onz.innerHTML = rolOzet(sel.value); }
+    sel.addEventListener('change', ciz);
+    ciz();
+  }
+
+  /* =====================================================================
+     AKSİYON 2 — YETKİLERİNİ GÖR (GV.drawer)
+     ===================================================================== */
+  function acYetkiDrawer(e){
+    if(!e) return;
+    var rol = e.rol;
+    var acik = ORDER.filter(function(s){ return (BYROLE[rol] || []).indexOf(s) !== -1; });
+    var kapali = ORDER.filter(function(s){ return (BYROLE[rol] || []).indexOf(s) === -1; });
+    var o = oturum(e), l = sonLog(e.kod);
+
+    var body =
+      '<div class="gv-summary">' +
+        ozetSatir('Kullanıcı', GV.user(e.kod)) +
+        ozetSatir('Departman', esc(e.depAd)) +
+        ozetSatir('E-posta', '<span class="cell-code">' + esc(e.eposta) + '</span>') +
+        ozetSatir('Hesap durumu', GV.badge(e.aktif ? 'Aktif' : 'Pasif')) +
+        ozetSatir('Oturum durumu', GV.badge(o.lbl, o.tone)) +
+        ozetSatir('Son etkinlik', l ? esc(F.dt(l.tarih) + ' · ' + l.islem) : '<span class="u-faint">Log kaydı yok</span>') +
+        ozetSatir('Tanımlı rolleri', e.roller.map(function(r){
+          return '<span class="tag">' + esc(DB.roleName(r)) + '</span>';
+        }).join(' ')) +
+      '</div>' +
+      '<h3 class="u-mt-8">Rol yetki matrisi</h3>' +
+      '<p class="u-sm u-muted">Değerler <b>DB.permMatrix[' + esc(rol) + ']</b> satırından okunur; ' +
+      'yetkilendirme menü gizleme değildir — kapsam dışı kayıt liste ve detayda da gelmez.</p>' +
+      rolOzet(rol) +
+      '<h3 class="u-mt-8">Eriştiği bölümler (' + acik.length + ' / ' + ORDER.length + ')</h3>' +
+      '<div class="u-row u-wrap u-mt-4">' + acik.map(function(s){
+        return '<span class="badge is-ok">' + esc(SEC[s].title) + '</span>';
+      }).join('') + '</div>' +
+      (kapali.length
+        ? '<h3 class="u-mt-8">Erişemediği bölümler (403)</h3>' +
+          '<div class="u-row u-wrap u-mt-4">' + kapali.map(function(s){
+            return '<span class="badge is-neutral">' + esc(SEC[s].title) + '</span>';
+          }).join('') + '</div>'
+        : '<p class="u-sm u-muted u-mt-8">Bu rol ' + ORDER.length + ' bölümün tamamını görür.</p>') +
+      '<div class="u-row u-wrap u-mt-8">' +
+        '<a class="btn btn-acc btn-sm" href="app-ayar-yetki.html?rol=' + esc(rol) + '">' +
+        ico('i-key','ic-sm') + ' Yetki matrisinde aç</a>' +
+        '<a class="btn btn-line btn-sm" href="app-personel.html?q=' + encodeURIComponent(e.ad) + '">' +
+        ico('i-users','ic-sm') + ' Personel kaydı</a>' +
+      '</div>';
+
+    GV.drawer({
+      title:e.ad + ' — Erişim ve Yetkiler',
+      body:body,
+      actions:[{ label:'Kapat', cls:'btn-line' }]
+    });
+  }
+
+  /* =====================================================================
+     AKSİYON 3 — PASİFE AL / AKTİFLEŞTİR (GV.confirm)
+     ===================================================================== */
+  function durumDegistir(e){
+    if(!e) return;
+    if(!canEdit){
+      GV.toast('Kullanıcı erişimini değiştirme yetkiniz yok', 'danger');
+      if(L) L.refresh();
+      return;
+    }
+    if(e.kod === ME){
+      GV.toast('Kendi hesabınızın sistem erişimini kapatamazsınız', 'danger', 4200);
+      if(L) L.refresh();
+      return;
+    }
+    var ac = !e.aktif;
+    GV.confirm({
+      title:ac ? 'Kullanıcıyı aktifleştir' : 'Kullanıcıyı pasife al',
+      tone:ac ? 'warn' : 'danger',
+      okLabel:ac ? 'Aktifleştir' : 'Pasife al',
+      text:ac
+        ? e.ad + ' (' + DB.roleName(e.rol) + ') yeniden giriş yapabilecek ve rolünün tüm bölümlerine erişecek.'
+        : e.ad + ' (' + DB.roleName(e.rol) + ') sisteme giriş yapamayacak, açık oturumu sonlandırılacak. ' +
+          'Kayıtları ve geçmiş işlemleri silinmez.'
+    }).then(function(ok){
+      if(!ok){ if(L) L.refresh(); return; }
+      e.aktif = ac;
+      logKaydi(ac ? 'Kullanıcı erişimini açtı' : 'Kullanıcı erişimini kapattı',
+               e.kod, ac ? 'Pasif' : 'Aktif', ac ? 'Aktif' : 'Pasif');
+      GV.toast(e.ad + (ac ? ' aktifleştirildi' : ' pasife alındı'), ac ? 'ok' : 'warn', 4000);
+      if(L) L.refresh();
+    });
+  }
+
+  function topluDurum(ids, ac){
+    var n = 0, kendi = false, degismeyen = 0;
+    (ids || []).forEach(function(id){
+      var e = DB.emp(id);
+      if(!e) return;
+      if(e.kod === ME){ kendi = true; return; }
+      if(e.aktif === ac){ degismeyen++; return; }
+      e.aktif = ac;
+      n++;
+      logKaydi(ac ? 'Kullanıcı erişimini açtı (toplu)' : 'Kullanıcı erişimini kapattı (toplu)',
+               e.kod, ac ? 'Pasif' : 'Aktif', ac ? 'Aktif' : 'Pasif');
+    });
+    if(kendi) GV.toast('Kendi hesabınız toplu işlemin dışında bırakıldı', 'warn', 4200);
+    if(!n) GV.toast('Durumu değişen kullanıcı olmadı' + (degismeyen ? ' · ' + degismeyen + ' kayıt zaten bu durumdaydı' : ''), 'info');
+    else GV.toast(n + ' kullanıcı' + (ac ? ' aktifleştirildi' : ' pasife alındı'), ac ? 'ok' : 'warn', 4000);
+    if(L) L.refresh();
+  }
+
+  /* =====================================================================
+     SAYFA BAŞLIĞI VE UYARILAR
+     ===================================================================== */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Kullanıcılar', sub:'—',
+    actions:[
+      { label:'Yetki Matrisi', icon:'i-key', cls:'btn-line', href:'app-ayar-yetki.html' },
+      { label:'Personel Listesi', icon:'i-users', cls:'btn-line', href:'app-personel.html' }
+    ]
+  });
+
+  var uyari = document.getElementById('uyari');
+  var notlar = '';
+  if(!canEdit){
+    notlar += '<div class="u-mb-4">' + GV.notice({
+      tone:'warn', title:'Bu ekran sizin için salt okunur',
+      text:'Kullanıcı rolü değiştirmek, hesap pasife almak ve toplu işlem yapmak için düzenleme ' +
+           'yetkisi ve “tüm şirket” silme kapsamı gerekir. Oturum rolünüz “' + DB.roleName(GV.perm.role()) +
+           '” bu koşulu karşılamıyor; listeyi inceleyebilir, değişiklik yapamazsınız.',
+      actions:[{ label:'Rolümün yetkilerini gör', href:'app-ayar-yetki.html?rol=' + GV.perm.role() }]
+    }) + '</div>';
+  }
+  notlar += '<div class="u-mb-4">' + GV.notice({
+    tone:'info', title:'Oturum ve etkinlik bilgisi log kayıtlarından türetilir',
+    text:'Mock veride ayrı bir oturum/giriş koleksiyonu yok. “Son etkinlik” DB.logs içindeki en son ' +
+         'işlem tarihidir, “oturum durumu” bu tarihe ve hesabın aktifliğine göre hesaplanır. ' +
+         'İki adımlı doğrulama veri modelinde tutulmadığı için bu ekranda gösterilmez.'
+  }) + '</div>';
+  uyari.innerHTML = notlar;
+
+  /* =====================================================================
+     LİSTE
+     ===================================================================== */
+  function actBtns(e){
+    var out = '';
+    if(canEdit){
+      out += '<button type="button" class="btn btn-line btn-sm" data-uact="rol" data-id="' + e.kod + '">' +
+             ico('i-shield','ic-sm') + ' Rol değiştir</button>';
+    }
+    out += '<button type="button" class="btn btn-line btn-sm" data-uact="yetki" data-id="' + e.kod + '">' +
+           ico('i-key','ic-sm') + ' Yetkiler</button>';
+    if(canEdit && e.kod !== ME){
+      out += '<button type="button" class="btn btn-sm btn-line' + (e.aktif ? ' is-danger' : '') +
+             '" data-uact="durum" data-id="' + e.kod + '">' +
+             ico(e.aktif ? 'i-lock' : 'i-check-circle','ic-sm') +
+             (e.aktif ? ' Pasife al' : ' Aktifleştir') + '</button>';
+    }
+    return '<div class="u-row u-wrap u-mt-4">' + out + '</div>';
+  }
+
+  function switchHtml(e){
+    var kilit = !canEdit || e.kod === ME;
+    return '<label class="f-switch" title="' +
+      (kilit ? 'Bu hesabın erişimi bu ekrandan değiştirilemez' : 'Sistem erişimini aç / kapat') + '">' +
+      '<input type="checkbox" data-uact="switch" data-id="' + e.kod + '"' +
+      (e.aktif ? ' checked' : '') + (kilit ? ' disabled' : '') +
+      ' aria-label="' + esc(e.ad + ' sistem erişimi') + '"><span class="sw"></span></label>';
+  }
+
+  var rowActions = [];
+  if(canEdit) rowActions.push({ key:'rol', icon:'i-shield', label:'Rol değiştir',
+    run:function(rec){ acRolModal(rec); } });
+  rowActions.push({ key:'yetki', icon:'i-key', label:'Yetkilerini gör',
+    run:function(rec){ acYetkiDrawer(rec); } });
+  if(canEdit) rowActions.push({ key:'durum', icon:'i-lock', label:'Pasife al / Aktifleştir',
+    run:function(rec){ durumDegistir(rec); } });
+
+  var bulk = canEdit ? [
+    { key:'pasif', label:'Pasife al', icon:'i-lock', tone:'danger',
+      confirm:'Seçili {n} kullanıcının sistem erişimi kapatılacak. Açık oturumları sonlandırılır, ' +
+              'kayıtları silinmez. Kendi hesabınız işlemin dışında tutulur.',
+      run:function(ids){ topluDurum(ids, false); } },
+    { key:'aktif', label:'Aktifleştir', icon:'i-user-check',
+      confirm:'Seçili {n} kullanıcının sistem erişimi yeniden açılacak.',
+      run:function(ids){ topluDurum(ids, true); } }
+  ] : null;
+
+  L = GV.list({
+    mount:'#liste', id:'kullanici', key:'kod', source:function(){ return DB.employees; },
+    exportName:'kullanicilar', exportTitle:'Sistem Kullanıcıları', export:!!GV.perm.can('disaAktar'),
+    pageSize:25, views:['table','card'], defaultSort:'ad', archive:false,
+    search:{ placeholder:'Ad, e-posta, kullanıcı kodu, rol veya departman ara',
+             fields:['kod','ad','eposta','depAd','pozisyon','rol'] },
+
+    kpis:[
+      { label:'Toplam kullanıcı', icon:'i-users',
+        calc:function(){ return DB.employees.length; },
+        meta:function(){ return DB.roles.length + ' tanımlı sistem rolü'; } },
+      { label:'Aktif kullanıcı', icon:'i-user-check', tone:'ok',
+        calc:function(){ return DB.employees.filter(function(e){ return e.aktif; }).length; },
+        meta:function(){
+          return DB.employees.filter(function(e){ return e.aktif && !!sonLog(e.kod); }).length +
+                 ' kullanıcının log kaydı var';
+        } },
+      { label:'Yönetici yetkili', icon:'i-shield-check', tone:'warn',
+        calc:function(){ return DB.employees.filter(yoneticiMi).length; },
+        meta:function(){
+          return DB.roles.filter(function(r){
+            var m = mtx(r.key); return m && (m.sil === 'tum' || m.log === true);
+          }).length + ' rol silme veya log yetkisi taşıyor';
+        }, metaTone:'warn' },
+      { label:'Pasif hesap', icon:'i-lock', tone:'danger',
+        calc:function(){ return DB.employees.filter(function(e){ return !e.aktif; }).length; },
+        meta:function(){
+          return DB.employees.filter(function(e){ return e.aktif && !sonLog(e.kod); }).length +
+                 ' aktif hesapta hiç sistem etkinliği yok';
+        } }
+    ],
+
+    tabs:[
+      { key:'aktif',   label:'Aktif',            icon:'i-user-check',   filter:function(e){ return e.aktif; } },
+      { key:'pasif',   label:'Pasif',            icon:'i-lock',         filter:function(e){ return !e.aktif; } },
+      { key:'yonetici',label:'Yönetici Yetkili', icon:'i-shield-check', filter:yoneticiMi },
+      { key:'sinirli', label:'Sınırlı Erişim',   icon:'i-eye-off',      filter:function(e){ return kapsam(e) === 'kendi'; } },
+      { key:'tumu',    label:'Tümü',             icon:'i-list',         filter:null }
+    ],
+
+    columns:[
+      { key:'ad', label:'Kullanıcı', width:'20%', locked:true, cellClass:'cell-wrap',
+        render:function(e){
+          return GV.user(e.kod) + '<span class="cell-code">' + esc(e.kod) +
+                 (e.kod === ME ? ' · bu oturum' : '') + '</span>'; },
+        exportValue:function(e){ return e.ad + ' (' + e.kod + ')'; } },
+      { key:'eposta', label:'E-posta', width:'16%',
+        render:function(e){ return '<a class="cell-main" href="mailto:' + esc(e.eposta) + '">' +
+          esc(e.eposta) + '</a>'; } },
+      { key:'depAd', label:'Departman' },
+      { key:'rol', label:'Sistem rolü', width:'14%',
+        render:function(e){ return GV.badge(DB.roleName(e.rol), KADEME_TONE[rolKademe(e.rol)]); },
+        exportValue:function(e){ return DB.roleName(e.rol); } },
+      { key:'kapsam', label:'Erişim kapsamı',
+        sortValue:function(e){ return SCOPE_ORDER.indexOf(kapsam(e)); },
+        render:function(e){ return '<span class="tag">' + esc(SCOPE_LBL[kapsam(e)]) + '</span>'; },
+        exportValue:function(e){ return SCOPE_LBL[kapsam(e)]; } },
+      { key:'yonetici', label:'Yönetici yetkisi',
+        sortValue:function(e){ return yoneticiMi(e) ? 1 : 0; },
+        render:function(e){ return yoneticiMi(e)
+          ? GV.badge('Evet','is-warn') : '<span class="u-faint">Hayır</span>'; },
+        exportValue:function(e){ return yoneticiMi(e) ? 'Evet' : 'Hayır'; } },
+      { key:'sonEtkinlik', label:'Son etkinlik', width:'13%',
+        sortValue:function(e){ var l = sonLog(e.kod); return l ? l.tarih : ''; },
+        render:function(e){
+          var l = sonLog(e.kod);
+          if(!l) return '<span class="u-faint">—</span>';
+          return '<span class="cell-date">' + esc(F.dt(l.tarih)) + '</span>' +
+                 '<span class="cell-sub">' + esc(l.islem) + '</span>'; },
+        exportValue:function(e){ var l = sonLog(e.kod); return l ? F.dt(l.tarih) : ''; } },
+      { key:'oturum', label:'Oturum durumu',
+        sortValue:function(e){ return oturum(e).lbl; },
+        render:function(e){ var o = oturum(e); return GV.badge(o.lbl, o.tone); },
+        exportValue:function(e){ return oturum(e).lbl; } },
+      { key:'roller', label:'Tanımlı rol', visible:false,
+        sortValue:function(e){ return e.roller.length; },
+        render:function(e){ return e.roller.map(function(r){
+          return '<span class="tag">' + esc(DB.roleName(r)) + '</span>'; }).join(' '); },
+        exportValue:function(e){ return e.roller.map(DB.roleName).join(', '); } },
+      { key:'girisTarihi', label:'Hesap açılışı', visible:false,
+        render:function(e){ return '<span class="cell-date">' + F.date(e.girisTarihi) + '</span>'; } },
+      { key:'lokasyon', label:'Lokasyon', visible:false },
+      { key:'aktif', label:'Durum', width:'12%',
+        sortValue:function(e){ return e.aktif ? 1 : 0; },
+        render:function(e){
+          return '<span class="u-row">' + GV.badge(e.aktif ? 'Aktif' : 'Pasif') + switchHtml(e) + '</span>'; },
+        exportValue:function(e){ return e.aktif ? 'Aktif' : 'Pasif'; } }
+    ],
+
+    filters:[
+      { key:'rol', label:'Sistem rolü', type:'select',
+        options:DB.roles.map(function(r){ return { value:r.key, label:r.ad }; }) },
+      { key:'dep', label:'Departman', type:'select',
+        options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'kapsam', label:'Erişim kapsamı', type:'select',
+        options:SCOPE_ORDER.map(function(s){ return { value:s, label:SCOPE_LBL[s] }; }),
+        test:function(e, v){ return kapsam(e) === v; } },
+      { key:'durum', label:'Hesap durumu', type:'select',
+        options:[{ value:'aktif', label:'Aktif' }, { value:'pasif', label:'Pasif' }],
+        test:function(e, v){ return v === 'aktif' ? !!e.aktif : !e.aktif; } },
+      { key:'yonetici', label:'Yönetici yetkisi', type:'select',
+        options:[{ value:'evet', label:'Evet' }, { value:'hayir', label:'Hayır' }],
+        test:function(e, v){ return v === 'evet' ? yoneticiMi(e) : !yoneticiMi(e); } },
+      { key:'oturum', label:'Oturum durumu', type:'select',
+        options:['Bu oturum','Bugün etkin','Son 7 gün','Uzun süredir sessiz','Etkinlik yok','Erişim kapalı'],
+        test:function(e, v){ return oturum(e).lbl === v; } }
+    ],
+
+    rowClass:function(e){ return e.aktif ? '' : 'is-passive'; },
+
+    card:function(e){
+      var o = oturum(e), l = sonLog(e.kod);
+      return '<div class="gv-rcard-top"><span class="gv-user">' +
+        '<span class="gv-user-ava is-lg">' + esc(e.ini) + '</span>' +
+        '<span><span class="cell-main">' + esc(e.ad) + '</span>' +
+        '<span class="cell-sub">' + esc(e.eposta) + '</span></span></span></div>' +
+        '<div class="u-row u-wrap u-mt-4">' + GV.badge(DB.roleName(e.rol), KADEME_TONE[rolKademe(e.rol)]) +
+        '<span class="tag">' + esc(SCOPE_LBL[kapsam(e)]) + '</span>' +
+        (yoneticiMi(e) ? GV.badge('Yönetici yetkili','is-warn') : '') + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(e.depAd) + '</span>' +
+        '<span>' + (l ? esc(F.dt(l.tarih)) : 'Etkinlik yok') + '</span></div>' +
+        '<div class="gv-rcard-foot">' + GV.badge(o.lbl, o.tone) +
+        '<span class="u-row">' + GV.badge(e.aktif ? 'Aktif' : 'Pasif') + switchHtml(e) + '</span></div>' +
+        actBtns(e);
+    },
+
+    mobile:function(e){
+      var o = oturum(e), l = sonLog(e.kod);
+      return '<div class="gv-mrow-top"><span class="gv-user">' +
+        '<span class="gv-user-ava">' + esc(e.ini) + '</span>' +
+        '<span><span class="cell-main">' + esc(e.ad) + '</span>' +
+        '<span class="cell-sub">' + esc(e.eposta) + '</span></span></span>' +
+        GV.badge(e.aktif ? 'Aktif' : 'Pasif') + '</div>' +
+        '<div class="gv-mrow-meta">' +
+        '<span>' + ico('i-shield','ic-sm') + esc(DB.roleName(e.rol)) + '</span>' +
+        '<span>' + ico('i-eye','ic-sm') + esc(SCOPE_LBL[kapsam(e)]) + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + esc(e.depAd) + '</span>' +
+        '<span>' + ico('i-clock','ic-sm') + (l ? esc(F.dt(l.tarih)) : 'Etkinlik yok') + '</span></div>' +
+        '<div class="u-row u-wrap u-mt-4">' + GV.badge(o.lbl, o.tone) +
+        (yoneticiMi(e) ? GV.badge('Yönetici yetkili','is-warn') : '') + switchHtml(e) + '</div>' +
+        actBtns(e);
+    },
+
+    rowActions:rowActions,
+    bulk:bulk,
+
+    emptyState:{ icon:'i-user', title:'Bu görünümde kullanıcı yok',
+      desc:'Sekme, arama ve filtre seçimlerini değiştirin. Sistem kullanıcıları personel kayıtlarından ' +
+           'gelir; yeni kullanıcı, personel kaydı açıldığında bu listede görünür.' }
+  });
+
+  /* ---- Tablo dışı görünümler (kart / mobil) için olay delegasyonu -----
+     GV.list'in kendi rowAction bağlayıcısı satırı closest('tr') ile bulur;
+     kart ve mobil listede tr yoktur, bu yüzden aksiyonlar data-id taşır. */
+  var liste = document.getElementById('liste');
+  liste.addEventListener('click', function(ev){
+    var b = ev.target.closest('button[data-uact]');
+    if(!b) return;
+    var e = DB.emp(b.dataset.id);
+    if(!e) return;
+    if(b.dataset.uact === 'rol') acRolModal(e);
+    else if(b.dataset.uact === 'yetki') acYetkiDrawer(e);
+    else if(b.dataset.uact === 'durum') durumDegistir(e);
+  });
+  liste.addEventListener('change', function(ev){
+    var sw = ev.target.closest('input[data-uact="switch"]');
+    if(!sw) return;
+    var e = DB.emp(sw.dataset.id);
+    if(e) durumDegistir(e);
+  });
+});
+</script>
+</body>
+</html>
