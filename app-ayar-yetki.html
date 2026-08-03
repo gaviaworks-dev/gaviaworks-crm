@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yetki Matrisi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="yetki">
+<div class="gv-card" id="matris"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var mount = document.getElementById('matris');
+  var SEC = GV.shell.sections, ORDER = GV.shell.railOrder, BYROLE = GV.shell.secByRole;
+
+  /* =================================================================
+     1. MODEL
+     Matrisin kaynağı shell.js: SECTIONS (15 bölüm) + SEC_BY_ROLE,
+     org.js: DB.roles + DB.permMatrix. Hücre değeri ikisinden türetilir,
+     kullanıcı değiştirdiğinde oturum içi override olarak saklanır.
+     ================================================================= */
+
+  /* Sayfa açılışındaki matris — “Varsayılana dön” bunu geri yükler */
+  var SNAP = JSON.parse(JSON.stringify(DB.permMatrix));
+
+  /* Erişim kapsamı seviyeleri (PROMPT.md §5) */
+  var SCOPES = [
+    ['tum','Tüm şirket'], ['departman','Departman'], ['proje','Proje'],
+    ['kendi','Yalnız kendi kayıtları'], ['yok','Yok']
+  ];
+  var SCOPE_LBL = {};
+  SCOPES.forEach(function(s){ SCOPE_LBL[s[0]] = s[1]; });
+
+  var SCOPE_AXES = [
+    { k:'gor',      lbl:'Görüntüleme kapsamı', hint:'Hangi kayıtları görebilir' },
+    { k:'ekle',     lbl:'Ekleme kapsamı',      hint:'Hangi kapsamda kayıt açabilir' },
+    { k:'duzenle',  lbl:'Düzenleme kapsamı',   hint:'Hangi kayıtları değiştirebilir' },
+    { k:'sil',      lbl:'Silme kapsamı',       hint:'Yıkıcı işlem sınırı' },
+    { k:'rapor',    lbl:'Raporlama kapsamı',   hint:'Raporlarda görünen veri kümesi' },
+    { k:'personel', lbl:'Personel verisi kapsamı', hint:'İK verisine erişim sınırı' }
+  ];
+
+  /* 19 yetki ekseni (PROMPT.md §5). base() → rolün temel matrisinden türetilen
+     varsayılan; secs → ekseni anlamlı kılan bölümler (boşsa tüm bölümler). */
+  var AXES = [
+    { k:'gor',      lbl:'Görüntüleme',   base:function(m){ return m.gor !== 'yok'; } },
+    { k:'liste',    lbl:'Listeleme',     base:function(m){ return m.gor !== 'yok'; } },
+    { k:'detay',    lbl:'Kayıt detayı',  base:function(m){ return m.gor !== 'yok'; } },
+    { k:'ekle',     lbl:'Ekleme',        base:function(m){ return m.ekle !== 'yok'; } },
+    { k:'duzenle',  lbl:'Düzenleme',     base:function(m){ return m.duzenle !== 'yok'; } },
+    { k:'sil',      lbl:'Silme',         base:function(m){ return m.sil !== 'yok'; } },
+    { k:'arsiv',    lbl:'Arşivleme',     base:function(m){ return m.duzenle !== 'yok' && !!m.onay; } },
+    { k:'pasif',    lbl:'Pasife alma',   base:function(m){ return m.duzenle !== 'yok' && m.duzenle !== 'kendi'; } },
+    { k:'onay',     lbl:'Onaylama',      base:function(m){ return !!m.onay; } },
+    { k:'ret',      lbl:'Reddetme',      base:function(m){ return !!m.onay; } },
+    { k:'atama',    lbl:'Görev atama',   base:function(m){ return m.ekle !== 'yok' && m.ekle !== 'kendi'; },
+      secs:['panel','proje','gorev','destek','satinalma','toplanti','personel'] },
+    { k:'dosyaYukle', lbl:'Dosya yükleme', base:function(m){ return m.ekle !== 'yok'; } },
+    { k:'dosyaIndir', lbl:'Dosya indirme', base:function(m){ return m.gor !== 'yok'; } },
+    { k:'finans',   lbl:'Finansal bilgi', base:function(m){ return !!m.finans; },
+      secs:['satis','musteri','proje','varlik','satinalma','finans','rapor'] },
+    { k:'maas',     lbl:'Maaş bilgisi',   base:function(m){ return !!m.maas; },
+      secs:['personel','rapor'] },
+    { k:'personelRapor', lbl:'Personel raporu',
+      base:function(m){ return m.rapor !== 'yok' && m.personel !== 'yok'; }, secs:['personel','rapor'] },
+    { k:'musteriRapor',  lbl:'Müşteri raporu',
+      base:function(m){ return m.rapor !== 'yok'; }, secs:['satis','musteri','destek','rapor'] },
+    { k:'disaAktar', lbl:'Dışa aktarma', base:function(m){ return !!m.disaAktar; } },
+    { k:'log',       lbl:'Log erişimi',  base:function(m){ return !!m.log; }, secs:['ayarlar'] }
+  ];
+  var AX = {};
+  AXES.forEach(function(a){ AX[a.k] = a; });
+
+  function axLabel(k){
+    if(AX[k]) return AX[k].lbl;
+    var s = SCOPE_AXES.filter(function(x){ return x.k === k; })[0];
+    return s ? s.lbl : k;
+  }
+  function axApplies(ax, secKey){ return !ax.secs || ax.secs.indexOf(secKey) !== -1; }
+  function secOk(rol, secKey){ return (BYROLE[rol] || ['panel']).indexOf(secKey) !== -1; }
+
+  function cellVal(rol, secKey, axKey){
+    var m = DB.permMatrix[rol];
+    if(!m) return false;
+    var ov = m.modul && m.modul[secKey];
+    if(ov && Object.prototype.hasOwnProperty.call(ov, axKey)) return !!ov[axKey];
+    if(!secOk(rol, secKey)) return false;          /* bölüm kapalıysa eksen de kapalı */
+    return !!AX[axKey].base(m);
+  }
+  function setCell(rol, secKey, axKey, val){
+    var m = DB.permMatrix[rol];
+    if(!m.modul) m.modul = {};
+    if(!m.modul[secKey]) m.modul[secKey] = {};
+    m.modul[secKey][axKey] = !!val;
+  }
+
+  /* GV.perm.can()’in birebir aynısı — ama oturum rolü yerine SEÇİLİ rol için.
+     Seçili rol = oturum rolü olduğunda sonuç GV.perm.can() ile aynıdır. */
+  function roleCan(rol, action){
+    var m = DB.permMatrix[rol];
+    if(!m) return false;
+    if(action === 'musteriRapor') return !!(m.rapor && m.rapor !== 'yok') && secOk(rol, 'musteri');
+    if(action === 'personelRapor')
+      return !!(m.rapor && m.rapor !== 'yok' && m.personel && m.personel !== 'yok') && secOk(rol, 'personel');
+    var v = m[action];
+    if(typeof v === 'boolean') return v;
+    return !!(v && v !== 'yok');
+  }
+  function roleMask(rol, value, action){ return roleCan(rol, action) ? value : '••••••'; }
+
+  /* =================================================================
+     2. DURUM
+     ================================================================= */
+  var roles = DB.roles;
+  var q = new URLSearchParams(location.search);
+  var sel = q.get('rol');
+  if(!sel || !DB.permMatrix[sel]){
+    sel = DB.permMatrix[GV.perm.role()] ? GV.perm.role() : roles[0].key;
+  }
+  var dirty = false;
+
+  /* Bu ekranın kendi yetkisi — log erişimi olmayan rol matrisi düzenleyemez.
+     (Bölüm erişimi yoksa shell zaten 403 basar; buraya hiç gelinmez.) */
+  var editable = GV.perm.can('log') || ['sahip','sistem'].indexOf(GV.perm.role()) !== -1;
+
+  var KADEME = [
+    [1,'Yönetim Kademesi'], [2,'Orta Kademe'], [3,'Uzman Kademesi'], [4,'Dış ve Kısıtlı Erişim']
+  ];
+  function kademeAd(n){
+    var g = KADEME.filter(function(x){ return x[0] === n; })[0];
+    return g ? g[1] : 'Diğer';
+  }
+
+  /* Hassas alanlar — yalnızca DB’de gerçekten bulunan alanlar listelenir */
+  var emp = DB.employees[0], mus = DB.customers[0], prj = DB.projects[0], ftr = DB.invoices[0];
+  var MASK_FIELDS = [
+    { lbl:'Personel maaşı',        kaynak:'DB.employees.maas',            ax:'maas',
+      val:function(){ return F.money(emp.maas); } },
+    { lbl:'Personel doğum tarihi', kaynak:'DB.employees.dogum',           ax:'personel',
+      val:function(){ return F.date(emp.dogum); } },
+    { lbl:'Acil durum kişisi',     kaynak:'DB.employees.acilKisi',        ax:'personel',
+      val:function(){ return emp.acilKisi; } },
+    { lbl:'Müşteri toplam cirosu', kaynak:'DB.customers.toplamCiro',      ax:'finans',
+      val:function(){ return F.money(mus.toplamCiro); } },
+    { lbl:'Müşteri bekleyen tahsilatı', kaynak:'DB.customers.bekleyenTahsilat', ax:'finans',
+      val:function(){ return F.money(mus.bekleyenTahsilat); } },
+    { lbl:'Müşteri vergi numarası', kaynak:'DB.customers.vergiNo',        ax:'finans',
+      val:function(){ return mus.vergiNo; } },
+    { lbl:'Proje bütçesi',         kaynak:'DB.projects.butce',            ax:'finans',
+      val:function(){ return F.money(prj.butce); } },
+    { lbl:'Proje sözleşme tutarı', kaynak:'DB.projects.sozlesmeTutari',   ax:'finans',
+      val:function(){ return F.money(prj.sozlesmeTutari); } },
+    { lbl:'Fatura tutarı',         kaynak:'DB.invoices.toplam',           ax:'finans',
+      val:function(){ return F.money(ftr.toplam); } },
+    { lbl:'Sistem log kayıtları',  kaynak:'DB.logs',                      ax:'log',
+      val:function(){ return F.num(DB.logs.length) + ' kayıt'; } },
+    { lbl:'Rapor · personel verisi', kaynak:'DB.employees + DB.timelogs', ax:'personelRapor',
+      val:function(){ return F.num(DB.employees.length) + ' personel'; } },
+    { lbl:'Rapor · müşteri verisi',  kaynak:'DB.customers',               ax:'musteriRapor',
+      val:function(){ return F.num(DB.customers.length) + ' müşteri'; } }
+  ];
+
+  /* =================================================================
+     3. SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Yetki Matrisi', sub:'—',
+    actions:[
+      { label:'Varsayılana dön', icon:'i-refresh', cls:'btn-line', id:'btnSifirla' },
+      { label:'Değişiklikleri kaydet', icon:'i-check', cls:'btn-acc', id:'btnKaydet' }
+    ]
+  });
+  GV.shell.crumb('Yetki Matrisi');
+
+  function setSub(){
+    var el = document.querySelector('.gv-page-head .ph-sub');
+    if(!el) return;
+    var st = stats(sel);
+    el.textContent = roles.length + ' rol · ' + ORDER.length + ' bölüm · ' + AXES.length + ' yetki ekseni · ' +
+      'seçili rol “' + DB.roleName(sel) + '” için ' + st.on + ' / ' + st.total + ' yetki açık';
+  }
+
+  function stats(rol){
+    var on = 0, total = 0;
+    ORDER.forEach(function(s){
+      AXES.forEach(function(a){
+        if(!axApplies(a, s)) return;
+        total++;
+        if(cellVal(rol, s, a.k)) on++;
+      });
+    });
+    return { on:on, total:total };
+  }
+
+  /* =================================================================
+     4. PARÇALAR
+     ================================================================= */
+  function navHtml(){
+    var out = '<nav class="gv-rp-nav" aria-label="Roller"><div class="gv-rp-navhead">Roller (' + roles.length + ')</div>' +
+      '<div class="gv-rp-list">';
+    KADEME.forEach(function(g){
+      var arr = roles.filter(function(r){ return r.kademe === g[0]; });
+      if(!arr.length) return;
+      out += '<div class="gv-rp-group">' + esc(g[1]) + '</div>';
+      arr.forEach(function(r){
+        out += '<button type="button" class="gv-rp-item' + (r.key === sel ? ' is-on' : '') + '" data-rol="' + r.key + '"' +
+          (r.key === sel ? ' aria-current="true"' : '') + '>' +
+          ico(r.kademe === 1 ? 'i-shield-check' : r.kademe === 4 ? 'i-lock' : 'i-shield') +
+          '<span>' + esc(r.ad) + '</span></button>';
+      });
+    });
+    return out + '</div></nav>';
+  }
+
+  function noticeHtml(){
+    if(editable) return '';
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-lock') + ' Bu ekran sizin için salt okunur</h3></div>' +
+      '<p class="u-sm u-muted">Yetki matrisini değiştirmek için <b>log kayıtlarına erişim</b> yetkisi ya da ' +
+      '<b>Şirket Sahibi / Sistem Yöneticisi</b> rolü gerekir. Oturum rolünüz “' + esc(DB.roleName(GV.perm.role())) +
+      '” bu koşulu karşılamıyor; matrisi inceleyebilir, kaydedemezsiniz.</p>' +
+      '<div class="u-row u-wrap u-mt-4">' +
+      '<span class="badge is-warn">Salt okunur</span>' +
+      '<span class="tag">Bölüm erişimi: ' + (GV.perm.sec('ayarlar') ? 'var' : 'yok') + '</span>' +
+      '<span class="tag">Log erişimi: ' + (GV.perm.can('log') ? 'var' : 'yok') + '</span></div></div>';
+  }
+
+  function kpiHtml(rol){
+    var r = roles.filter(function(x){ return x.key === rol; })[0] || { ad:rol, kademe:4 };
+    var m = DB.permMatrix[rol];
+    var st = stats(rol);
+    var secs = (BYROLE[rol] || []).length;
+    var cards = [
+      { ico:'i-key',    tone:st.on / st.total > .66 ? 'ok' : st.on / st.total > .25 ? 'warn' : 'danger',
+        num:st.on + ' / ' + st.total, lbl:'Açık yetki (bölüm × eksen)' },
+      { ico:'i-grid',   tone:secs === ORDER.length ? 'ok' : secs > 6 ? 'info' : 'neutral',
+        num:secs + ' / ' + ORDER.length, lbl:'Erişilebilen bölüm' },
+      { ico:'i-eye',    tone:m.gor === 'tum' ? 'ok' : m.gor === 'kendi' ? 'warn' : 'info',
+        num:SCOPE_LBL[m.gor] || m.gor, lbl:'Görüntüleme kapsamı' },
+      { ico:'i-stamp',  tone:m.onay ? 'ok' : 'neutral',
+        num:m.onay ? 'Var' : 'Yok', lbl:'Onaylama yetkisi' }
+    ];
+    return '<div class="kpi-grid">' + cards.map(function(c){
+      return '<div class="kpi is-' + c.tone + '"><div class="kpi-ico">' + ico(c.ico,'ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">' + esc(c.num) + '</div>' +
+        '<div class="kpi-lbl">' + esc(c.lbl) + '</div></div></div>';
+    }).join('') + '</div>';
+  }
+
+  function scopeHtml(rol){
+    var m = DB.permMatrix[rol];
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-sliders') + ' Erişim Kapsamı</h3></div>' +
+      '<p class="u-sm u-muted">Yetkinin <b>hangi kayıt kümesinde</b> geçerli olduğunu belirler. ' +
+      'Kapsam daraldığında aşağıdaki matriste türetilen hücreler de otomatik değişir — ' +
+      'yetkilendirme yalnızca menü gizleme değildir.</p>' +
+      '<div class="gv-fields u-mt-4">' + SCOPE_AXES.map(function(s){
+        return '<div class="field f-col-4"><label for="sc-' + s.k + '">' + esc(s.lbl) + '</label>' +
+          '<select class="inp" id="sc-' + s.k + '" data-scope="' + s.k + '"' + (editable ? '' : ' disabled') + '>' +
+          SCOPES.map(function(o){
+            return '<option value="' + o[0] + '"' + (m[s.k] === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="f-hint">' + esc(s.hint) + '</div></div>';
+      }).join('') + '</div></div>';
+  }
+
+  function swHtml(rol, secKey, ax, withLabel){
+    var on = cellVal(rol, secKey, ax.k);
+    return '<label class="f-switch"><input type="checkbox" data-m="' + secKey + '" data-a="' + ax.k + '"' +
+      (on ? ' checked' : '') + (editable ? '' : ' disabled') +
+      ' aria-label="' + esc(SEC[secKey].title + ' — ' + ax.lbl) + '">' +
+      '<span class="sw"></span>' + (withLabel ? '<span>' + esc(ax.lbl) + '</span>' : '') + '</label>';
+  }
+
+  function rowStats(rol, secKey){
+    var on = 0, total = 0;
+    AXES.forEach(function(a){
+      if(!axApplies(a, secKey)) return;
+      total++;
+      if(cellVal(rol, secKey, a.k)) on++;
+    });
+    return { on:on, total:total };
+  }
+
+  function matrisHtml(rol){
+    /* Geniş tablo — ilk kolon sabit, gövde yatay kaydırmalı (.gv-tablewrap.is-sticky1) */
+    var head = '<tr><th>Bölüm</th>' + AXES.map(function(a){
+      return '<th class="th-narrow">' + esc(a.lbl) + '</th>';
+    }).join('') + '</tr>';
+
+    var rows = ORDER.map(function(s){
+      var S = SEC[s], rs = rowStats(rol, s), acik = secOk(rol, s);
+      return '<tr' + (acik ? '' : ' class="is-passive"') + '>' +
+        '<td><span class="cell-main">' + esc(S.title) + '</span>' +
+        '<span class="cell-code">' + esc(S.eyebrow) + ' · ' + rs.on + ' / ' + rs.total + '</span></td>' +
+        AXES.map(function(a){
+          if(!axApplies(a, s)) return '<td class="cell-sw"><span class="u-faint">—</span></td>';
+          return '<td class="cell-sw">' + swHtml(rol, s, a, false) + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+
+    /* ≤760px’de .gv-tablewrap gizlenir, aynı veriden üretilen kart listesi devreye girer */
+    var cards = ORDER.map(function(s){
+      var S = SEC[s], rs = rowStats(rol, s), acik = secOk(rol, s);
+      return '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+        '<span class="cell-main">' + esc(S.title) + '</span>' +
+        '<div class="gv-mrow-code">' + esc(S.eyebrow) + ' · ' + rs.on + ' / ' + rs.total + ' yetki açık</div></div>' +
+        (acik ? '<span class="badge is-ok">Bölüm açık</span>' : '<span class="badge is-neutral">Bölüm kapalı</span>') +
+        '</div><div class="u-col u-mt-4">' +
+        AXES.filter(function(a){ return axApplies(a, s); }).map(function(a){
+          return swHtml(rol, s, a, true);
+        }).join('') + '</div></div>';
+    }).join('');
+
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-key') + ' Bölüm × Yetki Ekseni Matrisi</h3></div>' +
+      '<p class="u-sm u-muted">' + ORDER.length + ' bölüm × ' + AXES.length + ' eksen. ' +
+      '“—” işaretli hücreler o bölümde anlamsız olan eksenlerdir (ör. maaş bilgisi yalnızca ' +
+      'Personel ve Raporlama bölümlerinde geçerlidir). Rolün erişemediği bölümler soluk gösterilir; ' +
+      'tablo yatay kaydırılabilir, ilk kolon sabittir.</p>' +
+      '<div class="gv-tablewrap is-sticky1 u-mt-4"><table class="gtable">' +
+      '<thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + cards + '</div></div>';
+  }
+
+  function maskHtml(rol){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-eye-off') + ' Alan Bazlı Maskeleme</h3></div>' +
+      '<p class="u-sm u-muted">Kayıt görünse bile hassas alan maskelenebilir. Aşağıdaki değerler ' +
+      '“' + esc(DB.roleName(rol)) + '” rolüne gerçekte nasıl görüneceğini gösterir — ' +
+      'kural <b>GV.perm.can()</b> ile birebir aynıdır.</p>' +
+      '<div class="gv-tablewrap u-mt-4"><table class="gtable"><thead><tr>' +
+      '<th>Hassas alan</th><th>Veri kaynağı</th><th>Bağlı eksen</th><th>Bu rolde</th><th>Görünen değer</th>' +
+      '</tr></thead><tbody>' +
+      MASK_FIELDS.map(function(f){
+        var ok = roleCan(rol, f.ax);
+        return '<tr><td><span class="cell-main">' + esc(f.lbl) + '</span></td>' +
+          '<td><span class="tag">' + esc(f.kaynak) + '</span></td>' +
+          '<td>' + esc(axLabel(f.ax)) + '</td>' +
+          '<td>' + (ok ? '<span class="badge is-ok">Açık</span>' : '<span class="badge is-warn">Maskeli</span>') + '</td>' +
+          '<td><b>' + esc(roleMask(rol, f.val(), f.ax)) + '</b></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + MASK_FIELDS.map(function(f){
+        var ok = roleCan(rol, f.ax);
+        return '<div class="gv-mrow"><div class="gv-mrow-top"><div>' +
+          '<span class="cell-main">' + esc(f.lbl) + '</span>' +
+          '<div class="gv-mrow-code">' + esc(f.kaynak) + '</div></div>' +
+          (ok ? '<span class="badge is-ok">Açık</span>' : '<span class="badge is-warn">Maskeli</span>') +
+          '</div><div class="gv-mrow-meta"><span>' + esc(roleMask(rol, f.val(), f.ax)) + '</span></div></div>';
+      }).join('') + '</div></div>';
+  }
+
+  function impactHtml(rol){
+    var acik = ORDER.filter(function(s){ return secOk(rol, s); });
+    var kapali = ORDER.filter(function(s){ return !secOk(rol, s); });
+
+    /* Bölüm içi kalem kısıtları — shell.js menülerindeki roles: alanı */
+    var kisitli = [];
+    ORDER.forEach(function(s){
+      (SEC[s].menu || []).forEach(function(it){
+        if(!it.roles) return;
+        kisitli.push({ sec:SEC[s].title, lbl:it.lbl, href:it.href, ok:it.roles.indexOf(rol) !== -1 });
+      });
+    });
+
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head">' +
+      '<h3>' + ico('i-activity') + ' Etki Önizlemesi</h3></div>' +
+      '<p class="u-sm u-muted">Menü gizleme yetkilendirmenin yalnızca görünen yüzüdür. ' +
+      'Kapalı bölümün adresine doğrudan gidilse bile shell sayfa seviyesinde 403 basar, ' +
+      'liste ve detay ekranları da kapsam dışı kaydı getirmez.</p>' +
+      '<div class="gv-summary u-mt-4">' +
+      '<div class="gv-summary-row"><span class="gv-summary-lbl">Rail’de görünen bölümler</span>' +
+      '<span class="gv-summary-val">' + acik.length + ' / ' + ORDER.length + '</span></div></div>' +
+      '<div class="u-row u-wrap u-mt-4">' + acik.map(function(s){
+        return '<span class="badge is-ok">' + esc(SEC[s].title) + '</span>';
+      }).join('') + '</div>' +
+      (kapali.length
+        ? '<div class="gv-summary u-mt-8"><div class="gv-summary-row">' +
+          '<span class="gv-summary-lbl">Erişemediği bölümler (403)</span>' +
+          '<span class="gv-summary-val">' + kapali.length + '</span></div></div>' +
+          '<div class="u-row u-wrap u-mt-4">' + kapali.map(function(s){
+            return '<span class="badge is-danger">' + esc(SEC[s].title) + '</span>';
+          }).join('') + '</div>'
+        : '<p class="u-sm u-muted u-mt-8">Bu rol ' + ORDER.length + ' bölümün tamamını görür.</p>') +
+      (kisitli.length
+        ? '<div class="gv-summary u-mt-8"><div class="gv-summary-row">' +
+          '<span class="gv-summary-lbl">Rol kısıtlı menü kalemleri</span>' +
+          '<span class="gv-summary-val">' + kisitli.filter(function(k){ return k.ok; }).length +
+          ' / ' + kisitli.length + '</span></div></div>' +
+          '<div class="u-row u-wrap u-mt-4">' + kisitli.map(function(k){
+            return '<span class="badge ' + (k.ok ? 'is-ok' : 'is-neutral') + '">' +
+              esc(k.sec + ' · ' + k.lbl) + '</span>';
+          }).join('') + '</div>'
+        : '') +
+      '<div class="gv-summary u-mt-8">' +
+      [['Görüntüleme kapsamı', SCOPE_LBL[DB.permMatrix[rol].gor]],
+       ['Raporlama kapsamı',   SCOPE_LBL[DB.permMatrix[rol].rapor]],
+       ['Personel verisi',     SCOPE_LBL[DB.permMatrix[rol].personel]],
+       ['Finansal bilgi',      roleCan(rol,'finans') ? 'Açık' : 'Kapalı'],
+       ['Maaş bilgisi',        roleCan(rol,'maas') ? 'Açık' : 'Kapalı'],
+       ['Log kayıtları',       roleCan(rol,'log') ? 'Açık' : 'Kapalı'],
+       ['Dışa aktarma',        roleCan(rol,'disaAktar') ? 'Açık' : 'Kapalı']
+      ].map(function(p){
+        return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(p[0]) + '</span>' +
+          '<span class="gv-summary-val">' + esc(p[1] || '—') + '</span></div>';
+      }).join('') + '</div></div>';
+  }
+
+  /* =================================================================
+     5. RENDER
+     ================================================================= */
+  function render(){
+    var r = roles.filter(function(x){ return x.key === sel; })[0] || roles[0];
+    document.title = 'Yetki Matrisi · ' + r.ad + ' — GaviaWorks CRM';
+
+    mount.innerHTML =
+      '<div class="gc-head"><div>' +
+        '<h2 class="gc-title">' + ico('i-key') + 'Rol Yetkileri</h2>' +
+        '<div class="gc-sub">Seçili rol: <b>' + esc(r.ad) + '</b> · ' + esc(kademeAd(r.kademe)) + '</div>' +
+      '</div><div class="gc-head-acts">' +
+        (editable ? '<span class="badge is-accent">Düzenlenebilir</span>'
+                  : '<span class="badge is-warn">Salt okunur</span>') +
+        '<span class="tag">' + esc(r.key) + '</span>' +
+      '</div></div>' +
+      '<div class="gc-body">' +
+        '<div class="gv-rp">' + navHtml() +
+        '<div class="gv-rp-body">' +
+          noticeHtml() +
+          kpiHtml(sel) +
+          scopeHtml(sel) +
+          matrisHtml(sel) +
+          maskHtml(sel) +
+          impactHtml(sel) +
+        '</div></div>' +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<span class="gv-count">' + (dirty ? 'Kaydedilmemiş değişiklik var' : 'Tüm değişiklikler kaydedildi') +
+        ' · statik prototip, kalıcı depolama yok</span>' +
+        '<span class="u-row">' +
+          '<button type="button" class="btn btn-line btn-sm" data-act="sifirla"' + (editable ? '' : ' disabled') + '>' +
+            ico('i-refresh','ic-sm') + ' Varsayılana dön</button>' +
+          '<button type="button" class="btn btn-acc btn-sm" data-act="kaydet"' + (editable ? '' : ' disabled') + '>' +
+            ico('i-check','ic-sm') + ' Kaydet</button>' +
+        '</span></div>';
+
+    setSub();
+    var top = document.getElementById('btnKaydet'), rst = document.getElementById('btnSifirla');
+    if(top) top.disabled = !editable;
+    if(rst) rst.disabled = !editable;
+  }
+
+  /* =================================================================
+     6. ETKİLEŞİM
+     ================================================================= */
+  function selectRole(key){
+    if(!DB.permMatrix[key]) return;
+    sel = key;
+    var p = new URLSearchParams(location.search);
+    p.set('rol', key);
+    history.replaceState({}, '', location.pathname + '?' + p.toString());
+    render();
+  }
+
+  mount.addEventListener('click', function(e){
+    var b = e.target.closest('[data-rol]');
+    if(b) selectRole(b.dataset.rol);
+  });
+
+  mount.addEventListener('change', function(e){
+    var t = e.target;
+
+    /* Yetki anahtarı */
+    if(t.matches('input[data-m][data-a]')){
+      if(!editable){ t.checked = !t.checked; return; }
+      var m = t.dataset.m, a = t.dataset.a;
+      setCell(sel, m, a, t.checked);
+      dirty = true;
+      /* tablo ↔ mobil kart listesi ikizini eşitle */
+      Array.prototype.forEach.call(mount.querySelectorAll('input[data-m="' + m + '"][data-a="' + a + '"]'),
+        function(x){ x.checked = t.checked; });
+      /* satır sayaçlarını tazele */
+      var rs = rowStats(sel, m);
+      Array.prototype.forEach.call(mount.querySelectorAll('input[data-m="' + m + '"][data-a="' + a + '"]'),
+        function(x){
+          var row = x.closest('tr'), card = x.closest('.gv-mrow');
+          if(row){
+            var c = row.querySelector('.cell-code');
+            if(c) c.textContent = SEC[m].eyebrow + ' · ' + rs.on + ' / ' + rs.total;
+          }
+          if(card){
+            var k = card.querySelector('.gv-mrow-code');
+            if(k) k.textContent = SEC[m].eyebrow + ' · ' + rs.on + ' / ' + rs.total + ' yetki açık';
+          }
+        });
+      setSub();
+      var foot = mount.querySelector('.gc-foot .gv-count');
+      if(foot) foot.textContent = 'Kaydedilmemiş değişiklik var · statik prototip, kalıcı depolama yok';
+      GV.toast(DB.roleName(sel) + ' · ' + SEC[m].title + ' — ' + AX[a].lbl + (t.checked ? ' açıldı' : ' kapatıldı'),
+        t.checked ? 'ok' : 'warn', 2200);
+      return;
+    }
+
+    /* Erişim kapsamı seçimi */
+    if(t.matches('select[data-scope]')){
+      if(!editable) return;
+      var k = t.dataset.scope, v = t.value, prev = DB.permMatrix[sel][k];
+      DB.permMatrix[sel][k] = v;
+      dirty = true;
+      GV.toast(DB.roleName(sel) + ' · ' + k + ' kapsamı “' + (SCOPE_LBL[prev] || prev) + '” → “' +
+        (SCOPE_LBL[v] || v) + '”', 'ok', 2600);
+      render();
+    }
+  });
+
+  function onKaydet(){
+    if(!editable){ GV.toast('Bu ekranda değişiklik kaydetme yetkiniz yok', 'danger'); return; }
+    if(!dirty){ GV.toast('Kaydedilecek değişiklik yok', 'info'); return; }
+    var st = stats(sel);
+    GV.confirm({
+      title:'Yetki matrisini kaydet',
+      text:'“' + DB.roleName(sel) + '” rolü için ' + st.on + ' / ' + st.total + ' yetki açık olarak kaydedilecek.',
+      okLabel:'Kaydet'
+    }).then(function(ok){
+      if(!ok) return;
+      dirty = false;
+      DB.logs.unshift({
+        kod:'LOG-' + (88201 + DB.logs.length), tarih:DB.today + 'T00:00',
+        kisi:GV.session.emp, islem:'Yetki matrisini güncelledi', kayit:sel,
+        modul:'Ayarlar', ip:'—', eski:null, yeni:DB.roleName(sel) + ' · ' + st.on + '/' + st.total
+      });
+      GV.toast('Yetki matrisi kaydedildi (statik prototip — kalıcı değil)', 'ok');
+      render();
+    });
+  }
+
+  function onSifirla(){
+    if(!editable){ GV.toast('Bu ekranda değişiklik yapma yetkiniz yok', 'danger'); return; }
+    GV.confirm({
+      title:'Varsayılana dön', tone:'danger',
+      text:'Tüm rollerin yetki ve kapsam ayarları sayfa açılışındaki değerlere geri alınacak. Bu işlem geri alınamaz.',
+      okLabel:'Varsayılana dön'
+    }).then(function(ok){
+      if(!ok) return;
+      Object.keys(DB.permMatrix).forEach(function(k){ delete DB.permMatrix[k]; });
+      Object.keys(SNAP).forEach(function(k){ DB.permMatrix[k] = JSON.parse(JSON.stringify(SNAP[k])); });
+      dirty = false;
+      GV.toast('Yetki matrisi varsayılan değerlere döndürüldü', 'ok');
+      render();
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    if(e.target.closest('#btnKaydet, [data-act=kaydet]')) onKaydet();
+    if(e.target.closest('#btnSifirla, [data-act=sifirla]')) onSifirla();
+  });
+
+  render();
+});
+</script>
+</body>
+</html>
