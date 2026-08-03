@@ -351,6 +351,25 @@
       '</div>';
   };
 
+  /* Satır içi bilgi/uyarı bloğu — salt-okunur uyarısı, eksik entegrasyon, kapsam notu.
+     GV.notice({tone,title,text,icon,actions:[{label,href,cls}]}) → HTML */
+  GV.notice = function(c){
+    c = c || {};
+    var icons = { ok:'i-check-circle', warn:'i-alert', danger:'i-x-circle', neutral:'i-info', info:'i-info' };
+    var tone = c.tone || 'info';
+    return '<div class="gv-notice' + (tone !== 'info' ? ' is-' + tone : '') + '" role="note">' +
+      ico(c.icon || icons[tone] || 'i-info', 'ic-lg') +
+      '<span class="gv-notice-body">' +
+        (c.title ? '<span class="gv-notice-title">' + esc(c.title) + '</span>' : '') +
+        (c.text ? '<span class="gv-notice-text">' + esc(c.text) + '</span>' : '') +
+        (c.actions && c.actions.length
+          ? '<span class="gv-notice-acts">' + c.actions.map(function(a){
+              return '<a class="btn btn-sm ' + (a.cls || 'btn-line') + '" href="' + a.href + '">' + esc(a.label) + '</a>';
+            }).join('') + '</span>'
+          : '') +
+      '</span></div>';
+  };
+
   GV.errorState = function(c){
     c = c || {};
     return '<div class="gv-state is-danger">' +
