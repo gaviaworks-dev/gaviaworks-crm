@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Araç Giderleri — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="gider">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  var arac = function(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || {}; };
+  var aracCol = { key:'arac', label:'Araç', width:'18%', locked:true, sortValue:function(x){ return arac(x.arac).plaka || ''; },
+    render:function(x){ var v = arac(x.arac);
+      return '<a class="cell-main" href="app-arac-detay.html?id=' + x.arac + '">' + esc(v.plaka || x.arac) + '</a>' +
+             '<span class="cell-sub">' + esc((v.marka || '') + ' ' + (v.model || '')) + '</span>'; },
+    exportValue:function(x){ return arac(x.arac).plaka || x.arac; } };
+  var aracFilter = { key:'arac', label:'Araç', type:'multi',
+    options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) };
+  GV.pageHead({ eyebrow:'Araç ve Filo', title:'Araç Giderleri',
+    actions:[{ label:'Yakıt', icon:'i-fuel', href:'app-arac-yakit.html' },
+             { label:'Gider Ekle', icon:'i-plus', cls:'btn-acc', href:'app-arac-gider-form.html' }] });
+  var GIDER = ['Yakıt','Bakım','Onarım','Lastik','Sigorta','Kasko','Muayene','Otopark','HGS',
+               'Köprü ve otoyol','Kira','Kredi','Vergi','Ceza','Çekici','Araç yıkama','İkame araç','Diğer'];
+  var kmMaliyet = function(k){ var v = arac(k);
+    var t = DB.vehicleExpenses.filter(function(g){ return g.arac === k; }).reduce(function(s,g){ return s + g.tutar; }, 0);
+    return v.guncelKm ? t / v.guncelKm : 0; };
+  GV.list({
+    mount:'#liste', id:'aracgider', key:'kod', source:function(){ return DB.vehicleExpenses; },
+    exportName:'arac-giderleri', exportTitle:'Araç Gider Kayıtları', pageSize:25,
+    search:{ placeholder:'Gider türü, açıklama veya belge no ara', fields:['kod','tur','aciklama','belge'] },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam gider', icon:'i-wallet', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + x.tutar; }, 0) : 0; } },
+      { label:'Bu ay', icon:'i-calendar', tone:'info', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.filter(function(x){ return String(x.tarih).slice(0,7) === DB.today.slice(0,7); })
+          .reduce(function(s,x){ return s + x.tutar; }, 0) : 0; } },
+      { label:'En yüksek kalem', icon:'i-trend-up', tone:'warn', format:function(v){ return v; },
+        calc:function(a){ var m = {}; a.forEach(function(x){ m[x.tur] = (m[x.tur] || 0) + x.tutar; });
+          var k = Object.keys(m).sort(function(p,q){ return m[q] - m[p]; })[0];
+          return k ? k : '—'; } },
+      { label:'Ortalama km maliyeti', icon:'i-percent', tone:'purple', format:function(v){ return F.num(v, 2) + ' ₺/km'; },
+        calc:function(){ var v = DB.vehicles.filter(function(x){ return x.guncelKm; });
+          return v.length ? v.reduce(function(s,x){ return s + kmMaliyet(x.kod); }, 0) / v.length : 0; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Giderler', icon:'i-list', filter:null },
+      { key:'yakit', label:'Yakıt', icon:'i-fuel', filter:function(x){ return x.tur === 'Yakıt'; } },
+      { key:'bakim', label:'Bakım ve Onarım', icon:'i-wrench', filter:function(x){ return ['Bakım','Onarım','Lastik'].indexOf(x.tur) !== -1; } },
+      { key:'sigorta', label:'Sigorta ve Vergi', icon:'i-shield', filter:function(x){ return ['Sigorta','Kasko','Muayene','Vergi'].indexOf(x.tur) !== -1; } },
+      { key:'yol', label:'Yol ve Otopark', icon:'i-arrow-right', filter:function(x){ return ['HGS','Köprü ve otoyol','Otopark','Araç yıkama'].indexOf(x.tur) !== -1; } },
+      { key:'ceza', label:'Ceza', icon:'i-alert', filter:function(x){ return x.tur === 'Ceza'; } },
+      { key:'kira', label:'Kira ve Kredi', icon:'i-receipt', filter:function(x){ return ['Kira','Kredi','İkame araç'].indexOf(x.tur) !== -1; } }
+    ],
+    columns:[
+      { key:'tarih', label:'Tarih', locked:true, render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      aracCol,
+      { key:'tur', label:'Gider türü', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
+      { key:'aciklama', label:'Açıklama', cellClass:'cell-wrap' },
+      { key:'belge', label:'Belge no', cellClass:'u-num' },
+      { key:'tutar', label:'Tutar', cellClass:'num', render:function(x){
+          return canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '<span class="cell-mask">••••</span>'; },
+        exportValue:function(x){ return canFinans ? x.tutar : ''; } }
+    ],
+    filters:[ aracFilter,
+      { key:'tur', label:'Gider türü', type:'multi', options:GIDER },
+      { key:'tutar', label:'Tutar (en az)', type:'text', test:function(x,v){ return x.tutar >= (parseFloat(v) || 0); } },
+      { key:'tarih', label:'Gider tarihi', type:'daterange' }
+    ],
+    mobile:function(x){ var v = arac(x.arac);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.tur) + '</span>' +
+        (canFinans ? '<span class="cell-money">' + F.money(x.tutar) + '</span>' : '') + '</div>' +
+        '<div class="gv-mrow-code">' + esc(v.plaka || x.arac) + ' · ' + F.date(x.tarih) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + esc(x.aciklama) + '</span></div>'; },
+    rowActions:[{ key:'arac', icon:'i-car', label:'Aracı aç', href:function(x){ return 'app-arac-detay.html?id=' + x.arac; } }],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-receipt', title:'Gider kaydı yok', desc:'Araç giderleri aylık, yıllık ve kilometre başına maliyeti hesaplar.' }
+  });
+
+});
+</script>
+</body>
+</html>
