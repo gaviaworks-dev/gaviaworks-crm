@@ -556,7 +556,13 @@
     'app-performans.html',
     'app-demirbas.html',
     'app-zimmet.html',
-    'app-arac.html'
+    'app-arac.html',
+    'app-arac-bakim.html',
+    'app-arac-muayene.html',
+    'app-arac-sigorta.html',
+    'app-arac-yakit.html',
+    'app-arac-gider.html',
+    'app-arac-kaza.html'
   ];
   GV.built = BUILT;
 
