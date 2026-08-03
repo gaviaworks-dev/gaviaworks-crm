@@ -35,3 +35,21 @@ olarak kurulmuş.
 
 **Çözüm (kapanış fazında):** Tutamak sidebar yüzeyinin uzantısı olarak yeniden kurulacak,
 tıklama alanı en az 24×44 px olacak, hover ve odak durumu olacak, içerikle çakışmayacak.
+
+---
+
+## UID-02 · Mobil kart listesinde satır aksiyonu yok
+
+**Nerede:** `GV.list` mobil görünümü (`.gv-cardlist` / `.gv-mrow`) — **tüm liste ekranları**, ≤760px.
+
+**Sorun:** `GV.list` masaüstü tablosunda `rowActions` basıyor ama mobil kart listesine basmıyor.
+Sonuç: 390px'de satır aksiyonları **hiç erişilemiyor** — arşiv ekranında "geri al" ve "kalıcı sil",
+tahsilatta "hatırlatma gönder", otomasyonda "kuralı çalıştır" gibi işlemler mobilde yok.
+
+**Kök neden:** Mobil kart markup'ı `cfg.mobile(r)` çıktısıyla sınırlı; aksiyon şeridi yalnız
+tablo satırında kuruluyor.
+
+**Çözüm (kapanış fazında):** Aksiyon şeridi `GV.list` içinde **tek yerde** üretilip hem tablo
+satırına hem mobil karta basılacak (ikinci markup yazılmayacak — components.md kuralı). Mobilde
+aksiyonlar ya kart altında şerit ya da tek bir "…" menüsü olacak; tıklama alanı en az 44 px.
+Referanstan yalnız yerleşim/davranış alınacak, renk projenin token'larından gelecek.
