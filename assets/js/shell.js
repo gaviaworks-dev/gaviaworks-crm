@@ -567,7 +567,9 @@
     'app-tedarikci.html',
     'app-siparis.html',
     'app-dokuman.html',
-    'app-toplanti.html'
+    'app-toplanti.html',
+    'app-panel-bildirimler.html',
+    'app-panel-onaylar.html'
   ];
   GV.built = BUILT;
 
