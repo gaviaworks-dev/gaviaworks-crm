@@ -7,7 +7,7 @@
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
 > ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
-**Güncelleme:** 2026-08-04 (2. oturum sonu) · **62 ekran canlıda** · **Wave 11 ve Wave 12 TAMAM.**
+**Güncelleme:** 2026-08-04 (2. oturum sonu) · **65 ekran canlıda** · **Wave 1, Wave 11, Wave 12 TAMAM.**
 
 ---
 
@@ -33,8 +33,9 @@ AYARLAR     app-ayar-yetki (27 rol × 15 modül × 19 eksen) · app-ayar-otomasy
             app-ayar-profil
 ```
             app-ayar-sirket · app-ayar-onay (7 akış, 6 onay makamı) · app-ayar-arsiv   ← Wave 12 TAMAM
+ANA PANEL   app-panel-ozet (günlük özet) · app-panel-duyurular · app-panel-yonetici   ← Wave 1 TAMAM
 ```
-Son doğrulama: **62 ekran × 5 rol = 310 sayfa yüklemesi, konsol hatası 0**, 63 ekranda kırık link yok.
+Son doğrulama: **65 ekran × 5 rol = 325 sayfa yüklemesi, konsol hatası 0**, kırık link yok.
 
 ### Ortak katmana 2. oturumda eklenenler
 - **`GV.report(cfg)`** — Wave 11'in tamamının dayandığı rapor iskeleti (components.md §5b).
@@ -328,15 +329,14 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 durumda** — subagent'a doğrudan verilebilir.
 
 ### Sıradaki kuyruk (öncelik sırasıyla)
-1. **Wave 1 kalanı:** `app-panel-ozet` · `app-panel-duyurular` · `app-panel-yonetici`
-3. **Wave 9 kalanı:** `app-destek-sla` · `app-destek-paket` · `app-destek-memnuniyet`
-4. **Wave 10 kalanı:** `app-dokuman-sure` · `app-toplanti-karar`
-5. **İK/satın alma kalanı:** `app-zaman-onay` · `app-egitim` · `app-satinalma-teklif` · `app-odemeplani`
-6. **Proje alt ekranları:** `app-proje-milestone` · `-sprint` · `-test` · `-hata` · `-degisiklik` · `-teslim`
-7. **Detay ekranları** — kalıp `app-gorev-detay.html`. Öncelik: müşteri (15 sekme), proje (22 sekme),
+1. **Wave 9 kalanı:** `app-destek-sla` · `app-destek-paket` · `app-destek-memnuniyet`
+2. **Wave 10 kalanı:** `app-dokuman-sure` · `app-toplanti-karar`
+3. **İK/satın alma kalanı:** `app-zaman-onay` · `app-egitim` · `app-satinalma-teklif` · `app-odemeplani`
+4. **Proje alt ekranları:** `app-proje-milestone` · `-sprint` · `-test` · `-hata` · `-degisiklik` · `-teslim`
+5. **Detay ekranları** — kalıp `app-gorev-detay.html`. Öncelik: müşteri (15 sekme), proje (22 sekme),
    lead, teklif, personel, araç, satın alma, destek. **Gantt CSS'i (`.gv-gantt`) burada kullanılacak.**
-8. **Form ekranları** — `GV.form({sections:[...]})` hazır; her liste ekranının `-form.html` karşılığı.
-9. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının doğrulanması ·
+6. **Form ekranları** — `GV.form({sections:[...]})` hazır; her liste ekranının `-form.html` karşılığı.
+7. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının doğrulanması ·
    canonical tarama · 1440/768/390 tam tarama · kapanış raporu.
 
 ### Bir sonraki oturuma özel uyarılar
@@ -347,6 +347,14 @@ durumda** — subagent'a doğrudan verilebilir.
 - `app-rapor.html` katalogdaki rapor adlarını yayındaki rapor ekranlarından okuyarak listeler;
   yeni rapor eklenirse katalog da güncellenmeli.
 - Subagent raporlarındaki "eksik bileşen" ve "veri çelişkisi" notları **ciddiye alınmalı** — bu
-  oturumda üç gerçek canonical hata bu yolla bulundu.
+  oturumda dört gerçek canonical hata ve iki shell hatası bu yolla bulundu.
+- **Arayüz sorunu görülürse düzeltme, `tasks/ui-debt.md`'ye yaz.** Hepsi ekran üretimi bittikten
+  sonra `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde ortak katmanda çözülecek.
+  Şu an defterde: UID-01 rail collapse çentiği · UID-02 mobil kartta satır aksiyonu yok ·
+  UID-03 kare thumbnail sınıfı yok · UID-04 `GV.upload` File nesnesini vermiyor.
+- **Subagent bağlantı hatasıyla düşerse dosyayı kontrol et:** çoğu zaman dosya diskte yarım kalır.
+  `node -e` ile inline script'i parse et; yarımsa ajanı `SendMessage` ile "kaldığın yerden tamamla,
+  baştan yazma" diye devam ettir (bu oturumda üç kez oldu, üçü de kurtarıldı).
+- Yeni hassas ekran eklerken `shell.js` içinde **iki** yere yaz: `BUILT` **ve** `SCREEN_PERM`.
 
 Kapanış raporu **yalnızca plan.md'deki tüm maddeler işaretlendiğinde** verilir.

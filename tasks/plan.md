@@ -79,7 +79,7 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] İnsan Kaynakları Dashboard (12 KPI + izin talepleri + doluluk + belge süresi + eğitim)
 - [x] Satın Alma & İdari İşler Dashboard (12 KPI + onay kuyruğu + araç uyarıları + lisans/garanti)
 - [x] Müşteri kullanıcısı (kısıtlı) paneli — 7. varyant
-- [ ] Günlük Özet · Bekleyen Onaylar · Bildirimler · Duyurular · Yönetici Paneli (ayrı ekranlar)
+- [x] Günlük Özet · Bekleyen Onaylar · Bildirimler · Duyurular · Yönetici Paneli (ayrı ekranlar) — Wave 1 TAMAM
 
 ### Wave 2 — kısmen başlandı
 - [x] `app-lead.html` — müşteri adayları listesi (8 sekme, 9 filtre, 13 kolon)
