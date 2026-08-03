@@ -1,0 +1,185 @@
+# Varsayımlar
+
+> Bu projede CC otonom çalışır. Eksik bilgide durmaz — yazılım şirketi
+> operasyonlarına uygun makul varsayım yapar ve buraya yazar.
+>
+> Karar önceliği: **1) PROMPT.md → 2) CLAUDE.md → 3) Sektör best practice → 4) Varsayım.**
+> Aşağıdaki maddeler 1-2-3'ün sessiz kaldığı yerlerde yapılmış varsayımlardır.
+
+| # | Konu | Varsayım | Gerekçe | Tarih |
+|---|------|----------|---------|-------|
+| 1 | Kapsam | İlk aşamada sadece arayüz (buildless statik prototip) | Beyar kararı | 2026-08-03 |
+| 2 | Kullanıcı | 5–7 iç personel + sonradan sınırlı yetkili müşteri kullanıcıları | PROMPT.md Bölüm 3 | 2026-08-03 |
+
+---
+
+## V-01 · gh hesabı devri
+**Durum:** Kickoff "aktif gh hesabı zaten gaviaworks-dev" diyordu; gerçekte aktif hesap
+**By4r** idi (`gh auth status` çıktısı).
+**Karar:** `gh auth switch --user gaviaworks-dev` ile devredildi, repo doğru hesapta açıldı,
+`git remote -v` ile doğrulandı.
+**Gerekçe:** Kickoff'un açık niyeti repo'nun gaviaworks-dev'de olması.
+
+## V-02 · Marka token'ları
+**Durum:** PROMPT.md §28 "GaviaCRM arayüz diliyle görsel uyum" istiyor; CLAUDE.md
+"brand token cross-contamination yasak" diyor.
+**Karar:** Gavia Works kurumsal kimliği (koyu lacivert + mint) ortak marka olduğu için
+renk ailesi paylaşılıyor, ancak `tokens.css` **sıfırdan bu proje için** yazıldı.
+GaviaCRM'in inşaat bölüm renkleri ve sektörel token'ları kopyalanmadı; kendi ölçeğimiz
+kuruldu (spacing skalası referansta hiç yoktu, hardcode edilmişti).
+**Gerekçe:** İki kural ancak böyle aynı anda sağlanır.
+
+## V-03 · İkon stratejisi
+**Durum:** Referans Font Awesome CDN kullanıyor; PROMPT.md ikon kaynağı belirtmiyor.
+**Karar:** Inline SVG sprite (`assets/img/icons.svg`), dış bağımlılık yok.
+**Gerekçe:** Best practice — CDN düşerse arayüz ikonsuz kalır; statik prototipin
+offline ve uzun ömürlü çalışması gerekir.
+
+## V-04 · Rol taşıma ve yetki
+**Durum:** PROMPT.md §23 "rol bilgisi yalnızca URL parametresine güvenilerek
+belirlenmemelidir" diyor; ama bu backend'siz statik bir prototip.
+**Karar:** Rol `sessionStorage`'daki oturum nesnesinde tutulur; URL yalnızca ilk seçimde
+okunur. Yetki kontrolü menü gizlemeye ek olarak **sayfa açılışında** da çalışır,
+yetkisiz ekranda 403 durumu basılır. Sunucu tarafı kontrolün nereye geleceği teknik
+dokümanda belirtilir.
+**Gerekçe:** Statik prototipte gerçek oturum güvenliği kurulamaz; PROMPT.md'nin niyeti
+(yetki = sadece menü gizleme değil) mimari olarak karşılanır.
+
+## V-05 · Şirket profili ve mock veri hacmi
+**Durum:** PROMPT.md 5–7 kişilik şirket diyor, fakat 28 rol ve 21 departman tanımlıyor.
+**Karar:** Mock veride **12 personel** kurulur; bir personel birden fazla departman/rol
+taşır (PROMPT.md §3 "departmanlar rol ve sorumluluk grupları şeklinde" ifadesine uygun).
+Roller sistemde eksiksiz tanımlı, personele atanmış roller alt küme.
+**Gerekçe:** 5-7 kişiyle 28 rolün tamamı doldurulamaz; sistem SaaS'a lisanslanabilir
+olacağı için rol seti tam, kadro gerçekçi tutuldu.
+
+## V-06 · Para birimi ve biçim
+**Karar:** Varsayılan ₺ (TRY); teklif ve satın almada USD/EUR alanı mevcut.
+Tarih `GG.AA.YYYY`, sayı `tr-TR` biçimi, tablo sayıları `tabular-nums`.
+**Gerekçe:** Şirket Türkiye merkezli; PROMPT.md döviz alanı istiyor ama varsayılan belirtmiyor.
+
+## V-07 · Mock veri tarih ekseni
+**Karar:** "Bugün" = **3 Ağustos 2026**. Geciken/yaklaşan/biten tüm kayıtlar bu eksene
+göre üretilir, böylece gecikme ve yenileme uyarıları gerçekten tetiklenmiş görünür.
+**Gerekçe:** Sabit tarihli mock veri zamanla anlamsızlaşır; tek referans tarih ekseni
+canonical veri disiplinini korur.
+
+## V-08 · Sayfa adlandırma
+**Karar:** `app-<modul>.html` (liste) · `app-<modul>-detay.html` · `app-<modul>-form.html`.
+Referansın `crm-*` öneki kullanılmadı.
+**Gerekçe:** İki proje karıştırılmasın; dosya adından hangi repo olduğu anlaşılsın.
+
+## V-09 · Sohbet, Gantt, takvim gerçekliği
+**Karar:** Backend olmadığı için sohbet mesajları, gantt çubukları ve takvim olayları
+mock veriden render edilir; yazılan mesaj oturum içinde listeye eklenir (kalıcı değil).
+**Gerekçe:** "Sahte buton bırakma" kuralı — aksiyon gerçekten bir şey yapmalı; kalıcılık
+statik prototipte mümkün değil.
+
+## V-10 · Raporlarda grafik
+**Karar:** Grafikler dış kütüphane olmadan inline SVG ile çizilir (bar, line, donut,
+sparkline). Her raporda KPI + grafik + **detay tablo** üçlüsü birlikte bulunur.
+**Gerekçe:** Buildless kural (npm bağımlılığı yok) + PROMPT.md §29 "raporları yalnızca
+grafiklerden ibaret bırakma".
+
+## V-11 · Fazlandırma sırası
+**Karar:** PROMPT.md §25 Faz 1 sırası korunur; Faz 2 ve Faz 3'ün **arayüz tarafı** da
+aynı wave planı içinde tamamlanır. Faz 3 entegrasyonları (muhasebe, GitHub, e-imza, AI)
+arayüz + ayar ekranı olarak kurulur, gerçek bağlantı kurulmaz.
+**Gerekçe:** Kapsam "sadece arayüz"; fazlar geliştirme sırasıdır, arayüz kapsamı değil.
+
+## V-13 · Rapor yetkisi iki eksende türetilir
+**Durum:** PROMPT.md §5 "personel raporu" ve "müşteri raporu"nu ayrı yetki ekseni sayıyor;
+`DB.permMatrix` yalnız genel `rapor` kapsamını tutuyor (28 rol × yeni iki kolon eklemek
+matrisi şişirecekti).
+**Karar:** `GV.perm.can('musteriRapor')` = rapor yetkisi **ve** Müşteriler bölümüne erişim;
+`can('personelRapor')` = rapor yetkisi **ve** personel verisi kapsamı **ve** Personel bölümüne erişim.
+**Sonuç:** İK personel raporunu görür müşteri raporunu görmez; satış temsilcisinde tam tersi;
+tasarımcı ikisini de görmez. **Gerekçe:** "raporlayabildiğin şey, görebildiğin veridir."
+
+## V-14 · Görev kalite puanı türetilir
+**Durum:** PROMPT.md §20.3 "görev kalite sonuçları" raporu istiyor; `DB.tasks`'ta kalite puanı alanı yok.
+**Karar:** Puan = `100 − 10×revizyon − 15×yeniden açılma − 15 (termin aşımı) − 10 (efor sapması >%20)`,
+0–100 aralığına kırpılır. Sınıflandırma: ≥85 İyi · 60–84 Kabul edilebilir · <60 Zayıf.
+**Gerekçe:** Veri uydurmak yerine mevcut alanlardan türetmek canonical veri disiplinini bozmaz;
+formül ekranda görünür, gerçek sistemde kalite kaydı ayrı alan olacaktır.
+
+## V-15 · Görevin kaynağı ilişkiden türetilir
+**Durum:** "Sohbetten oluşan görev" ve "toplantıdan oluşan görev" raporları isteniyor;
+`DB.tasks` kaynak alanı tutmuyor.
+**Karar:** Sohbet kaynağı `DB.messages[].gorev` üzerinden, toplantı kaynağı `DB.decisions[].gorev`
+üzerinden ters ilişkiyle bulunur. **Gerekçe:** İlişki zaten canonical veride var; ikinci bir
+"kaynak" alanı eklemek aynı bilgiyi iki yerde tutmak olurdu (PROMPT.md §22).
+
+## V-16 · Zamanında tamamlama oranı kapanmamış gecikmeleri de sayar
+**Karar:** Oran, "termin sonucu belli olan" görevler üzerinden hesaplanır: kapananlar (zamanında/geç)
+**artı** hâlâ açık ama termini aşmış olanlar.
+**Gerekçe:** Yalnız kapananlara bakınca mock veride oran %100 çıkıyor ve "oranı düşüren görevler"
+tablosu boş kalıyordu — rapor gerçeği göstermiyordu.
+
+## V-12 · KVKK / hassas alan maskeleme
+**Karar:** Maaş, TCKN, IBAN gibi alanlar yetkisiz rollerde `••••` maskelenir; "görüntüle"
+aksiyonu aktivite log'una yazılır (alan bazlı erişim — PROMPT.md §5).
+**Gerekçe:** PROMPT.md hassas alan maskelemesi istiyor, uygulama biçimini belirtmiyor.
+
+## V-17 · Müşteri kartı sayaçları işlem verisinden türetilir
+**Durum:** `DB.customers` kartındaki `bekleyenTahsilat` ve `aktifProje` değerleri elle yazılmıştı ve
+`DB.invoices` / `DB.payments` / `DB.projects` toplamlarıyla çelişiyordu (rapor ekranı çelişkiyi ortaya
+çıkardı — ör. MUS-2024-002 kartta 320.000, açık faturalarda 211.200).
+**Karar:** `bekleyenTahsilat` = ödenmemiş faturaların KDV dahil toplamı; `aktifProje` = `DB.projects`
+içinde durumu `Teslim`/`İptal` olmayan proje sayısı. Kart değerleri bu tanıma göre düzeltildi;
+faturası olup tahsilat kaydı bulunmayan `FTR-2026-031` için `THS-2026-047` eklendi.
+**İstisna:** `projeSayisi` **ömür boyu** proje sayısıdır — `DB.projects` yalnız güncel projeleri tutar,
+bu yüzden kart değeri veri sayımından büyük olabilir (tarihsel projeler modellenmedi).
+**Gerekçe:** CLAUDE.md canonical veri disiplini — aynı kayıt no her ekranda aynı değeri göstermeli.
+
+## V-18 · Filo maliyet ölçüleri
+**Karar:** Km başına maliyet = kayıtlı gider toplamı ÷ güncel kilometre (edinme bedeli hariç);
+sahip olma maliyeti ayrı ölçü olarak karşılaştırma raporunda durur. Satın alma/kiralama
+karşılaştırmasında satın alma bedeli sahiplik ayına yayılır, kiralıkta aylık kira edinme
+maliyeti sayılır ve mükerrer sayımı önlemek için "Kira" gider kalemi işletme maliyetinden düşülür.
+`kmSiniri` **yıllık** kabul edilip sözleşme yılı sayısıyla çarpılır (formül kolonda görünür).
+**Gerekçe:** PROMPT.md §16 "kilometre başına maliyet" istiyor ama tanımı vermiyor; iki maliyet
+ekseni (edinme / işletme) karıştırılırsa rapor yanıltıcı olur.
+
+## V-19 · "Bakımı geciken" tanımı
+**Karar:** Plan tarihi geçmiş **veya** plan kilometresi aşılmış açık bakım kayıtları,
+**artı** servise girmiş ama kapanmamış kayıtlar.
+**Gerekçe:** Yalnız tarih eşiğine bakan katı tanımla mock veride rapor tamamen boş kalıyordu;
+§16 bakımı hem tarih hem kilometre eşiğine bağlıyor.
+
+## V-20 · Proje sağlık puanı türetilir
+**Karar:** 100'den başlar; bütçe aşım yüzdesi (−30'a kadar), süre sapma yüzdesi (−20), termin gecikmesi
+gün/2 (−25), açık kritik+yüksek hata ×5 (−15), geciken milestone ×5 (−10), kayıtlı risk ×3 (−9) düşülür.
+Kayıttaki `saglik` alanı ayrı kolon olarak yanında durur — türetilen puan onu ezmez, yanına konur.
+**Plan ilerlemesi** başlangıç→planlanan bitiş arasında doğrusal kabul edilir; "plana göre fark" =
+gerçek ilerleme − plan ilerlemesi. **Gerekçe:** PROMPT.md §11 proje sağlığı istiyor, formülünü vermiyor;
+tek bir elle yazılmış etiket yerine ölçülebilir bileşenler gösterilir.
+
+## V-21 · Rapor ekranlarında arşiv gizlemesi kapalı
+**Karar:** Rapor detay tablolarında `archive:false` — arşivlenmiş kayıtlar (ör. PRJ-2025-008,
+GRV-2026-124) raporlara dahildir.
+**Gerekçe:** Rapor geçmiş analizi yapar; arşivi gizlemek KPI ile tablo sayısını çelişkiye düşürüyordu.
+Liste ekranlarında arşiv toggle'ı normal davranışını korur.
+
+## V-22 · Ayarlar bölümü ekran ekran yetkilendirilir
+**Durum:** `SEC_BY_ROLE` bölüm bazlıydı; Ayarlar tek parça olduğu için çoğu rol **kendi profiline**
+ve bildirim tercihlerine erişemiyordu (profil ekranı bunu ortaya çıkardı).
+**Karar:** `ayarlar` bölümü tüm rollere açıldı; `shell.js` içine `SCREEN_PERM` haritası eklendi.
+Haritadaki ekranlar (şirket, departmanlar, kullanıcılar, roller, yetki matrisi, onay akışları,
+otomasyon, entegrasyon, log, arşiv) yalnız belirtilen rollere açık; haritada olmayan ekran
+(profil, bildirim tercihleri) bölüm erişimi olan herkese açık. Menü de aynı listeye göre süzülür.
+**Gerekçe:** PROMPT.md §5 yetkiyi "modül görüntüleme" değil **kayıt ve ekran** düzeyinde tanımlıyor;
+bölüm bazlı tek kapı bu ayrımı taşıyamıyordu.
+
+## V-23 · `onayAdim` bulunulan adımdır, onay sayısı değil
+**Durum:** Onay akışları ekranı `SAT-2026-014` (adım 2/3, zincirde 1 onay) ve `SAT-2026-015`
+(adım 1/2, zincirde 0 onay) için çelişki bildirdi.
+**Bulgu:** Çelişki yok — `onayAdim` **o an beklenen adımın sırasıdır** (`onaylanan + 1`), toplam
+onay sayısı değil. İki kayıt da bu tanımla tutarlı.
+**Gerçek eksik:** Kapanmış talepler (`SAT-2026-011/012/013` — Sipariş verildi / Teslim alındı)
+`onayAdim:2/2` gösteriyor ama `DB.purchaseApprovals`'ta **hiç zincir kaydı yok**; onay geçmişi
+yalnız açık talepler için modellenmiş.
+**Karar:** Sayaç düzeltilmedi (doğru). Kapanmış taleplerin zincir geçmişi **eksik veri** olarak
+kaydedildi; satın alma detay ekranı yazılırken `DB.purchaseApprovals`'a bu üç talebin tamamlanmış
+adımları eklenecek. Ekran şu an takılma noktasını sayaçtan değil **gerçek zincirden** okuyor ve
+farkı kullanıcıya bildiriyor.

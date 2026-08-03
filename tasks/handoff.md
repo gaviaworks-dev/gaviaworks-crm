@@ -7,7 +7,7 @@
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
 > ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
-**Güncelleme:** 2026-08-04 (2. oturum sonu) · **59 ekran canlıda** · Wave 11 tamam · Wave 12 %75.
+**Güncelleme:** 2026-08-04 (2. oturum sonu) · **62 ekran canlıda** · **Wave 11 ve Wave 12 TAMAM.**
 
 ---
 
@@ -32,8 +32,9 @@ AYARLAR     app-ayar-yetki (27 rol × 15 modül × 19 eksen) · app-ayar-otomasy
             app-ayar-kullanici · app-ayar-entegrasyon · app-ayar-rol · app-ayar-departman ·
             app-ayar-profil
 ```
-**Wave 12'de kalan 3 ekran** (bu oturumda üretime verildi, sonucu doğrulanmadıysa önce onu bitir):
-`app-ayar-sirket` · `app-ayar-onay` · `app-ayar-arsiv`.
+            app-ayar-sirket · app-ayar-onay (7 akış, 6 onay makamı) · app-ayar-arsiv   ← Wave 12 TAMAM
+```
+Son doğrulama: **62 ekran × 5 rol = 310 sayfa yüklemesi, konsol hatası 0**, 63 ekranda kırık link yok.
 
 ### Ortak katmana 2. oturumda eklenenler
 - **`GV.report(cfg)`** — Wave 11'in tamamının dayandığı rapor iskeleti (components.md §5b).
@@ -327,10 +328,7 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 durumda** — subagent'a doğrudan verilebilir.
 
 ### Sıradaki kuyruk (öncelik sırasıyla)
-1. **Wave 12 — Ayarlar (kalan 9 ekran):** `app-ayar-sirket` · `app-ayar-departman` ·
-   `app-ayar-kullanici` · `app-ayar-rol` · `app-ayar-onay` · `app-ayar-bildirim` (31 tip × 7 kanal
-   matrisi) · `app-ayar-entegrasyon` · `app-ayar-log` · `app-ayar-arsiv` · `app-ayar-profil`
-2. **Wave 1 kalanı:** `app-panel-ozet` · `app-panel-duyurular` · `app-panel-yonetici`
+1. **Wave 1 kalanı:** `app-panel-ozet` · `app-panel-duyurular` · `app-panel-yonetici`
 3. **Wave 9 kalanı:** `app-destek-sla` · `app-destek-paket` · `app-destek-memnuniyet`
 4. **Wave 10 kalanı:** `app-dokuman-sure` · `app-toplanti-karar`
 5. **İK/satın alma kalanı:** `app-zaman-onay` · `app-egitim` · `app-satinalma-teklif` · `app-odemeplani`

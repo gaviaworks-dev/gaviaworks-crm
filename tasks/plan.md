@@ -189,17 +189,17 @@ detay tablo (`GV.list`) + çıktı (Excel/CSV/PDF/Yazdır) + kayıtlı rapor.
 - [x] `app-ayar-otomasyon.html` — 22 otomasyon kuralı listesi (tetikleyici → koşul → işlem → bildirim), aç/kapa, çalışma geçmişi, kural detay drawer'ı
 
 **Ayarlar**
-- [ ] `app-ayar-sirket.html` — şirket profili, logo, vergi/adres/iletişim, çalışma takvimi, tatil günleri, para birimi, çoklu şirket (tenant) listesi
+- [x] `app-ayar-sirket.html` — şirket profili, logo, vergi/adres/iletişim, çalışma takvimi, tatil günleri, para birimi, çoklu şirket (tenant) listesi
 - [x] `app-ayar-departman.html` — 21 departman listesi + org şeması görünümü + yönetici/kadro/kapasite
 - [x] `app-ayar-kullanici.html` — kullanıcı listesi (16 personel), rol ataması, durum, son giriş, davet/pasife alma
 - [x] `app-ayar-rol.html` — 27 rol listesi, rol başına kullanıcı sayısı, rol kopyalama, rol detay drawer'ı
 - [x] `app-ayar-yetki.html` — **yetki matrisi**: satır = modül, kolon = 20 yetki ekseni, hücre = rol bazlı toggle; kapsam seçimi (tüm/departman/proje/kendi), alan bazlı maskeleme
-- [ ] `app-ayar-onay.html` — onay akışları: satın alma (6 makam, tutar eşikli), izin, zaman kaydı, teklif, değişiklik talebi; adım ekle/sil/sırala
+- [x] `app-ayar-onay.html` — onay akışları: satın alma (6 makam, tutar eşikli), izin, zaman kaydı, teklif, değişiklik talebi; adım ekle/sil/sırala
 - [x] `app-ayar-entegrasyon.html` — muhasebe · GitHub/GitLab · e-imza · e-posta · takvim · Slack/Teams · WhatsApp · AI servisleri; bağlantı durumu, anahtar alanı (maskeli), test bağlantısı
 - [x] `app-ayar-log.html` — log kayıtları: kim · ne zaman · hangi kayıt · **eski değer → yeni değer** · IP · modül filtresi
-- [ ] `app-ayar-arsiv.html` — arşivlenen kayıtlar (modül bazlı sekmeler), geri alma, kalıcı silme (onaylı)
+- [x] `app-ayar-arsiv.html` — arşivlenen kayıtlar (modül bazlı sekmeler), geri alma, kalıcı silme (onaylı)
 - [x] `app-ayar-profil.html` — profil bilgileri, şifre, oturum cihazları, dil/tema/tarih biçimi, kişisel bildirim tercihi
-- [ ] `Ayarlar` rail bölümü menü kayıtları + `SEC_BY_ROLE` (yalnız sahip/sistem yöneticisi/İK kısmi) (orkestratör)
+- [x] `Ayarlar` rail bölümü menü kayıtları + `SEC_BY_ROLE` (yalnız sahip/sistem yöneticisi/İK kısmi) (orkestratör)
 
 ### Wave 13 — Kapanış
 - [ ] Tüm `data-wip` bağlantıların gerçek `href`'e çevrilmesi
