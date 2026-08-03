@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Departmanlar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="departmanlar">
+<div id="uyari"></div>
+<div id="sema"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  /* =====================================================================
+     DEPARTMANLAR — Ayarlar / Organizasyon
+     PROMPT.md §4: 21 departman, sistem yöneticisi tarafından eklenebilir,
+     düzenlenebilir, pasife alınabilir ve organizasyon şemasına bağlanabilir.
+
+     TÜRETME DİSİPLİNİ (lessons L-08): departman kaydındaki `personel` alanı
+     başka koleksiyondan hesaplanabildiği için bu ekranda KULLANILMAZ.
+       kadro      ← DB.employees[].dep
+       roller     ← kadronun rol + roller alanları
+       açık iş    ← DB.tasks[].dep (app-gorev.html ile aynı "açık" tanımı)
+       doluluk    ← DB.capacity, kaydı olmayan personelde personel kartı
+     Yönetici · kısa ad · aktiflik departman kaydının kendi alanlarıdır.
+     ===================================================================== */
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var ME = GV.session.emp;
+  var L;
+
+  /* ---- Bu ekranın yetkisi — app-ayar-kullanici.html ile aynı kalıp:
+     düzenleme yetkisi + "tüm şirket" silme kapsamı (Şirket Sahibi /
+     Genel Müdür / Sistem Yöneticisi). Organizasyon yapısı şirket geneli
+     bir kayıttır; departman kapsamlı roller değiştiremez. ---------------- */
+  var MYM = GV.perm.matrix() || {};
+  var canEdit = !!GV.perm.can('duzenle') && MYM.sil === 'tum';
+
+  /* =====================================================================
+     TÜRETMELER
+     ===================================================================== */
+  /* app-gorev.html ile birebir aynı "açık" / "geciken" tanımı */
+  var KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  function gorevAcik(t){ return KAPALI.indexOf(t.durum) === -1; }
+  function gorevGeciken(t){ return gorevAcik(t) && t.termin && F.days(t.termin) < 0; }
+
+  var ROL_IX = {};
+  DB.roles.forEach(function(r, i){ ROL_IX[r.key] = i; });
+
+  function kadro(d){
+    return DB.employees.filter(function(e){ return e.dep === d.kod; });
+  }
+  function depGorev(d){
+    return DB.tasks.filter(function(t){ return t.dep === d.kod; });
+  }
+  function acikGorev(d){ return depGorev(d).filter(gorevAcik); }
+  function gecikenGorev(d){ return depGorev(d).filter(gorevGeciken); }
+
+  /* Kadro dışı bağlı personel: departmanın açık işlerinde çalışanlar +
+     departman yöneticisi başka departmanın kadrosundaysa o.
+     (PROMPT.md §3: "Bir personel birden fazla departmanda görev alabilir" —
+     veri modelinde çoklu üyelik alanı yok, çalışma ilişkisi işten türetilir.) */
+  function ekEkip(d){
+    var icinde = {}, out = [];
+    kadro(d).forEach(function(e){ icinde[e.kod] = 1; });
+    function ekle(k){ if(!k || icinde[k]) return; icinde[k] = 1; out.push(k); }
+    if(d.yonetici) ekle(d.yonetici);
+    acikGorev(d).forEach(function(t){
+      ekle(t.sorumlu);
+      (t.yardimci || []).forEach(ekle);
+    });
+    return out;
+  }
+
+  function kapKaydi(kod){
+    return DB.capacity.filter(function(c){ return c.personel === kod; })[0] || null;
+  }
+  function empDoluluk(e){
+    var c = kapKaydi(e.kod);
+    if(c) return c.doluluk;
+    return e.doluluk == null ? null : e.doluluk;
+  }
+  /* Departman doluluğu: kadronun ortalama doluluk yüzdesi. Kadro yoksa null. */
+  function doluluk(d){
+    var v = kadro(d).map(empDoluluk).filter(function(x){ return x != null; });
+    if(!v.length) return null;
+    var t = 0;
+    v.forEach(function(x){ t += x; });
+    return Math.round(t / v.length);
+  }
+  function dolulukTone(v){
+    if(v == null) return 'neutral';
+    if(v >= 95) return 'danger';
+    if(v >= 85) return 'warn';
+    if(v >= 60) return 'ok';
+    return '';
+  }
+  /* Haftalık saat — yalnız DB.capacity kaydı olan kadro üyelerinden */
+  function saat(d){
+    var k = kadro(d), kap = 0, plan = 0, n = 0;
+    k.forEach(function(e){
+      var c = kapKaydi(e.kod);
+      if(!c) return;
+      kap += c.kapasite; plan += c.planlanan; n++;
+    });
+    return { kapasite:kap, planlanan:plan, kayit:n, toplam:k.length };
+  }
+  /* Departmana bağlı roller: kadronun birincil rolü + tanımlı ek rolleri */
+  function roller(d){
+    var seen = {}, out = [];
+    kadro(d).forEach(function(e){
+      [e.rol].concat(e.roller || []).forEach(function(r){
+        if(!r || seen[r]) return;
+        seen[r] = 1; out.push(r);
+      });
+    });
+    return out.sort(function(a, b){ return (ROL_IX[a] || 99) - (ROL_IX[b] || 99); });
+  }
+  function rolTags(list, limit){
+    if(!list.length) return '<span class="u-faint">—</span>';
+    var g = limit ? list.slice(0, limit) : list;
+    return g.map(function(r){
+      return '<span class="tag">' + esc(DB.roleName(r)) + '</span>';
+    }).join(' ') + (limit && list.length > limit
+      ? ' <span class="tag">+' + (list.length - limit) + '</span>' : '');
+  }
+  function yonPozisyon(kod){
+    var e = DB.emp(kod);
+    return e ? e.pozisyon : '—';
+  }
+  /* Veriye yazılmış `personel` alanı ile türetilen kadro arasındaki fark */
+  function celiskiSayisi(){
+    return DB.departments.filter(function(d){
+      return typeof d.personel === 'number' && d.personel !== kadro(d).length;
+    }).length;
+  }
+
+  function logKaydi(islem, kayit, eski, yeni){
+    DB.logs.unshift({
+      kod:'LOG-' + (88300 + DB.logs.length), tarih:DB.today + 'T00:00',
+      kisi:ME, islem:islem, kayit:kayit, modul:'Ayarlar', ip:'—', eski:eski, yeni:yeni
+    });
+  }
+
+  function ozetSatir(lbl, val){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + lbl + '</span>' +
+           '<span class="gv-summary-val">' + val + '</span></div>';
+  }
+
+  /* =====================================================================
+     ORGANİZASYON ŞEMASI — mevcut sınıflarla kurulur
+     (.gv-card / .gc-head / .gc-body / .gv-grid-3 / .gv-rcard / .gv-user / .tag)
+     Üç kademe: yönetici → bağlı departmanlar → departman kadrosu.
+     ===================================================================== */
+  function semaHtml(){
+    var map = {}, gruplar = [];
+    DB.departments.forEach(function(d){
+      var k = d.yonetici || '—';
+      if(!map[k]){ map[k] = { kod:d.yonetici, deps:[] }; gruplar.push(map[k]); }
+      map[k].deps.push(d);
+    });
+    gruplar.sort(function(a, b){
+      return b.deps.length - a.deps.length ||
+             DB.empName(a.kod).localeCompare(DB.empName(b.kod), 'tr');
+    });
+
+    var tepe = DB.employees.filter(function(e){ return !e.yonetici; })[0];
+
+    var kartlar = gruplar.map(function(g){
+      var y = g.kod ? DB.emp(g.kod) : null;
+      var kisi = 0, isi = 0;
+      g.deps.forEach(function(d){ kisi += kadro(d).length; isi += acikGorev(d).length; });
+
+      var satirlar = g.deps.map(function(d){
+        var k = kadro(d);
+        return '<div class="u-row u-wrap">' +
+          '<button type="button" class="btn btn-line btn-sm" data-dact="detay" data-id="' + d.kod + '">' +
+            ico('i-chev-right','ic-sm') + ' ' + esc(d.ad) + '</button>' +
+          (d.aktif ? '' : GV.badge('Pasif')) +
+          (k.length
+            ? k.map(function(e){ return GV.user(e.kod, { sm:true }); }).join('')
+            : '<span class="u-faint u-sm">Birincil kadro tanımlı değil</span>') +
+          '</div>';
+      }).join('');
+
+      return '<div class="gv-rcard">' +
+        '<div class="gv-rcard-top">' +
+          (y ? GV.user(y.kod) : '<span class="u-faint">Yönetici atanmamış</span>') +
+          (y ? GV.badge(DB.roleName(y.rol)) : '') +
+        '</div>' +
+        '<div class="gv-rcard-meta">' +
+          '<span>' + esc(y ? y.pozisyon : '—') + '</span>' +
+          '<span>' + g.deps.length + ' departman</span>' +
+          '<span>' + kisi + ' kadrolu personel</span>' +
+          '<span>' + isi + ' açık iş</span>' +
+        '</div>' + satirlar + '</div>';
+    }).join('');
+
+    return '<div class="gv-card u-mb-4">' +
+      '<div class="gc-head">' +
+        '<h2 class="gc-title">' + ico('i-grid') + ' Organizasyon Şeması</h2>' +
+        '<div class="gc-head-acts">' +
+          '<span class="tag">' + esc(DB.company.ad) + '</span>' +
+          '<span class="tag">' + DB.departments.length + ' departman</span>' +
+          '<span class="tag">' + DB.employees.length + ' personel</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="gc-body">' +
+        '<div class="u-row u-wrap">' + ico('i-building') +
+          '<b>' + esc(DB.company.unvan) + '</b>' +
+          (tepe ? GV.user(tepe.kod) + GV.badge(DB.roleName(tepe.rol), 'is-accent') : '') +
+        '</div>' +
+        '<p class="u-sm u-muted u-mt-4">Şema üç kademede okunur: <b>yönetici → bağlı departman → departman kadrosu</b>. ' +
+        'Departman adına tıklandığında o departmanın detay paneli açılır. Kadro, personel kartındaki ' +
+        'departman alanından türetilir; bir personel birden fazla departmanın işinde çalışıyorsa bu ilişki ' +
+        'departman detayında “bağlı personel” olarak görünür.</p>' +
+        '<div class="gv-grid gv-grid-3 u-mt-4">' + kartlar + '</div>' +
+      '</div></div>';
+  }
+
+  /* =====================================================================
+     AKSİYON 1 — DEPARTMAN DETAYI (GV.drawer)
+     ===================================================================== */
+  function acDetay(d){
+    if(!d) return;
+    var k = kadro(d), ek = ekEkip(d), rl = roller(d), s = saat(d);
+    var ag = acikGorev(d), gg = gecikenGorev(d), dl = doluluk(d);
+
+    var kadroHtml = k.length
+      ? '<div class="gv-cards">' + k.map(function(e){
+          var c = kapKaydi(e.kod);
+          return '<div class="gv-rcard">' +
+            '<div class="gv-rcard-top">' + GV.user(e.kod) +
+              GV.badge(e.aktif ? 'Aktif' : 'Pasif') + '</div>' +
+            '<div class="gv-rcard-meta"><span>' + esc(e.pozisyon) + '</span>' +
+              '<span>' + esc(e.calismaTuru) + '</span>' +
+              '<span>' + (c ? esc(F.hours(c.planlanan) + ' / ' + F.hours(c.kapasite)) : 'Kapasite kaydı yok') + '</span></div>' +
+            '<div class="u-row u-wrap">' + rolTags([e.rol].concat((e.roller || []).filter(function(r){ return r !== e.rol; })), 3) + '</div>' +
+            GV.progress(empDoluluk(e), { tone:dolulukTone(empDoluluk(e)) }) +
+          '</div>';
+        }).join('') + '</div>'
+      : '<p class="u-sm u-muted">Bu departmanda birincil kadro tanımlı değil. İşler diğer departmanların ' +
+        'personeline atanıyor.</p>';
+
+    var ekHtml = ek.length
+      ? '<div class="u-row u-wrap u-mt-4">' + ek.map(function(kod){
+          var e = DB.emp(kod);
+          return GV.user(kod, { sm:true }) + (e ? '<span class="tag">' + esc(e.depAd) + '</span>' : '');
+        }).join('') + '</div>'
+      : '<p class="u-sm u-muted u-mt-4">Kadro dışından bu departmanın işinde çalışan personel yok.</p>';
+
+    var isHtml = ag.length
+      ? '<div class="gv-summary">' + ag.slice(0, 8).map(function(t){
+          return ozetSatir(
+            '<a class="cell-main" href="app-gorev-detay.html?id=' + esc(t.kod) + '">' + esc(t.baslik) + '</a>',
+            GV.badge(t.durum) + ' ' + (t.termin
+              ? '<span class="cell-date' + (gorevGeciken(t) ? ' is-late' : '') + '">' + esc(F.dateShort(t.termin)) + '</span>'
+              : '<span class="u-faint">Termin yok</span>'));
+        }).join('') + '</div>' +
+        (ag.length > 8 ? '<p class="u-sm u-muted">İlk 8 kayıt gösteriliyor · toplam ' + ag.length + ' açık iş.</p>' : '')
+      : '<p class="u-sm u-muted">Bu departmanda açık iş yok.</p>';
+
+    var body =
+      '<div class="gv-summary">' +
+        ozetSatir('Departman', '<b>' + esc(d.ad) + '</b>') +
+        ozetSatir('Kod / kısa ad', '<span class="cell-code">' + esc(d.kod + ' · ' + d.kisa) + '</span>') +
+        ozetSatir('Yönetici', (d.yonetici ? GV.user(d.yonetici) : '<span class="u-faint">Atanmamış</span>')) +
+        ozetSatir('Yöneticinin pozisyonu', esc(yonPozisyon(d.yonetici))) +
+        ozetSatir('Durum', GV.badge(d.aktif ? 'Aktif' : 'Pasif')) +
+        ozetSatir('Kadro', '<b class="u-num">' + k.length + '</b> kişi') +
+        ozetSatir('Bağlı personel (kadro dışı)', '<b class="u-num">' + ek.length + '</b> kişi') +
+        ozetSatir('Bağlı roller', rolTags(rl)) +
+        ozetSatir('Açık iş', '<b class="u-num">' + ag.length + '</b> / ' + depGorev(d).length + ' görev') +
+        ozetSatir('Geciken iş', gg.length
+          ? GV.badge(gg.length + ' geciken', 'is-danger')
+          : '<span class="u-faint">Yok</span>') +
+        ozetSatir('Doluluk', GV.progress(dl, { tone:dolulukTone(dl) })) +
+        ozetSatir('Haftalık kapasite', s.kayit
+          ? esc(F.hours(s.planlanan) + ' / ' + F.hours(s.kapasite)) +
+            '<span class="cell-sub">' + s.kayit + ' / ' + s.toplam + ' personelde kapasite kaydı var</span>'
+          : '<span class="u-faint">Kapasite kaydı yok</span>') +
+      '</div>' +
+      '<h3 class="u-mt-8">Kadro (' + k.length + ')</h3>' + kadroHtml +
+      '<h3 class="u-mt-8">Bağlı personel (' + ek.length + ')</h3>' +
+      '<p class="u-sm u-muted">Departmanın açık işlerinde çalışan kadro dışı personel ve — kendi kadrosunda ' +
+      'değilse — departman yöneticisi.</p>' + ekHtml +
+      '<h3 class="u-mt-8">Açık işler (' + ag.length + ')</h3>' + isHtml +
+      '<div class="u-row u-wrap u-mt-8">' +
+        '<a class="btn btn-acc btn-sm" href="app-personel.html?f_dep=' + esc(d.kod) + '">' +
+          ico('i-users','ic-sm') + ' Personelini gör</a>' +
+        '<a class="btn btn-line btn-sm" href="app-gorev.html?t=departman&f_dep=' + esc(d.kod) + '">' +
+          ico('i-tasks','ic-sm') + ' İş yükünü gör</a>' +
+        '<a class="btn btn-line btn-sm" href="app-kapasite.html">' +
+          ico('i-gauge','ic-sm') + ' Kapasite planı</a>' +
+      '</div>';
+
+    GV.drawer({
+      title:d.ad + ' — Departman Detayı',
+      body:body,
+      actions:[{ label:'Kapat', cls:'btn-line' }]
+    });
+  }
+
+  /* =====================================================================
+     AKSİYON 2 — PASİFE AL / AKTİFLEŞTİR (GV.confirm)
+     Kadrosu veya açık işi olan departman pasife alınamaz: pasif departman
+     görev havuzundan ve atama listelerinden düşer, bağlı kayıt sahipsiz kalır.
+     ===================================================================== */
+  function engel(d){
+    var k = kadro(d).length, a = acikGorev(d).length;
+    if(!k && !a) return null;
+    return (k ? k + ' kadrolu personel' : '') + (k && a ? ' ve ' : '') + (a ? a + ' açık iş' : '');
+  }
+
+  function durumDegistir(d){
+    if(!d) return;
+    if(!canEdit){
+      GV.toast('Departman durumunu değiştirme yetkiniz yok', 'danger');
+      if(L) L.refresh();
+      return;
+    }
+    var ac = !d.aktif;
+    if(!ac){
+      var e = engel(d);
+      if(e){
+        GV.toast(d.ad + ' pasife alınamaz — ' + e + ' bağlı', 'danger', 4600);
+        if(L) L.refresh();
+        return;
+      }
+    }
+    GV.confirm({
+      title:ac ? 'Departmanı aktifleştir' : 'Departmanı pasife al',
+      tone:ac ? 'warn' : 'danger',
+      okLabel:ac ? 'Aktifleştir' : 'Pasife al',
+      text:ac
+        ? d.ad + ' yeniden aktif olacak; personel ataması, görev havuzu ve organizasyon şemasında görünecek.'
+        : d.ad + ' pasife alınacak; yeni personel ve görev ataması yapılamayacak. Geçmiş kayıtlar ve ' +
+          'organizasyon şemasındaki bağlantılar silinmez.'
+    }).then(function(ok){
+      if(!ok){ if(L) L.refresh(); return; }
+      d.aktif = ac;
+      logKaydi(ac ? 'Departmanı aktifleştirdi' : 'Departmanı pasife aldı',
+               d.kod, ac ? 'Pasif' : 'Aktif', ac ? 'Aktif' : 'Pasif');
+      GV.toast(d.ad + (ac ? ' aktifleştirildi' : ' pasife alındı'), ac ? 'ok' : 'warn', 4000);
+      cizSema();
+      if(L) L.refresh();
+    });
+  }
+
+  function topluDurum(ids, ac){
+    var n = 0, bloke = 0, degismeyen = 0;
+    (ids || []).forEach(function(id){
+      var d = DB.dep(id);
+      if(!d) return;
+      if(d.aktif === ac){ degismeyen++; return; }
+      if(!ac && engel(d)){ bloke++; return; }
+      d.aktif = ac;
+      n++;
+      logKaydi(ac ? 'Departmanı aktifleştirdi (toplu)' : 'Departmanı pasife aldı (toplu)',
+               d.kod, ac ? 'Pasif' : 'Aktif', ac ? 'Aktif' : 'Pasif');
+    });
+    if(bloke) GV.toast(bloke + ' departman kadrosu veya açık işi olduğu için işlem dışında bırakıldı', 'warn', 4600);
+    if(!n) GV.toast('Durumu değişen departman olmadı' +
+      (degismeyen ? ' · ' + degismeyen + ' kayıt zaten bu durumdaydı' : ''), 'info');
+    else GV.toast(n + ' departman' + (ac ? ' aktifleştirildi' : ' pasife alındı'), ac ? 'ok' : 'warn', 4000);
+    cizSema();
+    if(L) L.refresh();
+  }
+
+  /* =====================================================================
+     SAYFA BAŞLIĞI · ŞEMA · UYARILAR
+     ===================================================================== */
+  var semaHost = document.getElementById('sema');
+  function cizSema(){ semaHost.innerHTML = semaHtml(); }
+
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Departmanlar', sub:'—',
+    actions:[
+      { label:'Şemayı gizle', icon:'i-grid', cls:'btn-line', run:function(ev, btn){
+          var acik = !semaHost.hasAttribute('hidden');
+          if(acik) semaHost.setAttribute('hidden',''); else semaHost.removeAttribute('hidden');
+          btn.innerHTML = ico('i-grid') + ' ' + (acik ? 'Şemayı göster' : 'Şemayı gizle');
+        } },
+      { label:'Personel Listesi', icon:'i-users', cls:'btn-line', href:'app-personel.html' },
+      { label:'Kullanıcılar', icon:'i-shield', cls:'btn-line', href:'app-ayar-kullanici.html' }
+    ]
+  });
+
+  var uyari = document.getElementById('uyari');
+  var notlar = '';
+  if(!canEdit){
+    notlar += '<div class="u-mb-4">' + GV.notice({
+      tone:'warn', title:'Bu ekran sizin için salt okunur',
+      text:'Departman pasife almak, aktifleştirmek ve toplu işlem yapmak için düzenleme yetkisi ve ' +
+           '“tüm şirket” silme kapsamı gerekir. Oturum rolünüz “' + DB.roleName(GV.perm.role()) +
+           '” bu koşulu karşılamıyor; organizasyon şemasını ve departman detaylarını inceleyebilir, ' +
+           'değişiklik yapamazsınız.',
+      actions:[{ label:'Rolümün yetkilerini gör', href:'app-ayar-yetki.html?rol=' + GV.perm.role() }]
+    }) + '</div>';
+  }
+  notlar += '<div class="u-mb-4">' + GV.notice({
+    tone:'info', title:'Kadro, iş yükü ve doluluk veriden türetilir',
+    text:'Kadro personel kartındaki departman alanından, bağlı roller kadronun rollerinden, açık ve geciken ' +
+         'iş görev kayıtlarının departman alanından, doluluk ise haftalık kapasite kayıtlarından hesaplanır. ' +
+         'Departman kaydında duran hazır “personel” sayacı kullanılmaz: ' + celiskiSayisi() + ' departmanda ' +
+         'bu sayaç türetilen kadroyla uyuşmuyor. Kapasite kaydı ' +
+         DB.capacity.length + ' / ' + DB.employees.length + ' personel için tanımlı; kaydı olmayanlarda ' +
+         'doluluk personel kartından okunur. Çoklu departman üyeliği veri modelinde tutulmadığı için ' +
+         '“bağlı personel” departmanın açık işlerinden türetilir.'
+  }) + '</div>';
+  uyari.innerHTML = notlar;
+
+  cizSema();
+
+  /* =====================================================================
+     LİSTE
+     ===================================================================== */
+  function actBtns(d){
+    var out =
+      '<button type="button" class="btn btn-line btn-sm" data-dact="detay" data-id="' + d.kod + '">' +
+        ico('i-eye','ic-sm') + ' Detay</button>' +
+      '<a class="btn btn-line btn-sm" href="app-personel.html?f_dep=' + esc(d.kod) + '">' +
+        ico('i-users','ic-sm') + ' Personel</a>' +
+      '<a class="btn btn-line btn-sm" href="app-gorev.html?t=departman&f_dep=' + esc(d.kod) + '">' +
+        ico('i-tasks','ic-sm') + ' İş yükü</a>';
+    if(canEdit){
+      out += '<button type="button" class="btn btn-sm btn-line' + (d.aktif ? ' is-danger' : '') +
+             '" data-dact="durum" data-id="' + d.kod + '">' +
+             ico(d.aktif ? 'i-lock' : 'i-check-circle','ic-sm') +
+             (d.aktif ? ' Pasife al' : ' Aktifleştir') + '</button>';
+    }
+    return '<div class="u-row u-wrap u-mt-4">' + out + '</div>';
+  }
+
+  function switchHtml(d){
+    var kilit = !canEdit || (d.aktif && !!engel(d));
+    return '<label class="f-switch" title="' +
+      (kilit
+        ? (canEdit ? 'Kadrosu veya açık işi olan departman pasife alınamaz'
+                   : 'Departman durumu bu rolde değiştirilemez')
+        : 'Departmanı aktif / pasif yap') + '">' +
+      '<input type="checkbox" data-dact="switch" data-id="' + d.kod + '"' +
+      (d.aktif ? ' checked' : '') + (kilit ? ' disabled' : '') +
+      ' aria-label="' + esc(d.ad + ' durumu') + '"><span class="sw"></span></label>';
+  }
+
+  var rowActions = [
+    { key:'detay', icon:'i-eye', label:'Departman detayı', run:function(rec){ acDetay(rec); } },
+    { key:'personel', icon:'i-users', label:'Personelini gör',
+      href:function(rec){ return 'app-personel.html?f_dep=' + rec.kod; } },
+    { key:'isyuku', icon:'i-tasks', label:'İş yükünü gör',
+      href:function(rec){ return 'app-gorev.html?t=departman&f_dep=' + rec.kod; } }
+  ];
+  if(canEdit) rowActions.push({ key:'durum', icon:'i-lock', label:'Pasife al / Aktifleştir',
+    run:function(rec){ durumDegistir(rec); } });
+
+  var bulk = canEdit ? [
+    { key:'pasif', label:'Pasife al', icon:'i-lock', tone:'danger',
+      confirm:'Seçili {n} departman pasife alınacak. Kadrosu veya açık işi olan departmanlar işlem ' +
+              'dışında bırakılır; geçmiş kayıtlar silinmez.',
+      run:function(ids){ topluDurum(ids, false); } },
+    { key:'aktif', label:'Aktifleştir', icon:'i-check-circle',
+      confirm:'Seçili {n} departman yeniden aktifleştirilecek.',
+      run:function(ids){ topluDurum(ids, true); } }
+  ] : null;
+
+  var KADRO_ARALIK = [
+    { value:'yok', label:'Kadrosuz (0 kişi)', test:function(n){ return n === 0; } },
+    { value:'1',   label:'1 kişi',            test:function(n){ return n === 1; } },
+    { value:'2-3', label:'2 – 3 kişi',        test:function(n){ return n >= 2 && n <= 3; } },
+    { value:'4+',  label:'4 kişi ve üzeri',   test:function(n){ return n >= 4; } }
+  ];
+  var DOLULUK_ARALIK = [
+    { value:'yok',   label:'Doluluk verisi yok', test:function(v){ return v == null; } },
+    { value:'0-59',  label:'%60 altı',           test:function(v){ return v != null && v < 60; } },
+    { value:'60-84', label:'%60 – 84',           test:function(v){ return v != null && v >= 60 && v < 85; } },
+    { value:'85-94', label:'%85 – 94',           test:function(v){ return v != null && v >= 85 && v < 95; } },
+    { value:'95+',   label:'%95 ve üzeri',       test:function(v){ return v != null && v >= 95; } }
+  ];
+
+  L = GV.list({
+    mount:'#liste', id:'departman', key:'kod', source:function(){ return DB.departments; },
+    exportName:'departmanlar', exportTitle:'Departmanlar', export:!!GV.perm.can('disaAktar'),
+    pageSize:15, views:['table','card'], defaultSort:'ad', archive:false,
+    search:{ placeholder:'Departman adı, kod, kısa ad veya yönetici ara',
+             fields:['kod','ad','kisa'],
+             extra:function(d){
+               return DB.empName(d.yonetici) + ' ' + yonPozisyon(d.yonetici) + ' ' +
+                      roller(d).map(DB.roleName).join(' ') + ' ' +
+                      kadro(d).map(function(e){ return e.ad; }).join(' ');
+             } },
+
+    kpis:[
+      { label:'Toplam departman', icon:'i-building',
+        calc:function(){ return DB.departments.length; },
+        meta:function(){
+          var a = DB.departments.filter(function(d){ return d.aktif; }).length;
+          return a + ' aktif · ' + (DB.departments.length - a) + ' pasif';
+        } },
+      { label:'Kadrolu departman', icon:'i-users', tone:'ok',
+        calc:function(){ return DB.departments.filter(function(d){ return kadro(d).length > 0; }).length; },
+        meta:function(){
+          return DB.departments.filter(function(d){ return !kadro(d).length; }).length +
+                 ' departmanda birincil kadro yok';
+        } },
+      { label:'Toplam personel', icon:'i-user-check',
+        calc:function(){ return DB.employees.length; },
+        meta:function(){
+          var en = null;
+          DB.departments.forEach(function(d){
+            var n = kadro(d).length;
+            if(!en || n > en.n) en = { ad:d.kisa, n:n };
+          });
+          return en ? 'En kalabalık kadro: ' + en.ad + ' · ' + en.n + ' kişi' : '—';
+        } },
+      { label:'Ortalama doluluk', icon:'i-gauge', tone:'warn',
+        calc:function(){
+          var v = DB.departments.map(doluluk).filter(function(x){ return x != null; });
+          if(!v.length) return 0;
+          var t = 0;
+          v.forEach(function(x){ t += x; });
+          return Math.round(t / v.length);
+        },
+        format:function(v){ return F.pct(v); },
+        meta:function(){
+          return DB.departments.filter(function(d){ var v = doluluk(d); return v != null && v >= 85; }).length +
+                 ' departman %85 üzeri dolulukta';
+        }, metaTone:'warn' }
+    ],
+
+    tabs:[
+      { key:'tumu',     label:'Tümü',              icon:'i-list',     filter:null },
+      { key:'kadrolu',  label:'Kadrolu',           icon:'i-users',    filter:function(d){ return kadro(d).length > 0; } },
+      { key:'kadrosuz', label:'Kadrosuz',          icon:'i-user-plus',filter:function(d){ return !kadro(d).length; } },
+      { key:'yuk',      label:'Yüksek Doluluk',    icon:'i-gauge',    filter:function(d){ var v = doluluk(d); return v != null && v >= 85; } },
+      { key:'geciken',  label:'Geciken İşi Olan',  icon:'i-alert',    filter:function(d){ return gecikenGorev(d).length > 0; } },
+      { key:'pasif',    label:'Pasif',             icon:'i-lock',     filter:function(d){ return !d.aktif; } }
+    ],
+
+    columns:[
+      { key:'ad', label:'Departman', width:'18%', locked:true, cellClass:'cell-wrap',
+        render:function(d){
+          return '<span class="cell-main">' + esc(d.ad) + '</span>' +
+                 '<span class="cell-code">' + esc(d.kod + ' · ' + d.kisa) + '</span>'; },
+        exportValue:function(d){ return d.ad + ' (' + d.kod + ')'; } },
+      { key:'yonetici', label:'Yönetici', width:'16%',
+        sortValue:function(d){ return DB.empName(d.yonetici); },
+        render:function(d){
+          if(!d.yonetici) return '<span class="u-faint">Atanmamış</span>';
+          return GV.user(d.yonetici) + '<span class="cell-sub">' + esc(yonPozisyon(d.yonetici)) + '</span>'; },
+        exportValue:function(d){ return DB.empName(d.yonetici); } },
+      { key:'kadro', label:'Kadro', width:'10%',
+        sortValue:function(d){ return kadro(d).length; },
+        render:function(d){
+          var n = kadro(d).length, e = ekEkip(d).length;
+          return '<b class="u-num">' + n + '</b> kişi' +
+                 (e ? '<span class="cell-sub">+' + e + ' bağlı personel</span>' : ''); },
+        exportValue:function(d){ return kadro(d).length; } },
+      { key:'roller', label:'Bağlı roller', width:'18%', cellClass:'cell-wrap',
+        sortValue:function(d){ return roller(d).length; },
+        render:function(d){ return rolTags(roller(d), 3); },
+        exportValue:function(d){ return roller(d).map(DB.roleName).join(', '); } },
+      { key:'acik', label:'Açık görev',
+        sortValue:function(d){ return acikGorev(d).length; },
+        render:function(d){
+          var a = acikGorev(d).length, t = depGorev(d).length;
+          if(!t) return '<span class="u-faint">—</span>';
+          return '<b class="u-num">' + a + '</b><span class="cell-sub">' + t + ' kayıtlı görev</span>'; },
+        exportValue:function(d){ return acikGorev(d).length; } },
+      { key:'geciken', label:'Geciken',
+        sortValue:function(d){ return gecikenGorev(d).length; },
+        render:function(d){
+          var g = gecikenGorev(d).length;
+          return g ? GV.badge(g + ' geciken', 'is-danger') : '<span class="u-faint">Yok</span>'; },
+        exportValue:function(d){ return gecikenGorev(d).length; } },
+      { key:'doluluk', label:'Doluluk', width:'13%',
+        sortValue:function(d){ var v = doluluk(d); return v == null ? -1 : v; },
+        render:function(d){ var v = doluluk(d); return GV.progress(v, { tone:dolulukTone(v) }); },
+        exportValue:function(d){ var v = doluluk(d); return v == null ? '' : v + '%'; } },
+      { key:'saat', label:'Haftalık kapasite', visible:false,
+        sortValue:function(d){ return saat(d).planlanan; },
+        render:function(d){
+          var s = saat(d);
+          if(!s.kayit) return '<span class="u-faint">—</span>';
+          return '<span class="cell-main">' + esc(F.hours(s.planlanan) + ' / ' + F.hours(s.kapasite)) + '</span>' +
+                 '<span class="cell-sub">' + s.kayit + ' / ' + s.toplam + ' personelde kayıt</span>'; },
+        exportValue:function(d){ var s = saat(d); return s.kayit ? s.planlanan + '/' + s.kapasite : ''; } },
+      { key:'kisa', label:'Kısa ad', visible:false },
+      { key:'ekip', label:'Bağlı personel', visible:false, cellClass:'cell-wrap',
+        sortValue:function(d){ return ekEkip(d).length; },
+        render:function(d){
+          var ek = ekEkip(d);
+          if(!ek.length) return '<span class="u-faint">—</span>';
+          return ek.map(function(k){ return '<span class="tag">' + esc(DB.empName(k)) + '</span>'; }).join(' '); },
+        exportValue:function(d){ return ekEkip(d).map(DB.empName).join(', '); } },
+      { key:'aktif', label:'Durum', width:'12%',
+        sortValue:function(d){ return d.aktif ? 1 : 0; },
+        render:function(d){
+          return '<span class="u-row">' + GV.badge(d.aktif ? 'Aktif' : 'Pasif') + switchHtml(d) + '</span>'; },
+        exportValue:function(d){ return d.aktif ? 'Aktif' : 'Pasif'; } }
+    ],
+
+    filters:[
+      { key:'yonetici', label:'Yönetici', type:'select',
+        options:(function(){
+          var seen = {}, out = [];
+          DB.departments.forEach(function(d){
+            if(!d.yonetici || seen[d.yonetici]) return;
+            seen[d.yonetici] = 1;
+            out.push({ value:d.yonetici, label:DB.empName(d.yonetici) });
+          });
+          return out.sort(function(a, b){ return a.label.localeCompare(b.label, 'tr'); });
+        })() },
+      { key:'kadro', label:'Kadro sayısı', type:'select',
+        options:KADRO_ARALIK.map(function(a){ return { value:a.value, label:a.label }; }),
+        test:function(d, v){
+          var a = KADRO_ARALIK.filter(function(x){ return x.value === v; })[0];
+          return a ? a.test(kadro(d).length) : true; } },
+      { key:'doluluk', label:'Doluluk aralığı', type:'select',
+        options:DOLULUK_ARALIK.map(function(a){ return { value:a.value, label:a.label }; }),
+        test:function(d, v){
+          var a = DOLULUK_ARALIK.filter(function(x){ return x.value === v; })[0];
+          return a ? a.test(doluluk(d)) : true; } },
+      { key:'durum', label:'Durum', type:'select',
+        options:[{ value:'aktif', label:'Aktif' }, { value:'pasif', label:'Pasif' }],
+        test:function(d, v){ return v === 'aktif' ? !!d.aktif : !d.aktif; } },
+      { key:'rol', label:'Bağlı rol', type:'multi',
+        options:DB.roles.map(function(r){ return { value:r.key, label:r.ad }; }),
+        test:function(d, v){
+          var rl = roller(d);
+          return v.some(function(x){ return rl.indexOf(x) !== -1; }); } },
+      { key:'is', label:'İş yükü', type:'select',
+        options:[{ value:'acik', label:'Açık işi var' },
+                 { value:'geciken', label:'Geciken işi var' },
+                 { value:'yok', label:'Açık iş yok' }],
+        test:function(d, v){
+          if(v === 'acik') return acikGorev(d).length > 0;
+          if(v === 'geciken') return gecikenGorev(d).length > 0;
+          return acikGorev(d).length === 0; } }
+    ],
+
+    /* Gecikme satırı kırmızıya boyanmaz: bir departmanın tek geciken işi
+       tüm satırı kritik göstermemeli — gecikme kendi kolonunda rozetle
+       bildirilir. Satır tonu yalnız pasif kayıt için kullanılır. */
+    rowClass:function(d){ return d.aktif ? '' : 'is-passive'; },
+
+    card:function(d){
+      var v = doluluk(d), g = gecikenGorev(d).length;
+      return '<div class="gv-rcard-top"><span>' +
+        '<span class="cell-main">' + esc(d.ad) + '</span>' +
+        '<span class="cell-sub">' + esc(d.kod + ' · ' + d.kisa) + '</span></span>' +
+        '<span class="tag">' + acikGorev(d).length + ' açık iş</span></div>' +
+        '<div class="u-row u-wrap u-mt-4">' +
+          (d.yonetici ? GV.user(d.yonetici, { sm:true }) : '<span class="u-faint">Yönetici atanmamış</span>') +
+          '<span class="tag">' + kadro(d).length + ' kişi</span>' +
+          (g ? GV.badge(g + ' geciken', 'is-danger') : '') + '</div>' +
+        '<div class="u-row u-wrap u-mt-4">' + rolTags(roller(d), 3) + '</div>' +
+        GV.progress(v, { tone:dolulukTone(v) }) +
+        '<div class="gv-rcard-meta"><span>' + esc(yonPozisyon(d.yonetici)) + '</span>' +
+        '<span>' + ekEkip(d).length + ' bağlı personel</span></div>' +
+        '<div class="gv-rcard-foot">' + GV.badge(d.aktif ? 'Aktif' : 'Pasif') + switchHtml(d) + '</div>' +
+        actBtns(d);
+    },
+
+    mobile:function(d){
+      var v = doluluk(d), g = gecikenGorev(d).length;
+      return '<div class="gv-mrow-top"><span>' +
+        '<span class="cell-main">' + esc(d.ad) + '</span>' +
+        '<span class="cell-sub">' + esc(d.kod + ' · ' + d.kisa) + '</span></span>' +
+        GV.badge(d.aktif ? 'Aktif' : 'Pasif') + '</div>' +
+        '<div class="gv-mrow-meta">' +
+        '<span>' + ico('i-user','ic-sm') + esc(DB.empName(d.yonetici)) + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + kadro(d).length + ' kişi</span>' +
+        '<span>' + ico('i-tasks','ic-sm') + acikGorev(d).length + ' açık iş</span>' +
+        '<span>' + ico('i-gauge','ic-sm') + (v == null ? 'Doluluk verisi yok' : F.pct(v)) + '</span></div>' +
+        '<div class="u-row u-wrap u-mt-4">' + rolTags(roller(d), 2) +
+        (g ? GV.badge(g + ' geciken', 'is-danger') : '') + switchHtml(d) + '</div>' +
+        actBtns(d);
+    },
+
+    rowActions:rowActions,
+    bulk:bulk,
+
+    emptyState:{ icon:'i-building', title:'Bu görünümde departman yok',
+      desc:'Sekme, arama ve filtre seçimlerini değiştirin. Departmanlar organizasyon şemasının ' +
+           'omurgasıdır; yeni departman tanımlandığında hem bu listede hem şemada görünür.' }
+  });
+
+  /* ---- Tablo dışı görünümler (kart / mobil) ve organizasyon şeması için
+     olay delegasyonu — GV.list kendi rowAction bağlayıcısını closest('tr')
+     ile kurar; kart, mobil satır ve şema kartlarında tr yoktur. ---------- */
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest('button[data-dact]');
+    if(!b) return;
+    var d = DB.dep(b.dataset.id);
+    if(!d) return;
+    if(b.dataset.dact === 'detay') acDetay(d);
+    else if(b.dataset.dact === 'durum') durumDegistir(d);
+  });
+  document.getElementById('liste').addEventListener('change', function(ev){
+    var sw = ev.target.closest('input[data-dact="switch"]');
+    if(!sw) return;
+    var d = DB.dep(sw.dataset.id);
+    if(d) durumDegistir(d);
+  });
+});
+</script>
+</body>
+</html>

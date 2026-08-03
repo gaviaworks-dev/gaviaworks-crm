@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Profilim — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="profil">
+<div id="profil"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  /* =====================================================================
+     PROFİLİM — Ayarlar
+     Kullanıcının KENDİ kaydını yönettiği ekran. Yetki kapısı yok: her rol
+     kendi profilini görür. (Bölüm kapısı shell'de: GV.perm.sec('ayarlar')
+     kapalıysa shell 403 basar ve bu script hiç çalışmaz — lessons L-07.)
+     Kimlik kaynağı canonical: GV.session.emp → DB.employees.
+     ===================================================================== */
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var mount = document.getElementById('profil');
+  var ORDER = GV.shell.railOrder, SEC = GV.shell.sections;
+  var ME = GV.session.emp;
+  var me = DB.emp(ME);
+
+  if(!me){
+    mount.innerHTML = '<div class="gv-card"><div class="gc-body">' + GV.empty({
+      icon:'i-user', title:'Profil kaydı bulunamadı',
+      desc:'Oturumdaki kullanıcı kodu (' + esc(ME || '—') + ') personel kayıtlarıyla eşleşmiyor. ' +
+           'Giriş ekranından yeniden oturum açın.',
+      action:'<a class="btn btn-acc" href="index.html">Giriş ekranına dön</a>' }) + '</div></div>';
+    return;
+  }
+
+  GV.shell.crumb('Profilim');
+
+  /* ---- Tercih deposu ------------------------------------------------- */
+  var LSK = 'gv.profil';
+  var DEF = { dil:'tr', tema:'sistem', tarihBicim:'gg.aa.yyyy', saatDilimi:'Europe/Istanbul',
+              acilis:'app-panel.html', sayfaBoyut:'25', ikiAdim:false };
+
+  function okuTercih(){
+    var raw = {};
+    try{ raw = JSON.parse(window.localStorage.getItem(LSK) || '{}') || {}; }catch(e){ raw = {}; }
+    var out = {};
+    Object.keys(DEF).forEach(function(k){ out[k] = (raw[k] === undefined || raw[k] === null) ? DEF[k] : raw[k]; });
+    return out;
+  }
+  function yazTercih(p){
+    try{ window.localStorage.setItem(LSK, JSON.stringify(p)); return true; }
+    catch(e){ return false; }
+  }
+  function silTercih(){ try{ window.localStorage.removeItem(LSK); }catch(e){} }
+  var PR = okuTercih();
+
+  /* ---- Log yazımı (app-ayar-kullanici.html ile aynı kalıp) ----------- */
+  function logKaydi(islem, kayit, eski, yeni){
+    DB.logs.unshift({
+      kod:'LOG-' + (88300 + DB.logs.length), tarih:DB.today + 'T00:00',
+      kisi:ME, islem:islem, kayit:kayit, modul:'Ayarlar', ip:'—', eski:eski, yeni:yeni
+    });
+  }
+
+  /* ---- Küçük yardımcılar --------------------------------------------- */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetSatir(lbl, val){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(lbl) + '</span>' +
+           '<span class="gv-summary-val">' + val + '</span></div>';
+  }
+
+  var SCOPE_LBL = { tum:'Tüm şirket', departman:'Departman', proje:'Proje',
+                    kendi:'Yalnız kendi kayıtları', yok:'Yok' };
+  var ROL = GV.perm.role();
+  var MYM = DB.permMatrix[ROL] || {};
+  var benimLoglar = DB.logs.filter(function(l){ return l.kisi === ME; });
+
+  /* =====================================================================
+     SAYFA BAŞLIĞI
+     ===================================================================== */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Profilim',
+    sub:me.ad + ' · ' + me.pozisyon + ' · ' + DB.roleName(ROL),
+    actions:[
+      { label:'Bildirim Tercihleri', icon:'i-bell', cls:'btn-line', href:'app-ayar-bildirim.html' },
+      { label:'Zaman Kayıtlarım', icon:'i-timer', cls:'btn-line', href:'app-zaman.html' }
+    ]
+  });
+
+  /* =====================================================================
+     SEKME KABUĞU
+     ===================================================================== */
+  var tabs = [
+    { key:'genel',    lbl:'Genel Bilgiler',      ic:'i-user' },
+    { key:'guvenlik', lbl:'Güvenlik',            ic:'i-lock' },
+    { key:'oturum',   lbl:'Oturumlar ve Cihazlar', ic:'i-server', cnt:benimLoglar.length },
+    { key:'tercih',   lbl:'Tercihler',           ic:'i-sliders' },
+    { key:'yetki',    lbl:'Yetkilerim',          ic:'i-key' }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="pfTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' +
+      ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  var panels = {
+    genel:pGenel(), guvenlik:pGuvenlik(), oturum:pOturum(), tercih:pTercih(), yetki:pYetki()
+  };
+
+  mount.innerHTML = '<section class="gv-card">' + tabBar +
+    tabs.map(function(x){
+      return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>';
+    }).join('') + '</section>';
+
+  GV.tabs('#pfTabs');
+
+  /* =====================================================================
+     PANEL ÜRETİCİLERİ  (fonksiyon bildirimi — hoisting ile yukarıda kullanılır)
+     ===================================================================== */
+
+  /* ---- 1 · GENEL BİLGİLER -------------------------------------------- */
+  function kurumOzet(){
+    return dl([
+      ['Kullanıcı kodu', '<span class="cell-code">' + esc(me.kod) + '</span>'],
+      ['Departman', esc(me.depAd)],
+      ['Pozisyon', esc(me.pozisyon)],
+      ['Oturum rolü', GV.badge(DB.roleName(ROL), 'is-accent')],
+      ['Tanımlı roller', me.roller.map(function(r){
+        return '<span class="tag">' + esc(DB.roleName(r)) + '</span>'; }).join(' ')],
+      ['İşe giriş tarihi', '<span class="cell-date">' + esc(F.date(me.girisTarihi)) + '</span>'],
+      ['Yönetici', me.yonetici ? GV.user(me.yonetici, { sm:true }) : null],
+      ['Çalışma türü', esc(me.calismaTuru)],
+      ['Sözleşme türü', esc(me.sozlesme)],
+      ['Lokasyon', esc(me.lokasyon)]
+    ]);
+  }
+
+  function pGenel(){
+    return '<div class="gc-body">' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Profil fotoğrafı</h3>' +
+        '<p>Fotoğraf yüklenene kadar ad-soyad baş harfleriniz kullanılır.</p></div>' +
+        '<div class="u-row u-wrap u-mb-4">' +
+          '<span class="gv-user-ava is-lg" id="pfAva" aria-hidden="true">' + esc(me.ini) + '</span>' +
+          '<span class="u-col"><span class="cell-main" id="pfAdLbl">' + esc(me.ad) + '</span>' +
+          '<span class="cell-sub" id="pfMailLbl">' + esc(me.eposta) + '</span></span>' +
+        '</div>' +
+        '<div id="pfFoto"></div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'neutral', icon:'i-image', title:'Fotoğraf veri modelinde tutulmuyor',
+          text:'DB.employees kaydında görsel alanı yok; yüklenen dosya bu statik prototipte ' +
+               'saklanmaz ve avatar baş harflerle kalır. Gerçek yükleme sunucu tarafı gerektirir.'
+        }) + '</div>' +
+      '</div>' +
+      '<div id="pfForm"></div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Kurum bilgileri</h3>' +
+        '<p>Bu alanlar İK ve sistem yönetimi tarafından belirlenir, profil ekranından değiştirilemez.</p></div>' +
+        '<div id="pfOzet">' + kurumOzet() + '</div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'warn', title:'Rol, departman ve pozisyon buradan değiştirilemez',
+          text:'Sistem rolünüz erişim kapsamınızı belirlediği için yalnız yetkili kullanıcılar ' +
+               'değiştirebilir. Değişiklik gerekiyorsa yöneticinize ya da sistem yöneticisine başvurun; ' +
+               'işlem log kayıtlarına eski → yeni değerle yazılır.'
+        }) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted">Değişiklikler DB.employees kaydına işlenir ve log kayıtlarına düşer.</span>' +
+      '<button type="button" class="btn btn-line" id="pfGeriAl">' + ico('i-refresh') + ' Geri al</button>' +
+      '<button type="button" class="btn btn-acc" id="pfKaydet">' + ico('i-check') + ' Bilgilerimi kaydet</button>' +
+    '</div>';
+  }
+
+  /* ---- 2 · GÜVENLİK --------------------------------------------------- */
+  function pGuvenlik(){
+    return '<div class="gc-body">' +
+      GV.notice({
+        tone:'info', title:'Şifre bu prototipte saklanmaz',
+        text:'GaviaWorks CRM statik bir arayüz prototipidir: kimlik doğrulama, şifre saklama ve ' +
+             'oturum sunucusu yoktur. Form doğrulaması gerçek çalışır, girilen değer hiçbir yere yazılmaz.'
+      }) +
+      '<div id="pfSifre" class="u-mt-4"></div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>İki adımlı doğrulama</h3>' +
+        '<p>Girişte şifreye ek olarak tek kullanımlık kod istenir.</p></div>' +
+        '<label class="f-switch">' +
+          '<input type="checkbox" id="pfIki"' + (PR.ikiAdim ? ' checked' : '') + '>' +
+          '<span class="sw"></span><span>İki adımlı doğrulamayı kullan</span>' +
+        '</label>' +
+        '<div class="f-hint">Tercih tarayıcınızda saklanır (localStorage: ' + esc(LSK) + '). ' +
+        'Doğrulama kodu üretimi arka uç gerektirdiği için prototipte çalışmaz.</div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'neutral', icon:'i-shield',
+          title:'Son şifre değişikliği bilgisi veride yok',
+          text:'DB.employees ve DB.logs içinde şifre değişim tarihi tutulmuyor; uydurma tarih ' +
+               'gösterilmez. Bu ekrandan yapılan değişiklik denemeleri log kayıtlarına yazılır.'
+        }) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted">En az 8 karakter · iki alan birebir aynı olmalı.</span>' +
+      '<button type="button" class="btn btn-acc" id="pfSifreKaydet">' + ico('i-lock') + ' Şifreyi değiştir</button>' +
+    '</div>';
+  }
+
+  /* ---- 3 · OTURUMLAR VE CİHAZLAR -------------------------------------- */
+  function logTablosu(){
+    var list = DB.logs.filter(function(l){ return l.kisi === ME; });
+    if(!list.length){
+      return GV.empty({ icon:'i-activity', title:'Bu hesapta sistem etkinliği yok',
+        desc:'Log kayıtlarında bu kullanıcıya ait işlem bulunmuyor. Kayıt oluşturdukça bu liste dolar.' });
+    }
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable">' +
+      '<thead><tr><th>Tarih</th><th>İşlem</th><th>Kayıt</th><th>Modül</th><th>Kaynak IP</th></tr></thead><tbody>' +
+      list.map(function(l){
+        return '<tr><td><span class="cell-date">' + esc(F.dt(l.tarih)) + '</span></td>' +
+          '<td><span class="cell-main">' + esc(l.islem) + '</span>' +
+          (l.eski != null || l.yeni != null
+            ? '<span class="cell-sub">' + esc((l.eski == null ? '—' : l.eski) + ' → ' + (l.yeni == null ? '—' : l.yeni)) + '</span>'
+            : '') + '</td>' +
+          '<td><span class="cell-code">' + esc(l.kayit) + '</span></td>' +
+          '<td>' + esc(l.modul) + '</td>' +
+          '<td><span class="cell-code">' + esc(l.ip) + '</span></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function pOturum(){
+    return '<div class="gc-body">' +
+      GV.notice({
+        tone:'warn', title:'Cihaz ve oturum koleksiyonu veri modelinde yok',
+        text:'Mock veride tarayıcı, işletim sistemi, IP geçmişi veya eşzamanlı oturum kaydı ' +
+             'tutulmuyor. Bu yüzden “Chrome · macOS · İstanbul” gibi satırlar uydurulmadı: ' +
+             'aşağıdaki liste yalnız DB.logs içindeki gerçek işlem kayıtlarından türetilir.'
+      }) +
+      '<div class="gv-form-sec u-mt-4">' +
+        '<div class="gv-form-sec-head"><h3>Bu oturum</h3>' +
+        '<p>Oturum bilgisi tarayıcı oturumunda (sessionStorage) tutulur.</p></div>' +
+        '<div class="gv-summary">' +
+          ozetSatir('Kullanıcı', GV.user(ME, { sm:true })) +
+          ozetSatir('E-posta', '<span class="cell-code">' + esc(GV.session.eposta) + '</span>') +
+          ozetSatir('Oturum rolü', GV.badge(GV.session.rolAd, 'is-accent')) +
+          ozetSatir('Departman', esc(GV.session.depAd)) +
+          ozetSatir('Oturum açılışı', esc(F.dt(GV.session.girildi))) +
+          ozetSatir('Durum', GV.badge('Aktif')) +
+        '</div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Son etkinlikler</h3>' +
+        '<p>DB.logs kayıtlarınız — en yeni işlem üstte.</p></div>' +
+        '<div id="pfLoglar">' + logTablosu() + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted">Tüm log kayıtları yalnız log yetkisi olan rollerde görünür.</span>' +
+      (GV.perm.can('log')
+        ? '<a class="btn btn-line" href="app-ayar-log.html">' + ico('i-list') + ' Log kayıtları</a>'
+        : '') +
+      '<button type="button" class="btn btn-danger-line" id="pfOturumKapat">' +
+        ico('i-logout') + ' Diğer oturumları kapat</button>' +
+    '</div>';
+  }
+
+  /* ---- 4 · TERCİHLER --------------------------------------------------- */
+  function acilisSecenek(){
+    var out = [];
+    ORDER.forEach(function(k){
+      if(!GV.perm.sec(k)) return;
+      var S = SEC[k];
+      if(!S) return;
+      var it = S.menu.filter(function(m){ return m.href && GV.isBuilt(m.href); })[0];
+      if(!it) return;
+      out.push({ value:it.href, label:S.title + ' → ' + it.lbl });
+    });
+    return out;
+  }
+
+  function pTercih(){
+    return '<div class="gc-body">' +
+      '<div id="pfTercihForm"></div>' +
+      GV.notice({
+        tone:'info', title:'Tercihler tarayıcıda saklanır',
+        text:'Kayıt yeri: localStorage · ' + LSK + '. Dil ve tema seçenekleri şu an yalnız ' +
+             'kaydedilir: arayüz tek dilli (Türkçe) ve tokens.css içinde ikinci bir tema paleti ' +
+             'tanımlı değil. Sayfa boyutu ve açılış ekranı seçimi ise gerçek değerlerden üretilir.'
+      }) +
+      '<div class="u-mt-4">' + GV.notice({
+        tone:'neutral', icon:'i-bell', title:'Bildirim tercihleri ayrı ekranda',
+        text:'Hangi olayda hangi kanaldan (sistem içi, e-posta, mobil, SMS) bildirim alacağınızı ' +
+             'bildirim tercihleri ekranından yönetirsiniz.',
+        actions:[{ label:'Bildirim Tercihleri', href:'app-ayar-bildirim.html', cls:'btn-line' }]
+      }) + '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted" id="pfTercihDurum">Kayıtlı tercihleriniz yüklendi.</span>' +
+      '<button type="button" class="btn btn-line" id="pfTercihAc">' + ico('i-external') + ' Açılış ekranını aç</button>' +
+      '<button type="button" class="btn btn-line" id="pfTercihSifirla">' + ico('i-refresh') + ' Varsayılana dön</button>' +
+      '<button type="button" class="btn btn-acc" id="pfTercihKaydet">' + ico('i-check') + ' Tercihleri kaydet</button>' +
+    '</div>';
+  }
+
+  /* ---- 5 · YETKİLERİM -------------------------------------------------- */
+  function pYetki(){
+    var acik = ORDER.filter(function(s){ return GV.perm.sec(s); });
+    var kapali = ORDER.filter(function(s){ return !GV.perm.sec(s); });
+
+    return '<div class="gc-body">' +
+      GV.notice({
+        tone:'neutral', icon:'i-key', title:'Bu sekme salt okunurdur',
+        text:'Değerler DB.permMatrix[' + esc(ROL) + '] satırından okunur. Yetkilendirme menü ' +
+             'gizleme değildir: kapsam dışı kayıtlar liste, detay ve raporlarda da gelmez.'
+      }) +
+      '<div class="gv-form-sec u-mt-4">' +
+        '<div class="gv-form-sec-head"><h3>Rolümün yetki satırı</h3>' +
+        '<p>' + esc(DB.roleName(ROL)) + ' rolünün kayıt kapsamı ve aksiyon yetkileri.</p></div>' +
+        '<div class="gv-summary">' +
+          ozetSatir('Sistem rolü', GV.badge(DB.roleName(ROL), 'is-accent')) +
+          ozetSatir('Görüntüleme kapsamı', esc(SCOPE_LBL[MYM.gor] || '—')) +
+          ozetSatir('Ekleme kapsamı', esc(SCOPE_LBL[MYM.ekle] || '—')) +
+          ozetSatir('Düzenleme kapsamı', esc(SCOPE_LBL[MYM.duzenle] || '—')) +
+          ozetSatir('Silme kapsamı', esc(SCOPE_LBL[MYM.sil] || '—')) +
+          ozetSatir('Raporlama kapsamı', esc(SCOPE_LBL[MYM.rapor] || '—')) +
+          ozetSatir('Personel verisi kapsamı', esc(SCOPE_LBL[MYM.personel] || '—')) +
+          ozetSatir('Onaylama', GV.badge(MYM.onay ? 'Açık' : 'Kapalı', MYM.onay ? 'is-ok' : 'is-neutral')) +
+          ozetSatir('Dışa aktarma', GV.badge(MYM.disaAktar ? 'Açık' : 'Kapalı', MYM.disaAktar ? 'is-ok' : 'is-neutral')) +
+        '</div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Hassas alanlar</h3>' +
+        '<p>Yetkiniz yoksa değer ekranda maskelenir (GV.perm.mask).</p></div>' +
+        '<div class="gv-summary">' +
+          ozetSatir('Finansal tutarlar', '<span class="cell-mask">' + esc(GV.perm.mask('Görünür', 'finans')) + '</span>') +
+          ozetSatir('Maaş ve ücret bilgisi', '<span class="cell-mask">' + esc(GV.perm.mask('Görünür', 'maas')) + '</span>') +
+          ozetSatir('Log kayıtları', '<span class="cell-mask">' + esc(GV.perm.mask('Görünür', 'log')) + '</span>') +
+          ozetSatir('Dışa aktarılan çıktı', '<span class="cell-mask">' + esc(GV.perm.mask('Görünür', 'disaAktar')) + '</span>') +
+        '</div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Eriştiğim bölümler (' + acik.length + ' / ' + ORDER.length + ')</h3>' +
+        '<p>Sol taraftaki modül rayında gördüğünüz bölümler.</p></div>' +
+        '<div class="u-row u-wrap">' + acik.map(function(s){
+          return '<span class="badge is-ok">' + esc(SEC[s].title) + '</span>'; }).join('') + '</div>' +
+        (kapali.length
+          ? '<div class="u-mt-4"><span class="u-sm u-muted">Erişemediğiniz bölümler (403):</span>' +
+            '<div class="u-row u-wrap u-mt-4">' + kapali.map(function(s){
+              return '<span class="badge is-neutral">' + esc(SEC[s].title) + '</span>'; }).join('') + '</div></div>'
+          : '<p class="u-sm u-muted u-mt-4">Rolünüz ' + ORDER.length + ' bölümün tamamını görür.</p>') +
+      '</div>' +
+    '</div>' +
+    (GV.perm.can('log')
+      ? '<div class="gv-form-actions">' +
+          '<span class="spacer u-sm u-muted">Rol yetkileri yalnız yetki matrisi ekranından değiştirilir.</span>' +
+          '<a class="btn btn-line" href="app-ayar-yetki.html?rol=' + esc(ROL) + '">' +
+          ico('i-key') + ' Yetki matrisinde aç</a></div>'
+      : '');
+  }
+
+  /* =====================================================================
+     BAĞLAMA
+     ===================================================================== */
+
+  /* ---- Profil fotoğrafı alanı ---------------------------------------- */
+  GV.upload({
+    mount:'#pfFoto', accept:'image/png,image/jpeg,image/webp', multiple:false, maxMB:5,
+    title:'Fotoğraf seçin veya sürükleyip bırakın',
+    hint:'PNG, JPG, WEBP · kare görsel önerilir · en fazla 5 MB',
+    onChange:function(files){
+      if(!files.length) return;
+      GV.toast('“' + files[files.length - 1].ad + '” seçildi — prototipte saklanmaz', 'info', 4200);
+    }
+  });
+
+  /* ---- Genel bilgiler formu ------------------------------------------ */
+  var fGenel;
+  function kurGenelForm(){
+    fGenel = GV.form({
+      mount:'#pfForm',
+      record:{ ad:me.ad, eposta:me.eposta, tel:me.tel },
+      sections:[{
+        title:'İletişim bilgilerim',
+        desc:'Bu üç alanı kendiniz güncelleyebilirsiniz; değişiklik anında canonical kayda işlenir.',
+        fields:[
+          { key:'ad', label:'Ad soyad', type:'text', required:true, cols:6,
+            hint:'Ad ve soyadınızı birlikte yazın — baş harfleriniz buradan üretilir.',
+            validate:function(v){
+              return String(v).trim().split(/\s+/).length < 2 ? 'Ad ve soyadı birlikte yazın.' : '';
+            } },
+          { key:'eposta', label:'Kurumsal e-posta', type:'email', required:true, cols:6,
+            hint:'Giriş ve bildirimler bu adrese bağlıdır.' },
+          { key:'tel', label:'Telefon', type:'tel', required:true, cols:6,
+            hint:'En az 10 hane. Örnek biçim: +90 5xx xxx xx xx' }
+        ]
+      }]
+    });
+  }
+  kurGenelForm();
+
+  function tazeleKimlik(){
+    var ava = document.getElementById('pfAva');
+    var adL = document.getElementById('pfAdLbl');
+    var mailL = document.getElementById('pfMailLbl');
+    var ozet = document.getElementById('pfOzet');
+    var sub = document.querySelector('.gv-page-head .ph-sub');
+    if(ava) ava.textContent = me.ini;
+    if(adL) adL.textContent = me.ad;
+    if(mailL) mailL.textContent = me.eposta;
+    if(ozet) ozet.innerHTML = kurumOzet();
+    if(sub) sub.textContent = me.ad + ' · ' + me.pozisyon + ' · ' + DB.roleName(ROL);
+  }
+
+  document.getElementById('pfKaydet').addEventListener('click', function(){
+    var d = fGenel.submit();
+    if(!d) return;
+    var alanlar = [['ad','Ad soyad'], ['eposta','E-posta'], ['tel','Telefon']];
+    var degisen = 0;
+    alanlar.forEach(function(p){
+      var yeni = String(d[p[0]] == null ? '' : d[p[0]]).trim();
+      if(!yeni || yeni === me[p[0]]) return;
+      logKaydi('Profil bilgisi güncelledi · ' + p[1], me.kod, me[p[0]], yeni);
+      me[p[0]] = yeni;
+      degisen++;
+    });
+    if(!degisen){ GV.toast('Değişen alan yok', 'info'); return; }
+    me.ini = F.initials(me.ad).toLocaleUpperCase('tr-TR');
+    GV.shell.setSession(me.kod, ROL);
+    tazeleKimlik();
+    var loglar = document.getElementById('pfLoglar');
+    if(loglar) loglar.innerHTML = logTablosu();
+    GV.toast(degisen + ' alan güncellendi · log kaydı oluşturuldu', 'ok', 4200);
+  });
+
+  document.getElementById('pfGeriAl').addEventListener('click', function(){
+    kurGenelForm();
+    GV.toast('Form kayıtlı değerlere döndürüldü', 'info');
+  });
+
+  /* ---- Şifre formu ---------------------------------------------------- */
+  var fSifre = GV.form({
+    mount:'#pfSifre',
+    sections:[{
+      title:'Şifre değiştir',
+      desc:'Yeni şifre en az 8 karakter olmalı ve iki alanda birebir aynı yazılmalıdır.',
+      fields:[
+        { key:'mevcut', label:'Mevcut şifre', type:'text', required:true, cols:4,
+          hint:'Doğrulama için zorunludur.' },
+        { key:'yeni', label:'Yeni şifre', type:'text', required:true, cols:4,
+          hint:'En az 8 karakter.',
+          validate:function(v){
+            return String(v).length < 8 ? 'Yeni şifre en az 8 karakter olmalıdır.' : '';
+          } },
+        { key:'yeni2', label:'Yeni şifre (tekrar)', type:'text', required:true, cols:4,
+          hint:'Yeni şifreyle aynı olmalı.',
+          validate:function(v, data){
+            return v !== data.yeni ? 'Şifre tekrarı yeni şifreyle aynı değil.' : '';
+          } }
+      ]
+    }]
+  });
+  ['mevcut','yeni','yeni2'].forEach(function(k){
+    var el = document.getElementById('f_' + k);
+    if(el){ el.type = 'password'; el.autocomplete = k === 'mevcut' ? 'current-password' : 'new-password'; }
+  });
+
+  document.getElementById('pfSifreKaydet').addEventListener('click', function(){
+    var d = fSifre.submit();
+    if(!d) return;
+    if(d.mevcut === d.yeni){
+      GV.toast('Yeni şifre mevcut şifreyle aynı olamaz', 'danger', 4200);
+      return;
+    }
+    ['mevcut','yeni','yeni2'].forEach(function(k){
+      var el = document.getElementById('f_' + k);
+      if(el) el.value = '';
+    });
+    fSifre.setDirty(false);
+    logKaydi('Şifre değiştirme talebi', me.kod, null, null);
+    var loglar = document.getElementById('pfLoglar');
+    if(loglar) loglar.innerHTML = logTablosu();
+    GV.toast('Doğrulama başarılı — statik prototipte şifre kaydedilmedi', 'warn', 4600);
+  });
+
+  document.getElementById('pfIki').addEventListener('change', function(){
+    PR.ikiAdim = this.checked;
+    var ok = yazTercih(PR);
+    logKaydi('İki adımlı doğrulama tercihi', me.kod,
+             PR.ikiAdim ? 'Kapalı' : 'Açık', PR.ikiAdim ? 'Açık' : 'Kapalı');
+    GV.toast(PR.ikiAdim
+      ? 'İki adımlı doğrulama açıldı — gerçek kod üretimi arka uç gerektirir, tercih ' +
+        (ok ? 'tarayıcıya kaydedildi' : 'kaydedilemedi')
+      : 'İki adımlı doğrulama kapatıldı — girişte yalnız şifre istenir',
+      PR.ikiAdim ? 'ok' : 'warn', 4600);
+  });
+
+  /* ---- Oturum kapatma -------------------------------------------------- */
+  document.getElementById('pfOturumKapat').addEventListener('click', function(){
+    GV.confirm({
+      title:'Diğer oturumları kapat', tone:'danger', okLabel:'Oturumları kapat',
+      text:'Bu tarayıcı dışındaki tüm açık oturumlar sonlandırılır ve yeniden giriş istenir. ' +
+           'Mevcut oturumunuz açık kalır. Statik prototipte gerçek oturum sunucusu olmadığı için ' +
+           'işlem yalnız log kaydı üretir.'
+    }).then(function(ok){
+      if(!ok){ GV.toast('İşlem iptal edildi', 'info'); return; }
+      logKaydi('Diğer oturumları sonlandırdı', me.kod, 'Açık oturumlar', 'Yalnız bu oturum');
+      var loglar = document.getElementById('pfLoglar');
+      if(loglar) loglar.innerHTML = logTablosu();
+      GV.toast('Diğer oturumlar kapatıldı — bu oturum açık kaldı', 'ok', 4200);
+    });
+  });
+
+  /* ---- Tercihler formu -------------------------------------------------- */
+  var ACILIS = acilisSecenek();
+  var fTercih;
+  function kurTercihForm(){
+    fTercih = GV.form({
+      mount:'#pfTercihForm',
+      record:PR,
+      sections:[{
+        title:'Görünüm ve bölge',
+        desc:'Seçimler yalnız sizin tarayıcınızda saklanır, diğer kullanıcıları etkilemez.',
+        fields:[
+          { key:'dil', label:'Arayüz dili', type:'select', cols:6,
+            options:[{ value:'tr', label:'Türkçe' }, { value:'en', label:'English' }],
+            hint:'Prototip metinleri Türkçedir; seçim kaydedilir, çeviri katmanı yoktur.' },
+          { key:'tema', label:'Tema', type:'select', cols:6,
+            options:[{ value:'acik', label:'Açık' }, { value:'koyu', label:'Koyu' },
+                     { value:'sistem', label:'Sistem ayarını kullan' }],
+            hint:'tokens.css içinde tek palet tanımlı; koyu tema henüz token katmanında yok.' },
+          { key:'tarihBicim', label:'Tarih biçimi', type:'select', cols:6,
+            options:[
+              { value:'gg.aa.yyyy', label:'gg.aa.yyyy · ' + F.date(DB.today) },
+              { value:'g Ay', label:'g Ay · ' + F.dateShort(DB.today) },
+              { value:'g Ay yyyy', label:'g Ay yyyy, Gün · ' + F.dateLong(DB.today) }
+            ],
+            hint:'Örnekler bugünün tarihiyle (DB.today) üretilir.' },
+          { key:'saatDilimi', label:'Saat dilimi', type:'select', cols:6,
+            options:[
+              { value:'Europe/Istanbul', label:'Europe/Istanbul (GMT+3)' },
+              { value:'Europe/London', label:'Europe/London (GMT+1)' },
+              { value:'Europe/Berlin', label:'Europe/Berlin (GMT+2)' },
+              { value:'UTC', label:'UTC (GMT+0)' }
+            ],
+            hint:'Şirket merkezi Ankara olduğu için varsayılan Europe/Istanbul.' },
+          { key:'acilis', label:'Varsayılan açılış ekranı', type:'select', cols:6,
+            options:ACILIS,
+            hint:'Yalnız rolünüzün eriştiği ve yayında olan ekranlar listelenir.' },
+          { key:'sayfaBoyut', label:'Sayfa başına kayıt', type:'select', cols:6,
+            options:[{ value:'10', label:'10 kayıt' }, { value:'25', label:'25 kayıt' },
+                     { value:'50', label:'50 kayıt' }, { value:'100', label:'100 kayıt' }],
+            hint:'Liste ekranlarındaki sayfalama seçenekleriyle aynı değerlerdir.' }
+        ]
+      }]
+    });
+  }
+  kurTercihForm();
+
+  function tercihDurum(metin){
+    var el = document.getElementById('pfTercihDurum');
+    if(el) el.textContent = metin;
+  }
+
+  document.getElementById('pfTercihKaydet').addEventListener('click', function(){
+    var d = fTercih.submit();
+    if(!d) return;
+    Object.keys(DEF).forEach(function(k){
+      if(k === 'ikiAdim') return;
+      if(d[k] !== undefined && d[k] !== '') PR[k] = d[k];
+    });
+    if(yazTercih(PR)){
+      tercihDurum('Tercihler kaydedildi · localStorage: ' + LSK);
+      GV.toast('Tercihleriniz kaydedildi — sonraki açılışta geri yüklenir', 'ok', 4200);
+    }else{
+      tercihDurum('Tercihler kaydedilemedi — tarayıcı depolaması kapalı olabilir.');
+      GV.toast('Tercihler kaydedilemedi — tarayıcı depolaması kapalı', 'danger', 4200);
+    }
+  });
+
+  document.getElementById('pfTercihSifirla').addEventListener('click', function(){
+    GV.confirm({
+      title:'Tercihleri sıfırla', tone:'warn', okLabel:'Varsayılana dön',
+      text:'Dil, tema, tarih biçimi, saat dilimi, açılış ekranı, sayfa boyutu ve iki adımlı ' +
+           'doğrulama tercihiniz silinip varsayılan değerlere döner.'
+    }).then(function(ok){
+      if(!ok) return;
+      silTercih();
+      Object.keys(DEF).forEach(function(k){ PR[k] = DEF[k]; });
+      kurTercihForm();
+      var sw = document.getElementById('pfIki');
+      if(sw) sw.checked = !!PR.ikiAdim;
+      tercihDurum('Varsayılan tercihler yüklendi.');
+      GV.toast('Tercihler varsayılana döndürüldü', 'ok');
+    });
+  });
+
+  document.getElementById('pfTercihAc').addEventListener('click', function(){
+    var d = fTercih.read();
+    var hedef = d.acilis || PR.acilis;
+    if(!hedef || !GV.isBuilt(hedef)){
+      GV.toast('Seçili açılış ekranı henüz yayında değil', 'warn');
+      return;
+    }
+    fTercih.setDirty(false);
+    location.href = hedef;
+  });
+});
+</script>
+</body>
+</html>
