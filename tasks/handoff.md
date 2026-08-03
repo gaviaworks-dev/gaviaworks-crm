@@ -4,7 +4,7 @@
 > edebilmesi için yazıldı. Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/components.md`.
 > `PROMPT.md` mutlak kaynaktır; `CLAUDE.md` proje kurallarıdır.
 
-**Güncelleme:** 2026-08-03 · 36 ekran canlıda · 53 commit · çalışma ağacı temiz.
+**Güncelleme:** 2026-08-03 (2. oturum) · **51 ekran canlıda** · Wave 11 (Raporlama) tamamlanmak üzere.
 
 ---
 
@@ -12,39 +12,41 @@
 
 | | |
 |---|---|
-| Repo | `gaviaworks-dev/gaviaworks-crm` (public, remote doğrulandı) |
-| Canlı | `https://gaviaworks-dev.github.io/gaviaworks-crm/` |
-| Son commit | `bbf74e9 chore(shell): register notification and approval screens` |
-| Yarım kalan ekran | **YOK** — son iki ekran (bildirimler, onaylar) bitti, QA'den geçti, push edildi |
+| Repo | `gaviaworks-dev/gaviaworks-crm` (public) · Canlı: `https://gaviaworks-dev.github.io/gaviaworks-crm/` |
 | Aktif branch | `main` (doğrudan main'e çalışılıyor) |
+| Yarım kalan ekran | **YOK** — üretimdeki her ekran QA'den geçip commit edilir |
 
-### Yayında olan 36 ekran
+### 2. oturumda eklenenler (15 ekran)
 ```
-index                       giriş + rol/persona seçici (form doğrulamalı)
-app-panel                   7 rol varyantlı dashboard (dashboard.js)
-app-panel-bildirimler       bildirim merkezi
-app-panel-onaylar           bekleyen onay kuyruğu
-
-app-lead · app-pipeline · app-referans · app-komisyon · app-onanaliz · app-teklif
-app-musteri · app-musteri-yetkili · app-musteri-iletisim
-app-proje
-app-gorev · app-gorev-detay · app-istalebi
-app-destek
-app-personel · app-izin · app-zaman · app-kapasite · app-performans
-app-demirbas · app-zimmet
-app-arac · app-arac-bakim · app-arac-muayene · app-arac-sigorta ·
-app-arac-yakit · app-arac-gider · app-arac-kaza
-app-satinalma · app-tedarikci · app-siparis
-app-dokuman · app-toplanti
+FİNANS      app-sozlesme · app-fatura · app-tahsilat · app-butce
+İŞ BİRLİĞİ  app-sohbet (sohbetten görev oluşturma, 16 alanlı devir)
+AJANDA      app-ajanda (ay/hafta/gün, 8 olay kaynağı)
+RAPOR       app-rapor (merkez, 99 rapor kataloğu) · app-rapor-musteri (14) ·
+            app-rapor-personel (13) · app-rapor-gorev (19) · app-rapor-referans (10) ·
+            app-rapor-filo (19) · app-rapor-finans (16)
 ```
+Üretimde (bu oturum bitmeden gelebilir): `app-rapor-proje` · `app-ayar-yetki` · `app-ayar-otomasyon`.
 
-### Doğrulanmış durum
-- Her ekran 1440 / 768 / 390 px'de test edildi: **konsol hatası yok, yatay taşma yok**
-- **Kırık link yok** — yayında olmayan hedefler otomatik `data-wip`
-- 7 rol varyantı (sahip, satis, pm, personel, ik, satinalma, musteri) render ediyor
-- Rail bölüm sayısı role göre değişiyor (sahip 15 → stajyer 4)
+### Ortak katmana 2. oturumda eklenenler
+- **`GV.report(cfg)`** — Wave 11'in tamamının dayandığı rapor iskeleti (components.md §5b).
+- **`GV.upload(cfg)`** — form dışında da çalışan bağımsız dosya yükleme alanı.
+- **`GV.pageHead`** aksiyonlarında `run(ev, btn)` desteği (href'siz aksiyon artık sahte buton değil).
+- **`GV.perm.can('musteriRapor' | 'personelRapor')`** — türetilmiş rapor yetki eksenleri (assumptions V-13).
+- `GV.chart.bar` → `value2` ile karşılaştırma çubuğu + `money:true` ekseni; `bar/line/donut` boş veride
+  kendiliğinden boş durum basar (artık çökmez).
+- `GV.badge(v,'is-ok')` açık ton geçersen sözlüğü ezer; sözlüğe proje sağlığı ve finans durumları eklendi.
+- `GV.list` aktif filtre çipleri artık ham kod yerine seçenek etiketini basar.
+- CSS: `.gv-rp-*` (rapor düzeni) · `.gv-charts/.gv-chartcard` · `.gv-cal.is-week` + `is-purple/is-neutral`
+  olay tonları · `.gv-chat-title/.gv-chat-acts/.gv-msg-react` · `.gv-tablewrap.is-sticky1` (geniş matris) ·
+  `.cell-sw` · `.th-narrow` · `[hidden]` · `select[multiple]` yükseklik düzeltmesi · `.gv-file-body` (L-04).
 
----
+### Canonical veri düzeltmeleri (2. oturum)
+Rapor ekranları üç çelişki ortaya çıkardı, **kaynağında** düzeltildi:
+1. Müşteri kartındaki `bekleyenTahsilat` / `aktifProje` işlem verisiyle uyuşmuyordu → yeniden türetildi,
+   faturası olup tahsilatı olmayan `FTR-2026-031` için `THS-2026-047` eklendi (assumptions V-17).
+2. `KOM-2026-004` ve `KOM-2025-006` müşteri kartındakinden farklı yönlendireni gösteriyordu → müşteri
+   kaydı komisyona hizalandı, yönlendiren kartı tutarları `DB.commissions`'tan türetildi.
+3. `projeSayisi` **ömür boyu** sayaçtır (DB.projects yalnız güncel projeleri tutar) — bilinçli istisna.
 
 ## 2. ORTAK KATMANIN MEVCUT DURUMU
 
@@ -70,7 +72,8 @@ aktivite timeline · yorum akışı · onay zinciri · ilerleme · modal/drawer/
 kanban · **takvim (`.gv-cal`)** · **gantt (`.gv-gantt`)** · grafikler + rapor iskeleti
 (`.rp-filters`, `.rp-acts`) · **sohbet (`.gv-chatwrap`, `.gv-msg`)** · yardımcı sınıflar · `[data-wip]`.
 
-> Takvim, gantt ve sohbet CSS'i **yazıldı ama henüz kullanan ekran yok** — hazır bekliyor.
+> Takvim `app-ajanda.html`'de, sohbet `app-sohbet.html`'de kullanılıyor. **Gantt (`.gv-gantt`) hâlâ
+> kullanan ekran bekliyor** — proje detayının Gantt sekmesinde kullanılacak.
 
 ### `assets/js/ui.js` — bileşen motoru — TAM
 ```
@@ -110,19 +113,18 @@ poliçe/yakıt/gider/kaza/ceza, tedarikçi, satın alma + onay zinciri, sipariş
 `misc` (sözleşme, fatura, tahsilat, toplantı, karar, doküman, sohbet kanalı/mesaj,
 bildirim, duyuru, 22 otomasyon kuralı, entegrasyon, log).
 
-### `tasks/components.md` — GÜNCEL Mİ?
-**Kısmen.** Sözlük doğru ve geçerli, ancak şu üç ekleme henüz işlenmedi:
-1. `GV.pageHead(cfg)` — sayfa başlığı üreticisi (shell.js'te)
-2. `buildSkeleton()` — sayfa iskeletinin shell tarafından kurulması
-3. `BUILT` / `GV.markWip()` — yayında olmayan bağlantı işaretleme
-**Yapılacak:** bu üçünü `components.md`'ye ekle.
+### `tasks/components.md` — GÜNCEL
+`GV.pageHead` · `buildSkeleton()` · `BUILT`/`GV.markWip()` · `GV.report` (§5b) · `GV.upload` ·
+takvim ve sohbet sınıfları işlendi. **Dikkat:** görünüm anahtarının gerçek sınıfı `.viewswitch`
+(`.gv-` öneki YOK) — sözlük düzeltildi.
 
 ---
 
 ## 3. YENİ EKRAN EKLEME — ADIM ADIM
 
 ### 3.1 Ekranı üret
-Üretici: `<scratchpad>/gen.py` (yoksa aşağıdaki şablonu elle kur).
+`gen.py` **artık kullanılmıyor** — ekranlar subagent'lara tek tek yazdırılıyor (bölüm 6).
+Şablon aşağıdadır; sayfa yalnızca config içerir.
 Sayfa **yalnızca** config içerir; rail/menü/üstbar iskeletini `shell.js` kurar.
 
 ```html
@@ -190,30 +192,49 @@ otomatik `data-wip` olur, tıklanınca açıklayıcı toast çıkar.
 
 ## 4. QA KOMUTLARI VE DOĞRULAMA AKIŞI
 
+Scratchpad silinmişse önce kur:
 ```bash
-# 1) Sunucu (bir kez)
-cd /Users/gaviaworks/Developer/Projects/gaviaworks-crm
-python3 -m http.server 8791 &
+cd <scratchpad> && npm init -y && npm i playwright@1.62.1
+```
 
-# 2) Ekran QA — 1440/768/390 + konsol hatası + yatay taşma + screenshot
-cd <scratchpad> && node qa.js "app-x.html|x,app-y.html|y"
+```bash
+# 1) Sunucu — TEK THREAD'Lİ python -m http.server KULLANMA.
+#    Tek thread'li sunucu çoklu sayfa taramasında kilitleniyor (qa-links takılıyor).
+cd /Users/gaviaworks/Developer/Projects/gaviaworks-crm
+python3 -c "
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+ThreadingHTTPServer(('127.0.0.1',8791), SimpleHTTPRequestHandler).serve_forever()
+" &
+
+# 2) Ekran QA — 1440/768/390 · konsol hatası · yatay taşma · sayfaya özel <style> ·
+#    href="#" · screenshot
+cd <scratchpad> && node qa.js "app-x.html,app-y.html" [rol]
 #   → "TEMİZ — hata yok, taşma yok" bekleniyor
 
-# 3) Rol taraması — 7 rol, dashboard + rail + menü sayıları
-node qa-roles.js
+# 3) Rapor ekranı QA — her raporun KPI+grafik+tablo ürettiğini doğrular
+node rp2.js app-rapor-x.html
 
-# 4) Link bütünlüğü — kırık link var mı
-node qa-links.js
-#   → "Kırık bağlantı yok" bekleniyor
-#   NOT: qa-links.js içindeki `pages` dizisini güncel ekran listesiyle eşitle
+# 4) Link bütünlüğü
+node qa-links.js        # → "Kırık bağlantı yok (N ekran tarandı)"
 
-# 5) Canlı doğrulama (push sonrası ~1–2 dk)
+# 5) Yetki taraması — rol başına can()/scope() değerleri
+node perm.js
+
+# 6) Canonical veri taraması — müşteri kartı ↔ işlem verisi
+node canon2.js ; node canon3.js ; node ref.js
+
+# 7) Canlı doğrulama (push sonrası ~1-2 dk)
 curl -s -o /dev/null -w "%{http_code}\n" https://gaviaworks-dev.github.io/gaviaworks-crm/app-x.html
 ```
-Screenshot'lar `docs/screenshots/` (gitignored). Playwright scratchpad'de kurulu
-(`npm i playwright@1.62.1`); scratchpad silinmişse yeniden kur.
+Screenshot'lar `docs/screenshots/` (gitignored).
+`<scratchpad>` = `/private/tmp/claude-501/-Users-gaviaworks-Developer-Projects-gaviaworks-crm/<oturum>/scratchpad`
+Bu script'ler **orkestratöre aittir** — subagent oraya yazmaz (lessons L-06).
+`scratchpad/rp-example.html` = `GV.report` kullanımının çalışan örneği; rapor ekranı yazacak
+subagent'a desen referansı olarak verilir.
 
 **Commit disiplini:** `git add -A` **yasak** — dosya adıyla tek tek stage.
+`tasks/` gitignored ama `tasks/handoff.md` bilinçli olarak `git add -f` ile izleniyor
+(yeni oturum repodan okuyabilsin diye).
 Conventional Commits, İngilizce, ayrı concern ayrı commit. Commit sonu:
 ```
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
@@ -283,34 +304,32 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 
 ## 7. SIRADAKİ İŞ
 
-`tasks/plan.md` bitiş tanımıdır. Kalan başlıklar:
+`tasks/plan.md` bitiş tanımıdır. **Wave 11 ve Wave 12 artık ekran bazında alt maddelere bölünmüş
+durumda** — subagent'a doğrudan verilebilir.
 
-**Yakın sıradakiler (veri hazır, hızlı):**
-`app-dokuman-sure` · `app-toplanti-karar` · `app-ajanda` (`.gv-cal` hazır) ·
-`app-sohbet` (`.gv-chatwrap` hazır) · `app-sozlesme` · `app-fatura` · `app-tahsilat` ·
-`app-butce` · `app-proje-milestone/sprint/test/hata/degisiklik/teslim` ·
-`app-destek-sla/paket/memnuniyet` · `app-zaman-onay` · `app-egitim` ·
-`app-satinalma-teklif` · `app-panel-ozet` · `app-panel-duyurular` · `app-panel-yonetici`
+### Sıradaki kuyruk (öncelik sırasıyla)
+1. **Wave 12 — Ayarlar (kalan 9 ekran):** `app-ayar-sirket` · `app-ayar-departman` ·
+   `app-ayar-kullanici` · `app-ayar-rol` · `app-ayar-onay` · `app-ayar-bildirim` (31 tip × 7 kanal
+   matrisi) · `app-ayar-entegrasyon` · `app-ayar-log` · `app-ayar-arsiv` · `app-ayar-profil`
+2. **Wave 1 kalanı:** `app-panel-ozet` · `app-panel-duyurular` · `app-panel-yonetici`
+3. **Wave 9 kalanı:** `app-destek-sla` · `app-destek-paket` · `app-destek-memnuniyet`
+4. **Wave 10 kalanı:** `app-dokuman-sure` · `app-toplanti-karar`
+5. **İK/satın alma kalanı:** `app-zaman-onay` · `app-egitim` · `app-satinalma-teklif` · `app-odemeplani`
+6. **Proje alt ekranları:** `app-proje-milestone` · `-sprint` · `-test` · `-hata` · `-degisiklik` · `-teslim`
+7. **Detay ekranları** — kalıp `app-gorev-detay.html`. Öncelik: müşteri (15 sekme), proje (22 sekme),
+   lead, teklif, personel, araç, satın alma, destek. **Gantt CSS'i (`.gv-gantt`) burada kullanılacak.**
+8. **Form ekranları** — `GV.form({sections:[...]})` hazır; her liste ekranının `-form.html` karşılığı.
+9. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının doğrulanması ·
+   canonical tarama · 1440/768/390 tam tarama · kapanış raporu.
 
-**Detay ekranları:** kalıp `app-gorev-detay.html` (8 sekme + yan panel + aktivite +
-onay zinciri + gerçekten çalışan aksiyonlar). Öncelik: müşteri (15 sekme), proje (22 sekme),
-lead, teklif, personel, araç, satın alma, destek.
-
-**Form ekranları:** `GV.form({sections:[{title, fields:[...]}]})` — doğrulama,
-hata özeti, dosya yükleme hazır. Her liste ekranının `-form.html` karşılığı gerekiyor.
-
-### ⚠ plan.md'de bölünmesi gereken iki wave
-**Wave 11 (Raporlama Merkezi)** ve **Wave 12 (Bildirim/Otomasyon/Ayarlar)** şu an
-plan.md'de tek satırlık maddeler hâlinde; bu hâliyle subagent'a verilemez.
-**Önce bu iki wave'i ekran bazında alt maddelere böl**, sonra üretime başla:
-
-- **Wave 11 →** `app-rapor` (merkez) + `app-rapor-musteri` (14 rapor) +
-  `app-rapor-personel` (13) + `app-rapor-gorev` (19) + `app-rapor-referans` (10) +
-  `app-rapor-filo` (19) + `app-rapor-finans` (16) + `app-rapor-proje`.
-  Her rapor ekranı için ayrı madde aç: KPI seti, grafik tipi, tablo kolonları, filtreler.
-- **Wave 12 →** `app-ayar-sirket` · `app-ayar-departman` · `app-ayar-kullanici` ·
-  `app-ayar-rol` · `app-ayar-yetki` (matris) · `app-ayar-onay` · `app-ayar-bildirim` ·
-  `app-ayar-otomasyon` (22 kural) · `app-ayar-entegrasyon` · `app-ayar-log` ·
-  `app-ayar-arsiv` · `app-ayar-profil`. Her biri ayrı madde.
+### Bir sonraki oturuma özel uyarılar
+- Rapor ekranı yazdıracaksan subagent'a `scratchpad/rp-example.html` **veya** yayındaki
+  `app-rapor-gorev.html` dosyasını desen referansı olarak ver — `GV.report` sözleşmesi orada.
+- Yeni ekran doğunca `shell.js` `BUILT` dizisine eklemeyi unutma; menü/`SEC_BY_ROLE` kayıtları
+  **15 bölümün tamamı için zaten yazılı**, yalnız BUILT satırı eksik kalıyor.
+- `app-rapor.html` katalogdaki rapor adlarını yayındaki rapor ekranlarından okuyarak listeler;
+  yeni rapor eklenirse katalog da güncellenmeli.
+- Subagent raporlarındaki "eksik bileşen" ve "veri çelişkisi" notları **ciddiye alınmalı** — bu
+  oturumda üç gerçek canonical hata bu yolla bulundu.
 
 Kapanış raporu **yalnızca plan.md'deki tüm maddeler işaretlendiğinde** verilir.
