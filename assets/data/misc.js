@@ -93,7 +93,10 @@ DB.payments = [
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-28', aktif:true },
   { kod:'THS-2026-040', fatura:'FTR-2026-026', musteri:'MUS-2026-011', musteriAd:'Anka Finans Teknolojileri',
     tutar:360000, vade:'2026-07-09', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
-    sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-04', aktif:true }
+    sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-04', aktif:true },
+  { kod:'THS-2026-047', fatura:'FTR-2026-031', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.',
+    tutar:18000, vade:'2026-08-31', gecikmeGun:0, durum:'Bekliyor', sorumlu:'EMP-012',
+    sonAksiyon:'Aylık bakım faturası — vade takibi', sonAksiyonTarihi:'2026-08-01', aktif:true }
 ];
 
 /* ---- Toplantılar (PROMPT.md §19) ---------------------------------------- */
