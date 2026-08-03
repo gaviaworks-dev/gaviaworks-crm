@@ -260,6 +260,8 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 ### Subagent sözleşmesi (prompt'a birebir koy)
 1. Sana verilen **tek** dosyayı yaz: `app-<ad>.html`. Başka dosya oluşturma/değiştirme.
 2. `assets/` altındaki **hiçbir** dosyaya dokunma. `tasks/` altına yazma.
+   Scratchpad'deki ortak QA script'leri (`qa.js`, `qa-links.js`) **orkestratöre aittir** —
+   subagent kendi QA script'ini yazmaz, oraya yazmaz (lessons L-06).
 3. Sayfa şablonu bölüm 3.1'deki gibi olacak; iskeleti `shell.js` kurar,
    sen yalnız `GV.pageHead(...)` + `GV.list({...})` (veya detay ekranıysa
    `GV.tabs` + panel markup'ı) yazacaksın.
