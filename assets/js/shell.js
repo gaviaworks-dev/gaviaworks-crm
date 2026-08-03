@@ -541,7 +541,11 @@
     'app-musteri.html',
     'app-proje.html',
     'app-teklif.html',
-    'app-personel.html'
+    'app-personel.html',
+    'app-pipeline.html',
+    'app-referans.html',
+    'app-komisyon.html',
+    'app-onanaliz.html'
   ];
   GV.built = BUILT;
 
@@ -584,6 +588,68 @@
   }
 
   /* ===================================================================
+     7c. İSKELET KURULUMU
+     Sayfa yalnız içeriğini yazar; rail/menü/üstbar/breadcrumb iskeleti
+     burada kurulur. Böylece her ekranda 30 satırlık markup tekrarlanmaz
+     (CLAUDE.md — "benzer ekranlar için tekrarlı kod yazılmaz").
+     =================================================================== */
+  function buildSkeleton(){
+    if(document.querySelector('.gv-app')) return;   /* elle kurulmuş sayfalar dokunulmaz */
+
+    /* Mevcut gövde içeriğini (script'ler hariç) sakla */
+    var keep = document.createDocumentFragment();
+    Array.prototype.slice.call(document.body.childNodes).forEach(function(n){
+      if(n.nodeType === 1 && n.tagName === 'SCRIPT') return;
+      keep.appendChild(n);
+    });
+
+    var app = document.createElement('div');
+    app.className = 'gv-app';
+    app.innerHTML =
+      '<aside class="gv-rail" id="gvRail"></aside>' +
+      '<nav class="gv-menu" id="gvMenu"></nav>' +
+      '<button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">' +
+        '<span>' + ico('i-chev-left','ic-sm') + '</span></button>' +
+      '<div class="gv-overlay" id="gvOverlay"></div>' +
+      '<header class="gv-top" id="gvTop"></header>' +
+      '<main class="gv-main" id="gvMain"><div class="gv-page">' +
+        '<nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>' +
+        '<div id="gvPageHead"></div>' +
+      '</div></main>';
+
+    var skip = document.createElement('a');
+    skip.className = 'gv-skip';
+    skip.href = '#gvMain';
+    skip.textContent = 'İçeriğe atla';
+
+    document.body.insertBefore(app, document.body.firstChild);
+    document.body.insertBefore(skip, app);
+    app.querySelector('.gv-page').appendChild(keep);
+  }
+
+  /* Sayfa başlığı — .ph-eyebrow / h1 / .ph-sub / .ph-actions */
+  GV.pageHead = function(cfg){
+    var host = document.getElementById('gvPageHead');
+    if(!host) return;
+    host.outerHTML =
+      '<div class="gv-page-head"><div>' +
+        (cfg.eyebrow ? '<div class="ph-eyebrow">' + esc(cfg.eyebrow) + '</div>' : '') +
+        '<h1>' + esc(cfg.title) + '</h1>' +
+        '<div class="ph-sub" data-listcount>' + esc(cfg.sub || '—') + '</div>' +
+      '</div>' +
+      (cfg.actions && cfg.actions.length
+        ? '<div class="ph-actions">' + cfg.actions.map(function(a){
+            var inner = (a.icon ? ico(a.icon) + ' ' : '') + esc(a.label);
+            return a.href
+              ? '<a class="btn ' + (a.cls || 'btn-line') + '" href="' + a.href + '">' + inner + '</a>'
+              : '<button type="button" class="btn ' + (a.cls || 'btn-line') + '"' +
+                (a.id ? ' id="' + a.id + '"' : '') + '>' + inner + '</button>';
+          }).join('') + '</div>'
+        : '') +
+      '</div>';
+  };
+
+  /* ===================================================================
      8. İKON SPRITE ENJEKSİYONU
      =================================================================== */
   function injectSprite(){
@@ -617,6 +683,7 @@
       return;
     }
     GV.session = session;
+    buildSkeleton();
 
     var body = document.body;
     var activeSec = body.dataset.sec || 'panel';
