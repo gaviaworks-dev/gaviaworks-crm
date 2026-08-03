@@ -41,7 +41,7 @@ DB.departments = [
   { kod:'DEP-21', ad:'Freelancer ve Çözüm Ortakları',kisa:'Freelancer',yonetici:'EMP-003',aktif:true,  personel:1 }
 ];
 
-/* ---- Roller (PROMPT.md §5 — 28 rol) ---------------------------------
+/* ---- Roller (PROMPT.md §5 — 27 rol; §5 listesi sayıldığında 27 madde) ------
    dash : hangi dashboard varyantını kullanır (PROMPT.md §7 — 6 varyant)
    kademe: 1 yönetim · 2 orta kademe · 3 uzman · 4 dış/kısıtlı
 ------------------------------------------------------------------------ */
