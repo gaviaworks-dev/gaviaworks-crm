@@ -565,7 +565,9 @@
     'app-arac-kaza.html',
     'app-satinalma.html',
     'app-tedarikci.html',
-    'app-siparis.html'
+    'app-siparis.html',
+    'app-dokuman.html',
+    'app-toplanti.html'
   ];
   GV.built = BUILT;
 
