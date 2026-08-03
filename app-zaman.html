@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Zaman Kayıtları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="zaman">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, me = GV.session.emp;
+  GV.pageHead({ eyebrow:'İnsan Kaynakları', title:'Zaman Kayıtları',
+    actions:[{ label:'Timesheet Onayı', icon:'i-clipboard-check', href:'app-zaman-onay.html' },
+             { label:'Süre Ekle', icon:'i-plus', cls:'btn-acc', id:'btnEkle' }] });
+  var list = GV.list({
+    mount:'#liste', id:'zaman', key:'kod', source:function(){ return DB.timelogs; },
+    exportName:'zaman-kayitlari', exportTitle:'Zaman Kayıtları', pageSize:25,
+    search:{ placeholder:'Açıklama, görev, proje veya personel ara', fields:['kod','aciklama','gorev','proje','musteri'] },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Toplam süre', icon:'i-timer', format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.reduce(function(s,x){ return s + x.sure; }, 0); } },
+      { label:'Faturalandırılabilir', icon:'i-wallet', tone:'ok', format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.filter(function(x){ return x.faturalanabilir; }).reduce(function(s,x){ return s + x.sure; }, 0); } },
+      { label:'Faturalanamayan', icon:'i-minus', tone:'neutral', format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.filter(function(x){ return !x.faturalanabilir; }).reduce(function(s,x){ return s + x.sure; }, 0); } },
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return x.onay === 'Bekliyor'; }).length; } }
+    ],
+    tabs:[
+      { key:'benim', label:'Kayıtlarım', icon:'i-user', filter:function(x){ return x.personel === me; } },
+      { key:'bekleyen', label:'Onay Bekleyenler', icon:'i-stamp', filter:function(x){ return x.onay === 'Bekliyor'; } },
+      { key:'faturali', label:'Faturalandırılabilir', icon:'i-wallet', filter:function(x){ return x.faturalanabilir; } },
+      { key:'ic', label:'İç İşler', icon:'i-home', filter:function(x){ return !x.faturalanabilir; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'tarih', label:'Tarih', locked:true, render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      { key:'personel', label:'Personel', render:function(x){ return GV.user(x.personel, { sm:true }); },
+        sortValue:function(x){ return DB.empName(x.personel); }, exportValue:function(x){ return DB.empName(x.personel); } },
+      { key:'aciklama', label:'Açıklama', width:'26%', cellClass:'cell-wrap' },
+      { key:'gorev', label:'Görev', render:function(x){
+          if(!x.gorev) return '<span class="u-faint">—</span>';
+          var t = DB.tasks.filter(function(g){ return g.kod === x.gorev; })[0];
+          return '<a class="cell-main" href="app-gorev-detay.html?id=' + x.gorev + '">' + esc(t ? t.baslik : x.gorev) + '</a>' +
+                 '<span class="cell-code">' + x.gorev + '</span>'; } },
+      { key:'proje', label:'Proje', render:function(x){
+          if(!x.proje) return '<span class="u-faint">Proje dışı</span>';
+          var p = DB.projects.filter(function(g){ return g.kod === x.proje; })[0];
+          return '<a class="cell-main" href="app-proje-detay.html?id=' + x.proje + '">' + esc(p ? p.ad : x.proje) + '</a>'; } },
+      { key:'sure', label:'Süre', cellClass:'num', render:function(x){ return '<b class="u-num">' + F.hours(x.sure) + '</b>'; } },
+      { key:'faturalanabilir', label:'Faturalandırma', render:function(x){
+          return x.faturalanabilir ? '<span class="badge is-ok no-dot">Faturalanabilir</span>' : '<span class="tag">İç iş</span>'; },
+        exportValue:function(x){ return x.faturalanabilir ? 'Evet' : 'Hayır'; } },
+      { key:'onay', label:'Onay', render:function(x){ return GV.badge(x.onay); } }
+    ],
+    filters:[
+      { key:'personel', label:'Personel', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'proje', label:'Proje', type:'select', options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'musteri', label:'Müşteri', type:'select', options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'onay', label:'Onay durumu', type:'select', options:['Bekliyor','Onaylandı'] },
+      { key:'tarih', label:'Kayıt tarihi', type:'daterange' }
+    ],
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.aciklama) + '</span>' +
+        '<b class="u-num">' + F.hours(x.sure) + '</b></div>' +
+        '<div class="gv-mrow-code">' + F.date(x.tarih) + ' · ' + esc(DB.empName(x.personel)) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.onay) + '</span></div>';
+    },
+    rowActions:[
+      { key:'onayla', icon:'i-check', label:'Onayla', run:function(x, refresh){
+          if(x.onay === 'Onaylandı'){ GV.toast('Bu kayıt zaten onaylı.', 'info'); return; }
+          if(!GV.perm.can('onay')){ GV.toast('Zaman kaydı onaylama yetkiniz yok.', 'danger'); return; }
+          x.onay = 'Onaylandı'; GV.toast(F.hours(x.sure) + ' onaylandı', 'ok'); refresh(); } }
+    ],
+    bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-timer', title:'Bu görünümde zaman kaydı yok',
+      desc:'Görev bazlı süre girişi proje maliyetini ve faturalandırmayı besler.' }
+  });
+
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('#btnEkle')) return;
+    GV.modal({ title:'Zaman Kaydı Ekle', icon:'i-timer', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-6"><label for="zTarih">Tarih</label><input type="date" class="inp" id="zTarih" value="' + DB.today + '"></div>' +
+        '<div class="field f-col-6"><label for="zSure">Süre (saat)</label><input type="number" class="inp" id="zSure" min="0.25" step="0.25" value="1"></div>' +
+        '<div class="field f-col-12"><label for="zGorev">Görev</label><select id="zGorev"><option value="">Görev dışı çalışma</option>' +
+        DB.tasks.slice(0,20).map(function(t){ return '<option value="' + t.kod + '">' + esc(t.kod + ' — ' + t.baslik) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field f-col-12"><label for="zAcik">Açıklama</label><input type="text" class="inp" id="zAcik" placeholder="Ne yapıldı?"></div>' +
+        '<div class="field f-col-12"><label class="f-check"><input type="checkbox" id="zFat" checked><span>Faturalandırılabilir</span></label></div></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:'Kaydet', cls:'btn-acc', onClick:function(close, el){
+            var sure = parseFloat(el.querySelector('#zSure').value), acik = el.querySelector('#zAcik').value.trim();
+            if(!sure || sure <= 0){ GV.toast('Geçerli bir süre girin', 'danger'); return false; }
+            if(!acik){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+            var g = el.querySelector('#zGorev').value;
+            var t = DB.tasks.filter(function(x){ return x.kod === g; })[0];
+            DB.timelogs.unshift({ kod:'ZMN-' + (9100 + DB.timelogs.length), personel:me, tarih:el.querySelector('#zTarih').value,
+              gorev:g || null, proje:t ? t.proje : null, musteri:t ? t.musteri : null, sure:sure,
+              faturalanabilir:el.querySelector('#zFat').checked, aciklama:acik, onay:'Bekliyor', aktif:true });
+            GV.toast(F.hours(sure) + ' kaydedildi', 'ok'); list.refresh(); } }] });
+  });
+
+});
+</script>
+</body>
+</html>
