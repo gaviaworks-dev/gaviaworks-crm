@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Araç Muayene — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="muayene">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  var arac = function(k){ return DB.vehicles.filter(function(v){ return v.kod === k; })[0] || {}; };
+  var aracCol = { key:'arac', label:'Araç', width:'18%', locked:true, sortValue:function(x){ return arac(x.arac).plaka || ''; },
+    render:function(x){ var v = arac(x.arac);
+      return '<a class="cell-main" href="app-arac-detay.html?id=' + x.arac + '">' + esc(v.plaka || x.arac) + '</a>' +
+             '<span class="cell-sub">' + esc((v.marka || '') + ' ' + (v.model || '')) + '</span>'; },
+    exportValue:function(x){ return arac(x.arac).plaka || x.arac; } };
+  var aracFilter = { key:'arac', label:'Araç', type:'multi',
+    options:DB.vehicles.map(function(v){ return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model }; }) };
+  GV.pageHead({ eyebrow:'Araç ve Filo', title:'Araç Muayene Takibi',
+    actions:[{ label:'Araçlar', icon:'i-car', href:'app-arac.html' },
+             { label:'Muayene Kaydet', icon:'i-plus', cls:'btn-acc', href:'app-arac-muayene-form.html' }] });
+  GV.list({
+    mount:'#liste', id:'muayene', key:'kod', source:function(){ return DB.inspections; },
+    exportName:'arac-muayene', exportTitle:'Araç Muayene Kayıtları', pageSize:25,
+    search:{ placeholder:'Muayene no, istasyon veya kusur ara', fields:['kod','istasyon','sonuc','kusur'] },
+    defaultSort:'sonrakiTarih',
+    kpis:[
+      { label:'Takip edilen araç', icon:'i-clipboard', calc:function(a){ return a.length; } },
+      { label:'60 gün içinde', icon:'i-clock', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.kalanGun <= 60 && x.kalanGun >= 0; }).length; } },
+      { label:'30 gün içinde', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(x){ return x.kalanGun <= 30 && x.kalanGun >= 0; }).length; } },
+      { label:'Süresi dolan', icon:'i-x-circle', tone:'danger', calc:function(a){ return a.filter(function(x){ return x.kalanGun < 0; }).length; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tüm Araçlar', icon:'i-list', filter:null },
+      { key:'y60', label:'60 Gün İçinde', icon:'i-clock', filter:function(x){ return x.kalanGun <= 60 && x.kalanGun >= 0; } },
+      { key:'y30', label:'30 Gün İçinde', icon:'i-alert', filter:function(x){ return x.kalanGun <= 30 && x.kalanGun >= 0; } },
+      { key:'dolan', label:'Süresi Dolanlar', icon:'i-x-circle', filter:function(x){ return x.kalanGun < 0; } },
+      { key:'kusur', label:'Kusurlu Geçenler', icon:'i-alert-circle', filter:function(x){ return !!x.kusur; } }
+    ],
+    columns:[ aracCol,
+      { key:'sonTarih', label:'Son muayene', render:function(x){ return '<span class="cell-date">' + F.date(x.sonTarih) + '</span>'; } },
+      { key:'gecerlilik', label:'Geçerlilik', render:function(x){ return '<span class="cell-date">' + F.date(x.gecerlilik) + '</span>'; } },
+      { key:'sonrakiTarih', label:'Sonraki muayene', render:function(x){
+          return GV.dateCell(x.sonrakiTarih) +
+            (x.kalanGun <= 60 ? '<span class="cell-sub">' + (x.kalanGun < 0 ? Math.abs(x.kalanGun) + ' gün gecikti' : x.kalanGun + ' gün kaldı') + '</span>' : ''); } },
+      { key:'sonuc', label:'Sonuç', render:function(x){ return GV.badge(x.sonuc === 'Geçti' ? 'Onaylandı' : 'Reddedildi'); },
+        exportValue:function(x){ return x.sonuc; } },
+      { key:'kusur', label:'Kusur bilgisi', cellClass:'cell-wrap', render:function(x){
+          return x.kusur ? '<span class="badge is-warn">' + esc(x.kusur) + '</span>' : '<span class="u-faint">Kusursuz</span>'; } },
+      { key:'istasyon', label:'Muayene istasyonu' },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.kalanGun < 0 ? 'Gecikti' : x.kalanGun <= 60 ? 'Yaklaşıyor' : 'Planlandı'); },
+        exportValue:function(x){ return x.durum; } }
+    ],
+    filters:[ aracFilter,
+      { key:'sonuc', label:'Muayene sonucu', type:'select', options:['Geçti','Kaldı'] },
+      { key:'sonrakiTarih', label:'Sonraki muayene tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return x.kalanGun <= 30 ? 'is-late' : ''; },
+    mobile:function(x){ var v = arac(x.arac);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(v.plaka || x.arac) + '</span>' +
+        GV.badge(x.kalanGun < 0 ? 'Gecikti' : x.kalanGun <= 60 ? 'Yaklaşıyor' : 'Planlandı') + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-calendar','ic-sm') + 'Sonraki: ' + F.date(x.sonrakiTarih) + '</span></div>'; },
+    rowActions:[
+      { key:'arac', icon:'i-car', label:'Aracı aç', href:function(x){ return 'app-arac-detay.html?id=' + x.arac; } },
+      { key:'randevu', icon:'i-calendar-check', label:'Randevu görevi oluştur', run:function(x){
+          var v = arac(x.arac);
+          GV.confirm({ title:'Muayene randevusu görevi',
+            text:v.plaka + ' için muayene randevusu alınması görevi idari işlere atanacak. Termin: ' + F.date(x.sonrakiTarih),
+            okLabel:'Görev oluştur' }).then(function(ok){ if(ok) GV.toast('Görev oluşturuldu ve atandı', 'ok'); }); } }
+    ],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-clipboard', title:'Muayene kaydı yok', desc:'Muayene geçerlilik tarihleri 60/30/15/7 gün kala uyarı üretir.' }
+  });
+
+});
+</script>
+</body>
+</html>
