@@ -580,6 +580,7 @@
     'app-ajanda.html',
     'app-rapor-musteri.html',
     'app-rapor-referans.html',
+    'app-rapor-filo.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
