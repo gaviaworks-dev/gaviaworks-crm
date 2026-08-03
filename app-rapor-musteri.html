@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Müşteri Raporları — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="rapor" data-screen="rapormusteri">
+<div id="rapor"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  var canFin = GV.perm.can('finans');          /* para alanları — §26-D */
+  var canExp = GV.perm.can('disaAktar');       /* çıktı yetkisi */
+  var TODAY  = DB.today;                       /* referans tarih — new Date() kullanılmaz */
+
+  /* ===== indeksler ===================================================== */
+  var CUS = {}; DB.customers.forEach(function(c){ CUS[c.kod] = c; });
+  var PRJ = {}; DB.projects.forEach(function(p){ PRJ[p.kod] = p; });
+  function cus(k){ return CUS[k] || null; }
+  function cname(k){ var c = cus(k); return c ? c.kisa : (k || '—'); }
+  function shortName(k){ var c = cus(k); return c ? String(c.kisa).split(' ')[0] : String(k || '—').slice(-3); }
+  function sum(a, fn){ return a.reduce(function(s, x){ return s + (fn(x) || 0); }, 0); }
+  function avg(a, fn){ return a.length ? sum(a, fn) / a.length : 0; }
+  function uniq(a){ var o = []; a.forEach(function(x){ if(x && o.indexOf(x) === -1) o.push(x); }); return o; }
+  function topN(data, n){
+    return data.slice().sort(function(a, b){ return (b.value || 0) - (a.value || 0); }).slice(0, n || 8);
+  }
+  function byMonth(rows, dateOf, valOf){
+    var m = {}, keys = [];
+    rows.forEach(function(x){
+      var d = dateOf(x); if(!d) return;
+      var k = String(d).slice(0, 7);
+      if(!(k in m)){ m[k] = 0; keys.push(k); }
+      m[k] += valOf ? (valOf(x) || 0) : 1;
+    });
+    keys.sort();
+    return { labels:keys.map(function(k){ return F.dateShort(k + '-01').split(' ')[1] + ' ' + k.slice(2, 4); }),
+             values:keys.map(function(k){ return m[k]; }) };
+  }
+
+  /* ===== para yetkisi =================================================== */
+  function mny(n){
+    return canFin ? '<span class="cell-money">' + F.money(n) + '</span>'
+                  : '<span class="cell-mask">••••••</span>';
+  }
+  function kMoney(v){ return canFin ? F.moneyK(v) : '••••••'; }
+  function moneyCol(key, label, subFn){
+    return { key:key, label:label, cellClass:'num',
+      sortValue:function(x){ return x[key] || 0; },
+      exportValue:function(x){ return canFin ? (x[key] || 0) : ''; },
+      render:function(x){ return mny(x[key]) + (subFn ? '<span class="cell-sub">' + subFn(x) + '</span>' : ''); } };
+  }
+  function moneyChart(cardIfCan, cardElse){ return canFin ? cardIfCan : cardElse; }
+
+  /* ===== ortak filtre uygulaması ======================================= */
+  function projeOk(f, musteri, proje){
+    if(!f.proje) return true;
+    if(proje) return proje === f.proje;
+    var p = PRJ[f.proje];                       /* kaydın projesi yoksa müşteri üzerinden eşleşir */
+    return !!p && p.musteri === musteri;
+  }
+  function pass(f, musteri, tarih, proje, kayitSorumlu){
+    if(f.sorumlu){
+      var c0 = cus(musteri);
+      var ok = (c0 && c0.sorumlu === f.sorumlu) || (kayitSorumlu && kayitSorumlu === f.sorumlu);
+      if(!ok) return false;
+    }
+    if(!musteri){
+      if(f.musteri || f.durum || f.proje) return false;   /* müşteriye bağlanmamış kayıt */
+    } else {
+      if(f.musteri && musteri !== f.musteri) return false;
+      var c = cus(musteri);
+      if(f.durum && (!c || c.durum !== f.durum)) return false;
+      if(!projeOk(f, musteri, proje)) return false;
+    }
+    if(f.tarih && tarih && String(tarih).slice(0, 10) < f.tarih) return false;
+    return true;
+  }
+  function passCust(f, c){
+    if(f.musteri && c.kod !== f.musteri) return false;
+    if(f.durum && c.durum !== f.durum) return false;
+    if(f.sorumlu && c.sorumlu !== f.sorumlu) return false;
+    if(f.proje){ var p = PRJ[f.proje]; if(!p || p.musteri !== c.kod) return false; }
+    if(f.tarih && c.sonIletisim && String(c.sonIletisim).slice(0, 10) < f.tarih) return false;
+    return true;
+  }
+
+  /* ===== müşteri bazlı toplu hesap ===================================== */
+  var ACIK_GOREV = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  var KAPALI_DESTEK = ['Çözüldü','Kapandı'];
+  var BITEN_PROJE = ['Teslim'];
+
+  function agg(c){
+    var sz = DB.contracts.filter(function(x){ return x.musteri === c.kod; });
+    var fa = DB.invoices.filter(function(x){ return x.musteri === c.kod; });
+    var th = DB.payments.filter(function(x){ return x.musteri === c.kod; });
+    var pr = DB.projects.filter(function(x){ return x.musteri === c.kod; });
+    var gv = DB.tasks.filter(function(x){ return x.musteri === c.kod; });
+    var ds = DB.tickets.filter(function(x){ return x.musteri === c.kod; });
+    var kod = pr.map(function(p){ return p.kod; });
+    var dg = DB.changeRequests.filter(function(x){ return kod.indexOf(x.proje) !== -1; });
+    var gelir = sum(pr, function(p){ return p.sozlesmeTutari; });
+    var maliyet = sum(pr, function(p){ return p.gerceklesenMaliyet; });
+    return {
+      sozlesmeAdet:sz.length, sozlesmeTutar:sum(sz, function(x){ return x.tutar; }),
+      faturaAdet:fa.length,   faturaTutar:sum(fa, function(x){ return x.toplam; }),
+      tahsilat:sum(th.filter(function(x){ return x.durum === 'Ödendi'; }), function(x){ return x.tutar; }),
+      geciken:sum(th.filter(function(x){ return x.durum === 'Gecikti'; }), function(x){ return x.tutar; }),
+      bekleyen:c.bekleyenTahsilat || 0,
+      maliyet:maliyet, projeGeliri:gelir, kar:gelir - maliyet,
+      marj:gelir ? Math.round((gelir - maliyet) / gelir * 100) : 0,
+      projeSayisi:c.projeSayisi || 0, aktifProje:c.aktifProje || 0,
+      gecikenProje:pr.filter(function(p){
+        return BITEN_PROJE.indexOf(p.durum) === -1 && F.days(p.planlananBitis) < 0; }).length,
+      harcananSaat:sum(pr, function(p){ return p.harcananSure; }),
+      tahminiSaat:sum(pr, function(p){ return p.tahminiSure; }),
+      gorevAdet:gv.length,
+      acikGorev:gv.filter(function(t){ return ACIK_GOREV.indexOf(t.durum) === -1; }).length,
+      destekAdet:ds.length,
+      acikDestek:ds.filter(function(t){ return KAPALI_DESTEK.indexOf(t.durum) === -1; }).length,
+      destekPuan:(function(){ var p = ds.filter(function(t){ return t.memnuniyet != null; });
+        return p.length ? Math.round(avg(p, function(t){ return t.memnuniyet; }) * 10) / 10 : null; })(),
+      revizyon:sum(gv, function(t){ return t.revizyon; }), degisiklik:dg.length
+    };
+  }
+  function custRow(c){
+    var a = agg(c), row = {
+      kod:c.kod, unvan:c.unvan, kisa:c.kisa, sektor:c.sektor, buyukluk:c.buyukluk,
+      durum:c.durum, risk:c.risk, sorumlu:c.sorumlu, sorumluAd:DB.empName(c.sorumlu),
+      ilkKayit:c.ilkKayit, sonIletisim:c.sonIletisim, sonrakiAksiyon:c.sonrakiAksiyon,
+      sonrakiTarih:c.sonrakiTarih, memnuniyet:c.memnuniyet, toplamCiro:c.toplamCiro || 0
+    };
+    for(var k in a) if(Object.prototype.hasOwnProperty.call(a, k)) row[k] = a[k];
+    return row;
+  }
+
+  /* ===== ortak render parçaları ======================================== */
+  function custCell(x){
+    return '<a class="cell-main" href="app-musteri.html">' + esc(x.kisa || cname(x.kod)) + '</a>' +
+           '<span class="cell-code">' + (x.kod || '') + ' · ' + esc(x.sektor || '—') + '</span>';
+  }
+  function musteriCol(){
+    return { key:'musteriAd', label:'Müşteri', sortValue:function(x){ return cname(x.musteri); },
+      exportValue:function(x){ return cname(x.musteri); },
+      render:function(x){ return '<span class="cell-main">' + esc(cname(x.musteri)) + '</span>' +
+        '<span class="cell-code">' + esc(x.musteri || '—') + '</span>'; } };
+  }
+  function scoreCell(v){ return '<span class="cell-money">' + F.num(v) + '</span>'; }
+  function satisfaction(v){
+    if(v == null) return '<span class="u-faint">—</span>';
+    var t = v >= 4.5 ? 'ok' : v >= 3.5 ? '' : v >= 3 ? 'warn' : 'danger';
+    return '<span class="cell-money' + (t ? ' u-' + t : '') + '">' + F.num(v, 1) + ' / 5</span>';
+  }
+  function tags(list){
+    if(!list || !list.length) return '<span class="u-faint">—</span>';
+    return list.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ');
+  }
+  function onayBadge(v){
+    return (!v || v === '—') ? '<span class="u-faint">—</span>' : GV.badge(v);
+  }
+  /* GV.chart.line boş seriyle çizilemez — veri yoksa kart hiç kurulmaz */
+  function lineCard(data, build){ return data.labels.length ? build() : null; }
+
+  /* ===== filtre seçenekleri ============================================ */
+  var sorumluKodlari = uniq(
+    DB.customers.map(function(c){ return c.sorumlu; })
+    .concat(DB.projects.map(function(p){ return p.pm; }))
+    .concat(DB.leads.map(function(l){ return l.sorumlu; }))
+    .concat(DB.tickets.map(function(t){ return t.sorumlu; }))
+    .concat(DB.payments.map(function(t){ return t.sorumlu; }))
+    .concat(DB.quotes.map(function(q){ return q.hazirlayan; }))
+  ).sort(function(a, b){ return DB.empName(a).localeCompare(DB.empName(b), 'tr'); });
+
+  GV.pageHead({
+    eyebrow:'Raporlar', title:'Müşteri Raporları',
+    sub:'14 rapor · ortak tarih, müşteri, proje, durum ve sorumlu filtresi · özet kart + grafik + detay tablo',
+    actions:[
+      { label:'Müşteriler', icon:'i-building', href:'app-musteri.html' },
+      { label:'Tahsilat Takibi', icon:'i-wallet', cls:'btn-acc', href:'app-tahsilat.html' }
+    ]
+  });
+
+  GV.report({
+    mount:'#rapor', id:'rapormusteri',
+    filters:[
+      { key:'tarih', label:'Başlangıç tarihi', type:'date' },
+      { key:'musteri', label:'Müşteri', type:'select', all:'Tüm müşteriler',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'proje', label:'Proje', type:'select', all:'Tüm projeler',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'durum', label:'Müşteri durumu', type:'select', all:'Tüm durumlar',
+        options:uniq(DB.customers.map(function(c){ return c.durum; })) },
+      { key:'sorumlu', label:'Sorumlu', type:'select', all:'Tüm sorumlular',
+        options:sorumluKodlari.map(function(k){ return { value:k, label:DB.empName(k) }; }) }
+    ],
+
+    reports:[
+
+    /* =================================================================
+       1 · MÜŞTERİ GENEL RAPORU — PROMPT.md §20.1 (15 alan)
+       ================================================================= */
+    { key:'genel', label:'Müşteri genel raporu', icon:'i-building', group:'Genel',
+      title:'Müşteri Genel Raporu',
+      desc:'Her müşteri için sözleşme, fatura, tahsilat, bekleyen tahsilat, maliyet, kârlılık, proje, görev, destek, revizyon, son iletişim, sonraki aksiyon, memnuniyet ve risk göstergeleri tek tabloda.',
+      rows:function(f){
+        return DB.customers.filter(function(c){ return passCust(f, c); }).map(custRow);
+      },
+      kpis:[
+        { label:'Müşteri', icon:'i-building', calc:function(r){ return r.length; } },
+        { label:'Aktif müşteri', icon:'i-check-circle', tone:'ok',
+          calc:function(r){ return r.filter(function(x){ return x.durum === 'Aktif'; }).length; } },
+        { label:'Toplam sözleşme', icon:'i-file-check', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.sozlesmeTutar; }); } },
+        { label:'Bekleyen tahsilat', icon:'i-wallet', tone:'warn', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.bekleyen; }); } }
+      ],
+      charts:function(r){
+        var risk = {};
+        r.forEach(function(x){ risk[x.risk] = (risk[x.risk] || 0) + 1; });
+        var don = Object.keys(risk).map(function(k){ return { label:k, value:risk[k] }; });
+        var para = { title:'Fatura ve tahsilat karşılaştırması', sub:'koyu sütun fatura · açık sütun tahsilat · en yüksek 8 müşteri', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){
+            return { label:shortName(x.kod), value:x.faturaTutar, value2:x.tahsilat }; })), { money:true }) };
+        var sayi = { title:'Müşteri başına açık iş', sub:'açık görev + açık destek talebi', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){
+            return { label:shortName(x.kod), value:x.acikGorev + x.acikDestek }; }))) };
+        return [moneyChart(para, sayi),
+          { title:'Risk seviyesi dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'müşteri' }), legend:don }];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-genel-rapor', exportTitle:'Müşteri Genel Raporu',
+        search:{ placeholder:'Müşteri, unvan, sektör veya sorumlu ara', fields:['kod','unvan','kisa','sektor','sorumluAd'] },
+        defaultSort:'sozlesmeTutar', defaultDir:'desc',
+        columns:[
+          { key:'kod', label:'Müşteri', locked:true, width:'16%', cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; }, render:custCell },
+          moneyCol('sozlesmeTutar', 'Toplam sözleşme', function(x){ return x.sozlesmeAdet + ' sözleşme'; }),
+          moneyCol('faturaTutar', 'Toplam fatura', function(x){ return x.faturaAdet + ' fatura'; }),
+          moneyCol('tahsilat', 'Toplam tahsilat'),
+          moneyCol('bekleyen', 'Bekleyen tahsilat', function(x){ return x.geciken ? 'gecikmiş var' : 'gecikme yok'; }),
+          moneyCol('maliyet', 'Toplam maliyet', function(x){ return F.num(x.harcananSaat) + ' saat'; }),
+          moneyCol('kar', 'Kârlılık', function(x){ return x.projeGeliri ? '%' + x.marj + ' marj' : 'proje kaydı yok'; }),
+          { key:'aktifProje', label:'Aktif projeler', cellClass:'num',
+            render:function(x){ return scoreCell(x.aktifProje) + '<span class="cell-sub">' + x.projeSayisi + ' toplam</span>'; } },
+          { key:'gecikenProje', label:'Geciken projeler', cellClass:'num',
+            render:function(x){ return x.gecikenProje
+              ? '<span class="cell-money u-danger">' + x.gecikenProje + '</span>'
+              : '<span class="u-faint">0</span>'; } },
+          { key:'acikGorev', label:'Açık görevler', cellClass:'num',
+            render:function(x){ return scoreCell(x.acikGorev) + '<span class="cell-sub">' + x.gorevAdet + ' toplam</span>'; } },
+          { key:'destekAdet', label:'Destek talepleri', cellClass:'num',
+            render:function(x){ return scoreCell(x.destekAdet) + '<span class="cell-sub">' + x.acikDestek + ' açık</span>'; } },
+          { key:'revizyon', label:'Revizyonlar', cellClass:'num',
+            render:function(x){ return scoreCell(x.revizyon) + '<span class="cell-sub">' + x.degisiklik + ' değişiklik talebi</span>'; } },
+          { key:'sonIletisim', label:'Son iletişim',
+            render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
+          { key:'sonrakiAksiyon', label:'Sonraki aksiyon', width:'14%', cellClass:'cell-wrap',
+            render:function(x){ return '<span class="cell-main">' + esc(x.sonrakiAksiyon || '—') + '</span>' +
+              (x.sonrakiTarih ? '<span class="cell-sub">' + F.dateShort(x.sonrakiTarih) + ' · ' + F.rel(x.sonrakiTarih) + '</span>' : ''); } },
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num',
+            render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'risk', label:'Risk seviyesi', render:function(x){
+              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mny(x.sozlesmeTutar) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.sektor) + ' · ' + esc(x.sorumluAd) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
+                 GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok') +
+                 '</span><span class="cell-sub">' + x.aktifProje + ' aktif proje · ' + x.acikDestek + ' açık destek</span></div>';
+        },
+        emptyState:{ icon:'i-building', title:'Bu filtrede müşteri yok',
+          desc:'Tarih, müşteri, proje, durum veya sorumlu filtresini değiştirin.' }
+      }
+    },
+
+    /* =================================================================
+       2 · İLETİŞİM RAPORU
+       ================================================================= */
+    { key:'iletisim', label:'İletişim raporu', icon:'i-phone', group:'Müşteri İlişkileri',
+      title:'İletişim Raporu',
+      desc:'Müşteri etkileşimlerinin kanal, kişi ve zaman dağılımı; planlanmış toplantılarla birlikte iletişim sıklığı.',
+      rows:function(f){
+        return DB.interactions.filter(function(x){
+          return x.musteri && pass(f, x.musteri, x.tarih, null, x.kisi);
+        }).map(function(x){
+          return { kod:x.kod, musteri:x.musteri, musteriAd:cname(x.musteri), tur:x.tur, tarih:x.tarih,
+                   kisi:x.kisi, kisiAd:DB.empName(x.kisi), kontak:x.kontak, konu:x.konu,
+                   ozet:x.ozet, sonuc:x.sonuc };
+        });
+      },
+      kpis:[
+        { label:'Etkileşim', icon:'i-phone', calc:function(r){ return r.length; } },
+        { label:'Görüşülen müşteri', icon:'i-building', tone:'info',
+          calc:function(r){ return uniq(r.map(function(x){ return x.musteri; })).length; } },
+        { label:'Toplantı', icon:'i-calendar-check', tone:'accent',
+          calc:function(r){ return r.filter(function(x){ return x.tur === 'Toplantı'; }).length; } },
+        { label:'Planlı toplantı', icon:'i-calendar', tone:'warn',
+          calc:function(r, f){ return DB.meetings.filter(function(m){
+            return m.musteri && m.durum === 'Planlandı' && pass(f, m.musteri, m.tarih, m.proje); }).length; } }
+      ],
+      charts:function(r){
+        var tur = {};
+        r.forEach(function(x){ tur[x.tur] = (tur[x.tur] || 0) + 1; });
+        var don = Object.keys(tur).map(function(k){ return { label:k, value:tur[k] }; });
+        var ay = byMonth(r, function(x){ return x.tarih; });
+        return [
+          lineCard(ay, function(){
+            return { title:'Aylık etkileşim sayısı', sub:'kayıtlı iletişim geçmişi', wide:true,
+                     html:GV.chart.line([{ values:ay.values }], ay.labels) }; }),
+          { title:'Kanal dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'etkileşim' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-iletisim-rapor', exportTitle:'Müşteri İletişim Raporu',
+        search:{ placeholder:'Konu, müşteri, kontak veya sonuç ara', fields:['kod','musteriAd','konu','ozet','kontak','sonuc'] },
+        defaultSort:'tarih', defaultDir:'desc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'toplanti', label:'Toplantı', icon:'i-calendar-check', filter:function(x){ return x.tur === 'Toplantı'; } },
+          { key:'telefon', label:'Telefon', icon:'i-phone', filter:function(x){ return x.tur === 'Telefon'; } },
+          { key:'eposta', label:'E-posta', icon:'i-mail', filter:function(x){ return x.tur === 'E-posta'; } }
+        ],
+        columns:[
+          { key:'konu', label:'Konu', locked:true, width:'26%', cellClass:'cell-wrap',
+            render:function(x){ return '<span class="cell-main">' + esc(x.konu) + '</span>' +
+              '<span class="cell-sub">' + esc(x.ozet) + '</span>'; } },
+          musteriCol(),
+          { key:'tur', label:'Kanal', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
+          { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.dt(x.tarih) + '</span>'; } },
+          { key:'kisiAd', label:'Görüşen', render:function(x){ return GV.user(x.kisi); } },
+          { key:'kontak', label:'Muhatap', render:function(x){ return esc(x.kontak || '—'); } },
+          { key:'sonuc', label:'Sonuç', cellClass:'cell-wrap', render:function(x){ return esc(x.sonuc || '—'); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.konu) + '</span>' +
+                 '<span class="cell-date">' + F.dt(x.tarih) + '</span></div>' +
+                 '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + esc(x.kontak) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges"><span class="tag">' + esc(x.tur) + '</span></span>' +
+                 '<span class="cell-sub">' + esc(x.sonuc || '—') + '</span></div>';
+        },
+        emptyState:{ icon:'i-phone', title:'Etkileşim kaydı yok',
+          desc:'Seçili filtrede müşteri iletişimi bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       3 · MEMNUNİYET RAPORU
+       ================================================================= */
+    { key:'memnuniyet', label:'Memnuniyet raporu', icon:'i-star', group:'Müşteri İlişkileri',
+      title:'Memnuniyet Raporu',
+      desc:'Müşteri memnuniyet puanı, destek talebi puan ortalaması ve memnuniyeti aşağı çeken sinyaller (revizyon, geciken proje, açık destek).',
+      rows:function(f){
+        return DB.customers.filter(function(c){ return passCust(f, c) && c.memnuniyet != null; }).map(custRow);
+      },
+      kpis:[
+        { label:'Ortalama memnuniyet', icon:'i-star', tone:'accent',
+          format:function(v){ return F.num(v, 1) + ' / 5'; },
+          calc:function(r){ return Math.round(avg(r, function(x){ return x.memnuniyet; }) * 10) / 10; } },
+        { label:'4 ve üzeri', icon:'i-check-circle', tone:'ok',
+          calc:function(r){ return r.filter(function(x){ return x.memnuniyet >= 4; }).length; } },
+        { label:'3 altı müşteri', icon:'i-alert', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.memnuniyet < 3; }).length; } },
+        { label:'Destek puan ortalaması', icon:'i-support', tone:'info',
+          format:function(v){ return v ? F.num(v, 1) + ' / 5' : '—'; },
+          calc:function(r){
+            var p = r.filter(function(x){ return x.destekPuan != null; });
+            return p.length ? Math.round(avg(p, function(x){ return x.destekPuan; }) * 10) / 10 : 0; } }
+      ],
+      charts:function(r){
+        var seg = [
+          { label:'Yüksek (4+)', value:r.filter(function(x){ return x.memnuniyet >= 4; }).length },
+          { label:'Orta (3–4)', value:r.filter(function(x){ return x.memnuniyet >= 3 && x.memnuniyet < 4; }).length },
+          { label:'Düşük (3 altı)', value:r.filter(function(x){ return x.memnuniyet < 3; }).length }
+        ];
+        return [
+          { title:'Müşteri memnuniyet puanı', sub:'5 üzerinden', wide:true,
+            html:GV.chart.bar(r.map(function(x){
+              return { label:shortName(x.kod), value:x.memnuniyet,
+                       tone:x.memnuniyet < 3 ? 'danger' : x.memnuniyet < 4 ? 'warn' : 'ok' }; })) },
+          { title:'Memnuniyet segmentleri', html:GV.chart.donut(seg, { center:String(r.length), centerSub:'müşteri' }), legend:seg }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-memnuniyet-rapor', exportTitle:'Müşteri Memnuniyet Raporu',
+        search:{ placeholder:'Müşteri veya sektör ara', fields:['kod','unvan','kisa','sektor','sorumluAd'] },
+        defaultSort:'memnuniyet', defaultDir:'asc',
+        columns:[
+          { key:'kod', label:'Müşteri', locked:true, width:'20%', cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; }, render:custCell },
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'destekPuan', label:'Destek puanı', cellClass:'num', render:function(x){ return satisfaction(x.destekPuan); } },
+          { key:'destekAdet', label:'Destek talebi', cellClass:'num',
+            render:function(x){ return scoreCell(x.destekAdet) + '<span class="cell-sub">' + x.acikDestek + ' açık</span>'; } },
+          { key:'revizyon', label:'Revizyon', cellClass:'num',
+            render:function(x){ return scoreCell(x.revizyon) + '<span class="cell-sub">' + x.degisiklik + ' değişiklik</span>'; } },
+          { key:'gecikenProje', label:'Geciken proje', cellClass:'num', render:function(x){ return scoreCell(x.gecikenProje); } },
+          { key:'sonIletisim', label:'Son iletişim', render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
+          { key:'risk', label:'Risk', render:function(x){
+              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } },
+          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + satisfaction(x.memnuniyet) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.sektor) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-sub">' + x.acikDestek + ' açık destek · ' + x.revizyon + ' revizyon</span></div>';
+        },
+        emptyState:{ icon:'i-star', title:'Memnuniyet puanı olan müşteri yok',
+          desc:'Potansiyel müşterilerde henüz memnuniyet ölçümü bulunmuyor.' }
+      }
+    },
+
+    /* =================================================================
+       4 · RİSK RAPORU
+       ================================================================= */
+    { key:'risk', label:'Risk raporu', icon:'i-alert', group:'Müşteri İlişkileri',
+      title:'Müşteri Risk Raporu',
+      desc:'Tahsilat gecikmesi, düşük memnuniyet, geciken proje, açık kritik destek ve iletişimsizlik sinyallerinden türetilen müşteri risk skoru.',
+      rows:function(f){
+        return DB.customers.filter(function(c){ return passCust(f, c); }).map(function(c){
+          var x = custRow(c), s = [];
+          if(x.geciken > 0) s.push('Gecikmiş tahsilat');
+          if(x.memnuniyet != null && x.memnuniyet < 3) s.push('Düşük memnuniyet');
+          if(x.gecikenProje > 0) s.push('Geciken proje');
+          if(x.acikDestek > 1) s.push('Açık destek yığılması');
+          if(x.revizyon + x.degisiklik >= 3) s.push('Yüksek revizyon');
+          if(F.days(x.sonIletisim) < -60) s.push('60+ gün iletişimsizlik');
+          if(x.risk === 'Yüksek') s.push('Yüksek risk etiketi');
+          x.sinyaller = s;
+          x.sinyalMetin = s.join(', ');
+          x.skor = s.length + (x.risk === 'Yüksek' ? 2 : x.risk === 'Orta' ? 1 : 0);
+          return x;
+        });
+      },
+      kpis:[
+        { label:'Yüksek riskli müşteri', icon:'i-alert', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.risk === 'Yüksek'; }).length; } },
+        { label:'Gecikmiş tahsilatı olan', icon:'i-wallet', tone:'warn',
+          calc:function(r){ return r.filter(function(x){ return x.geciken > 0; }).length; } },
+        { label:'Memnuniyeti 3 altı', icon:'i-star', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.memnuniyet != null && x.memnuniyet < 3; }).length; } },
+        { label:'Geciken projesi olan', icon:'i-briefcase', tone:'warn',
+          calc:function(r){ return r.filter(function(x){ return x.gecikenProje > 0; }).length; } }
+      ],
+      charts:function(r){
+        var don = ['Yüksek','Orta','Düşük'].map(function(k){
+          return { label:k, value:r.filter(function(x){ return x.risk === k; }).length }; })
+          .filter(function(d){ return d.value; });
+        return [
+          { title:'Müşteri risk skoru', sub:'sinyal sayısı + risk etiketi ağırlığı', wide:true,
+            html:GV.chart.bar(topN(r.map(function(x){
+              return { label:shortName(x.kod), value:x.skor, tone:x.skor >= 4 ? 'danger' : x.skor >= 2 ? 'warn' : 'ok' }; })) ) },
+          { title:'Risk seviyesi dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'müşteri' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-risk-rapor', exportTitle:'Müşteri Risk Raporu',
+        search:{ placeholder:'Müşteri, sektör veya sinyal ara', fields:['kod','unvan','kisa','sektor','sinyalMetin'] },
+        defaultSort:'skor', defaultDir:'desc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'kritik', label:'Skor 3+', icon:'i-alert', filter:function(x){ return x.skor >= 3; } },
+          { key:'tahsilat', label:'Tahsilat riski', icon:'i-wallet', filter:function(x){ return x.geciken > 0; } },
+          { key:'temiz', label:'Sinyalsiz', icon:'i-check-circle', filter:function(x){ return !x.sinyaller.length; } }
+        ],
+        columns:[
+          { key:'kod', label:'Müşteri', locked:true, width:'18%', cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; }, render:custCell },
+          { key:'risk', label:'Risk seviyesi', render:function(x){
+              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } },
+          { key:'skor', label:'Risk skoru', cellClass:'num', render:function(x){
+              return '<span class="cell-money' + (x.skor >= 4 ? ' u-danger' : x.skor >= 2 ? ' u-warn' : '') + '">' + x.skor + '</span>'; } },
+          moneyCol('geciken', 'Gecikmiş tahsilat'),
+          moneyCol('bekleyen', 'Bekleyen tahsilat'),
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'gecikenProje', label:'Geciken proje', cellClass:'num', render:function(x){ return scoreCell(x.gecikenProje); } },
+          { key:'acikDestek', label:'Açık destek', cellClass:'num', render:function(x){ return scoreCell(x.acikDestek); } },
+          { key:'sinyalMetin', label:'Sinyaller', width:'22%', cellClass:'cell-wrap',
+            render:function(x){ return tags(x.sinyaller); } },
+          { key:'sonIletisim', label:'Son iletişim', render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
+          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' +
+                 '<span class="cell-money">Skor ' + x.skor + '</span></div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.sinyalMetin || 'sinyal yok') + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+                 GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok') +
+                 '</span>' + mny(x.geciken) + '</div>';
+        },
+        emptyState:{ icon:'i-shield-check', title:'Risk sinyali yok',
+          desc:'Seçili filtrede risk taşıyan müşteri bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       5 · TEKLİF RAPORU
+       ================================================================= */
+    { key:'teklif', label:'Teklif raporu', icon:'i-quote', group:'Satış ve Fırsat',
+      title:'Teklif Raporu',
+      desc:'Teklif tutarı, indirim, versiyon, iç ve müşteri onay durumu ile kazanma oranı.',
+      rows:function(f){
+        return DB.quotes.filter(function(q){ return pass(f, q.musteri, q.tarih, null, q.hazirlayan); })
+          .map(function(q){
+            var o = {}; for(var k in q) if(Object.prototype.hasOwnProperty.call(q, k)) o[k] = q[k];
+            o.musteriAd = q.musteri ? cname(q.musteri) : q.firma;
+            o.hazirlayanAd = DB.empName(q.hazirlayan);
+            return o;
+          });
+      },
+      kpis:[
+        { label:'Teklif', icon:'i-quote', calc:function(r){ return r.length; } },
+        { label:'Toplam teklif tutarı', icon:'i-wallet', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.toplam; }); } },
+        { label:'Kazanma oranı', icon:'i-trend-up', tone:'ok', format:function(v){ return F.pct(v); },
+          calc:function(r){
+            var k = r.filter(function(x){ return x.durum === 'Kazanıldı'; }).length;
+            var y = r.filter(function(x){ return x.durum === 'Kaybedildi'; }).length;
+            return (k + y) ? Math.round(k / (k + y) * 100) : 0; } },
+        { label:'Ortalama teklif', icon:'i-receipt', tone:'info', format:kMoney,
+          calc:function(r){ return Math.round(avg(r, function(x){ return x.toplam; })); } }
+      ],
+      charts:function(r){
+        var dur = {};
+        r.forEach(function(x){ dur[x.durum] = (dur[x.durum] || 0) + 1; });
+        var don = Object.keys(dur).map(function(k){ return { label:k, value:dur[k] }; });
+        var para = { title:'Teklif tutarları', sub:'ara toplam ve nihai tutar karşılaştırması', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){
+            return { label:x.kod.slice(-3), value:x.araToplam, value2:x.toplam }; })), { money:true }) };
+        var sayi = { title:'Teklif kalem sayısı', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){ return { label:x.kod.slice(-3), value:x.kalemSayisi }; }))) };
+        return [moneyChart(para, sayi),
+          { title:'Teklif durumu dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'teklif' }), legend:don }];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-teklif-rapor', exportTitle:'Müşteri Teklif Raporu',
+        search:{ placeholder:'Teklif no, firma veya müşteri ara', fields:['kod','firma','musteriAd','durum'] },
+        defaultSort:'tarih', defaultDir:'desc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'acik', label:'Açık teklifler', icon:'i-hourglass',
+            filter:function(x){ return ['Kazanıldı','Kaybedildi'].indexOf(x.durum) === -1; } },
+          { key:'kazanilan', label:'Kazanılan', icon:'i-check-circle', filter:function(x){ return x.durum === 'Kazanıldı'; } },
+          { key:'kaybedilen', label:'Kaybedilen', icon:'i-x-circle', filter:function(x){ return x.durum === 'Kaybedildi'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Teklif', locked:true, width:'18%', cellClass:'cell-wrap',
+            render:function(x){ return '<a class="cell-main" href="app-teklif.html">' + x.kod + '</a>' +
+              '<span class="cell-sub">' + esc(x.firma) + '</span>'; } },
+          musteriCol(),
+          { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+          { key:'gecerlilik', label:'Geçerlilik', render:function(x){ return GV.dateCell(x.gecerlilik); } },
+          { key:'versiyon', label:'Versiyon', cellClass:'num', render:function(x){ return 'v' + x.versiyon; } },
+          { key:'kalemSayisi', label:'Kalem', cellClass:'num', render:function(x){ return scoreCell(x.kalemSayisi); } },
+          moneyCol('araToplam', 'Ara toplam'),
+          moneyCol('indirim', 'İndirim'),
+          moneyCol('toplam', 'Toplam'),
+          { key:'icOnay', label:'İç onay', render:function(x){ return onayBadge(x.icOnay); } },
+          { key:'musteriOnay', label:'Müşteri onayı', render:function(x){ return onayBadge(x.musteriOnay); } },
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'hazirlayanAd', label:'Hazırlayan', render:function(x){ return GV.user(x.hazirlayan); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.toplam) + '</div>' +
+                 '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · v' + x.versiyon + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-date">' + F.date(x.tarih) + '</span></div>';
+        },
+        emptyState:{ icon:'i-quote', title:'Teklif kaydı yok', desc:'Seçili filtrede teklif bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       6 · SATIŞ DÖNÜŞÜM RAPORU
+       ================================================================= */
+    { key:'donusum', label:'Satış dönüşüm raporu', icon:'i-funnel', group:'Satış ve Fırsat',
+      title:'Satış Dönüşüm Raporu',
+      desc:'Müşteri adaylarının aşama dağılımı, kaynak bazlı dönüşüm ve kazanma / kaybetme oranı.',
+      rows:function(f){
+        return DB.leads.filter(function(l){ return pass(f, l.musteri, l.talepTarihi, null, l.sorumlu); })
+          .map(function(l){
+            var o = {}; for(var k in l) if(Object.prototype.hasOwnProperty.call(l, k)) o[k] = l[k];
+            o.musteriAd = l.musteri ? cname(l.musteri) : '—';
+            o.sorumluAd = DB.empName(l.sorumlu);
+            return o;
+          });
+      },
+      kpis:[
+        { label:'Fırsat', icon:'i-funnel', calc:function(r){ return r.length; } },
+        { label:'Kazanıldı', icon:'i-check-circle', tone:'ok',
+          calc:function(r){ return r.filter(function(x){ return x.asama === 'Kazanıldı'; }).length; } },
+        { label:'Kaybedildi', icon:'i-x-circle', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.asama === 'Kaybedildi'; }).length; } },
+        { label:'Dönüşüm oranı', icon:'i-percent', tone:'accent', format:function(v){ return F.pct(v); },
+          calc:function(r){
+            var k = r.filter(function(x){ return x.asama === 'Kazanıldı'; }).length;
+            var y = r.filter(function(x){ return x.asama === 'Kaybedildi'; }).length;
+            return (k + y) ? Math.round(k / (k + y) * 100) : 0; } }
+      ],
+      charts:function(r){
+        var asama = DB.pipelineStages.map(function(s){
+          return { label:s.key, value:r.filter(function(x){ return x.asama === s.key; }).length,
+                   tone:s.key === 'Kazanıldı' ? 'ok' : s.key === 'Kaybedildi' ? 'danger' : '' };
+        }).filter(function(d){ return d.value; });
+        var kaynak = {};
+        r.forEach(function(x){ kaynak[x.kaynak] = (kaynak[x.kaynak] || 0) + 1; });
+        var don = Object.keys(kaynak).map(function(k){ return { label:k, value:kaynak[k] }; });
+        return [
+          { title:'Aşama dağılımı', sub:'satış hunisi — 15 aşama', wide:true,
+            html:GV.chart.bar(asama.map(function(d){
+              return { label:d.label.split(' ')[0], value:d.value, tone:d.tone }; })) },
+          { title:'Kaynak dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'fırsat' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-donusum-rapor', exportTitle:'Satış Dönüşüm Raporu',
+        search:{ placeholder:'Fırsat, firma, hizmet veya kaynak ara', fields:['kod','firma','hizmet','kaynak','asama'] },
+        defaultSort:'puan', defaultDir:'desc',
+        columns:[
+          { key:'kod', label:'Fırsat', locked:true, width:'20%', cellClass:'cell-wrap',
+            render:function(x){ return '<a class="cell-main" href="app-lead.html">' + esc(x.firma) + '</a>' +
+              '<span class="cell-code">' + x.kod + ' · ' + esc(x.hizmet) + '</span>'; } },
+          { key:'asama', label:'Aşama', render:function(x){ return GV.badge(x.asama); } },
+          { key:'puan', label:'Skor', cellClass:'num', render:function(x){ return scoreCell(x.puan); } },
+          { key:'sicaklik', label:'Sıcaklık', render:function(x){ return '<span class="tag">' + esc(x.sicaklik) + '</span>'; } },
+          moneyCol('butce', 'Bütçe'),
+          { key:'kaynak', label:'Kaynak', render:function(x){ return esc(x.kaynak); } },
+          { key:'talepTarihi', label:'Talep', render:function(x){ return '<span class="cell-date">' + F.date(x.talepTarihi) + '</span>'; } },
+          { key:'kapanisTahmini', label:'Kapanış tahmini', render:function(x){ return GV.dateCell(x.kapanisTahmini); } },
+          { key:'musteriAd', label:'Müşteri', render:function(x){
+              return x.musteri ? '<span class="cell-main">' + esc(x.musteriAd) + '</span>' : '<span class="u-faint">Aday</span>'; } },
+          { key:'kayipNedeni', label:'Kayıp nedeni', cellClass:'cell-wrap',
+            render:function(x){ return x.kayipNedeni ? '<span class="u-danger">' + esc(x.kayipNedeni) + '</span>' : '<span class="u-faint">—</span>'; } },
+          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.firma) + '</span>' + mny(x.butce) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.hizmet) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.asama) +
+                 '<span class="tag">' + esc(x.sicaklik) + '</span></span><span class="cell-sub">Skor ' + x.puan + '</span></div>';
+        },
+        emptyState:{ icon:'i-funnel', title:'Fırsat yok', desc:'Seçili filtrede müşteri adayı bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       7 · ÇAPRAZ SATIŞ FIRSATLARI
+       ================================================================= */
+    { key:'capraz', label:'Çapraz satış fırsatları', icon:'i-target', group:'Satış ve Fırsat',
+      title:'Çapraz Satış Fırsatları',
+      desc:'Müşterinin bugüne kadar aldığı hizmetlerden yola çıkarak önerilebilecek hizmetler; bakım paketi olmayan ve tek hizmet alan müşteriler.',
+      rows:function(f){
+        var ONERI = ['Bakım ve Destek','Mobil Uygulama','Yapay Zekâ Çözümü','Süreç Otomasyonu',
+                     'Dijital Danışmanlık','API Entegrasyonu'];
+        return DB.customers.filter(function(c){ return passCust(f, c) && c.durum !== 'Pasif'; }).map(function(c){
+          var x = custRow(c);
+          var pr = DB.projects.filter(function(p){ return p.musteri === c.kod; });
+          var bakim = DB.supportPackages.filter(function(b){ return b.musteri === c.kod && b.durum === 'Aktif'; });
+          x.alinan = uniq(pr.map(function(p){ return p.tur; }));
+          x.bakim = bakim.length ? 'Aktif' : 'Yok';
+          x.oneri = ONERI.filter(function(s){
+            return s === 'Bakım ve Destek' ? !bakim.length : x.alinan.indexOf(s) === -1;
+          });
+          x.oneriSayisi = x.oneri.length;
+          x.alinanMetin = x.alinan.join(', ');
+          x.oneriMetin = x.oneri.join(', ');
+          return x;
+        });
+      },
+      kpis:[
+        { label:'Fırsat çıkan müşteri', icon:'i-target', tone:'accent',
+          calc:function(r){ return r.filter(function(x){ return x.oneriSayisi > 0; }).length; } },
+        { label:'Toplam öneri', icon:'i-layers', calc:function(r){ return sum(r, function(x){ return x.oneriSayisi; }); } },
+        { label:'Bakım paketi olmayan', icon:'i-wrench', tone:'warn',
+          calc:function(r){ return r.filter(function(x){ return x.bakim === 'Yok'; }).length; } },
+        { label:'Tek hizmet alan', icon:'i-building', tone:'info',
+          calc:function(r){ return r.filter(function(x){ return x.alinan.length <= 1; }).length; } }
+      ],
+      charts:function(r){
+        var say = {};
+        r.forEach(function(x){ x.oneri.forEach(function(o){ say[o] = (say[o] || 0) + 1; }); });
+        var don = Object.keys(say).map(function(k){ return { label:k, value:say[k] }; });
+        return [
+          { title:'Müşteri başına çapraz satış fırsatı', sub:'önerilen hizmet sayısı', wide:true,
+            html:GV.chart.bar(topN(r.map(function(x){
+              return { label:shortName(x.kod), value:x.oneriSayisi, tone:x.oneriSayisi >= 4 ? 'ok' : '' }; }))) },
+          { title:'Önerilen hizmet dağılımı', html:GV.chart.donut(don, { center:String(don.length), centerSub:'hizmet' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-capraz-satis', exportTitle:'Çapraz Satış Fırsatları',
+        search:{ placeholder:'Müşteri, sektör veya hizmet ara', fields:['kod','unvan','kisa','sektor','alinanMetin','oneriMetin'] },
+        defaultSort:'oneriSayisi', defaultDir:'desc',
+        columns:[
+          { key:'kod', label:'Müşteri', locked:true, width:'18%', cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; }, render:custCell },
+          { key:'alinanMetin', label:'Alınan hizmetler', width:'20%', cellClass:'cell-wrap',
+            render:function(x){ return tags(x.alinan); } },
+          { key:'oneriMetin', label:'Önerilen hizmetler', width:'24%', cellClass:'cell-wrap',
+            render:function(x){ return tags(x.oneri); } },
+          { key:'oneriSayisi', label:'Fırsat', cellClass:'num', render:function(x){ return scoreCell(x.oneriSayisi); } },
+          { key:'bakim', label:'Bakım paketi', render:function(x){
+              return GV.badge(x.bakim === 'Aktif' ? 'Aktif' : 'Yok', x.bakim === 'Aktif' ? 'is-ok' : 'is-warn'); } },
+          moneyCol('toplamCiro', 'Mevcut ciro'),
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'sonIletisim', label:'Son iletişim', render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
+          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' +
+                 '<span class="cell-money">' + x.oneriSayisi + ' fırsat</span></div>' +
+                 '<div class="gv-mrow-code">' + esc(x.oneriMetin || '—') + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+                 GV.badge(x.bakim === 'Aktif' ? 'Aktif' : 'Yok', x.bakim === 'Aktif' ? 'is-ok' : 'is-warn') +
+                 '</span>' + mny(x.toplamCiro) + '</div>';
+        },
+        emptyState:{ icon:'i-target', title:'Çapraz satış fırsatı yok',
+          desc:'Seçili filtrede öneri çıkarılacak müşteri bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       8 · YENİLEME FIRSATLARI
+       ================================================================= */
+    { key:'yenileme', label:'Yenileme fırsatları', icon:'i-refresh', group:'Satış ve Fırsat',
+      title:'Yenileme Fırsatları',
+      desc:'Bitiş veya yenileme tarihi yaklaşan sözleşmeler; kalan gün, bedel ve otomatik yenileme durumu. Bakım paketleri özet kartta sayılır.',
+      rows:function(f){
+        return DB.contracts.map(function(x){
+          var hedef = x.yenilemeTarihi || x.bitis;
+          return { kod:x.kod, ad:x.ad, musteri:x.musteri, musteriAd:x.musteriAd, proje:x.proje,
+                   tutar:x.tutar, bitis:x.bitis, hedef:hedef, kalan:F.days(hedef), durum:x.durum,
+                   yenileme:x.yenileme ? 'Otomatik yenileme' : 'Yenileme kaydı yok',
+                   odemePlani:x.odemePlani, garanti:x.garanti };
+        }).filter(function(x){ return pass(f, x.musteri, x.hedef, x.proje); });
+      },
+      kpis:[
+        { label:'Sözleşme', icon:'i-file-check', calc:function(r){ return r.length; } },
+        { label:'90 gün içinde', icon:'i-hourglass', tone:'warn',
+          calc:function(r){ return r.filter(function(x){ return x.kalan >= 0 && x.kalan <= 90; }).length; } },
+        { label:'Yenileme bedeli', icon:'i-wallet', format:kMoney,
+          calc:function(r){ return sum(r.filter(function(x){ return x.kalan >= 0; }), function(x){ return x.tutar; }); } },
+        { label:'Aktif bakım paketi', icon:'i-wrench', tone:'ok',
+          calc:function(r, f){ return DB.supportPackages.filter(function(b){
+            return b.durum === 'Aktif' && pass(f, b.musteri, b.bitis, null); }).length; } }
+      ],
+      charts:function(r){
+        var don = [
+          { label:'Otomatik yenileme', value:r.filter(function(x){ return x.yenileme === 'Otomatik yenileme'; }).length },
+          { label:'Yenileme kaydı yok', value:r.filter(function(x){ return x.yenileme !== 'Otomatik yenileme'; }).length }
+        ];
+        return [
+          { title:'Yenilemeye kalan gün', sub:'negatif değer süresi geçmiş sözleşmedir', wide:true,
+            html:GV.chart.bar(r.slice().sort(function(a, b){ return a.kalan - b.kalan; }).slice(0, 8).map(function(x){
+              return { label:x.kod.slice(-3), value:Math.max(0, x.kalan),
+                       tone:x.kalan < 0 ? 'danger' : x.kalan <= 90 ? 'warn' : 'ok' }; })) },
+          { title:'Yenileme kaydı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'sözleşme' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-yenileme-firsatlari', exportTitle:'Yenileme Fırsatları',
+        search:{ placeholder:'Sözleşme, müşteri veya konu ara', fields:['kod','ad','musteriAd'] },
+        defaultSort:'kalan', defaultDir:'asc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'yakin', label:'90 gün içinde', icon:'i-hourglass', filter:function(x){ return x.kalan >= 0 && x.kalan <= 90; } },
+          { key:'gecmis', label:'Süresi geçmiş', icon:'i-alert', filter:function(x){ return x.kalan < 0; } }
+        ],
+        columns:[
+          { key:'kod', label:'Sözleşme', locked:true, width:'22%', cellClass:'cell-wrap',
+            render:function(x){ return '<a class="cell-main" href="app-sozlesme.html">' + x.kod + '</a>' +
+              '<span class="cell-sub">' + esc(x.ad) + '</span>'; } },
+          musteriCol(),
+          { key:'bitis', label:'Bitiş', render:function(x){ return '<span class="cell-date">' + F.date(x.bitis) + '</span>'; } },
+          { key:'hedef', label:'Yenileme tarihi', render:function(x){ return GV.dateCell(x.hedef); } },
+          { key:'kalan', label:'Kalan gün', cellClass:'num', render:function(x){
+              return '<span class="cell-money' + (x.kalan < 0 ? ' u-danger' : x.kalan <= 90 ? ' u-warn' : '') + '">' +
+                     F.num(x.kalan) + '</span><span class="cell-sub">' + F.rel(x.hedef) + '</span>'; } },
+          moneyCol('tutar', 'Bedel'),
+          { key:'yenileme', label:'Yenileme', render:function(x){
+              return GV.badge(x.yenileme, x.yenileme === 'Otomatik yenileme' ? 'is-ok' : 'is-neutral'); } },
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'odemePlani', label:'Ödeme planı', cellClass:'cell-wrap', render:function(x){ return esc(x.odemePlani); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.tutar) + '</div>' +
+                 '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + esc(x.ad) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-date">' + F.rel(x.hedef) + '</span></div>';
+        },
+        emptyState:{ icon:'i-refresh', title:'Yenilenecek sözleşme yok',
+          desc:'Seçili filtrede yaklaşan yenileme bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       9 · PROJE RAPORU
+       ================================================================= */
+    { key:'proje', label:'Proje raporu', icon:'i-briefcase', group:'Teslim ve Destek',
+      title:'Müşteri Proje Raporu',
+      desc:'Müşteri bazlı proje durumu, sağlık göstergesi, ilerleme, bütçe–maliyet dengesi ve gecikme nedenleri.',
+      rows:function(f){
+        return DB.projects.filter(function(p){ return pass(f, p.musteri, p.baslangic, p.kod, p.pm); })
+          .map(function(p){
+            var o = {}; for(var k in p) if(Object.prototype.hasOwnProperty.call(p, k)) o[k] = p[k];
+            o.pmAd = DB.empName(p.pm);
+            o.gecikmeGun = BITEN_PROJE.indexOf(p.durum) === -1 ? Math.min(0, F.days(p.planlananBitis)) : 0;
+            return o;
+          });
+      },
+      kpis:[
+        { label:'Proje', icon:'i-briefcase', calc:function(r){ return r.length; } },
+        { label:'Devam eden', icon:'i-activity', tone:'accent',
+          calc:function(r){ return r.filter(function(x){ return BITEN_PROJE.indexOf(x.durum) === -1; }).length; } },
+        { label:'Geciken', icon:'i-alert', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.gecikmeGun < 0; }).length; } },
+        { label:'Ortalama ilerleme', icon:'i-gauge', tone:'info', format:function(v){ return F.pct(v); },
+          calc:function(r){ return Math.round(avg(r, function(x){ return x.ilerleme; })); } }
+      ],
+      charts:function(r){
+        var dur = {};
+        r.forEach(function(x){ dur[x.durum] = (dur[x.durum] || 0) + 1; });
+        var don = Object.keys(dur).map(function(k){ return { label:k, value:dur[k] }; });
+        var para = { title:'Sözleşme bedeli ve gerçekleşen maliyet', sub:'koyu sütun bedel · açık sütun maliyet', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){
+            return { label:shortName(x.musteri), value:x.sozlesmeTutari, value2:x.gerceklesenMaliyet }; })), { money:true }) };
+        var sayi = { title:'Proje ilerlemesi', sub:'yüzde', wide:true,
+          html:GV.chart.bar(r.map(function(x){
+            return { label:shortName(x.musteri), value:x.ilerleme,
+                     tone:x.ilerleme >= 100 ? 'ok' : x.ilerleme < 35 ? 'danger' : '' }; })) };
+        return [moneyChart(para, sayi),
+          { title:'Proje durumu dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'proje' }), legend:don }];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-proje-rapor', exportTitle:'Müşteri Proje Raporu',
+        search:{ placeholder:'Proje, müşteri veya tür ara', fields:['kod','ad','musteriAd','tur','durum'] },
+        defaultSort:'planlananBitis', defaultDir:'asc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'devam', label:'Devam eden', icon:'i-activity', filter:function(x){ return BITEN_PROJE.indexOf(x.durum) === -1; } },
+          { key:'geciken', label:'Geciken', icon:'i-alert', filter:function(x){ return x.gecikmeGun < 0; } },
+          { key:'riskli', label:'Sağlık riskli', icon:'i-shield', filter:function(x){ return x.saglik === 'Riskli'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Proje', locked:true, width:'22%', cellClass:'cell-wrap',
+            render:function(x){ return '<a class="cell-main" href="app-proje.html">' + esc(x.ad) + '</a>' +
+              '<span class="cell-code">' + x.kod + ' · ' + esc(x.tur) + '</span>'; } },
+          musteriCol(),
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'saglik', label:'Sağlık', render:function(x){
+              return GV.badge(x.saglik, x.saglik === 'Riskli' ? 'is-danger' : x.saglik === 'Dikkat' ? 'is-warn' : 'is-ok'); } },
+          { key:'ilerleme', label:'İlerleme', width:'12%', render:function(x){ return GV.progress(x.ilerleme); } },
+          { key:'baslangic', label:'Başlangıç', render:function(x){ return '<span class="cell-date">' + F.date(x.baslangic) + '</span>'; } },
+          { key:'planlananBitis', label:'Planlanan bitiş', render:function(x){
+              return GV.dateCell(x.planlananBitis, { done:BITEN_PROJE.indexOf(x.durum) !== -1 }); } },
+          moneyCol('sozlesmeTutari', 'Sözleşme bedeli'),
+          moneyCol('butce', 'Bütçe'),
+          moneyCol('gerceklesenMaliyet', 'Gerçekleşen maliyet', function(x){ return F.num(x.harcananSure) + ' / ' + F.num(x.tahminiSure) + ' saat'; }),
+          { key:'pmAd', label:'Proje yöneticisi', render:function(x){ return GV.user(x.pm); } },
+          { key:'gecikmeNedeni', label:'Gecikme nedeni', width:'16%', cellClass:'cell-wrap',
+            render:function(x){ return x.gecikmeNedeni ? '<span class="u-danger">' + esc(x.gecikmeNedeni) + '</span>' : '<span class="u-faint">—</span>'; } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' + mny(x.sozlesmeTutari) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.musteriAd) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
+                 GV.badge(x.saglik, x.saglik === 'Riskli' ? 'is-danger' : x.saglik === 'Dikkat' ? 'is-warn' : 'is-ok') +
+                 '</span><span class="cell-sub">%' + x.ilerleme + '</span></div>';
+        },
+        emptyState:{ icon:'i-briefcase', title:'Proje yok', desc:'Seçili filtrede proje kaydı bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       10 · DESTEK RAPORU
+       ================================================================= */
+    { key:'destek', label:'Destek raporu', icon:'i-support', group:'Teslim ve Destek',
+      title:'Müşteri Destek Raporu',
+      desc:'Destek talebi hacmi, kategori dağılımı, SLA uyumu, ilk yanıt süresi ve talep memnuniyeti.',
+      rows:function(f){
+        return DB.tickets.filter(function(t){ return pass(f, t.musteri, t.acilis, t.proje, t.sorumlu); })
+          .map(function(t){
+            var o = {}; for(var k in t) if(Object.prototype.hasOwnProperty.call(t, k)) o[k] = t[k];
+            o.sorumluAd = DB.empName(t.sorumlu);
+            o.acik = KAPALI_DESTEK.indexOf(t.durum) === -1;
+            return o;
+          });
+      },
+      kpis:[
+        { label:'Destek talebi', icon:'i-support', calc:function(r){ return r.length; } },
+        { label:'Açık talep', icon:'i-inbox', tone:'warn',
+          calc:function(r){ return r.filter(function(x){ return x.acik; }).length; } },
+        { label:'SLA riski', icon:'i-timer', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.slaDurum === 'Risk altında'; }).length; } },
+        { label:'Ortalama ilk yanıt', icon:'i-hourglass', tone:'info',
+          format:function(v){ return v ? F.num(v) + ' dk' : '—'; },
+          calc:function(r){
+            var y = r.filter(function(x){ return x.mudahaleSuresi != null; });
+            return y.length ? Math.round(avg(y, function(x){ return x.mudahaleSuresi; })) : 0; } }
+      ],
+      charts:function(r){
+        var kat = {};
+        r.forEach(function(x){ kat[x.kategori] = (kat[x.kategori] || 0) + 1; });
+        var don = Object.keys(kat).map(function(k){ return { label:k, value:kat[k] }; });
+        var perCust = {};
+        r.forEach(function(x){ perCust[x.musteri] = (perCust[x.musteri] || 0) + 1; });
+        var bar = Object.keys(perCust).map(function(k){ return { label:shortName(k), value:perCust[k] }; });
+        return [
+          { title:'Müşteri başına destek talebi', wide:true, html:GV.chart.bar(topN(bar)) },
+          { title:'Kategori dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'talep' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-destek-rapor', exportTitle:'Müşteri Destek Raporu',
+        search:{ placeholder:'Talep, müşteri veya kategori ara', fields:['kod','baslik','musteriAd','kategori','durum'] },
+        defaultSort:'acilis', defaultDir:'desc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'acik', label:'Açık', icon:'i-inbox', filter:function(x){ return x.acik; } },
+          { key:'sla', label:'SLA riski', icon:'i-timer', filter:function(x){ return x.slaDurum === 'Risk altında'; } },
+          { key:'kapali', label:'Kapanan', icon:'i-check-circle', filter:function(x){ return !x.acik; } }
+        ],
+        columns:[
+          { key:'kod', label:'Talep', locked:true, width:'24%', cellClass:'cell-wrap',
+            render:function(x){ return '<a class="cell-main" href="app-destek.html">' + esc(x.baslik) + '</a>' +
+              '<span class="cell-code">' + x.kod + '</span>'; } },
+          musteriCol(),
+          { key:'kategori', label:'Kategori', render:function(x){ return '<span class="tag">' + esc(x.kategori) + '</span>'; } },
+          { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'sla', label:'SLA', render:function(x){ return esc(x.sla); } },
+          { key:'slaDurum', label:'SLA durumu', render:function(x){
+              return GV.badge(x.slaDurum, x.slaDurum === 'Risk altında' ? 'is-danger' : 'is-ok'); } },
+          { key:'acilis', label:'Açılış', render:function(x){ return '<span class="cell-date">' + F.dt(x.acilis) + '</span>'; } },
+          { key:'mudahaleSuresi', label:'İlk yanıt', cellClass:'num',
+            render:function(x){ return x.mudahaleSuresi != null
+              ? '<span class="cell-money">' + F.num(x.mudahaleSuresi) + ' dk</span>'
+              : '<span class="u-faint">—</span>'; } },
+          { key:'harcananSure', label:'Harcanan', cellClass:'num', render:function(x){ return '<span class="cell-money">' + F.hours(x.harcananSure) + '</span>'; } },
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.baslik) + '</span>' + GV.pri(x.oncelik) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.musteriAd) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
+                 GV.badge(x.slaDurum, x.slaDurum === 'Risk altında' ? 'is-danger' : 'is-ok') + '</span>' +
+                 '<span class="cell-date">' + F.date(x.acilis) + '</span></div>';
+        },
+        emptyState:{ icon:'i-support', title:'Destek talebi yok', desc:'Seçili filtrede destek kaydı bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       11 · FİNANS RAPORU
+       ================================================================= */
+    { key:'finans', label:'Finans raporu', icon:'i-receipt', group:'Finans',
+      title:'Müşteri Finans Raporu',
+      desc:'Fatura hacmi, vade durumu, tahsil edilen ve açık bakiye; müşteri bazlı fatura–tahsilat karşılaştırması.',
+      rows:function(f){
+        return DB.invoices.filter(function(x){ return pass(f, x.musteri, x.tarih, x.proje); })
+          .map(function(x){
+            var o = {}; for(var k in x) if(Object.prototype.hasOwnProperty.call(x, k)) o[k] = x[k];
+            o.gecikme = x.durum === 'Gecikti' ? Math.abs(F.days(x.vade)) : 0;
+            return o;
+          });
+      },
+      kpis:[
+        { label:'Fatura', icon:'i-receipt', calc:function(r){ return r.length; } },
+        { label:'Toplam fatura', icon:'i-wallet', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.toplam; }); } },
+        { label:'Tahsil edilen', icon:'i-check-circle', tone:'ok', format:kMoney,
+          calc:function(r){ return sum(r.filter(function(x){ return x.durum === 'Ödendi'; }), function(x){ return x.toplam; }); } },
+        { label:'Açık bakiye', icon:'i-alert', tone:'danger', format:kMoney,
+          calc:function(r){ return sum(r.filter(function(x){ return x.durum !== 'Ödendi'; }), function(x){ return x.toplam; }); } }
+      ],
+      charts:function(r){
+        var dur = {};
+        r.forEach(function(x){ dur[x.durum] = (dur[x.durum] || 0) + 1; });
+        var don = Object.keys(dur).map(function(k){ return { label:k, value:dur[k] }; });
+        var fat = byMonth(r, function(x){ return x.tarih; }, function(x){ return x.toplam; });
+        var tah = byMonth(r, function(x){ return x.tarih; },
+          function(x){ return x.durum === 'Ödendi' ? x.toplam : 0; });
+        var adet = byMonth(r, function(x){ return x.tarih; });
+        var para = lineCard(fat, function(){
+          return { title:'Aylık fatura ve tahsilat', sub:'koyu çizgi fatura · açık çizgi tahsil edilen', wide:true,
+            html:GV.chart.line([{ values:fat.values }, { values:tah.values }], fat.labels, { money:true }),
+            legend:[{ label:'Fatura', value:sum(r, function(x){ return x.toplam; }) },
+                    { label:'Tahsil edilen', value:sum(r.filter(function(x){ return x.durum === 'Ödendi'; }), function(x){ return x.toplam; }) }] }; });
+        var sayi = lineCard(adet, function(){
+          return { title:'Aylık fatura adedi', wide:true,
+            html:GV.chart.line([{ values:adet.values }], adet.labels) }; });
+        return [moneyChart(para, sayi),
+          { title:'Fatura durumu dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'fatura' }), legend:don }];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-finans-rapor', exportTitle:'Müşteri Finans Raporu',
+        search:{ placeholder:'Fatura, müşteri veya sözleşme ara', fields:['kod','musteriAd','sozlesme','durum'] },
+        defaultSort:'tarih', defaultDir:'desc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'acik', label:'Açık', icon:'i-hourglass', filter:function(x){ return x.durum !== 'Ödendi'; } },
+          { key:'geciken', label:'Geciken', icon:'i-alert', filter:function(x){ return x.durum === 'Gecikti'; } },
+          { key:'odenen', label:'Ödenen', icon:'i-check-circle', filter:function(x){ return x.durum === 'Ödendi'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Fatura', locked:true, width:'14%',
+            render:function(x){ return '<a class="cell-main" href="app-fatura.html">' + x.kod + '</a>' +
+              '<span class="cell-code">' + esc(x.sozlesme || 'sözleşmesiz') + '</span>'; } },
+          musteriCol(),
+          { key:'proje', label:'Proje', render:function(x){
+              return x.proje ? '<span class="cell-code">' + x.proje + '</span>' : '<span class="u-faint">—</span>'; } },
+          { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+          { key:'vade', label:'Vade', render:function(x){ return GV.dateCell(x.vade, { done:x.durum === 'Ödendi' }); } },
+          moneyCol('tutar', 'Tutar'),
+          moneyCol('vergi', 'Vergi'),
+          moneyCol('toplam', 'Toplam'),
+          { key:'gecikme', label:'Gecikme', cellClass:'num', render:function(x){
+              return x.gecikme ? '<span class="cell-money u-danger">' + x.gecikme + ' gün</span>' : '<span class="u-faint">—</span>'; } },
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'odemeTarihi', label:'Ödeme tarihi', render:function(x){
+              return x.odemeTarihi ? '<span class="cell-date is-done">' + F.date(x.odemeTarihi) + '</span>' : '<span class="u-faint">—</span>'; } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.toplam) + '</div>' +
+                 '<div class="gv-mrow-code">' + esc(x.musteriAd) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-date">Vade ' + F.date(x.vade) + '</span></div>';
+        },
+        emptyState:{ icon:'i-receipt', title:'Fatura yok', desc:'Seçili filtrede fatura kaydı bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       12 · TAHSİLAT RAPORU
+       ================================================================= */
+    { key:'tahsilat', label:'Tahsilat raporu', icon:'i-wallet', group:'Finans',
+      title:'Müşteri Tahsilat Raporu',
+      desc:'Vade takibi, gecikme günü, son aksiyon ve tahsilat sorumlusu bazlı gecikme dağılımı.',
+      rows:function(f){
+        return DB.payments.filter(function(x){ return pass(f, x.musteri, x.vade, null, x.sorumlu); })
+          .map(function(x){
+            var o = {}; for(var k in x) if(Object.prototype.hasOwnProperty.call(x, k)) o[k] = x[k];
+            o.sorumluAd = DB.empName(x.sorumlu);
+            return o;
+          });
+      },
+      kpis:[
+        { label:'Tahsilat kaydı', icon:'i-wallet', calc:function(r){ return r.length; } },
+        { label:'Gecikmiş tutar', icon:'i-alert', tone:'danger', format:kMoney,
+          calc:function(r){ return sum(r.filter(function(x){ return x.durum === 'Gecikti'; }), function(x){ return x.tutar; }); } },
+        { label:'Bekleyen tutar', icon:'i-hourglass', tone:'warn', format:kMoney,
+          calc:function(r){ return sum(r.filter(function(x){ return x.durum === 'Bekliyor'; }), function(x){ return x.tutar; }); } },
+        { label:'En uzun gecikme', icon:'i-timer', tone:'danger', format:function(v){ return v ? v + ' gün' : '—'; },
+          calc:function(r){ return r.length ? Math.max.apply(null, r.map(function(x){ return x.gecikmeGun || 0; })) : 0; } }
+      ],
+      charts:function(r){
+        var dur = {};
+        r.forEach(function(x){ dur[x.durum] = (dur[x.durum] || 0) + 1; });
+        var don = Object.keys(dur).map(function(k){ return { label:k, value:dur[k] }; });
+        return [
+          { title:'Gecikme günü', sub:'tahsilat kaydı bazında', wide:true,
+            html:GV.chart.bar(topN(r.map(function(x){
+              return { label:shortName(x.musteri), value:x.gecikmeGun || 0,
+                       tone:x.gecikmeGun > 30 ? 'danger' : x.gecikmeGun > 0 ? 'warn' : 'ok' }; }))) },
+          { title:'Tahsilat durumu', html:GV.chart.donut(don, { center:String(r.length), centerSub:'kayıt' }), legend:don }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-tahsilat-rapor', exportTitle:'Müşteri Tahsilat Raporu',
+        search:{ placeholder:'Tahsilat, fatura veya müşteri ara', fields:['kod','fatura','musteriAd','durum','sonAksiyon'] },
+        defaultSort:'gecikmeGun', defaultDir:'desc',
+        tabs:[
+          { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+          { key:'geciken', label:'Geciken', icon:'i-alert', filter:function(x){ return x.durum === 'Gecikti'; } },
+          { key:'bekleyen', label:'Bekleyen', icon:'i-hourglass', filter:function(x){ return x.durum === 'Bekliyor'; } },
+          { key:'tahsil', label:'Tahsil edilen', icon:'i-check-circle', filter:function(x){ return x.durum === 'Ödendi'; } }
+        ],
+        columns:[
+          { key:'kod', label:'Tahsilat', locked:true, width:'16%',
+            render:function(x){ return '<a class="cell-main" href="app-tahsilat.html">' + x.kod + '</a>' +
+              '<span class="cell-code">' + esc(x.fatura) + '</span>'; } },
+          musteriCol(),
+          moneyCol('tutar', 'Tutar'),
+          { key:'vade', label:'Vade', render:function(x){ return GV.dateCell(x.vade, { done:x.durum === 'Ödendi' }); } },
+          { key:'gecikmeGun', label:'Gecikme', cellClass:'num', render:function(x){
+              return x.gecikmeGun ? '<span class="cell-money u-danger">' + x.gecikmeGun + ' gün</span>' : '<span class="u-faint">—</span>'; } },
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'sonAksiyon', label:'Son aksiyon', width:'20%', cellClass:'cell-wrap',
+            render:function(x){ return '<span class="cell-main">' + esc(x.sonAksiyon) + '</span>' +
+              '<span class="cell-sub">' + F.date(x.sonAksiyonTarihi) + '</span>'; } },
+          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.tutar) + '</div>' +
+                 '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + esc(x.fatura) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-date">' + (x.gecikmeGun ? x.gecikmeGun + ' gün gecikme' : 'Vade ' + F.date(x.vade)) + '</span></div>';
+        },
+        emptyState:{ icon:'i-wallet', title:'Tahsilat kaydı yok', desc:'Seçili filtrede tahsilat bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       13 · KÂRLILIK RAPORU
+       ================================================================= */
+    { key:'karlilik', label:'Kârlılık raporu', icon:'i-percent', group:'Finans',
+      title:'Müşteri Kârlılık Raporu',
+      desc:'Proje geliri ile gerçekleşen maliyet farkından türeyen müşteri kârlılığı, marj yüzdesi ve efor sapması.',
+      rows:function(f){
+        return DB.customers.filter(function(c){ return passCust(f, c); }).map(custRow)
+          .filter(function(x){ return x.projeGeliri > 0 || x.maliyet > 0; })
+          .map(function(x){
+            x.sapma = x.tahminiSaat ? Math.round((x.harcananSaat - x.tahminiSaat) / x.tahminiSaat * 100) : 0;
+            return x;
+          });
+      },
+      kpis:[
+        { label:'Proje geliri', icon:'i-wallet', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.projeGeliri; }); } },
+        { label:'Toplam maliyet', icon:'i-receipt', tone:'warn', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.maliyet; }); } },
+        { label:'Kâr', icon:'i-trend-up', tone:'ok', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.kar; }); } },
+        { label:'Ortalama marj', icon:'i-percent', tone:'accent', format:function(v){ return F.pct(v); },
+          calc:function(r){
+            var g = sum(r, function(x){ return x.projeGeliri; });
+            return g ? Math.round(sum(r, function(x){ return x.kar; }) / g * 100) : 0; } }
+      ],
+      charts:function(r){
+        return [
+          moneyChart(
+            { title:'Gelir ve maliyet', sub:'koyu sütun proje geliri · açık sütun gerçekleşen maliyet', wide:true,
+              html:GV.chart.bar(topN(r.map(function(x){
+                return { label:shortName(x.kod), value:x.projeGeliri, value2:x.maliyet }; })), { money:true }) },
+            { title:'Efor sapması', sub:'harcanan / tahmini saat farkı, yüzde', wide:true,
+              html:GV.chart.bar(r.map(function(x){
+                return { label:shortName(x.kod), value:Math.abs(x.sapma), tone:x.sapma > 0 ? 'danger' : 'ok' }; })) }),
+          { title:'Kâr marjı', sub:'müşteri bazında yüzde',
+            html:GV.chart.bar(r.map(function(x){
+              return { label:shortName(x.kod), value:Math.max(0, x.marj),
+                       tone:x.marj < 20 ? 'danger' : x.marj < 35 ? 'warn' : 'ok' }; }), { height:200 }) }
+        ];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-karlilik-rapor', exportTitle:'Müşteri Kârlılık Raporu',
+        search:{ placeholder:'Müşteri veya sektör ara', fields:['kod','unvan','kisa','sektor'] },
+        defaultSort:'kar', defaultDir:'desc',
+        columns:[
+          { key:'kod', label:'Müşteri', locked:true, width:'20%', cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; }, render:custCell },
+          { key:'projeSayisi', label:'Proje', cellClass:'num',
+            render:function(x){ return scoreCell(x.projeSayisi) + '<span class="cell-sub">' + x.aktifProje + ' aktif</span>'; } },
+          moneyCol('projeGeliri', 'Proje geliri'),
+          moneyCol('maliyet', 'Gerçekleşen maliyet'),
+          moneyCol('kar', 'Kâr'),
+          { key:'marj', label:'Marj', cellClass:'num', render:function(x){
+              return '<span class="cell-money' + (x.marj < 20 ? ' u-danger' : x.marj < 35 ? ' u-warn' : ' u-ok') + '">%' + x.marj + '</span>'; } },
+          { key:'harcananSaat', label:'Harcanan saat', cellClass:'num',
+            render:function(x){ return '<span class="cell-money">' + F.num(x.harcananSaat) + '</span>' +
+              '<span class="cell-sub">' + F.num(x.tahminiSaat) + ' tahmini</span>'; } },
+          { key:'sapma', label:'Efor sapması', cellClass:'num', render:function(x){
+              return '<span class="cell-money' + (x.sapma > 0 ? ' u-danger' : ' u-ok') + '">%' + x.sapma + '</span>'; } },
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'risk', label:'Risk', render:function(x){
+              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mny(x.kar) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · %' + x.marj + ' marj</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-sub">' + F.num(x.harcananSaat) + ' saat</span></div>';
+        },
+        emptyState:{ icon:'i-percent', title:'Kârlılık verisi yok',
+          desc:'Seçili filtrede proje geliri veya maliyeti olan müşteri bulunamadı.' }
+      }
+    },
+
+    /* =================================================================
+       14 · MÜŞTERİ YAŞAM BOYU DEĞERİ
+       ================================================================= */
+    { key:'ltv', label:'Müşteri yaşam boyu değeri', icon:'i-trend-up', group:'Finans',
+      title:'Müşteri Yaşam Boyu Değeri',
+      desc:'Müşterinin ilk kaydından bugüne kadarki toplam cirosu, müşteri yaşı ve aylık ortalama değeri. Referans tarih: ' + F.date(TODAY) + '.',
+      rows:function(f){
+        return DB.customers.filter(function(c){ return passCust(f, c); }).map(function(c){
+          var x = custRow(c);
+          x.yasAy = Math.max(1, Math.round(-F.days(c.ilkKayit) / 30.44));
+          x.aylikDeger = Math.round(x.toplamCiro / x.yasAy);
+          x.ortProje = x.projeSayisi ? Math.round(x.toplamCiro / x.projeSayisi) : 0;
+          x.segment = x.toplamCiro >= 1000000 ? 'A · 1M+' : x.toplamCiro >= 500000 ? 'B · 500B–1M' : 'C · 500B altı';
+          return x;
+        });
+      },
+      kpis:[
+        { label:'Toplam yaşam boyu değer', icon:'i-trend-up', format:kMoney,
+          calc:function(r){ return sum(r, function(x){ return x.toplamCiro; }); } },
+        { label:'Ortalama değer', icon:'i-wallet', tone:'info', format:kMoney,
+          calc:function(r){ return Math.round(avg(r, function(x){ return x.toplamCiro; })); } },
+        { label:'Ortalama müşteri yaşı', icon:'i-hourglass', tone:'accent',
+          format:function(v){ return F.num(v) + ' ay'; },
+          calc:function(r){ return Math.round(avg(r, function(x){ return x.yasAy; })); } },
+        { label:'1M+ değerli müşteri', icon:'i-award', tone:'ok',
+          calc:function(r){ return r.filter(function(x){ return x.toplamCiro >= 1000000; }).length; } }
+      ],
+      charts:function(r){
+        var seg = ['A · 1M+','B · 500B–1M','C · 500B altı'].map(function(k){
+          return { label:k, value:r.filter(function(x){ return x.segment === k; }).length }; })
+          .filter(function(d){ return d.value; });
+        var para = { title:'Müşteri yaşam boyu değeri', sub:'toplam ciro · en yüksek 8 müşteri', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){
+            return { label:shortName(x.kod), value:x.toplamCiro }; })), { money:true }) };
+        var sayi = { title:'Müşteri yaşı', sub:'ay', wide:true,
+          html:GV.chart.bar(topN(r.map(function(x){ return { label:shortName(x.kod), value:x.yasAy }; }))) };
+        return [moneyChart(para, sayi),
+          { title:'Değer segmentleri', html:GV.chart.donut(seg, { center:String(r.length), centerSub:'müşteri' }), legend:seg }];
+      },
+      table:{
+        key:'kod', pageSize:10, archive:false, export:canExp,
+        exportName:'musteri-yasam-boyu-deger', exportTitle:'Müşteri Yaşam Boyu Değeri',
+        search:{ placeholder:'Müşteri, sektör veya segment ara', fields:['kod','unvan','kisa','sektor','segment'] },
+        defaultSort:'toplamCiro', defaultDir:'desc',
+        columns:[
+          { key:'kod', label:'Müşteri', locked:true, width:'18%', cellClass:'cell-wrap',
+            exportValue:function(x){ return x.unvan; }, render:custCell },
+          { key:'segment', label:'Segment', render:function(x){ return '<span class="tag">' + esc(x.segment) + '</span>'; } },
+          { key:'ilkKayit', label:'İlk kayıt', render:function(x){ return '<span class="cell-date">' + F.date(x.ilkKayit) + '</span>'; } },
+          { key:'yasAy', label:'Müşteri yaşı', cellClass:'num',
+            render:function(x){ return '<span class="cell-money">' + F.num(x.yasAy) + ' ay</span>'; } },
+          moneyCol('toplamCiro', 'Toplam ciro'),
+          moneyCol('aylikDeger', 'Aylık ortalama'),
+          moneyCol('ortProje', 'Proje başına'),
+          { key:'projeSayisi', label:'Proje', cellClass:'num',
+            render:function(x){ return scoreCell(x.projeSayisi) + '<span class="cell-sub">' + x.sozlesmeAdet + ' sözleşme</span>'; } },
+          moneyCol('bekleyen', 'Bekleyen tahsilat'),
+          { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
+          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          { key:'risk', label:'Risk', render:function(x){
+              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } }
+        ],
+        mobile:function(x){
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mny(x.toplamCiro) + '</div>' +
+                 '<div class="gv-mrow-code">' + x.kod + ' · ' + x.yasAy + ' ay · ' + esc(x.segment) + '</div>' +
+                 '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
+                 '<span class="cell-sub">aylık ' + (canFin ? F.moneyK(x.aylikDeger) : '••••••') + '</span></div>';
+        },
+        emptyState:{ icon:'i-trend-up', title:'Müşteri yok', desc:'Seçili filtrede müşteri bulunamadı.' }
+      }
+    }
+
+    ]
+  });
+});
+</script>
+</body>
+</html>
