@@ -353,8 +353,11 @@
       if(!b) return;
       var key = b.dataset.sec;
       var S = SECTIONS[key];
-      var first = S.menu.filter(function(it){ return it.href && Perm.item(it); })[0];
-      if(first) location.href = first.href;
+      var visible = S.menu.filter(function(it){ return it.href && Perm.item(it); });
+      /* Yayında olan ilk ekrana git; hiçbiri yayında değilse kullanıcıyı boşa gönderme */
+      var target = visible.filter(function(it){ return isBuilt(it.href); })[0];
+      if(target){ location.href = target.href; return; }
+      if(window.GV && GV.toast) GV.toast(S.title + ' bölümü henüz yayında değil.', 'info');
     });
 
     /* rail ipucu */
@@ -524,6 +527,60 @@
   }
 
   /* ===================================================================
+     7b. YAYINDA OLAN EKRANLAR — "sahte buton bırakma" kuralı
+     Henüz üretilmemiş hedeflere giden bağlantılar href yerine data-wip
+     ile işaretlenir (CLAUDE.md). Sayfa doğunca buraya eklenir ve
+     bağlantı kendiliğinden gerçek hâle gelir.
+     =================================================================== */
+  var BUILT = [
+    'index.html',
+    'app-panel.html',
+    'app-lead.html',
+    'app-gorev.html',
+    'app-musteri.html',
+    'app-proje.html'
+  ];
+  GV.built = BUILT;
+
+  function isBuilt(href){
+    if(!href) return false;
+    if(/^(https?:|mailto:|tel:|#)/.test(href)) return true;
+    var file = href.split('?')[0].split('#')[0];
+    return BUILT.indexOf(file) !== -1;
+  }
+  GV.isBuilt = isBuilt;
+
+  /* DOM'daki yayında olmayan bağlantıları işaretle */
+  function markWip(root){
+    var scope = root || document;
+    Array.prototype.forEach.call(scope.querySelectorAll('a[href]'), function(a){
+      var href = a.getAttribute('href');
+      if(isBuilt(href) || a.hasAttribute('data-wip')) return;
+      var label = (a.textContent || '').trim().replace(/\s+/g,' ').slice(0, 40) || 'Bu ekran';
+      a.setAttribute('data-wip', label);
+      a.dataset.wipHref = href;
+      a.removeAttribute('href');
+      a.setAttribute('role', 'link');
+      a.setAttribute('aria-disabled', 'true');
+      a.setAttribute('tabindex', '0');
+      a.setAttribute('title', label + ' — bu ekran henüz yayında değil');
+    });
+  }
+  GV.markWip = markWip;
+
+  /* Liste/panel yeniden render ettikçe otomatik uygula */
+  var wipObserver = null;
+  function watchWip(){
+    if(wipObserver) return;
+    wipObserver = new MutationObserver(function(muts){
+      var need = muts.some(function(m){ return m.addedNodes.length; });
+      if(need) markWip(document.querySelector('.gv-main') || document);
+    });
+    var main = document.querySelector('.gv-main');
+    if(main) wipObserver.observe(main, { childList:true, subtree:true });
+  }
+
+  /* ===================================================================
      8. İKON SPRITE ENJEKSİYONU
      =================================================================== */
   function injectSprite(){
@@ -577,6 +634,8 @@
     }
 
     guard(activeSec);
+    markWip(document);
+    watchWip();
     document.dispatchEvent(new CustomEvent('gv:ready', { detail:{ session:session, counters:cnt } }));
   }
 

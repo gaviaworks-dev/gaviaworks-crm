@@ -1526,11 +1526,21 @@
   /* ===================================================================
      10. WIP BAĞLANTI KORUMASI — sahte buton bırakılmaz
      =================================================================== */
+  function wipNotice(w){
+    GV.toast('“' + (w.dataset.wip || 'Bu ekran') + '” henüz yayında değil — sonraki wave\'de eklenecek.', 'info');
+  }
   document.addEventListener('click', function(e){
     var w = e.target.closest('[data-wip]');
     if(!w) return;
     e.preventDefault();
-    GV.toast((w.dataset.wip || 'Bu ekran') + ' henüz yayında değil.', 'info');
+    wipNotice(w);
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Enter' && e.key !== ' ') return;
+    var w = e.target.closest && e.target.closest('[data-wip]');
+    if(!w) return;
+    e.preventDefault();
+    wipNotice(w);
   });
 
   /* Yardım tetikleyicisi */
