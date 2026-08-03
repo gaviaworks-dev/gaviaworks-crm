@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Şirket Bilgileri — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="sirket">
+<div id="sirket"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  /* =====================================================================
+     ŞİRKET BİLGİLERİ — Ayarlar
+     Ekran kapısı shell.js SCREEN_PERM['sirket'] = sahip · genelmudur · sistem.
+     Bu script yalnız kapı açıkken çalışır (lessons L-07), bu yüzden ayrıca
+     403 basılmaz; burada yalnız DÜZENLEME yetkisi (GV.perm.can('duzenle'))
+     kontrol edilir ve yetkisiz rolde ekran salt okunur hâle gelir.
+
+     Canonical kaynak: DB.company (org.js). Ekranda gösterilen çalışma
+     kapasitesi DB.capacity/DB.timesheets'ten, KDV ve vade varsayılanı
+     DB.invoices'tan OKUNUR — uydurulmaz.
+     ===================================================================== */
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var mount = document.getElementById('sirket');
+  var ME = GV.session.emp;
+  var ROL = GV.perm.role();
+  var canEdit = GV.perm.can('duzenle');
+  var C = DB.company;
+
+  GV.shell.crumb('Şirket Bilgileri');
+
+  /* =====================================================================
+     VERİDEN TÜRETİLEN VARSAYILANLAR (L-08 — sayı veriye yazılmaz, okunur)
+     ===================================================================== */
+  function mod(arr){
+    var say = {}, best = null, bn = 0;
+    arr.forEach(function(v){
+      say[v] = (say[v] || 0) + 1;
+      if(say[v] > bn){ bn = say[v]; best = v; }
+    });
+    return { value:best, n:bn, total:arr.length };
+  }
+  function ort(arr){
+    if(!arr.length) return 0;
+    return arr.reduce(function(a, b){ return a + b; }, 0) / arr.length;
+  }
+
+  /* KDV oranı — fatura kayıtlarındaki vergi / matrah oranı */
+  var KDV = mod(DB.invoices.map(function(i){ return Math.round(i.vergi / i.tutar * 100); }));
+  /* Fatura vadesi — fatura tarihi → vade arası gün (F.days iki ISO tarihle çalışır) */
+  var VADE = mod(DB.invoices.map(function(i){ return F.days(i.vade, i.tarih); }));
+  /* Para birimi — sözleşme kayıtlarındaki döviz kodu */
+  var DOVIZ = mod(DB.contracts.map(function(c){ return c.doviz; }));
+  /* Haftalık kapasite — DB.capacity (tam zamanlı çoğunluk) */
+  var KAP = mod(DB.capacity.map(function(c){ return c.kapasite; }));
+  var KAP_TAM = DB.capacity.filter(function(c){ return c.kapasite === KAP.value; });
+  var KAP_YARI = DB.capacity.filter(function(c){ return c.kapasite !== KAP.value; });
+  /* Gerçekleşen haftalık saat — onaylı/bekleyen timesheet ortalaması */
+  var TSH_ORT = Math.round(ort(DB.timesheets.map(function(t){ return t.toplam; })) * 10) / 10;
+
+  /* Tatil listesi veri modelinde YOK — 2026 Türkiye resmî tatilleri varsayımdır.
+     Şirket tatilleri DB.company.kurulus tarihinden türetilir (uydurma tarih yok). */
+  var KURULUS_GUN = String(C.kurulus || '').slice(5);
+  var TATIL_DEF = [
+    { tarih:'2026-01-01', ad:'Yılbaşı', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-' + KURULUS_GUN, ad:C.ad + ' kuruluş yıl dönümü', tur:'Şirket', sure:'Yarım gün' },
+    { tarih:'2026-03-19', ad:'Ramazan Bayramı arifesi', tur:'Resmî', sure:'Yarım gün' },
+    { tarih:'2026-03-20', ad:'Ramazan Bayramı 1. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-03-21', ad:'Ramazan Bayramı 2. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-03-22', ad:'Ramazan Bayramı 3. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-04-23', ad:'Ulusal Egemenlik ve Çocuk Bayramı', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-05-01', ad:'Emek ve Dayanışma Günü', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-05-19', ad:'Atatürk’ü Anma, Gençlik ve Spor Bayramı', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-05-26', ad:'Kurban Bayramı arifesi', tur:'Resmî', sure:'Yarım gün' },
+    { tarih:'2026-05-27', ad:'Kurban Bayramı 1. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-05-28', ad:'Kurban Bayramı 2. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-05-29', ad:'Kurban Bayramı 3. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-05-30', ad:'Kurban Bayramı 4. gün', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-07-15', ad:'Demokrasi ve Millî Birlik Günü', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-08-30', ad:'Zafer Bayramı', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-10-28', ad:'Cumhuriyet Bayramı arifesi', tur:'Resmî', sure:'Yarım gün' },
+    { tarih:'2026-10-29', ad:'Cumhuriyet Bayramı', tur:'Resmî', sure:'Tam gün' },
+    { tarih:'2026-12-31', ad:'Yıl sonu kapanışı', tur:'Şirket', sure:'Yarım gün' }
+  ];
+
+  /* Tenant listesi — statik prototipte tek şirket tanımlı (DB.company) */
+  var TENANT_DEF = [{
+    kod:C.tenant, ad:C.ad, unvan:C.unvan, paket:C.paket,
+    kullanici:DB.employees.filter(function(e){ return e.aktif; }).length,
+    durum:'Aktif', kaynak:'DB.company'
+  }];
+
+  var GUNLER = [
+    { key:'pzt', lbl:'Pazartesi' }, { key:'sal', lbl:'Salı' }, { key:'car', lbl:'Çarşamba' },
+    { key:'per', lbl:'Perşembe' }, { key:'cum', lbl:'Cuma' },
+    { key:'cmt', lbl:'Cumartesi' }, { key:'paz', lbl:'Pazar' }
+  ];
+
+  /* =====================================================================
+     AYAR DEPOSU — localStorage['gv.sirket']
+     ===================================================================== */
+  var LSK = 'gv.sirket';
+  var DEF = {
+    /* 1 · Kimlik */
+    ad:C.ad, unvan:C.unvan, vergiDairesi:C.vergiDairesi, vergiNo:C.vergiNo,
+    ticaretSicil:'', mersis:'', adres:C.adres, telefon:C.telefon, eposta:C.eposta, web:C.web,
+    /* 2 · Çalışma düzeni */
+    gunler:['pzt','sal','car','per','cum'],
+    mesaiBas:'09:00', mesaiBit:'18:00', gunlukSaat:8, ogleArasi:'60',
+    fazlaMesai:'Yönetici onaylı — ücretli (%50 zamlı)', yillikIzin:14,
+    /* 3 · Tatil günleri */
+    tatiller:TATIL_DEF.slice(),
+    /* 4 · Finansal varsayılanlar */
+    paraBirimi:DOVIZ.value || 'TRY', kdv:KDV.value, vadeGun:VADE.value,
+    odemeKosul:'Fatura tarihinden itibaren ' + VADE.value + ' gün içinde havale/EFT ile ödenir. ' +
+               'Gecikme hâlinde aylık %2 gecikme faizi uygulanır.',
+    tarihBicim:'gg.aa.yyyy', sayiBicim:'1.234,56',
+    /* 5 · Çoklu şirket */
+    tenantlar:TENANT_DEF.slice(), aktifTenant:C.tenant
+  };
+
+  function oku(){
+    var raw = {};
+    try{ raw = JSON.parse(window.localStorage.getItem(LSK) || '{}') || {}; }catch(e){ raw = {}; }
+    var out = {};
+    Object.keys(DEF).forEach(function(k){
+      out[k] = (raw[k] === undefined || raw[k] === null) ? DEF[k] : raw[k];
+    });
+    return out;
+  }
+  function yaz(){
+    try{ window.localStorage.setItem(LSK, JSON.stringify(S)); return true; }
+    catch(e){ return false; }
+  }
+  var S = oku();
+
+  /* Log kaydı — app-ayar-profil.html / app-ayar-kullanici.html ile aynı kalıp */
+  function logKaydi(islem, kayit, eski, yeni){
+    DB.logs.unshift({
+      kod:'LOG-' + (88300 + DB.logs.length), tarih:DB.today + 'T00:00',
+      kisi:ME, islem:islem, kayit:kayit, modul:'Ayarlar', ip:'—', eski:eski, yeni:yeni
+    });
+  }
+
+  /* Küçük yardımcılar */
+  function ozetSatir(lbl, val){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(lbl) + '</span>' +
+           '<span class="gv-summary-val">' + val + '</span></div>';
+  }
+  function saatSecenek(){
+    var out = [];
+    for(var h = 6; h <= 22; h++){
+      var hh = (h < 10 ? '0' : '') + h;
+      out.push({ value:hh + ':00', label:hh + ':00' });
+      out.push({ value:hh + ':30', label:hh + ':30' });
+    }
+    return out;
+  }
+  /* Salt okunur moda çevirme — yetkisiz rolde alanlar ve aksiyonlar kilitlenir */
+  function kilitle(sel){
+    var box = typeof sel === 'string' ? document.querySelector(sel) : sel;
+    if(!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('input,select,textarea,button'), function(el){
+      if(el.closest('.gv-tabs')) return;
+      el.disabled = true;
+    });
+  }
+  var SALT_OKUNUR = GV.notice({
+    tone:'warn', icon:'i-lock', title:'Salt okunur görünüm',
+    text:'Rolünüzde (' + DB.roleName(ROL) + ') düzenleme yetkisi yok. Şirket ayarlarını ' +
+         'görüntüleyebilirsiniz; kaydetme, ekleme ve silme aksiyonları devre dışıdır.'
+  });
+
+  /* =====================================================================
+     SAYFA BAŞLIĞI
+     ===================================================================== */
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Şirket Bilgileri',
+    sub:C.unvan + ' · ' + C.vergiDairesi + ' V.D. ' + C.vergiNo,
+    actions:[
+      { label:'Departmanlar', icon:'i-users', cls:'btn-line', href:'app-ayar-departman.html' },
+      { label:'Kullanıcılar', icon:'i-user', cls:'btn-line', href:'app-ayar-kullanici.html' }
+    ]
+  });
+
+  /* =====================================================================
+     SEKME KABUĞU
+     ===================================================================== */
+  var tabs = [
+    { key:'kimlik',  lbl:'Kimlik',                 ic:'i-building' },
+    { key:'calisma', lbl:'Çalışma Düzeni',         ic:'i-clock' },
+    { key:'tatil',   lbl:'Tatil Günleri',          ic:'i-calendar', cnt:S.tatiller.length },
+    { key:'finans',  lbl:'Finansal Varsayılanlar', ic:'i-wallet' },
+    { key:'tenant',  lbl:'Çoklu Şirket',           ic:'i-layers',   cnt:S.tenantlar.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="skTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' +
+      ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  var panels = {
+    kimlik:pKimlik(), calisma:pCalisma(), tatil:pTatil(), finans:pFinans(), tenant:pTenant()
+  };
+
+  mount.innerHTML = '<section class="gv-card">' + tabBar +
+    tabs.map(function(x){
+      return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>';
+    }).join('') + '</section>';
+
+  GV.tabs('#skTabs');
+
+  /* =====================================================================
+     PANEL ÜRETİCİLERİ
+     ===================================================================== */
+  /* ---- 1 · KİMLİK ------------------------------------------------------ */
+  function pKimlik(){
+    return '<div class="gc-body">' +
+      (canEdit ? '' : SALT_OKUNUR) +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Şirket logosu</h3>' +
+        '<p>Logo yüklenene kadar şirket adının baş harfleri kullanılır. Kare görsel önerilir.</p></div>' +
+        '<div class="u-row u-wrap u-mb-4">' +
+          '<div class="gv-user-ava is-lg" id="skLogo" aria-hidden="true" ' +
+            'style="background-size:cover;background-position:center">' +
+            esc(F.initials(C.ad).toLocaleUpperCase('tr-TR')) + '</div>' +
+          '<span class="u-col"><span class="cell-main" id="skAdLbl">' + esc(S.ad) + '</span>' +
+          '<span class="cell-sub" id="skUnvanLbl">' + esc(S.unvan) + '</span></span>' +
+        '</div>' +
+        '<div id="skLogoUp"></div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'neutral', icon:'i-image', title:'Logo veri modelinde tutulmuyor',
+          text:'DB.company kaydında görsel alanı yok. Seçtiğiniz dosya bu statik prototipte yalnız ' +
+               'tarayıcıda önizlenir, kaydedilmez; gerçek yükleme sunucu tarafı gerektirir. Önizleme ' +
+               'kare bir div üzerine background-image ile basılır (img etiketi kullanılmaz).'
+        }) + '</div>' +
+      '</div>' +
+      '<div id="skKimlikForm"></div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Kayıt bilgileri</h3>' +
+        '<p>Sistemde tutulan sabit şirket bilgileri.</p></div>' +
+        '<div class="gv-summary">' +
+          ozetSatir('Tenant kodu', '<span class="cell-code">' + esc(C.tenant) + '</span>') +
+          ozetSatir('Abonelik paketi', GV.badge(C.paket, 'is-accent')) +
+          ozetSatir('Kuruluş tarihi', '<span class="cell-date">' + esc(F.date(C.kurulus)) + '</span>') +
+          ozetSatir('Departman sayısı', '<b class="u-num">' +
+            DB.departments.filter(function(d){ return d.aktif; }).length + ' / ' + DB.departments.length + '</b>') +
+          ozetSatir('Kayıtlı personel', '<b class="u-num">' + DB.employees.length + '</b>') +
+        '</div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'warn', title:'Ticaret sicil ve MERSİS numarası veride yok',
+          text:'DB.company kaydında yalnız vergi dairesi ve vergi numarası tutuluyor. Ticaret sicil ' +
+               've MERSİS alanları uydurulmadı: boş bırakıldı, girilen değer yalnız tarayıcıda ' +
+               '(localStorage: ' + LSK + ') saklanır ve fatura/sözleşme çıktılarına bağlanmaz.'
+        }) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted">Değişiklik DB.company kaydına işlenir ve log kayıtlarına eski → yeni değerle düşer.</span>' +
+      '<button type="button" class="btn btn-line" id="skKimlikGeri">' + ico('i-refresh') + ' Geri al</button>' +
+      '<button type="button" class="btn btn-acc" id="skKimlikKaydet">' + ico('i-check') + ' Şirket bilgilerini kaydet</button>' +
+    '</div>';
+  }
+
+  /* ---- 2 · ÇALIŞMA DÜZENİ ---------------------------------------------- */
+  function gunKutulari(){
+    return '<div class="u-row u-wrap">' + GUNLER.map(function(g){
+      return '<label class="f-check"><input type="checkbox" data-gun="' + g.key + '"' +
+        (S.gunler.indexOf(g.key) !== -1 ? ' checked' : '') + '>' +
+        '<span>' + esc(g.lbl) + '</span></label>';
+    }).join('') + '</div>';
+  }
+
+  /* Kaydedilmemiş seçim S'ye yazılmaz — önizleme parametreyle beslenir. */
+  function haftalikOzet(gunler, gunlukSaat){
+    var gun = (gunler || S.gunler).length;
+    var saat = gun * Number((gunlukSaat == null ? S.gunlukSaat : gunlukSaat) || 0);
+    var fark = saat - KAP.value;
+    return '<div class="gv-summary">' +
+      ozetSatir('Haftalık çalışma günü', '<b class="u-num">' + gun + ' gün</b>') +
+      ozetSatir('Seçili ayardan hesaplanan haftalık süre', '<b class="u-num">' + F.hours(saat) + '</b>') +
+      ozetSatir('DB.capacity haftalık kapasitesi (tam zamanlı)',
+        '<b class="u-num">' + F.hours(KAP.value) + '</b> · ' + KAP_TAM.length + ' kişi') +
+      ozetSatir('DB.capacity yarı zamanlı kapasite',
+        KAP_YARI.length
+          ? '<b class="u-num">' + F.hours(KAP_YARI[0].kapasite) + '</b> · ' + KAP_YARI.length + ' kişi'
+          : '<span class="u-faint">Yok</span>') +
+      ozetSatir('Gerçekleşen haftalık ortalama (DB.timesheets)',
+        '<b class="u-num">' + F.hours(TSH_ORT) + '</b> · ' + DB.timesheets.length + ' timesheet') +
+      ozetSatir('Kapasite tutarlılığı', fark === 0
+        ? GV.badge('Tutarlı', 'is-ok')
+        : GV.badge((fark > 0 ? '+' : '') + F.hours(fark) + ' sapma', 'is-warn')) +
+    '</div>';
+  }
+
+  function pCalisma(){
+    return '<div class="gc-body">' +
+      (canEdit ? '' : SALT_OKUNUR) +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Haftalık çalışma günleri</h3>' +
+        '<p>İşaretli günler mesai günü sayılır; kalanlar hafta tatilidir. İzin, zaman kaydı ve ' +
+        'kapasite hesapları bu seçimden türer.</p></div>' +
+        '<div id="skGunler">' + gunKutulari() + '</div>' +
+      '</div>' +
+      '<div id="skCalismaForm"></div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Kapasite karşılaştırması</h3>' +
+        '<p>Bu ekrandaki ayar ile kapasite ve timesheet verisinin uyumu.</p></div>' +
+        '<div id="skHaftalik">' + haftalikOzet() + '</div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'info', title:'Haftalık kapasite veriden okunur, buradan yazılmaz',
+          text:'Tam zamanlı haftalık kapasite DB.capacity kayıtlarındaki ' + KAP.value + ' saatten ' +
+               'gelir (' + KAP.n + ' / ' + KAP.total + ' kayıt). Bu ekrandaki gün ve günlük saat seçimi ' +
+               'aynı sonucu vermezse yukarıda sapma rozeti çıkar — çelişkide veri değil ayar düzeltilir.',
+          actions:[{ label:'Kapasite ekranı', href:'app-kapasite.html', cls:'btn-line' }]
+        }) + '</div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'warn', title:'Yıllık izin hakkı veri modelinde tanımlı değil',
+          text:'DB.employees kayıtlarında yalnız izinBakiye (kalan gün) var; hak ediş günü yok. ' +
+               'Varsayılan 14 gün, 4857 sayılı İş Kanunu’nun 1–5 yıl kıdem için öngördüğü asgari ' +
+               'süredir. Devreden bakiyeler nedeniyle bazı personelde kalan gün bu değerin üstünde ' +
+               'olabilir (en yüksek bakiye: ' +
+               Math.max.apply(null, DB.employees.map(function(e){ return e.izinBakiye || 0; })) + ' gün).',
+          actions:[{ label:'İzin ekranı', href:'app-izin.html', cls:'btn-line' }]
+        }) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted" id="skCalismaDurum">Çalışma düzeni tarayıcıda saklanır (localStorage: ' + esc(LSK) + ').</span>' +
+      '<button type="button" class="btn btn-line" id="skCalismaSifirla">' + ico('i-refresh') + ' Varsayılana dön</button>' +
+      '<button type="button" class="btn btn-acc" id="skCalismaKaydet">' + ico('i-check') + ' Çalışma düzenini kaydet</button>' +
+    '</div>';
+  }
+
+  /* ---- 3 · TATİL GÜNLERİ ----------------------------------------------- */
+  function tatilSirali(){
+    return S.tatiller.slice().sort(function(a, b){ return a.tarih < b.tarih ? -1 : a.tarih > b.tarih ? 1 : 0; });
+  }
+
+  function tatilTablosu(){
+    var list = tatilSirali();
+    if(!list.length){
+      return GV.empty({
+        icon:'i-calendar', title:'Tanımlı tatil günü yok',
+        desc:'Resmî ve şirket tatilleri buradan tanımlanır; izin ve teslim tarihi hesapları bu listeyi kullanır.',
+        action:canEdit ? '<button type="button" class="btn btn-acc" id="skTatilEkleBos">' +
+          ico('i-plus') + ' Tatil günü ekle</button>' : ''
+      });
+    }
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable">' +
+      '<thead><tr><th>Tarih</th><th>Tatil</th><th>Tür</th><th>Süre</th><th>Durum</th>' +
+      '<th class="col-acts">İşlem</th></tr></thead><tbody>' +
+      list.map(function(t){
+        var d = F.days(t.tarih);
+        return '<tr><td><span class="cell-date">' + esc(F.date(t.tarih)) + '</span>' +
+            '<span class="cell-sub">' + esc(F.dateLong(t.tarih).split(', ')[1] || '—') + '</span></td>' +
+          '<td class="cell-wrap"><span class="cell-main">' + esc(t.ad) + '</span></td>' +
+          '<td>' + GV.badge(t.tur === 'Şirket' ? 'Şirket tatili' : 'Resmî tatil',
+                            t.tur === 'Şirket' ? 'is-accent' : 'is-info') + '</td>' +
+          '<td>' + GV.badge(t.sure, t.sure === 'Yarım gün' ? 'is-warn' : 'is-neutral') + '</td>' +
+          '<td><span class="u-sm ' + (d < 0 ? 'u-faint' : d === 0 ? 'u-ok' : 'u-muted') + '">' +
+            esc(d < 0 ? 'Geçti' : F.rel(t.tarih)) + '</span></td>' +
+          '<td class="col-acts"><div class="cell-acts">' +
+            '<button type="button" class="ia is-danger" data-tsil="' + esc(t.tarih + '|' + t.ad) + '"' +
+            (canEdit ? '' : ' disabled') + ' aria-label="' + esc(t.ad + ' tatilini sil') + '">' +
+            ico('i-trash','ic-sm') + '</button></div></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function tatilOzetHtml(){
+    var resmi = S.tatiller.filter(function(t){ return t.tur !== 'Şirket'; }).length;
+    var yarim = S.tatiller.filter(function(t){ return t.sure === 'Yarım gün'; }).length;
+    var kalan = S.tatiller.filter(function(t){ return F.days(t.tarih) >= 0; }).length;
+    return ozetSatir('Toplam tanımlı gün', '<b class="u-num">' + S.tatiller.length + '</b>') +
+      ozetSatir('Resmî tatil', '<b class="u-num">' + resmi + '</b>') +
+      ozetSatir('Şirket tatili', '<b class="u-num">' + (S.tatiller.length - resmi) + '</b>') +
+      ozetSatir('Yarım gün', '<b class="u-num">' + yarim + '</b>') +
+      ozetSatir('Bugünden sonra kalan (' + F.date(DB.today) + ')', '<b class="u-num">' + kalan + '</b>');
+  }
+
+  function pTatil(){
+    return '<div class="gc-body">' +
+      (canEdit ? '' : SALT_OKUNUR) +
+      GV.notice({
+        tone:'warn', icon:'i-calendar', title:'Tatil listesi veri modelinde yok — 2026 takvimi varsayımdır',
+        text:'Mock veride (org.js / hr.js / misc.js) resmî tatil koleksiyonu bulunmuyor. Aşağıdaki liste ' +
+             '2026 Türkiye resmî tatil takvimi varsayımıyla üretildi; dinî bayram tarihleri Diyanet ' +
+             'takvimine göre 20–22 Mart (Ramazan) ve 27–30 Mayıs (Kurban) kabul edildi. Şirket tatilleri ' +
+             'DB.company.kurulus tarihinden türetildi. Liste tarayıcıda saklanır (localStorage: ' + LSK + ').'
+      }) +
+      '<div class="gv-form-sec u-mt-4">' +
+        '<div class="gv-form-sec-head"><h3>Takvim özeti</h3>' +
+        '<p>Tanımlı günler ve iş günü etkisi.</p></div>' +
+        '<div class="gv-summary" id="skTatilOzet">' + tatilOzetHtml() + '</div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Tatil günleri</h3>' +
+        '<p>Tarihe göre sıralı. Bu günler izin gün sayısı ve teslim tarihi hesabından düşülür.</p></div>' +
+        '<div id="skTatilTablo">' + tatilTablosu() + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted">Ekleme ve silme anında tarayıcıya kaydedilir, log kayıtlarına düşer.</span>' +
+      '<button type="button" class="btn btn-line" id="skTatilSifirla">' + ico('i-refresh') + ' Varsayılan takvime dön</button>' +
+      '<button type="button" class="btn btn-acc" id="skTatilEkle">' + ico('i-plus') + ' Tatil günü ekle</button>' +
+    '</div>';
+  }
+
+  /* ---- 4 · FİNANSAL VARSAYILANLAR --------------------------------------- */
+  function pFinans(){
+    var toplamMatrah = DB.invoices.reduce(function(a, i){ return a + i.tutar; }, 0);
+    var toplamVergi = DB.invoices.reduce(function(a, i){ return a + i.vergi; }, 0);
+    return '<div class="gc-body">' +
+      (canEdit ? '' : SALT_OKUNUR) +
+      '<div id="skFinansForm"></div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Mevcut kayıtlardan okunan değerler</h3>' +
+        '<p>Varsayılanlar bu değerlere göre ayarlandı — elle girilmedi.</p></div>' +
+        '<div class="gv-summary">' +
+          ozetSatir('Fatura sayısı', '<b class="u-num">' + DB.invoices.length + '</b>') +
+          ozetSatir('KDV oranı (fatura vergi / matrah)',
+            '<b class="u-num">' + F.pct(KDV.value) + '</b> · ' + KDV.n + ' / ' + KDV.total + ' fatura') +
+          ozetSatir('Fatura tarihi → vade farkı',
+            '<b class="u-num">' + VADE.value + ' gün</b> · ' + VADE.n + ' / ' + VADE.total + ' fatura') +
+          ozetSatir('Toplam matrah', GV.perm.mask(F.money(toplamMatrah), 'finans')) +
+          ozetSatir('Toplam KDV', GV.perm.mask(F.money(toplamVergi), 'finans')) +
+          ozetSatir('Sözleşme para birimi', '<b>' + esc(DOVIZ.value) + '</b> · ' +
+            DOVIZ.n + ' / ' + DOVIZ.total + ' sözleşme') +
+        '</div>' +
+        '<div class="u-mt-4">' + GV.notice({
+          tone:'info', title:'Varsayılan yalnız yeni kayıtlara uygulanır',
+          text:'Mevcut fatura, teklif ve sözleşmelerdeki oran ve vade değişmez. Kur çevrimi yoktur: ' +
+               'para birimi değiştirildiğinde tutarlar dönüştürülmez, yalnız yeni kayıtların ' +
+               'varsayılan birimi değişir.',
+          actions:[{ label:'Fatura listesi', href:'app-fatura.html', cls:'btn-line' }]
+        }) + '</div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Biçim önizlemesi</h3>' +
+        '<p>Seçilen tarih ve sayı biçiminin ekranlarda nasıl görüneceği.</p></div>' +
+        '<div class="gv-summary" id="skBicimOnizleme"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted" id="skFinansDurum">Varsayılanlar tarayıcıda saklanır (localStorage: ' + esc(LSK) + ').</span>' +
+      '<button type="button" class="btn btn-line" id="skFinansSifirla">' + ico('i-refresh') + ' Veriden yeniden hesapla</button>' +
+      '<button type="button" class="btn btn-acc" id="skFinansKaydet">' + ico('i-check') + ' Finansal varsayılanları kaydet</button>' +
+    '</div>';
+  }
+
+  /* ---- 5 · ÇOKLU ŞİRKET (TENANT) ---------------------------------------- */
+  function tenantTablosu(){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable">' +
+      '<thead><tr><th>Şirket</th><th>Tenant kodu</th><th>Paket</th><th>Kullanıcı</th>' +
+      '<th>Durum</th><th class="col-acts">İşlem</th></tr></thead><tbody>' +
+      S.tenantlar.map(function(t){
+        var aktif = t.kod === S.aktifTenant;
+        return '<tr' + (aktif ? ' class="is-selected"' : '') + '>' +
+          '<td class="cell-wrap"><span class="cell-main">' + esc(t.ad) + '</span>' +
+            '<span class="cell-sub">' + esc(t.unvan || '—') + '</span></td>' +
+          '<td><span class="cell-code">' + esc(t.kod) + '</span></td>' +
+          '<td>' + GV.badge(t.paket || '—', 'is-neutral') + '</td>' +
+          '<td class="num">' + (t.kullanici == null ? '—' : t.kullanici) + '</td>' +
+          '<td>' + GV.badge(aktif ? 'Aktif şirket' : t.durum || 'Pasif', aktif ? 'is-ok' : 'is-neutral') + '</td>' +
+          '<td class="col-acts"><div class="cell-acts">' +
+            (aktif
+              ? '<span class="u-sm u-muted u-nowrap">Oturumda açık</span>'
+              : '<button type="button" class="btn btn-sm btn-line" data-tnaktif="' + esc(t.kod) + '"' +
+                (canEdit ? '' : ' disabled') + '>' + ico('i-check','ic-sm') + ' Aktif yap</button>') +
+            (t.kaynak === 'DB.company'
+              ? ''
+              : '<button type="button" class="ia is-danger" data-tnsil="' + esc(t.kod) + '"' +
+                (canEdit ? '' : ' disabled') + ' aria-label="' + esc(t.ad + ' şirketini sil') + '">' +
+                ico('i-trash','ic-sm') + '</button>') +
+          '</div></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function pTenant(){
+    return '<div class="gc-body">' +
+      (canEdit ? '' : SALT_OKUNUR) +
+      GV.notice({
+        tone:'warn', icon:'i-layers', title:'Statik prototipte tek şirket tanımlıdır',
+        text:'PROMPT.md §23 çoklu şirket ve tenant yapısı ister; bu arayüz o yapıya hazır kurulmuştur ' +
+             'ama mock veride yalnız bir şirket vardır: DB.company (' + C.tenant + '). Buradan eklenen ' +
+             'şirketler tarayıcıda saklanır, ayrı bir veri kümesi oluşturmaz — müşteri, proje, personel ' +
+             've fatura kayıtları tek kümede kalır.'
+      }) +
+      '<div class="gv-form-sec u-mt-4">' +
+        '<div class="gv-form-sec-head"><h3>Aktif şirket</h3>' +
+        '<p>Oturumun çalıştığı şirket. Tüm liste ve raporlar bu şirketin kapsamında görüntülenir.</p></div>' +
+        '<div class="gv-summary" id="skTenantOzet"></div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Tanımlı şirketler</h3>' +
+        '<p>Aynı kurulum üzerinde yönetilen şirketler.</p></div>' +
+        '<div id="skTenantTablo">' + tenantTablosu() + '</div>' +
+      '</div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Gerçek kurulumda nereye bağlanır</h3>' +
+        '<p>Bu ekranın arka uçta karşılığı.</p></div>' +
+        '<div class="gv-summary">' +
+          ozetSatir('Veri katmanı', 'Her tabloya <span class="cell-code">tenant_id</span> kolonu ve satır bazlı erişim filtresi') +
+          ozetSatir('API katmanı', 'Her istekte <span class="cell-code">X-Tenant</span> başlığı — oturumdan türetilir, URL parametresinden değil') +
+          ozetSatir('Oturum', 'Aktif şirket kullanıcı oturumunda tutulur (shell.js sessionStorage kalıbı)') +
+          ozetSatir('Yetki', 'Rol bazlı erişim tenant içinde çözülür; şirketler arası kayıt görünmez') +
+          ozetSatir('Dosya', 'Depolama yolu şirket bazında ayrılır, dosya erişim yetkisi tenant ile birlikte kontrol edilir') +
+          ozetSatir('Log', 'Log kayıtlarına tenant bilgisi de yazılır (eski → yeni değerle birlikte)') +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gv-form-actions">' +
+      '<span class="spacer u-sm u-muted">Şirket tanımları tarayıcıda saklanır (localStorage: ' + esc(LSK) + ').</span>' +
+      '<a class="btn btn-line" href="app-ayar-log.html">' + ico('i-list') + ' Log kayıtları</a>' +
+      '<button type="button" class="btn btn-acc" id="skTenantEkle">' + ico('i-plus') + ' Yeni şirket ekle</button>' +
+    '</div>';
+  }
+
+  /* =====================================================================
+     BAĞLAMA — 1 · KİMLİK
+     ===================================================================== */
+  GV.upload({
+    mount:'#skLogoUp', accept:'image/png,image/jpeg,image/svg+xml,image/webp',
+    multiple:false, maxMB:2,
+    title:'Logo seçin veya sürükleyip bırakın',
+    hint:'PNG, JPG, SVG, WEBP · kare görsel (en az 256×256) · en fazla 2 MB',
+    onChange:function(files){
+      if(!files.length){
+        logoSifirla();
+        return;
+      }
+      GV.toast('“' + files[files.length - 1].ad + '” önizlemeye alındı — prototipte saklanmaz', 'info', 4200);
+    }
+  });
+
+  function logoSifirla(){
+    var box = document.getElementById('skLogo');
+    if(!box) return;
+    box.style.backgroundImage = '';
+    box.textContent = F.initials(S.ad || C.ad).toLocaleUpperCase('tr-TR');
+  }
+
+  /* Önizleme: kare div + background-image (img etiketi kullanılmaz — CLAUDE.md).
+     Yakalama (capture) evresinde dinlenir; GV.upload kendi işleyicisinde
+     input.value'yu temizlediği için dosya nesnesine önce burada erişilir. */
+  var logoHost = document.getElementById('skLogoUp');
+  if(logoHost){
+    logoHost.addEventListener('change', function(ev){
+      var inp = ev.target;
+      if(!inp || !inp.files || !inp.files.length) return;
+      var f = inp.files[0];
+      if(!/^image\//.test(f.type)) return;
+      var okur = new FileReader();
+      okur.onload = function(){
+        var box = document.getElementById('skLogo');
+        if(!box) return;
+        box.style.backgroundImage = 'url("' + okur.result + '")';
+        box.textContent = '';
+      };
+      okur.readAsDataURL(f);
+    }, true);
+  }
+
+  var KIMLIK_ALAN = [
+    ['ad','Şirket adı'], ['unvan','Ticaret unvanı'], ['vergiDairesi','Vergi dairesi'],
+    ['vergiNo','Vergi numarası'], ['ticaretSicil','Ticaret sicil no'], ['mersis','MERSİS no'],
+    ['adres','Adres'], ['telefon','Telefon'], ['eposta','E-posta'], ['web','Web sitesi']
+  ];
+  /* DB.company içinde gerçekten var olan alanlar — diğerleri yalnız localStorage'da */
+  var KIMLIK_CANONICAL = ['ad','unvan','vergiDairesi','vergiNo','adres','telefon','eposta','web'];
+
+  var fKimlik;
+  function kurKimlikForm(){
+    fKimlik = GV.form({
+      mount:'#skKimlikForm',
+      record:S,
+      sections:[
+        {
+          title:'Kimlik bilgileri',
+          desc:'Teklif, sözleşme ve fatura çıktılarının başlığında kullanılan resmî bilgiler.',
+          fields:[
+            { key:'ad', label:'Şirket adı', type:'text', required:true, cols:6,
+              hint:'Kısa ad — arayüzde ve bildirimlerde bu kullanılır.' },
+            { key:'unvan', label:'Ticaret unvanı', type:'text', required:true, cols:6,
+              hint:'Resmî evrakta geçen tam unvan.' },
+            { key:'vergiDairesi', label:'Vergi dairesi', type:'text', required:true, cols:4 },
+            { key:'vergiNo', label:'Vergi numarası', type:'text', required:true, cols:4,
+              hint:'10 haneli vergi numarası ya da 11 haneli T.C. kimlik numarası.',
+              validate:function(v){
+                var s = String(v).replace(/\D/g, '');
+                return (s.length === 10 || s.length === 11) ? '' : 'Vergi numarası 10 ya da 11 haneli olmalıdır.';
+              } },
+            { key:'ticaretSicil', label:'Ticaret sicil no', type:'text', cols:4,
+              hint:'Veri modelinde yok — girilen değer yalnız bu tarayıcıda saklanır.' },
+            { key:'mersis', label:'MERSİS no', type:'text', cols:6,
+              hint:'16 haneli MERSİS numarası. Veri modelinde yok, boş bırakılabilir.',
+              validate:function(v){
+                if(!v) return '';
+                return String(v).replace(/\D/g, '').length === 16 ? '' : 'MERSİS numarası 16 haneli olmalıdır.';
+              } },
+            { key:'adres', label:'Merkez adresi', type:'textarea', required:true, cols:12, rows:2,
+              hint:'Fatura ve sözleşme başlığında görünen adres.' }
+          ]
+        },
+        {
+          title:'İletişim',
+          desc:'Müşteriye giden çıktılarda ve destek yazışmalarında görünen iletişim bilgileri.',
+          fields:[
+            { key:'telefon', label:'Telefon', type:'tel', required:true, cols:4,
+              hint:'En az 10 hane. Örnek biçim: +90 312 000 00 00' },
+            { key:'eposta', label:'Kurumsal e-posta', type:'email', required:true, cols:4 },
+            { key:'web', label:'Web sitesi', type:'text', cols:4,
+              hint:'Alan adı yeterlidir: gaviaworks.com' }
+          ]
+        }
+      ]
+    });
+  }
+  kurKimlikForm();
+
+  function kimlikTazele(){
+    var adL = document.getElementById('skAdLbl');
+    var unL = document.getElementById('skUnvanLbl');
+    var sub = document.querySelector('.gv-page-head .ph-sub');
+    if(adL) adL.textContent = S.ad;
+    if(unL) unL.textContent = S.unvan;
+    if(sub) sub.textContent = S.unvan + ' · ' + S.vergiDairesi + ' V.D. ' + S.vergiNo;
+    var box = document.getElementById('skLogo');
+    if(box && !box.style.backgroundImage) box.textContent = F.initials(S.ad).toLocaleUpperCase('tr-TR');
+  }
+
+  document.getElementById('skKimlikKaydet').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Şirket bilgilerini değiştirme yetkiniz yok', 'danger'); return; }
+    var d = fKimlik.submit();
+    if(!d) return;
+    var degisen = 0;
+    KIMLIK_ALAN.forEach(function(p){
+      var yeni = String(d[p[0]] == null ? '' : d[p[0]]).trim();
+      var eski = String(S[p[0]] == null ? '' : S[p[0]]);
+      if(yeni === eski) return;
+      logKaydi('Şirket bilgisi güncelledi · ' + p[1], C.tenant, eski || '—', yeni || '—');
+      S[p[0]] = yeni;
+      if(KIMLIK_CANONICAL.indexOf(p[0]) !== -1) C[p[0]] = yeni;
+      degisen++;
+    });
+    if(!degisen){ GV.toast('Değişen alan yok', 'info'); return; }
+    var ok = yaz();
+    kimlikTazele();
+    tenantOzetCiz();
+    GV.toast(degisen + ' alan güncellendi · log kaydı oluşturuldu' +
+      (ok ? '' : ' · tarayıcı depolaması kapalı, kalıcı kaydedilemedi'), ok ? 'ok' : 'warn', 4600);
+  });
+
+  document.getElementById('skKimlikGeri').addEventListener('click', function(){
+    kurKimlikForm();
+    GV.toast('Form kayıtlı değerlere döndürüldü', 'info');
+  });
+
+  /* =====================================================================
+     BAĞLAMA — 2 · ÇALIŞMA DÜZENİ
+     ===================================================================== */
+  var MESAI_SAAT = saatSecenek();
+  var fCalisma;
+  function kurCalismaForm(){
+    fCalisma = GV.form({
+      mount:'#skCalismaForm',
+      record:S,
+      sections:[
+        {
+          title:'Mesai saatleri',
+          desc:'Zaman kaydı, kapasite planı ve gecikme uyarıları bu saat aralığına göre hesaplanır.',
+          fields:[
+            { key:'mesaiBas', label:'Mesai başlangıcı', type:'select', required:true, cols:4,
+              options:MESAI_SAAT },
+            { key:'mesaiBit', label:'Mesai bitişi', type:'select', required:true, cols:4,
+              options:MESAI_SAAT,
+              validate:function(v, data){
+                return v <= data.mesaiBas ? 'Mesai bitişi başlangıçtan sonra olmalıdır.' : '';
+              } },
+            { key:'ogleArasi', label:'Öğle arası', type:'select', required:true, cols:4,
+              options:[{ value:'30', label:'30 dakika' }, { value:'45', label:'45 dakika' },
+                       { value:'60', label:'60 dakika' }, { value:'90', label:'90 dakika' }],
+              hint:'Günlük standart süreye dâhil edilmez.' },
+            { key:'gunlukSaat', label:'Günlük standart çalışma', type:'number', required:true, cols:4,
+              min:1, max:12,
+              hint:'Haftalık süre = çalışma günü × günlük saat.' },
+            { key:'yillikIzin', label:'Yıllık izin hakkı (gün)', type:'number', required:true, cols:4,
+              min:0, max:45,
+              hint:'Yeni personel için varsayılan hak ediş. Kıdeme göre İK ekranından artırılır.' }
+          ]
+        },
+        {
+          title:'Fazla mesai kuralı',
+          desc:'Haftalık standart sürenin üzerindeki onaylı zaman kayıtlarına uygulanır.',
+          fields:[
+            { key:'fazlaMesai', label:'Fazla mesai karşılığı', type:'select', required:true, cols:12,
+              options:[
+                'Fazla mesai uygulanmaz',
+                'Yönetici onaylı — zaman olarak iade (serbest gün)',
+                'Yönetici onaylı — ücretli (%50 zamlı)',
+                'Yönetici onaylı — ücretli (%100 zamlı, hafta tatili)'
+              ],
+              hint:'Timesheet ekranındaki “fazla” saat kolonu bu kurala göre değerlendirilir.' }
+          ]
+        }
+      ]
+    });
+  }
+  kurCalismaForm();
+
+  function calismaOku(){
+    var gunler = [];
+    Array.prototype.forEach.call(document.querySelectorAll('#skGunler [data-gun]'), function(el){
+      if(el.checked) gunler.push(el.dataset.gun);
+    });
+    return gunler;
+  }
+  function haftalikTazele(){
+    var box = document.getElementById('skHaftalik');
+    if(!box) return;
+    var gs = document.getElementById('f_gunlukSaat');
+    box.innerHTML = haftalikOzet(calismaOku(), gs ? Number(gs.value) : S.gunlukSaat);
+  }
+  function calismaDurum(metin){
+    var el = document.getElementById('skCalismaDurum');
+    if(el) el.textContent = metin;
+  }
+
+  /* Dinleyiciler kalıcı sarmalayıcılara bağlanır — form yeniden kurulunca kopmaz. */
+  document.getElementById('skGunler').addEventListener('change', haftalikTazele);
+  document.getElementById('skCalismaForm').addEventListener('input', function(e){
+    if(e.target && e.target.id === 'f_gunlukSaat') haftalikTazele();
+  });
+
+  document.getElementById('skCalismaKaydet').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Çalışma düzenini değiştirme yetkiniz yok', 'danger'); return; }
+    var d = fCalisma.submit();
+    if(!d) return;
+    var gunler = calismaOku();
+    if(!gunler.length){
+      GV.toast('En az bir çalışma günü seçmelisiniz', 'danger', 4200);
+      return;
+    }
+    var eski = S.gunler.length + ' gün · ' + S.mesaiBas + '-' + S.mesaiBit + ' · ' +
+               (S.gunler.length * Number(S.gunlukSaat || 0)) + ' sa/hafta';
+    S.gunler = gunler;
+    S.mesaiBas = d.mesaiBas; S.mesaiBit = d.mesaiBit;
+    S.ogleArasi = d.ogleArasi; S.gunlukSaat = Number(d.gunlukSaat);
+    S.yillikIzin = Number(d.yillikIzin); S.fazlaMesai = d.fazlaMesai;
+    var yeni = S.gunler.length + ' gün · ' + S.mesaiBas + '-' + S.mesaiBit + ' · ' +
+               (S.gunler.length * S.gunlukSaat) + ' sa/hafta';
+    var ok = yaz();
+    logKaydi('Çalışma düzenini güncelledi', C.tenant, eski, yeni);
+    haftalikTazele();
+    var saat = S.gunler.length * S.gunlukSaat;
+    calismaDurum(ok
+      ? 'Kaydedildi · haftalık ' + F.hours(saat) + ' (DB.capacity: ' + F.hours(KAP.value) + ')'
+      : 'Kaydedilemedi — tarayıcı depolaması kapalı olabilir.');
+    if(!ok){ GV.toast('Çalışma düzeni kaydedilemedi — tarayıcı depolaması kapalı', 'danger', 4200); return; }
+    GV.toast(saat === KAP.value
+      ? 'Çalışma düzeni kaydedildi — kapasite verisiyle tutarlı'
+      : 'Çalışma düzeni kaydedildi — DB.capacity ile ' + F.hours(saat - KAP.value) + ' sapma var',
+      saat === KAP.value ? 'ok' : 'warn', 4600);
+  });
+
+  document.getElementById('skCalismaSifirla').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Çalışma düzenini değiştirme yetkiniz yok', 'danger'); return; }
+    GV.confirm({
+      title:'Çalışma düzenini sıfırla', tone:'warn', okLabel:'Varsayılana dön',
+      text:'Çalışma günleri, mesai saatleri, öğle arası, günlük standart süre, fazla mesai kuralı ve ' +
+           'yıllık izin hakkı varsayılan değerlere döner. Varsayılan haftalık süre DB.capacity ' +
+           'kaydındaki ' + KAP.value + ' saattir.'
+    }).then(function(evet){
+      if(!evet) return;
+      ['gunler','mesaiBas','mesaiBit','gunlukSaat','ogleArasi','fazlaMesai','yillikIzin'].forEach(function(k){
+        S[k] = DEF[k];
+      });
+      yaz();
+      document.getElementById('skGunler').innerHTML = gunKutulari();
+      kurCalismaForm();
+      haftalikTazele();
+      calismaDurum('Varsayılan çalışma düzeni yüklendi.');
+      GV.toast('Çalışma düzeni varsayılana döndürüldü', 'ok');
+    });
+  });
+
+  /* =====================================================================
+     BAĞLAMA — 3 · TATİL GÜNLERİ
+     ===================================================================== */
+  function tabSayac(key, n){
+    var b = document.querySelector('#skTabs [data-tab="' + key + '"] .gv-tab-cnt');
+    if(b) b.textContent = n;
+  }
+  function tatilCiz(){
+    var t = document.getElementById('skTatilTablo');
+    var o = document.getElementById('skTatilOzet');
+    if(t) t.innerHTML = tatilTablosu();
+    if(o) o.innerHTML = tatilOzetHtml();
+    tabSayac('tatil', S.tatiller.length);
+  }
+
+  function acTatilModal(){
+    if(!canEdit){ GV.toast('Tatil günü ekleme yetkiniz yok', 'danger'); return; }
+    GV.modal({
+      title:'Tatil günü ekle', icon:'i-calendar', size:'sm',
+      text:'Eklenen gün izin ve teslim tarihi hesabında çalışılmayan gün sayılır.',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="tgTarih">Tarih</label>' +
+          '<input type="date" class="inp" id="tgTarih" value="' + esc(DB.today) + '">' +
+          '<div class="f-hint">Bugün: ' + esc(F.date(DB.today)) + '</div></div>' +
+        '<div class="field f-col-12"><label for="tgAd">Tatil adı</label>' +
+          '<input type="text" class="inp" id="tgAd" placeholder="Örn. Yıl sonu kapanışı"></div>' +
+        '<div class="field f-col-6"><label for="tgTur">Tür</label>' +
+          '<select class="inp" id="tgTur">' +
+            '<option value="Resmî">Resmî tatil</option>' +
+            '<option value="Şirket">Şirket tatili</option></select></div>' +
+        '<div class="field f-col-6"><label for="tgSure">Süre</label>' +
+          '<select class="inp" id="tgSure">' +
+            '<option value="Tam gün">Tam gün</option>' +
+            '<option value="Yarım gün">Yarım gün</option></select>' +
+          '<div class="f-hint">Yarım gün 0,5 iş günü olarak sayılır.</div></div>' +
+      '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Tatil gününü ekle', cls:'btn-acc', icon:'i-plus', onClick:function(close, scrim){
+            var tarih = scrim.querySelector('#tgTarih').value;
+            var ad = String(scrim.querySelector('#tgAd').value || '').trim();
+            var tur = scrim.querySelector('#tgTur').value;
+            var sure = scrim.querySelector('#tgSure').value;
+            if(!tarih){ GV.toast('Tarih zorunlu alandır', 'danger'); return false; }
+            if(!ad){ GV.toast('Tatil adı zorunlu alandır', 'danger'); return false; }
+            if(S.tatiller.some(function(t){ return t.tarih === tarih; })){
+              GV.toast(F.date(tarih) + ' için zaten bir tatil günü tanımlı', 'danger', 4200);
+              return false;
+            }
+            S.tatiller.push({ tarih:tarih, ad:ad, tur:tur, sure:sure });
+            var ok = yaz();
+            logKaydi('Tatil günü ekledi', C.tenant, null, F.date(tarih) + ' · ' + ad + ' · ' + tur + ' · ' + sure);
+            tatilCiz();
+            GV.toast('“' + ad + '” eklendi' + (ok ? '' : ' · tarayıcıya kaydedilemedi'), ok ? 'ok' : 'warn', 4200);
+          } }
+      ]
+    });
+  }
+
+  document.getElementById('skTatilEkle').addEventListener('click', acTatilModal);
+
+  document.querySelector('[data-panel="tatil"]').addEventListener('click', function(e){
+    if(e.target.closest('#skTatilEkleBos')){ acTatilModal(); return; }
+    var b = e.target.closest('[data-tsil]');
+    if(!b) return;
+    if(!canEdit){ GV.toast('Tatil günü silme yetkiniz yok', 'danger'); return; }
+    var anahtar = b.dataset.tsil;
+    var kayit = S.tatiller.filter(function(t){ return (t.tarih + '|' + t.ad) === anahtar; })[0];
+    if(!kayit) return;
+    GV.confirm({
+      title:'Tatil gününü sil', tone:'danger', okLabel:'Tatil gününü sil',
+      text:'“' + kayit.ad + '” (' + F.date(kayit.tarih) + ') tatil takviminden kaldırılacak. ' +
+           'Bu gün bundan sonra normal iş günü sayılır; işlem log kayıtlarına yazılır.'
+    }).then(function(evet){
+      if(!evet){ GV.toast('İşlem iptal edildi', 'info'); return; }
+      S.tatiller = S.tatiller.filter(function(t){ return (t.tarih + '|' + t.ad) !== anahtar; });
+      var ok = yaz();
+      logKaydi('Tatil gününü sildi', C.tenant, F.date(kayit.tarih) + ' · ' + kayit.ad, null);
+      tatilCiz();
+      GV.toast('“' + kayit.ad + '” silindi' + (ok ? '' : ' · tarayıcıya kaydedilemedi'), ok ? 'ok' : 'warn', 4200);
+    });
+  });
+
+  document.getElementById('skTatilSifirla').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Tatil takvimini değiştirme yetkiniz yok', 'danger'); return; }
+    GV.confirm({
+      title:'Varsayılan takvime dön', tone:'warn', okLabel:'Takvimi sıfırla',
+      text:'Eklediğiniz ve sildiğiniz günler kaybolur; liste 2026 varsayılan takvimine (' +
+           TATIL_DEF.length + ' gün) döner.'
+    }).then(function(evet){
+      if(!evet) return;
+      S.tatiller = TATIL_DEF.slice();
+      yaz();
+      logKaydi('Tatil takvimini varsayılana döndürdü', C.tenant, null, TATIL_DEF.length + ' gün');
+      tatilCiz();
+      GV.toast('Tatil takvimi varsayılana döndürüldü', 'ok');
+    });
+  });
+
+  /* =====================================================================
+     BAĞLAMA — 4 · FİNANSAL VARSAYILANLAR
+     ===================================================================== */
+  var PARA = { TRY:'₺', USD:'$', EUR:'€' };
+  var fFinans;
+  function kurFinansForm(){
+    fFinans = GV.form({
+      mount:'#skFinansForm',
+      record:S,
+      sections:[
+        {
+          title:'Para birimi ve vergi',
+          desc:'Yeni teklif, sözleşme ve faturalarda varsayılan olarak kullanılır.',
+          fields:[
+            { key:'paraBirimi', label:'Varsayılan para birimi', type:'select', required:true, cols:4,
+              options:[{ value:'TRY', label:'₺ Türk lirası (TRY)' },
+                       { value:'USD', label:'$ Amerikan doları (USD)' },
+                       { value:'EUR', label:'€ Euro (EUR)' }],
+              hint:'Mevcut sözleşmelerin ' + DOVIZ.n + ' / ' + DOVIZ.total + ' tanesi ' + DOVIZ.value + '.' },
+            { key:'kdv', label:'KDV oranı', type:'percent', required:true, cols:4,
+              hint:'Fatura kayıtlarındaki gerçek oran: %' + KDV.value + '.' },
+            { key:'vadeGun', label:'Fatura vade süresi (gün)', type:'number', required:true, cols:4,
+              min:0, max:180,
+              hint:'Fatura tarihinden itibaren. Kayıtlardaki en sık değer: ' + VADE.value + ' gün.' }
+          ]
+        },
+        {
+          title:'Ödeme koşulu',
+          desc:'Teklif ve fatura çıktısının altına basılan standart metin.',
+          fields:[
+            { key:'odemeKosul', label:'Ödeme koşulu metni', type:'textarea', required:true, cols:12, rows:3 }
+          ]
+        },
+        {
+          title:'Tarih ve sayı biçimi',
+          desc:'Listelerde, raporlarda ve dışa aktarılan çıktılarda kullanılan biçim.',
+          fields:[
+            { key:'tarihBicim', label:'Tarih biçimi', type:'select', required:true, cols:6,
+              options:[
+                { value:'gg.aa.yyyy', label:'gg.aa.yyyy · ' + F.date(DB.today) },
+                { value:'g Ay', label:'g Ay · ' + F.dateShort(DB.today) },
+                { value:'g Ay yyyy, Gün', label:'g Ay yyyy, Gün · ' + F.dateLong(DB.today) }
+              ] },
+            { key:'sayiBicim', label:'Sayı biçimi', type:'select', required:true, cols:6,
+              options:[{ value:'1.234,56', label:'1.234,56 — Türkçe' },
+                       { value:'1,234.56', label:'1,234.56 — İngilizce' }] }
+          ]
+        }
+      ]
+    });
+  }
+  kurFinansForm();
+
+  function bicimOnizleme(){
+    var d = fFinans ? fFinans.read() : S;
+    var sim = PARA[d.paraBirimi] || '₺';
+    var ornek = 1234567.5;
+    var sayi = d.sayiBicim === '1,234.56'
+      ? ornek.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
+      : ornek.toLocaleString('tr-TR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    var tarih = d.tarihBicim === 'g Ay' ? F.dateShort(DB.today)
+              : d.tarihBicim === 'g Ay yyyy, Gün' ? F.dateLong(DB.today)
+              : F.date(DB.today);
+    var matrah = 100000, kdvTutar = matrah * (Number(d.kdv) || 0) / 100;
+    var box = document.getElementById('skBicimOnizleme');
+    if(!box) return;
+    box.innerHTML =
+      ozetSatir('Tarih', '<span class="cell-date">' + esc(tarih) + '</span>') +
+      ozetSatir('Sayı', '<span class="u-num">' + esc(sayi) + '</span>') +
+      ozetSatir('Tutar', '<span class="u-num">' + esc(F.money(ornek, sim)) + '</span>') +
+      ozetSatir('100.000 matrah + KDV', '<span class="u-num">' +
+        esc(F.money(matrah, sim)) + ' + ' + esc(F.money(kdvTutar, sim)) +
+        ' = <b>' + esc(F.money(matrah + kdvTutar, sim)) + '</b></span>') +
+      ozetSatir('Bugün kesilen faturanın vadesi',
+        '<span class="cell-date">' + esc(tarih) + ' + ' + (Number(d.vadeGun) || 0) + ' gün</span>');
+  }
+  bicimOnizleme();
+  document.getElementById('skFinansForm').addEventListener('change', bicimOnizleme);
+  document.getElementById('skFinansForm').addEventListener('input', bicimOnizleme);
+
+  function finansDurum(metin){
+    var el = document.getElementById('skFinansDurum');
+    if(el) el.textContent = metin;
+  }
+
+  document.getElementById('skFinansKaydet').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Finansal varsayılanları değiştirme yetkiniz yok', 'danger'); return; }
+    var d = fFinans.submit();
+    if(!d) return;
+    var eski = S.paraBirimi + ' · KDV %' + S.kdv + ' · ' + S.vadeGun + ' gün vade';
+    S.paraBirimi = d.paraBirimi;
+    S.kdv = Number(d.kdv);
+    S.vadeGun = Number(d.vadeGun);
+    S.odemeKosul = d.odemeKosul;
+    S.tarihBicim = d.tarihBicim;
+    S.sayiBicim = d.sayiBicim;
+    var yeni = S.paraBirimi + ' · KDV %' + S.kdv + ' · ' + S.vadeGun + ' gün vade';
+    var ok = yaz();
+    if(eski !== yeni) logKaydi('Finansal varsayılanları güncelledi', C.tenant, eski, yeni);
+    bicimOnizleme();
+    finansDurum(ok ? 'Kaydedildi · localStorage: ' + LSK : 'Kaydedilemedi — tarayıcı depolaması kapalı olabilir.');
+    if(S.kdv !== KDV.value){
+      GV.toast('Kaydedildi — dikkat: seçtiğiniz %' + S.kdv + ' oranı mevcut faturalardaki %' +
+               KDV.value + ' oranından farklı', 'warn', 5200);
+      return;
+    }
+    GV.toast(ok ? 'Finansal varsayılanlar kaydedildi' : 'Kaydedilemedi — tarayıcı depolaması kapalı',
+             ok ? 'ok' : 'danger', 4200);
+  });
+
+  document.getElementById('skFinansSifirla').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Finansal varsayılanları değiştirme yetkiniz yok', 'danger'); return; }
+    ['paraBirimi','kdv','vadeGun','odemeKosul','tarihBicim','sayiBicim'].forEach(function(k){ S[k] = DEF[k]; });
+    yaz();
+    kurFinansForm();
+    bicimOnizleme();
+    finansDurum('Varsayılanlar fatura ve sözleşme kayıtlarından yeniden hesaplandı.');
+    GV.toast('Varsayılanlar veriden yeniden hesaplandı — KDV %' + KDV.value + ' · vade ' +
+             VADE.value + ' gün · ' + (DOVIZ.value || 'TRY'), 'ok', 4600);
+  });
+
+  /* =====================================================================
+     BAĞLAMA — 5 · ÇOKLU ŞİRKET (TENANT)
+     ===================================================================== */
+  function aktifTenant(){
+    return S.tenantlar.filter(function(t){ return t.kod === S.aktifTenant; })[0] || S.tenantlar[0];
+  }
+  function tenantOzetCiz(){
+    var box = document.getElementById('skTenantOzet');
+    if(!box) return;
+    var t = aktifTenant();
+    if(!t){ box.innerHTML = ozetSatir('Aktif şirket', '<span class="u-faint">Tanımsız</span>'); return; }
+    box.innerHTML =
+      ozetSatir('Şirket', '<b>' + esc(t.ad) + '</b>') +
+      ozetSatir('Ticaret unvanı', esc(t.unvan || '—')) +
+      ozetSatir('Tenant kodu', '<span class="cell-code">' + esc(t.kod) + '</span>') +
+      ozetSatir('Abonelik paketi', GV.badge(t.paket || '—', 'is-accent')) +
+      ozetSatir('Kullanıcı sayısı', '<b class="u-num">' + (t.kullanici == null ? '—' : t.kullanici) + '</b>') +
+      ozetSatir('Veri kaynağı', t.kaynak === 'DB.company'
+        ? '<span class="cell-code">DB.company</span>'
+        : '<span class="cell-code">localStorage · ' + esc(LSK) + '</span>') +
+      ozetSatir('Oturum', esc(GV.session.ad) + ' · ' + esc(GV.session.rolAd));
+  }
+  function tenantCiz(){
+    var t = document.getElementById('skTenantTablo');
+    if(t) t.innerHTML = tenantTablosu();
+    tenantOzetCiz();
+    tabSayac('tenant', S.tenantlar.length);
+  }
+  tenantOzetCiz();
+
+  document.getElementById('skTenantEkle').addEventListener('click', function(){
+    if(!canEdit){ GV.toast('Şirket ekleme yetkiniz yok', 'danger'); return; }
+    GV.modal({
+      title:'Yeni şirket ekle', icon:'i-layers', size:'sm',
+      text:'Aynı kurulum üzerinde ayrı bir tenant tanımlanır.',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="tnAd">Şirket adı</label>' +
+          '<input type="text" class="inp" id="tnAd" placeholder="Örn. Gavia Labs"></div>' +
+        '<div class="field f-col-12"><label for="tnUnvan">Ticaret unvanı</label>' +
+          '<input type="text" class="inp" id="tnUnvan" placeholder="Örn. Gavia Labs Yazılım A.Ş."></div>' +
+        '<div class="field f-col-6"><label for="tnKod">Tenant kodu</label>' +
+          '<input type="text" class="inp" id="tnKod" placeholder="gavialabs">' +
+          '<div class="f-hint">Küçük harf, rakam ve tire. Kayıtların ayrıştığı anahtardır, sonradan değişmez.</div></div>' +
+        '<div class="field f-col-6"><label for="tnPaket">Abonelik paketi</label>' +
+          '<select class="inp" id="tnPaket">' +
+            '<option value="Başlangıç">Başlangıç</option>' +
+            '<option value="Profesyonel">Profesyonel</option>' +
+            '<option value="Kurumsal" selected>Kurumsal</option></select></div>' +
+      '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Şirketi ekle', cls:'btn-acc', icon:'i-plus', onClick:function(close, scrim){
+            var ad = String(scrim.querySelector('#tnAd').value || '').trim();
+            var unvan = String(scrim.querySelector('#tnUnvan').value || '').trim();
+            var kod = String(scrim.querySelector('#tnKod').value || '').trim().toLocaleLowerCase('tr-TR');
+            var paket = scrim.querySelector('#tnPaket').value;
+            if(!ad){ GV.toast('Şirket adı zorunlu alandır', 'danger'); return false; }
+            if(!/^[a-z0-9-]{3,32}$/.test(kod)){
+              GV.toast('Tenant kodu 3–32 karakter olmalı; yalnız küçük harf, rakam ve tire içerebilir', 'danger', 4600);
+              return false;
+            }
+            if(S.tenantlar.some(function(t){ return t.kod === kod; })){
+              GV.toast('“' + kod + '” tenant kodu zaten kullanılıyor', 'danger', 4200);
+              return false;
+            }
+            S.tenantlar.push({ kod:kod, ad:ad, unvan:unvan || ad, paket:paket,
+                               kullanici:0, durum:'Pasif', kaynak:'localStorage' });
+            var ok = yaz();
+            logKaydi('Yeni şirket (tenant) ekledi', kod, null, ad + ' · ' + paket);
+            tenantCiz();
+            GV.toast('“' + ad + '” eklendi — statik prototipte ayrı veri kümesi oluşmaz' +
+                     (ok ? '' : ' · tarayıcıya kaydedilemedi'), ok ? 'ok' : 'warn', 5200);
+          } }
+      ]
+    });
+  });
+
+  document.querySelector('[data-panel="tenant"]').addEventListener('click', function(e){
+    var aktifBtn = e.target.closest('[data-tnaktif]');
+    if(aktifBtn){
+      if(!canEdit){ GV.toast('Aktif şirketi değiştirme yetkiniz yok', 'danger'); return; }
+      var kod = aktifBtn.dataset.tnaktif;
+      var yeni = S.tenantlar.filter(function(t){ return t.kod === kod; })[0];
+      if(!yeni) return;
+      GV.confirm({
+        title:'Aktif şirketi değiştir', tone:'warn', okLabel:'Şirketi değiştir',
+        text:'“' + yeni.ad + '” aktif şirket olacak. Gerçek kurulumda bu değişiklik oturumdaki tüm ' +
+             'liste, rapor ve dosya erişimini o şirketin kapsamına alır. Statik prototipte kayıt kümesi ' +
+             'tek olduğu için veriler değişmez, yalnız seçim saklanır.'
+      }).then(function(evet){
+        if(!evet) return;
+        var eskiKod = S.aktifTenant;
+        S.aktifTenant = kod;
+        var ok = yaz();
+        logKaydi('Aktif şirketi değiştirdi', kod, eskiKod, kod);
+        tenantCiz();
+        GV.toast('Aktif şirket: ' + yeni.ad + (ok ? '' : ' · tarayıcıya kaydedilemedi'), ok ? 'ok' : 'warn', 4200);
+      });
+      return;
+    }
+    var silBtn = e.target.closest('[data-tnsil]');
+    if(!silBtn) return;
+    if(!canEdit){ GV.toast('Şirket silme yetkiniz yok', 'danger'); return; }
+    var sKod = silBtn.dataset.tnsil;
+    var kayit = S.tenantlar.filter(function(t){ return t.kod === sKod; })[0];
+    if(!kayit) return;
+    if(kayit.kod === S.aktifTenant){
+      GV.toast('Aktif şirket silinemez — önce başka bir şirketi aktif yapın', 'danger', 4600);
+      return;
+    }
+    GV.confirm({
+      title:'Şirket tanımını sil', tone:'danger', okLabel:'Şirketi sil',
+      text:'“' + kayit.ad + '” (' + kayit.kod + ') tanımı kaldırılacak. Gerçek kurulumda bu işlem ' +
+           'şirkete bağlı tüm kayıtları da kapsadığı için geri alınamaz ve ayrı bir onay akışına bağlanır.'
+    }).then(function(evet){
+      if(!evet){ GV.toast('İşlem iptal edildi', 'info'); return; }
+      S.tenantlar = S.tenantlar.filter(function(t){ return t.kod !== sKod; });
+      var ok = yaz();
+      logKaydi('Şirket (tenant) tanımını sildi', sKod, kayit.ad + ' · ' + kayit.paket, null);
+      tenantCiz();
+      GV.toast('“' + kayit.ad + '” silindi' + (ok ? '' : ' · tarayıcıya kaydedilemedi'), ok ? 'ok' : 'warn', 4200);
+    });
+  });
+
+  /* =====================================================================
+     YETKİ — düzenleme yetkisi yoksa tüm sekmeler salt okunur
+     ===================================================================== */
+  if(!canEdit){
+    ['kimlik','calisma','tatil','finans','tenant'].forEach(function(k){
+      kilitle('[data-panel="' + k + '"]');
+    });
+  }
+});
+</script>
+</body>
+</html>
