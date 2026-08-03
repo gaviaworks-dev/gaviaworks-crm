@@ -553,7 +553,10 @@
     'app-izin.html',
     'app-zaman.html',
     'app-kapasite.html',
-    'app-performans.html'
+    'app-performans.html',
+    'app-demirbas.html',
+    'app-zimmet.html',
+    'app-arac.html'
   ];
   GV.built = BUILT;
 
