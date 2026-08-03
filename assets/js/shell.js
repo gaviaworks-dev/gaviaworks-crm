@@ -586,6 +586,7 @@
     'app-rapor-proje.html',
     'app-ayar-yetki.html',
     'app-ayar-otomasyon.html',
+    'app-ayar-bildirim.html',
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
