@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Demirbaşlar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="demirbas">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+  GV.pageHead({ eyebrow:'Envanter', title:'Demirbaşlar',
+    actions:[{ label:'Zimmetler', icon:'i-clipboard-check', href:'app-zimmet.html' },
+             { label:'Yeni Demirbaş', icon:'i-plus', cls:'btn-acc', href:'app-demirbas-form.html' }] });
+  var garantiKalan = function(x){ return x.garantiBit ? F.days(x.garantiBit) : null; };
+  GV.list({
+    mount:'#liste', id:'demirbas', key:'kod', source:function(){ return DB.assets; },
+    exportName:'demirbaslar', exportTitle:'Demirbaş Listesi', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Kod, marka, model, seri no veya barkod ara',
+             fields:['kod','marka','model','seri','barkod','kategori','ozellik'] },
+    defaultSort:'kod',
+    kpis:[
+      { label:'Toplam demirbaş', icon:'i-package', calc:function(a){ return a.length; } },
+      { label:'Zimmetli', icon:'i-user-check', tone:'info', calc:function(a){ return a.filter(function(x){ return x.durum === 'Zimmetli'; }).length; } },
+      { label:'Depoda bekleyen', icon:'i-archive', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Depoda'; }).length; } },
+      { label:'Toplam değer', icon:'i-wallet', tone:'ok', format:F.moneyK,
+        calc:function(a){ return canFinans ? a.reduce(function(s,x){ return s + x.alisFiyati; }, 0) : 0; } }
+    ],
+    tabs:[
+      { key:'aktif', label:'Aktif Demirbaşlar', icon:'i-package', filter:function(x){ return x.aktif; } },
+      { key:'zimmetli', label:'Zimmetli', icon:'i-user-check', filter:function(x){ return x.durum === 'Zimmetli'; } },
+      { key:'depo', label:'Depoda', icon:'i-archive', filter:function(x){ return x.durum === 'Depoda'; } },
+      { key:'lisans', label:'Lisans ve Abonelik', icon:'i-key',
+        filter:function(x){ return ['Yazılım lisansı','Kurumsal abonelik'].indexOf(x.kategori) !== -1; } },
+      { key:'garanti', label:'Garantisi Bitenler', icon:'i-shield',
+        filter:function(x){ var g = garantiKalan(x); return g != null && g <= 90; } },
+      { key:'hurda', label:'Hurda / Pasif', icon:'i-trash', filter:function(x){ return !x.aktif; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ],
+    columns:[
+      { key:'marka', label:'Demirbaş', width:'22%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-demirbas-detay.html?id=' + x.kod + '">' + esc(x.marka + ' ' + x.model) + '</a>' +
+                 '<span class="cell-sub">' + esc(x.ozellik) + '</span><span class="cell-code">' + x.kod + ' · ' + esc(x.barkod) + '</span>'; },
+        exportValue:function(x){ return x.marka + ' ' + x.model; } },
+      { key:'kategori', label:'Kategori', render:function(x){
+          return '<span class="tag">' + esc(x.kategori) + '</span>' +
+                 (x.altKategori ? '<span class="cell-sub">' + esc(x.altKategori) + '</span>' : ''); } },
+      { key:'seri', label:'Seri numarası', visible:false },
+      { key:'zimmetli', label:'Zimmetli personel', render:function(x){
+          return x.zimmetli ? GV.user(x.zimmetli, { sm:true }) : '<span class="u-faint">Zimmetsiz</span>'; },
+        sortValue:function(x){ return x.zimmetli ? DB.empName(x.zimmetli) : 'zzz'; },
+        exportValue:function(x){ return x.zimmetli ? DB.empName(x.zimmetli) : ''; } },
+      { key:'dep', label:'Departman', render:function(x){ return esc(DB.depName(x.dep)); }, exportValue:function(x){ return DB.depName(x.dep); } },
+      { key:'lokasyon', label:'Lokasyon', visible:false },
+      { key:'alisTarihi', label:'Satın alma', visible:false, render:function(x){ return '<span class="cell-date">' + F.date(x.alisTarihi) + '</span>'; } },
+      { key:'alisFiyati', label:'Alış fiyatı', cellClass:'num', render:function(x){
+          return canFinans ? '<span class="cell-money">' + F.money(x.alisFiyati) + '</span>' : '<span class="cell-mask">••••</span>'; },
+        exportValue:function(x){ return canFinans ? x.alisFiyati : ''; } },
+      { key:'garantiBit', label:'Garanti bitişi', sortValue:function(x){ return x.garantiBit || 'zzz'; }, render:function(x){
+          if(!x.garantiBit) return '<span class="u-faint">—</span>';
+          var g = garantiKalan(x);
+          return GV.dateCell(x.garantiBit, { done:g < 0 }) + (g >= 0 && g <= 90 ? '<span class="cell-sub">' + g + ' gün kaldı</span>' : ''); } },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:[
+      { key:'kategori', label:'Kategori', type:'multi', options:DB.assetCategories },
+      { key:'durum', label:'Durum', type:'multi', options:['Aktif','Zimmetli','Depoda','Serviste','Onarımda','Hurda'] },
+      { key:'dep', label:'Departman', type:'multi', options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }) },
+      { key:'zimmetli', label:'Zimmetli personel', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'tedarikci', label:'Tedarikçi', type:'select', options:DB.suppliers.map(function(s){ return { value:s.kod, label:s.unvan }; }) },
+      { key:'alisTarihi', label:'Satın alma tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ var g = garantiKalan(x); return (g != null && g >= 0 && g <= 30) ? 'is-late' : (x.aktif ? '' : 'is-passive'); },
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-demirbas-detay.html?id=' + x.kod + '">' + esc(x.marka + ' ' + x.model) + '</a>' +
+        '<div class="cell-code">' + x.kod + '</div></div>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(x.kategori) + '</span><span>' + esc(x.lokasyon) + '</span></div>' +
+        '<div class="gv-rcard-foot">' + (x.zimmetli ? GV.user(x.zimmetli, { sm:true }) : '<span class="u-xs u-faint">Zimmetsiz</span>') +
+        (canFinans ? '<span class="cell-money">' + F.money(x.alisFiyati) + '</span>' : '') + '</div>';
+    },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-demirbas-detay.html?id=' + x.kod + '">' + esc(x.marka + ' ' + x.model) + '</a>' +
+        GV.badge(x.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.kategori) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-user','ic-sm') + (x.zimmetli ? esc(DB.empName(x.zimmetli)) : 'Zimmetsiz') + '</span></div>';
+    },
+    rowActions:[
+      { key:'ac', icon:'i-external', label:'Kartı aç', href:function(x){ return 'app-demirbas-detay.html?id=' + x.kod; } },
+      { key:'zimmet', icon:'i-user-check', label:'Zimmetle', run:function(x, refresh){
+          if(x.durum === 'Zimmetli'){ GV.toast('Bu demirbaş zaten ' + DB.empName(x.zimmetli) + ' üzerinde.', 'info'); return; }
+          GV.modal({ title:'Demirbaş Zimmetle', text:x.marka + ' ' + x.model + ' · ' + x.kod, icon:'i-clipboard-check', size:'sm',
+            body:'<div class="field"><label for="zPers">Personel</label><select id="zPers">' +
+              DB.employees.filter(function(e){ return e.aktif; }).map(function(e){
+                return '<option value="' + e.kod + '">' + esc(e.ad + ' — ' + e.depAd) + '</option>'; }).join('') + '</select></div>' +
+              '<div class="field u-mt-4"><label for="zTar">Teslim tarihi</label><input type="date" class="inp" id="zTar" value="' + DB.today + '"></div>' +
+              '<div class="field u-mt-4"><label class="f-check"><input type="checkbox" id="zTut" checked><span>Teslim tutanağı oluştur ve dijital onaya gönder</span></label></div>',
+            actions:[{ label:'Vazgeç', cls:'btn-line' },
+              { label:'Zimmetle', cls:'btn-acc', onClick:function(close, el){
+                  var p = el.querySelector('#zPers').value, t = el.querySelector('#zTar').value;
+                  x.durum = 'Zimmetli'; x.zimmetli = p; x.zimmetTarihi = t;
+                  DB.assignments.unshift({ kod:'ZMT-2026-' + (100 + DB.assignments.length), demirbas:x.kod, personel:p,
+                    teslimTarihi:t, iadeTarihi:null, durum:'Aktif', tutanak:'zimmet-' + x.kod + '.pdf',
+                    personelOnay:el.querySelector('#zTut').checked ? 'Bekliyor' : 'Onaylandı', onayTarihi:null, hasar:null, aktif:true });
+                  GV.toast(x.kod + ' → ' + DB.empName(p) + ' zimmetlendi', 'ok'); refresh(); } }] }); } },
+      { key:'iade', icon:'i-refresh', label:'İade al', run:function(x, refresh){
+          if(x.durum !== 'Zimmetli'){ GV.toast('Bu demirbaş zimmetli değil.', 'info'); return; }
+          GV.confirm({ title:'Zimmet iadesi', text:DB.empName(x.zimmetli) + ' üzerindeki ' + x.kod + ' iade alınacak ve depoya girecek.',
+            okLabel:'İade al' }).then(function(ok){ if(!ok) return;
+              var a = DB.assignments.filter(function(z){ return z.demirbas === x.kod && z.durum === 'Aktif'; })[0];
+              if(a){ a.durum = 'İade edildi'; a.iadeTarihi = DB.today; }
+              x.durum = 'Depoda'; x.zimmetli = null; x.iadeTarihi = DB.today;
+              GV.toast(x.kod + ' iade alındı', 'ok'); refresh(); }); } }
+    ],
+    bulk:[{ key:'dep', label:'Departman değiştir', icon:'i-users' }, { key:'disa', label:'Dışa aktar', icon:'i-download' },
+          { key:'hurda', label:'Hurdaya ayır', icon:'i-trash', tone:'danger', confirm:'{n} demirbaş hurdaya ayrılacak. Onaylıyor musunuz?' }],
+    emptyState:{ icon:'i-package', title:'Bu görünümde demirbaş yok',
+      desc:'Satın alınan ekipmanlar otomatik olarak demirbaş envanterine düşer.' }
+  });
+
+});
+</script>
+</body>
+</html>
