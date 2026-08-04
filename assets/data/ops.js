@@ -208,6 +208,16 @@ DB.fines = [
 ];
 
 /* ---- Tedarikçiler -------------------------------------------------------- */
+/* PUAN EKSENİ (VB-03 — iki ayrı eksen, birbirinin yerine kullanılamaz):
+   `DB.suppliers[].puan`      = **tedarikçi genel performans puanı** (0-5).
+     Tedarikçinin tüm sipariş geçmişinden gelir: teslim zamanlaması, ürün/hizmet
+     kalitesi, satış sonrası destek, fatura ve ödeme uyumu. Talepten bağımsızdır,
+     zamanla yavaş değişir. Ekran etiketi: **"Tedarikçi genel puanı"**.
+   `DB.supplierQuotes[].puan` = **teklif değerlendirme puanı** (0-5).
+     YALNIZ o teklife verilir: fiyat, teslim süresi, garanti, ödeme koşulu ve
+     teknik uygunluk birlikte değerlendirilir. Aynı tedarikçinin iki teklifi
+     farklı puan alabilir. Ekran etiketi: **"Teklif puanı"**.
+   İkisi aynı kolonda gösterilmez; gösterilirse etiketleri ayrı yazılır. */
 DB.suppliers = [
   { kod:'TDR-001', unvan:'Teknomarket Bilişim Ltd.', kategori:'Donanım', yetkili:'Cem Aksu', tel:'+90 312 000 00 60',
     eposta:'satis@teknomarket.com', vergiNo:'1102938475', adres:'Ostim, Ankara', puan:4.4, siparisSayisi:14,

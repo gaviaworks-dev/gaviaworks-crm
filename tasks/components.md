@@ -216,6 +216,50 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 
 ---
 
+## 9b. Finans Para Konvansiyonu (VB-01 / VB-02 — kapandı)
+
+> **Tek konvansiyon.** Aynı alanda iki eksen yaşayamaz (lessons **L-13**).
+> Kaynak yorum: `misc.js` → `DB.contracts` başlığı.
+
+| Alan | Eksen | Kural |
+|---|---|---|
+| `DB.contracts[].tutar` | **NET** (KDV hariç) | Sözleşme bedelinin tek eksenidir |
+| `DB.contracts[].kdvOran` · `.kdv` | — | KDV yüzdesi ve hesaplanan tutar (tümü %20) |
+| `DB.contracts[].toplam` | **BRÜT** | `tutar + kdv` — **ekranda gösterilen** bedel |
+| `DB.milestones[].odeme` | **NET** | Taksitin net tutarı = bağlı faturanın `tutar`ı |
+| `DB.milestones[].taksit` · `.sozlesme` | — | Ödeme planındaki sıra (1 tabanlı) + bağlı sözleşme |
+| `DB.invoices[].tutar / .vergi / .toplam` | net / KDV / brüt | `toplam = tutar + vergi`; `tutar` = milestone `odeme` |
+| `DB.payments[].tutar` | **BRÜT** | Faturanın `toplam`ı |
+| `DB.projects[].sozlesmeTutari` | **NET** | Sözleşmenin `tutar`ı |
+| `DB.customers[].toplamCiro` | **NET** | Ömür boyu net ciro; DB'deki sözleşmelerinin `tutar` toplamından **küçük olamaz** |
+
+**Ödeme planı bütünlüğü:** Projeli her sözleşmenin taksit seti `DB.milestones`'ta **tamdır** —
+`Σ odeme = sözleşme tutarı` ve `taksit` numaraları 1..N boşluksuzdur (19 milestone / 6 sözleşme).
+Proje bazlı olmayan sözleşme (SZL-2026-022, aylık bakım) milestone tutmaz, aylık fatura olarak yürür.
+
+**Ekranda gösterim:** para alanı yazılırken hangi eksende olduğu **etikette** belirtilir
+("Sözleşme bedeli (KDV hariç)" · "Genel toplam (KDV dahil)"). Net ve brüt aynı kolonda karışmaz.
+
+`canon.js` eksen 9 (net+KDV=brüt), 10 (Σ taksit = sözleşme neti, taksit sırası) ve 11
+(`toplamCiro` ↔ sözleşmeler) bunu her wave sonunda doğrular.
+
+---
+
+## 9c. Tedarikçi Puan Eksenleri (VB-03 — kapandı)
+
+**İki ayrı eksendir, birbirinin yerine kullanılamaz.** Kaynak yorum: `ops.js` → `DB.suppliers` başlığı.
+
+| Alan | Ne ölçer | Ekran etiketi |
+|---|---|---|
+| `DB.supplierQuotes[].puan` | **Yalnız o teklif**: fiyat, teslim süresi, garanti, ödeme koşulu, teknik uygunluk. Aynı tedarikçinin iki teklifi farklı puan alabilir | **"Teklif puanı"** |
+| `DB.suppliers[].puan` | **Tedarikçinin tüm sipariş geçmişi**: teslim zamanlaması, kalite, satış sonrası destek, ödeme uyumu. Talepten bağımsız, yavaş değişir | **"Tedarikçi genel puanı"** |
+
+İkisi aynı hücrede gösterilmez; aynı ekranda gösteriliyorsa **ayrı satır/kolon** olur.
+Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisinde iki ayrı satır) ·
+`app-tedarikci.html` (yalnız genel puan).
+
+---
+
 ## 10. QA Script'leri (scratchpad — orkestratöre ait)
 
 | Script | Ne yapar | Beklenen |
