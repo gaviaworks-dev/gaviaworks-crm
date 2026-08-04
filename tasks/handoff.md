@@ -7,7 +7,7 @@
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
 > ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
-**Güncelleme:** 2026-08-04 (3. oturum) · **74 ekran canlıda** · **Wave 1, 9, 10, 11, 12 TAMAM.**
+**Güncelleme:** 2026-08-04 (3. oturum sonu) · **74 ekran canlıda** · **Wave 1, 9, 10, 11, 12 TAMAM.**
 
 ---
 
@@ -130,6 +130,45 @@ ekranı "kırık" sayıyordu). Güncel set `components.md` §10'da.
 **Son tam tarama (bu oturum):** `gate.js` 355 sayfa yüklemesi (71 ekran × 5 rol) —
 konsol hatası 0, boş sayfa 0, kırık istek 0. `canon.js` 227 kontrol temiz.
 `dbref.js` ve `links.js` temiz.
+
+
+### VERİ BORCU — bilinçli olarak devredildi (3. oturum)
+
+Bu iki çelişki **bulundu, ölçüldü, düzeltilmedi.** İkisi de kaynağı geniş bir alanı
+(finans raporları, müşteri cirosu, sözleşme ekranları) etkiliyor; yarım düzeltme
+yenilerini doğurur. Ayrı bir oturumda bilinçli olarak ele alınmalı.
+
+**VB-01 · `DB.contracts[].tutar` bazı sözleşmelerde KDV dahil, bazılarında hariç.**
+`app-odemeplani.html` sözleşmenin `odemePlani` metnini taksit tutarlarıyla karşılaştırınca
+6 sözleşmenin 5'i tutmuyor:
+
+| Sözleşme | Plan | `tutar` | Plandan pay | Milestone `odeme` |
+|---|---|---|---|---|
+| SZL-2026-021 | %50 · %50 | 600.000 | 300.000 | 300.000 ✓ |
+| SZL-2026-019 | %30 · %30 · %40 | 880.000 | 264.000 | MS-001 264.000 ✓ · MS-002 176.000 ✗ |
+| SZL-2025-018 | 6 eşit milestone | 1.104.000 | 184.000 | 163.333 ✗ |
+| SZL-2026-023 | %30 · %30 · %40 | 420.000 | 126.000 | 70.000 ✗ |
+| SZL-2026-024 | %50 · %50 | 185.000 | 92.500 | 77.083 ✗ |
+| SZL-2026-020 | %40 · %30 · %30 | 354.000 | 106.200 | 88.500 ✗ |
+
+Tutmayan dördünde eski `odeme` değeri faturanın **brüt** tutarına eşitti — yani o
+sözleşmelerin `tutar`'ı KDV dahil yazılmış. `milestone.odeme` bu oturumda **net**'e
+sabitlendi (fatura `tutar`'ıyla birebir, 7/7 doğrulandı) ama sözleşme tarafına
+dokunulmadı. Düzeltmenin dokunacağı yerler: `DB.contracts[].tutar` · `DB.customers[].toplamCiro` ·
+`app-sozlesme` · `app-butce` · `app-rapor-finans` · `app-rapor-proje`.
+**Önce konvansiyon seçilmeli** (sözleşme bedeli net mi brüt mü), koleksiyonun başına
+yazılmalı, sonra `canon.js`'e kontrol eklenmeli.
+
+**VB-02 · `DB.milestones` sözleşmelerin tam taksit setini içermiyor.**
+SZL-2025-018 "6 eşit milestone" diyor ama 2 milestone var; SZL-2026-020 ve -023
+"3 taksit" diyor, 1'er milestone var. `app-odemeplani.html`'in "toplam plan tutarı"
+KPI'ı bu yüzden sözleşme bedelleri toplamının altında kalıyor — ekran hatası değil,
+veri kapsamı eksiği. VB-01 ile birlikte çözülmeli.
+
+**VB-03 · `DB.supplierQuotes[].puan` ile `DB.suppliers[].puan` farklı eksenler.**
+Teklif puanı "bu teklife verilen değerlendirme", tedarikçi puanı "genel performans"
+olarak yorumlandı ve `app-satinalma-teklif.html` ikisini ayrı gösteriyor. Bu yorum
+doğruysa bir sorun yok; ama hiçbir yerde **yazılı değil**. `ops.js`'e yazılmalı.
 
 ## 2. ORTAK KATMANIN MEVCUT DURUMU
 
