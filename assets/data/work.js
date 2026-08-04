@@ -512,17 +512,21 @@ DB.tests = [
 ];
 
 /* ---- Teslimler --------------------------------------------------------- */
+/* `milestone` = teslimin karşılık geldiği ödeme planı taksiti (tekil bağ, lessons L-13).
+   Türetme/tarih yakınlığı ile TAHMİN EDİLMEZ, burada yazılıdır.
+   `musteriOnay` durum değeridir: 'Onaylandı' | 'Bekliyor' | 'Revizyon istendi'.
+   Sentinel '—' kullanılmaz. */
 DB.deliveries = [
-  { kod:'TSL-2026-031', proje:'PRJ-2026-001', ad:'Beta sürüm (v0.9)', tarih:'2026-07-10', durum:'Onaylandı',
+  { kod:'TSL-2026-031', proje:'PRJ-2026-001', milestone:'MS-001', ad:'Beta sürüm (v0.9)', tarih:'2026-07-10', durum:'Onaylandı',
     teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-14', not:'Test cihazlarına dağıtıldı', aktif:true },
-  { kod:'TSL-2026-032', proje:'PRJ-2026-004', ad:'Üretim takip v1.0 canlı', tarih:'2026-07-22', durum:'Onaylandı',
+  { kod:'TSL-2026-032', proje:'PRJ-2026-004', milestone:'MS-009', ad:'Üretim takip v1.0 canlı', tarih:'2026-07-22', durum:'Onaylandı',
     teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-25', not:'Sorunsuz geçiş', aktif:true },
-  { kod:'TSL-2026-033', proje:'PRJ-2026-002', ad:'POC sonuç paketi', tarih:'2026-07-25', durum:'Onaylandı',
+  { kod:'TSL-2026-033', proje:'PRJ-2026-002', milestone:'MS-003', ad:'POC sonuç paketi', tarih:'2026-07-25', durum:'Onaylandı',
     teslimEden:'EMP-007', musteriOnay:'Onaylandı', onayTarihi:'2026-07-29', not:'Doğruluk %87', aktif:true },
-  { kod:'TSL-2026-034', proje:'PRJ-2026-003', ad:'Faz 1 modül paketi', tarih:'2026-08-29', durum:'Planlandı',
-    teslimEden:'EMP-003', musteriOnay:'—', onayTarihi:null, not:'Kabul testi sonrası', aktif:true },
-  { kod:'TSL-2026-035', proje:'PRJ-2026-006', ad:'Randevu sistemi canlı', tarih:'2026-06-26', durum:'Gecikti',
-    teslimEden:'EMP-003', musteriOnay:'—', onayTarihi:null, not:'Revizyon turu devam ediyor', aktif:true }
+  { kod:'TSL-2026-034', proje:'PRJ-2026-003', milestone:'MS-005', ad:'Faz 1 modül paketi', tarih:'2026-08-29', durum:'Planlandı',
+    teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Kabul testi sonrası', aktif:true },
+  { kod:'TSL-2026-035', proje:'PRJ-2026-006', milestone:'MS-008', ad:'Randevu sistemi canlı', tarih:'2026-06-26', durum:'Gecikti',
+    teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Revizyon turu devam ediyor', aktif:true }
 ];
 
 /* ---- Değişiklik talepleri ---------------------------------------------- */
@@ -596,3 +600,6 @@ DB.activities = [
 /* ---- Arama yardımcıları (org.js'teki DB.emp / DB.empName ile aynı desen) ---- */
 DB.proj     = function(kod){ return DB.projects.filter(function(p){ return p.kod === kod; })[0] || null; };
 DB.projName = function(kod){ var p = DB.proj(kod); return p ? p.ad : '—'; };
+DB.mod      = function(kod){ return DB.projectModules.filter(function(m){ return m.kod === kod; })[0] || null; };
+DB.modName  = function(kod){ var m = DB.mod(kod); return m ? m.ad : '—'; };
+DB.task     = function(kod){ return DB.tasks.filter(function(t){ return t.kod === kod; })[0] || null; };
