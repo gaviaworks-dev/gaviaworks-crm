@@ -217,7 +217,13 @@ DB.fines = [
      YALNIZ o teklife verilir: fiyat, teslim süresi, garanti, ödeme koşulu ve
      teknik uygunluk birlikte değerlendirilir. Aynı tedarikçinin iki teklifi
      farklı puan alabilir. Ekran etiketi: **"Teklif puanı"**.
-   İkisi aynı kolonda gösterilmez; gösterilirse etiketleri ayrı yazılır. */
+   İkisi aynı kolonda gösterilmez; gösterilirse etiketleri ayrı yazılır.
+
+   PARA EKSENİ: `toplamTutar` **NET** (KDV hariç) — ömür boyu iş hacmi.
+   Ölçüldü (5. oturum): brüt olsaydı /1,2 tam liraya inmesi gerekirdi; TDR-001
+   (485.000), TDR-002 (392.000) ve TDR-004 (742.000) inmiyor, yani alan brüt olamaz.
+   Doğrulayıcı örnek TDR-003: 126.000 / 3 sipariş = 42.000 = `SAT-2026-015`
+   talebinin NET `tahminiMaliyet`i ile birebir. */
 DB.suppliers = [
   { kod:'TDR-001', unvan:'Teknomarket Bilişim Ltd.', kategori:'Donanım', yetkili:'Cem Aksu', tel:'+90 312 000 00 60',
     eposta:'satis@teknomarket.com', vergiNo:'1102938475', adres:'Ostim, Ankara', puan:4.4, siparisSayisi:14,
