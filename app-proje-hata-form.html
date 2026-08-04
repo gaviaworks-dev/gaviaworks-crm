@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hata Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="hata">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName, DB.today
+     work.js → DB.bugs, DB.projects, DB.projectModules, DB.tests, DB.sprints,
+               DB.tasks, DB.priorities, DB.activities, DB.proj, DB.projName
+     ops.js  → DB.tickets -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.bugs.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Teslimat', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen hata kaydı sistemde yok.',
+      actions:[{ label:'Hata listesi', cls:'btn-line', href:'app-proje-hata.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Hata kaydı bulunamadı',
+      desc:'“' + esc(id) + '” numaralı hata kaydı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-hata.html">Hata listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Hata Kaydı');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Hata Kaydı') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Teslimat',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Hata Kaydı',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Hata listesi', cls:'btn-line', href:'app-proje-hata.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Hata kaydı düzenleme' : 'Hata kaydı ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Hata kayıtlarını görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-proje-hata.html">Hata listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-proje-hata-detay.html?id=' + kayit.kod + '">Hata kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     SÖZLÜKLER VE EKSEN KURALLARI (components.md §9)
+       · `siddet` DB.priorities kümesidir (Kritik/Yüksek/Orta/Düşük),
+         DB.impacts (Çok yüksek/…) DEĞİLDİR.
+       · Hatadan görev üretilirken eşleme: 'Kritik' → etki 'Çok yüksek',
+         diğer üçü birebir. Bu form görev üretmez, yalnız var olan görevle
+         eşlemeyi ÖLÇER ve tutmuyorsa uyarır.
+     ================================================================= */
+  function etkiKarsiligi(s){ return s === 'Kritik' ? 'Çok yüksek' : s; }
+
+  /* Durum kümesi veride koleksiyon olarak yok; küme app-proje-hata.html'in durum
+     filtresiyle birebir aynı üç değerdir (aynı ekseni iki yerde ayrıştırmamak için
+     oradan alındı) ve veride üçü de kullanılmış. */
+  var DURUMLAR = ['Açık','Devam ediyor','Kapandı'];
+
+  /* Tekrarlanabilirlik sözlüğü veride YOK — küme mevcut kayıtlardan türetilir. */
+  var TEKRARLAR = [];
+  DB.bugs.forEach(function(b){
+    if(b.tekrarlanabilir && TEKRARLAR.indexOf(b.tekrarlanabilir) === -1) TEKRARLAR.push(b.tekrarlanabilir); });
+  if(duzenle && kayit.tekrarlanabilir && TEKRARLAR.indexOf(kayit.tekrarlanabilir) === -1)
+    TEKRARLAR.push(kayit.tekrarlanabilir);
+
+  /* Ortam sözlüğü de veride yok; alan serbest metin, mevcut değerler ipucunda yazılır. */
+  var ORTAMLAR = [];
+  DB.bugs.forEach(function(b){ if(b.ortam && ORTAMLAR.indexOf(b.ortam) === -1) ORTAMLAR.push(b.ortam); });
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  var toplamHata   = DB.bugs.length;
+  var siddetEksen  = DB.bugs.filter(function(b){ return DB.priorities.indexOf(b.siddet) !== -1; }).length;
+  var testliHata   = DB.bugs.filter(function(b){ return !!b.test; }).length;
+  var sprintliHata = DB.bugs.filter(function(b){ return !!b.sprint; }).length;
+  var destekliHata = DB.bugs.filter(function(b){ return !!b.destek; }).length;
+  var gorevliHata  = DB.bugs.filter(function(b){ return !!b.gorev; }).length;
+  /* `DB.tasks[].hata` ayna alanı YOKTUR (components.md §9d yön kuralı) — canon.js
+     eksen 15 doğmadığını kontrol eder. Bu form da yazmaz; sayaç canlı kanaryadır. */
+  var aynaAlan = DB.tasks.filter(function(t){ return t.hata != null; }).length;
+
+  /* Şiddet ↔ bağlı görev etkisi eşlemesi kaç kayıtta tutuyor? */
+  var eslemeToplam = 0, eslemeTutan = 0;
+  DB.bugs.forEach(function(b){
+    if(!b.gorev) return;
+    var g = DB.task(b.gorev);
+    if(!g) return;
+    eslemeToplam++;
+    if(g.etki === etkiKarsiligi(b.siddet)) eslemeTutan++;
+  });
+
+  /* =================================================================
+     ADRES PARAMETRESİYLE ÖN DOLDURMA — ?proje=PRJ-… · ?test=TST-…
+     ================================================================= */
+  var qsProje = qs.get('proje');
+  var qsTest  = qs.get('test');
+  var onProje = qsProje ? DB.proj(qsProje) : null;
+  var onTest  = qsTest ? DB.tests.filter(function(t){ return t.kod === qsTest; })[0] || null : null;
+  /* Koşum geldiyse proje ondan okunur (koşum kaydında proje YAZILI); iki parametre
+     çelişirse koşumun projesi kazanır ve çelişki ekranda söylenir. */
+  var celiskiProje = !!(onTest && onProje && onTest.proje !== onProje.kod);
+  var baslangicProje = duzenle ? kayit.proje : (onTest ? onTest.proje : (onProje ? onProje.kod : ''));
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden; bağlar aynı projeyle sınırlanır
+     (canon.js eksen 15: bağ verilen koşum/sprint aynı projede olmalı)
+     ================================================================= */
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){
+      var say = DB.bugs.filter(function(b){ return b.proje === p.kod && (!duzenle || b.kod !== kayit.kod); }).length;
+      return { value:p.kod, label:p.ad + ' · ' + p.kod + (say ? ' · ' + say + ' hata kaydı' : '') };
+    });
+
+  var KISILER = DB.employees
+    .filter(function(e){ return e.aktif !== false ||
+      (duzenle && (e.kod === kayit.bulan || e.kod === kayit.sorumlu)); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+
+  function modulSecenek(pk){
+    return DB.projectModules.filter(function(m){ return m.proje === pk; })
+      .map(function(m){ return { value:m.kod, label:m.ad + ' · ' + m.kod + ' · ' + m.durum }; });
+  }
+  /* Bir koşuma bağlı hata sayısı `basarisiz`i aşamaz — etiketinde kalan kapasite yazılır. */
+  function testBagli(tk){
+    return DB.bugs.filter(function(b){ return b.test === tk && (!duzenle || b.kod !== kayit.kod); }).length;
+  }
+  function testSecenek(pk){
+    return DB.tests.filter(function(t){ return t.proje === pk; })
+      .map(function(t){
+        var n = testBagli(t.kod);
+        return { value:t.kod, label:t.ad + ' · ' + t.kod + ' · ' + F.date(t.tarih) +
+          ' · başarısız ' + t.basarisiz + ' · bağlı hata ' + n };
+      });
+  }
+  function sprintSecenek(pk){
+    return DB.sprints.filter(function(s){ return s.proje === pk; })
+      .map(function(s){ return { value:s.kod, label:s.ad + ' · ' + s.kod + ' · ' + s.durum }; });
+  }
+  function gorevSecenek(pk){
+    return DB.tasks.filter(function(t){ return t.proje === pk && t.aktif !== false; })
+      .map(function(t){ return { value:t.kod, label:t.baslik + ' · ' + t.kod + ' · ' + t.durum }; });
+  }
+  function talepSecenek(pk){
+    return DB.tickets.filter(function(t){ return t.proje === pk; })
+      .map(function(t){ return { value:t.kod, label:t.baslik + ' · ' + t.kod + ' · ' + t.kategori + ' · ' + t.durum }; });
+  }
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var BAG_ALAN = ['test','sprint','destek','gorev'];
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.modul  = kayit.modul || '';
+    formRec.cozum  = kayit.cozum || '';
+    formRec.ortam  = kayit.ortam || '';
+    formRec.tekrarlanabilir = kayit.tekrarlanabilir || '';
+    formRec.sorumlu = kayit.sorumlu || '';
+    BAG_ALAN.forEach(function(k){ formRec[k] = kayit[k] || ''; });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    /* Bulan alanı oturumdaki kullanıcıyla açılır — bu bir BAĞ değil, form varsayılanıdır;
+       kaydeden kişi değiştirebilir. */
+    var benim = GV.session && GV.session.emp && DB.emp(GV.session.emp) ? GV.session.emp : '';
+    formRec = {
+      baslik:'', proje:baslangicProje, modul:'',
+      siddet:'', oncelik:'', durum:'Açık',
+      bulan:benim, sorumlu:'',
+      bulunma:DB.today, cozum:'',
+      ortam:'', tekrarlanabilir:'',
+      /* Koşum bağı adresten geldiyse yazılır; sprint/modül koşumdan TÜRETİLMEZ
+         (form-brief §5 kural 4 — bağın belirsiz olduğu yerde alan boş bırakılır). */
+      test:(onTest ? onTest.kod : ''), sprint:'', destek:'', gorev:'',
+      aktif:true
+    };
+  }
+
+  /* =================================================================
+     BAĞLAM — düzenleme modunda kaydın ilişkileri (hepsi veride YAZILI tekil alan)
+     ================================================================= */
+  var proje   = duzenle && kayit.proje ? DB.proj(kayit.proje) : null;
+  var modul   = duzenle && kayit.modul ? DB.mod(kayit.modul) : null;
+  var gorev   = duzenle && kayit.gorev ? DB.task(kayit.gorev) : null;
+  var test    = duzenle && kayit.test
+    ? DB.tests.filter(function(t){ return t.kod === kayit.test; })[0] || null : null;
+  var sprint  = duzenle && kayit.sprint
+    ? DB.sprints.filter(function(s){ return s.kod === kayit.sprint; })[0] || null : null;
+  var talep   = duzenle && kayit.destek
+    ? DB.tickets.filter(function(t){ return t.kod === kayit.destek; })[0] || null : null;
+  var acts    = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Kapanmış hatada süre = bulunma → çözüm; açık hatada = bulunmadan bugüne. */
+  function sureGun(b){
+    var d0 = F.days(b.bulunma);
+    if(d0 == null) return null;
+    return (b.cozum ? F.days(b.cozum) : 0) - d0;
+  }
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  var ust = '';
+
+  /* Ayna alan kanaryası — normalde 0, doğduysa görünür olsun. */
+  if(aynaAlan){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', title:'Görev kayıtlarında “hata” ayna alanı doğmuş',
+      text:'components.md §9d yön kuralı hata ↔ görev bağının tek yönlü olmasını söyler: bağ ' +
+           'DB.bugs[].gorev alanında tutulur, görevde ayna alan açılmaz. Şu an ' + aynaAlan +
+           ' görev kaydında “hata” alanı var. Bu form o alanı yazmaz; mevcut kayıtları veri ' +
+           'katmanı temizlemelidir.' }) + '</div></section>';
+  }
+
+  if(duzenle){
+    /* ---- Şiddet ekseni kontrolü ---- */
+    if(DB.priorities.indexOf(kayit.siddet) === -1){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'danger', title:'Kayıttaki şiddet değeri öncelik kümesinde yok',
+        text:'Hata şiddeti ' + DB.priorities.join(' · ') + ' kümesindendir (components.md §9); ' +
+             'bu kayıtta “' + kayit.siddet + '” yazıyor. Şiddet alanı boş açıldı, kaydetmeden önce ' +
+             'kümeden bir değer seçmelisiniz.' }) + '</div></section>';
+    }
+
+    /* ---- Bağlar: hangisi yazılı, hangisi boş ---- */
+    var bagAksiyon = [];
+    if(gorev) bagAksiyon.push({ label:'Bağlı görevi aç', href:'app-gorev-detay.html?id=' + gorev.kod, cls:'btn-line' });
+    if(talep) bagAksiyon.push({ label:'Destek talebini aç', href:'app-destek-detay.html?id=' + talep.kod, cls:'btn-line' });
+    if(test)  bagAksiyon.push({ label:'Kaynak koşumu aç', href:'app-proje-test-detay.html?id=' + test.kod, cls:'btn-line' });
+
+    var yaziliBag = [
+      test ? 'koşum ' + test.kod : null,
+      sprint ? 'sprint ' + sprint.kod : null,
+      talep ? 'destek talebi ' + talep.kod : null,
+      gorev ? 'görev ' + gorev.kod : null
+    ].filter(Boolean);
+
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({
+        tone:yaziliBag.length ? 'ok' : 'info',
+        title:yaziliBag.length ? 'Bu kayıtta ' + yaziliBag.length + ' bağ veride yazılı'
+                               : 'Bu kayıtta yazılı bağ yok',
+        text:(yaziliBag.length
+              ? 'Yazılı bağlar: ' + yaziliBag.join(' · ') + '. Dördü de tekil alandır ve ' +
+                'hedefte ayna alan açılmaz — görev kaydında “hata” alanı yoktur. '
+              : 'Koşum, sprint, destek talebi ve görev alanlarının dördü de boş. Bağ tarih ' +
+                'yakınlığından türetilmez; yalnız gerçekten bilinen bağ yazılır. ') +
+             (gorev
+               ? 'Bağlı görev ' + gorev.kod + ' burada değiştirilmez; görev alanları kendi ' +
+                 'ekranından düzenlenir. Bu formdan yalnız bağın kendisi kaldırılabilir ya da ' +
+                 'başka bir göreve çevrilebilir.'
+               : 'Hatadan görev üretme akışı bu formda değil, hata kartındaki “Göreve dönüştür” ' +
+                 'aksiyonundadır; oradan üretilen görev şiddeti etki eksenine eşler.'),
+        actions:bagAksiyon }) +
+      '</div></section>';
+
+    /* ---- Şiddet ↔ görev etkisi eşlemesi ---- */
+    if(gorev && gorev.etki !== etkiKarsiligi(kayit.siddet)){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Şiddet ile bağlı görevin etkisi eşleşmiyor',
+        text:'Şiddet “' + kayit.siddet + '” için görev etkisi “' + etkiKarsiligi(kayit.siddet) +
+             '” olmalıydı; ' + gorev.kod + ' görevinde “' + gorev.etki + '” yazıyor. Şiddeti burada ' +
+             'değiştirirseniz görevin etki alanı otomatik güncellenmez — görev kendi ekranından ' +
+             'düzeltilir. Ölçüm: bağlı görevi olan ' + eslemeToplam + ' hatanın ' + eslemeTutan +
+             ' tanesinde eşleme tutuyor.' }) + '</div></section>';
+    }
+
+    /* ---- Bağlam kartı ---- */
+    var son  = acts[0];
+    var sure = sureGun(kayit);
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Hata numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Başlık', esc(kayit.baslik)],
+        ['Proje', proje
+          ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+            sub(proje.kod + ' · ' + proje.durum + ' · müşteri ' + proje.musteriAd)
+          : (kayit.proje ? '<span class="u-num">' + esc(kayit.proje) + '</span>' + sub('Proje kaydı bulunamadı') : null)],
+        ['Modül', modul ? esc(modul.ad) + sub(modul.kod + ' · ' + modul.durum + ' · %' + modul.ilerleme) : null],
+        ['Durum', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Şiddet (öncelik ekseni)', GV.pri(kayit.siddet)],
+        ['Öncelik (çözüm sırası)', GV.pri(kayit.oncelik)],
+        ['Bildiren', GV.user(kayit.bulan, { sm:true })],
+        ['Atanan', kayit.sorumlu ? GV.user(kayit.sorumlu, { sm:true }) : null],
+        ['Bulunma tarihi', GV.dateCell(kayit.bulunma, { done:true }) + sub(F.dateLong(kayit.bulunma))],
+        ['Çözüm tarihi', kayit.cozum ? GV.dateCell(kayit.cozum, { done:true }) : null],
+        ['Açık kalma / çözüm süresi', sure == null ? null
+          : '<b class="u-num">' + F.num(sure) + '</b> gün' +
+            sub(kayit.cozum ? 'bulunmadan çözüme' : 'hâlâ açık')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-proje-hata-detay.html?id=' + kayit.kod + '">' +
+        ico('i-external','ic-sm') + ' Hata kartını aç</a>');
+
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni hata kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki hata numarası atanır, aktivite geçmişine “Hata kaydı ' +
+           'oluşturuldu” satırı düşülür ve hata listesine dönülür. Bu form görev üretmez: ' +
+           'hatadan görev açma akışı hata kartındaki “Göreve dönüştür” aksiyonundadır. ' +
+           'Var olan bir göreve bağlamak isterseniz aşağıdaki “Bağlar” bölümünü kullanın.',
+      actions:[{ label:'Hata listesi', href:'app-proje-hata.html' }] });
+
+    var onNot = '';
+    if(qsTest && !onTest){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki test koşumu bulunamadı',
+        text:'“' + qsTest + '” numaralı koşum sistemde yok, bu yüzden kaynak koşum alanı boş ' +
+             'açıldı. Koşum listesinden geçerli bir kayıt seçebilirsiniz.',
+        actions:[{ label:'Test koşumları', href:'app-proje-test.html' }] });
+    }else if(onTest){
+      onNot += GV.notice({ tone:'ok', title:'Kaynak koşum adresten geldi',
+        text:onTest.kod + ' · ' + onTest.ad + ' koşumu seçili açıldı; projesi (' +
+             DB.projName(onTest.proje) + ') koşum kaydında yazılı olduğu için proje alanı da ' +
+             'doldu. Koşumun ' + onTest.basarisiz + ' başarısız senaryosu var ve şu an ' +
+             testBagli(onTest.kod) + ' hata bu koşuma bağlı. Koşumun sprinti (' +
+             (onTest.sprint || 'yok') + ') ve kapsadığı modüller (' +
+             ((onTest.moduller || []).length ? onTest.moduller.join(', ') : 'yok') +
+             ') hataya OTOMATİK yazılmaz — hatanın sprinti “ele alındığı” sprinttir, koşumunki ' +
+             'değildir; ikisini siz seçersiniz.',
+        actions:[{ label:'Koşumu aç', href:'app-proje-test-detay.html?id=' + onTest.kod }] });
+    }
+    if(qsProje && !onProje){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki proje bulunamadı',
+        text:'“' + qsProje + '” numaralı proje kaydı sistemde yok, bu yüzden proje alanı ön ' +
+             'seçili gelmedi. Listeden geçerli bir proje seçebilirsiniz.',
+        actions:[{ label:'Projeler', href:'app-proje.html' }] });
+    }else if(onProje && celiskiProje){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki proje ile koşumun projesi çelişiyor',
+        text:'Adreste ' + onProje.kod + ' projesi yazıyor ama ' + onTest.kod + ' koşumu ' +
+             onTest.proje + ' projesine ait. Bağ koşum kaydında yazılı olduğu için proje alanı ' +
+             'koşumun projesiyle açıldı.' });
+    }else if(onProje){
+      var pHata = DB.bugs.filter(function(b){ return b.proje === onProje.kod; });
+      onNot += GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
+        text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili ' +
+             'açıldı. Bu projede ' + pHata.length + ' hata kaydı var, ' +
+             pHata.filter(function(b){ return b.durum !== 'Kapandı'; }).length + ' tanesi açık.',
+        actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + onProje.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + onNot + '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-bug') + 'Hata Künyesi</h2>' +
+        '<div class="gc-sub">Kapsam, şiddet, sorumluluk ve veride yazılı tekil bağlar · ' +
+          'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-proje-hata.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  function pk(){ /* forma yazılmış güncel proje kodu */
+    var el = document.querySelector('#formMount [name="proje"]');
+    return el ? el.value : baslangicProje;
+  }
+
+  var sections = [
+    { title:'Hata kimliği',
+      desc:'Hatanın başlığı ve hangi projenin hangi modülünde görüldüğü. Hata numarası ' +
+           'kaydederken sistem tarafından atanır, elle girilmez.',
+      fields:[
+        { key:'baslik', label:'Hata başlığı', type:'text', required:true, cols:12,
+          placeholder:'Örn. Tahlil sonuç ekranında PDF indirme sessizce başarısız',
+          hint:'Ne olduğu tek cümlede yazılır; ortam ve tekrarlanabilirlik ayrı alanlardadır.',
+          validate:function(v, d){
+            var ayni = DB.bugs.filter(function(b){
+              return (!duzenle || b.kod !== kayit.kod) && b.proje === d.proje &&
+                     String(b.baslik).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+            return ayni ? 'Aynı projede aynı başlıkla bir hata kaydı var (' + ayni.kod +
+                          '). Başlık ayırt edici olmalı ya da mevcut kayıt güncellenmeli.' : '';
+          } },
+        { key:'proje', label:'Proje', type:'select', options:PROJELER, required:true, cols:6,
+          placeholder:'Proje seçin',
+          hint:'Proje değişince modül, koşum, sprint, destek talebi ve görev seçenekleri yeniden kurulur.' },
+        { key:'modul', label:'Modül', type:'select', options:modulSecenek(baslangicProje), cols:6,
+          placeholder:'Modülsüz',
+          hint:'Seçilen projenin modülleri listelenir. Projenin modül kırılımı yoksa boş bırakılır.',
+          validate:function(v, d){
+            if(!v) return '';
+            var m = DB.mod(v);
+            if(!m) return 'Seçilen modül kaydı bulunamadı.';
+            return m.proje !== d.proje
+              ? 'Modül başka bir projeye ait (' + m.proje + '); bağ aynı projede olmalıdır.' : '';
+          } }
+      ]},
+
+    { title:'Sınıflandırma',
+      desc:'Şiddet hatanın ağırlığını, öncelik çözüm sırasını söyler. İkisi ayrı eksendir ve ' +
+           'aynı kayıtta farklı değer alabilir.',
+      fields:[
+        { key:'siddet', label:'Şiddet', type:'select', options:DB.priorities, required:true, cols:4,
+          placeholder:'Şiddet seçin',
+          hint:'Öncelik kümesi kullanılır: ' + DB.priorities.join(' · ') + '. Etki kümesi (' +
+               DB.impacts.join(' · ') + ') hata şiddeti ekseni DEĞİLDİR. Ölçüm: ' + toplamHata +
+               ' hatanın ' + siddetEksen + ' tanesinde şiddet bu kümeden.' },
+        { key:'oncelik', label:'Öncelik', type:'select', options:DB.priorities, required:true, cols:4,
+          placeholder:'Öncelik seçin',
+          hint:'Çözüm sırası. Şiddetten farklı olabilir; hata kartı iki ekseni ayrı gösterir.' },
+        { key:'durum', label:'Durum', type:'select', options:DURUMLAR, required:true, cols:4,
+          hint:'Sözlükte ayrı bir “Çözüldü” değeri yok: çözülen hata “Kapandı” olur ve çözüm ' +
+               'tarihi yazılır.' }
+      ]},
+
+    { title:'Sorumluluk',
+      desc:'Hatayı bildiren ve düzeltmeyi üstlenen kişi. İkisinin farklı olması çapraz doğrulama sağlar.',
+      fields:[
+        { key:'bulan', label:'Bildiren', type:'select', options:KISILER, required:true, cols:6,
+          placeholder:'Çalışan seçin',
+          hint:duzenle ? 'Kaydı açan kişi.' : 'Oturumdaki kullanıcı seçili geldi; değiştirebilirsiniz.' },
+        { key:'sorumlu', label:'Atanan', type:'select', options:KISILER, cols:6,
+          placeholder:'Atanmadı',
+          hint:'Düzeltmeyi üstlenen çalışan; boş bırakılırsa hata atanmamış görünür. Bildiren ile ' +
+               'aynı kişi seçilebilir ama hata kartı bunu “çapraz doğrulama yok” diye işaretler.' }
+      ]},
+
+    { title:'Tarihler',
+      desc:'Açık kalma süresi bu iki tarihten hesaplanır; ekranlarda gün farkı sistem saatinden ' +
+           'değil, veri ekseninden (' + F.date(DB.today) + ') ölçülür.',
+      fields:[
+        { key:'bulunma', label:'Bulunma tarihi', type:'date', required:true, cols:6,
+          validate:function(v){
+            return (v && v > DB.today) ? 'Bulunma tarihi ileri bir tarih olamaz.' : '';
+          } },
+        { key:'cozum', label:'Çözüm tarihi', type:'date', cols:6,
+          hint:'Yalnız “Kapandı” durumundaki hatada dolar; açık hatada boş kalır.',
+          validate:function(v, d){
+            if(v && d.bulunma && v < d.bulunma) return 'Çözüm tarihi bulunma tarihinden önce olamaz.';
+            if(v && v > DB.today) return 'Çözüm tarihi ileri bir tarih olamaz.';
+            if(!v && d.durum === 'Kapandı') return 'Kapanmış hatada çözüm tarihi zorunludur.';
+            if(v && d.durum !== 'Kapandı') return 'Çözüm tarihi yazılan hata “Kapandı” durumunda olmalıdır.';
+            return '';
+          } }
+      ]},
+
+    { title:'Teknik bağlam',
+      desc:'Hatanın görüldüğü ortam ve yeniden üretilebilirliği. Kayıtta ayrıca “adımlar / ' +
+           'beklenen / gerçekleşen” alanı yoktur; ayrıntı bağlı görevin açıklamasında tutulur.',
+      fields:[
+        { key:'ortam', label:'Ortam', type:'text', cols:6,
+          placeholder:'Örn. iOS 17.4',
+          hint:ORTAMLAR.length
+            ? 'Veride kullanılan değerler: ' + ORTAMLAR.join(' · ') + '. Sözlük yok, serbest metin.'
+            : 'Sözlük yok, serbest metin.' },
+        { key:'tekrarlanabilir', label:'Tekrarlanabilirlik', type:'select', options:TEKRARLAR, cols:6,
+          placeholder:'Belirtilmedi',
+          hint:'Veride tekrarlanabilirlik sözlüğü yok; küme mevcut kayıtlardan türetildi (' +
+               (TEKRARLAR.length ? TEKRARLAR.join(', ') : 'kayıt yok') + ').' }
+      ]},
+
+    { title:'Bağlar',
+      desc:'Dördü de tekil bağdır ve veride yazılır; tarih yakınlığından türetilmez. Bağ hep ' +
+           'hata kaydının üstünde tutulur, hedefte ayna alan açılmaz — görev kaydında “hata” ' +
+           'alanı yoktur. Seçenekler yalnız aynı projenin kayıtlarıdır.',
+      fields:[
+        { key:'test', label:'Kaynak test koşumu', type:'select', options:testSecenek(baslangicProje), cols:6,
+          placeholder:'Koşumdan gelmedi',
+          hint:'Bir hata en fazla bir koşuma bağlanır. Ölçüm: ' + toplamHata + ' hatanın ' +
+               testliHata + ' tanesinde koşum bağı yazılı. Koşuma bağlı hata sayısı, koşumun ' +
+               'başarısız senaryo sayısını aşamaz.',
+          validate:function(v, d){
+            if(!v) return '';
+            var t = DB.tests.filter(function(x){ return x.kod === v; })[0];
+            if(!t) return 'Seçilen test koşumu bulunamadı.';
+            if(t.proje !== d.proje) return 'Koşum başka bir projeye ait (' + t.proje + '); bağ aynı projede olmalıdır.';
+            var n = testBagli(t.kod);
+            return (n + 1 > t.basarisiz)
+              ? t.kod + ' koşumunun ' + t.basarisiz + ' başarısız senaryosu var ve ' + n +
+                ' hata zaten bu koşuma bağlı; bir hata daha bağlanamaz.' : '';
+          } },
+        { key:'sprint', label:'Ele alındığı sprint', type:'select', options:sprintSecenek(baslangicProje), cols:6,
+          placeholder:'Sprint bağı yok',
+          hint:'Hatanın AÇILDIĞI değil, ELE ALINDIĞI sprint. Ölçüm: ' + toplamHata + ' hatanın ' +
+               sprintliHata + ' tanesinde sprint yazılı.',
+          validate:function(v, d){
+            if(!v) return '';
+            var s = DB.sprints.filter(function(x){ return x.kod === v; })[0];
+            if(!s) return 'Seçilen sprint bulunamadı.';
+            return s.proje !== d.proje
+              ? 'Sprint başka bir projeye ait (' + s.proje + '); bağ aynı projede olmalıdır.' : '';
+          } },
+        { key:'destek', label:'Hatayı doğuran destek talebi', type:'select',
+          options:talepSecenek(baslangicProje), cols:6,
+          placeholder:'Destek talebinden gelmedi',
+          hint:'Müşteri bildiriminden doğan hatalarda dolar. Ölçüm: ' + toplamHata + ' hatanın ' +
+               destekliHata + ' tanesinde destek bağı yazılı.',
+          validate:function(v, d){
+            if(!v) return '';
+            var t = DB.tickets.filter(function(x){ return x.kod === v; })[0];
+            if(!t) return 'Seçilen destek talebi bulunamadı.';
+            return t.proje !== d.proje
+              ? 'Destek talebi başka bir projeye ait (' + (t.proje || 'projesiz') +
+                '); bağ aynı projede olmalıdır.' : '';
+          } },
+        { key:'gorev', label:'Düzeltme görevi', type:'select', options:gorevSecenek(baslangicProje), cols:6,
+          placeholder:'Göreve bağlanmadı',
+          hint:'Hatayı düzelten görev. Ölçüm: ' + toplamHata + ' hatanın ' + gorevliHata +
+               ' tanesinde görev bağı yazılı. Görev kaydı bu formdan değiştirilmez.',
+          validate:function(v, d){
+            if(!v) return '';
+            var g = DB.task(v);
+            if(!g) return 'Seçilen görev bulunamadı.';
+            if(g.proje !== d.proje) return 'Görev başka bir projeye ait (' + (g.proje || 'projesiz') +
+              '); bağ aynı projede olmalıdır.';
+            var baska = DB.bugs.filter(function(b){
+              return b.gorev === v && (!duzenle || b.kod !== kayit.kod); })[0];
+            return baska ? g.kod + ' görevi zaten ' + baska.kod + ' hatasına bağlı; bir görev ' +
+                           'yalnız bir hatanın düzeltmesi olabilir.' : '';
+          } }
+      ]},
+
+    { title:'Kayıt durumu',
+      desc:'Liste bileşeni pasif kaydı arşiv sayar; arşivlenen hata yalnız “Arşivlenenleri göster” ' +
+           'açıkken listelenir.',
+      fields:[
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+          onLabel:'Kayıt aktif — hata listelerinde ve sayaçlarda görünür',
+          hint:'Kapatılırsa kayıt arşive düşer; bağlı görev, koşum ve destek talebi silinmez.',
+          validate:function(v, d){
+            return (!v && d.durum !== 'Kapandı')
+              ? 'Kapanmamış hata arşivlenemez — önce durumu “Kapandı” yapın.' : '';
+          } }
+      ]}
+  ];
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'hata', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     PROJEYE BAĞLI SEÇENEKLER — proje değişince yeniden kurulur.
+     Mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze kopyayla
+     değiştirdiği için dinleyici birikmez (ders L-16).
+     ================================================================= */
+  function doldur(key, secenekler, bosMetin){
+    var el = form.el.querySelector('[name="' + key + '"]');
+    if(!el) return false;
+    var eski = el.value;
+    var korunur = secenekler.some(function(o){ return o.value === eski; });
+    el.innerHTML = '<option value="">' + esc(bosMetin) + '</option>' +
+      secenekler.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (o.value === eski && korunur ? ' selected' : '') +
+          '>' + esc(o.label) + '</option>';
+      }).join('');
+    el.value = korunur ? eski : '';
+    return !!eski && !korunur;                 /* seçim düştü mü */
+  }
+
+  function bagilariTazele(){
+    var p = pk();
+    var dusen = 0;
+    if(doldur('modul',  modulSecenek(p),  'Modülsüz')) dusen++;
+    if(doldur('test',   testSecenek(p),   'Koşumdan gelmedi')) dusen++;
+    if(doldur('sprint', sprintSecenek(p), 'Sprint bağı yok')) dusen++;
+    if(doldur('destek', talepSecenek(p),  'Destek talebinden gelmedi')) dusen++;
+    if(doldur('gorev',  gorevSecenek(p),  'Göreve bağlanmadı')) dusen++;
+    if(dusen){
+      GV.toast(dusen + ' bağ alanı temizlendi — seçilen kayıtlar yeni projeye ait değil', 'warn');
+    }
+  }
+
+  form.el.addEventListener('change', function(e){
+    if(e.target && e.target.name === 'proje') bagilariTazele();
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    baslik:'Hata başlığı', proje:'Proje', modul:'Modül', siddet:'Şiddet', oncelik:'Öncelik',
+    durum:'Durum', bulan:'Bildiren', sorumlu:'Atanan', bulunma:'Bulunma tarihi',
+    cozum:'Çözüm tarihi', ortam:'Ortam', tekrarlanabilir:'Tekrarlanabilirlik',
+    test:'Kaynak test koşumu', sprint:'Ele alındığı sprint', destek:'Destek talebi',
+    gorev:'Düzeltme görevi', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.bugs.forEach(function(x){
+      var m = /^HTA-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'HTA-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşivli';
+    if(k === 'bulan' || k === 'sorumlu') return DB.empName(v);
+    if(k === 'proje') return DB.projName(v);
+    if(k === 'modul') return DB.modName(v);
+    if(k === 'bulunma' || k === 'cozum') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.baslik = String(v.baslik || '').trim();
+    v.ortam  = String(v.ortam || '').trim();
+    v.aktif  = !!v.aktif;
+    /* Boş seçim veride null olarak tutulur — '' ya da '—' sentinel'i kullanılmaz. */
+    ['modul','sorumlu','cozum','tekrarlanabilir'].concat(BAG_ALAN).forEach(function(k){
+      v[k] = String(v[k] == null ? '' : v[k]).trim() || null;
+    });
+    if(!v.ortam) v.ortam = null;
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      DB.bugs.unshift(Object.assign({ kod:kod }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Hata kaydı oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ hedeflerine yalnız AKTİVİTE satırı düşülür — hedef kayıtta ayna ALAN
+         açılmaz (components.md §9d): DB.tasks[].hata yazılmaz. */
+      if(v.gorev){
+        DB.activities.unshift({
+          kayit:v.gorev, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Hata ' + kod + ' bu göreve bağlandı', eski:null, yeni:v.baslik,
+          tone:'accent', icon:'i-bug'
+        });
+      }
+      if(v.destek){
+        DB.activities.unshift({
+          kayit:v.destek, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Talepten hata kaydı açıldı: ' + kod, eski:null, yeni:v.baslik,
+          tone:'accent', icon:'i-bug'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-proje-hata.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Teslimat',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Hata Kaydı',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-proje-hata.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
