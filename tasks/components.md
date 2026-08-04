@@ -68,6 +68,15 @@ mobil kart görünümü **aynı veri kaynağından** üretilir (ikinci markup ya
 
 ---
 
+### `rowActions[]` sözleşmesi
+`{ key, label, icon, cls, href, run, show }`
+- `href` string ya da `function(row)` — döndürdüğü değer falsy ise aksiyon **buton** olarak basılır
+  ve `run(row, ev)` çalışır.
+- **`show(row)` → boolean** — false dönerse aksiyon o satırda **hiç basılmaz**. Devre dışı
+  buton bırakmak yasak olduğu için, satıra uymayan aksiyon (zaten onaylanmış kaydı onaylama,
+  sözleşmesi olmayan kayıtta "sözleşmeyi aç") bu yordamla elenir. `onRender` içinde DOM'dan
+  buton silmek **artık gerekmez**.
+
 ## 3. Detay Bileşeni — `GV.detail(config)`
 
 ```js

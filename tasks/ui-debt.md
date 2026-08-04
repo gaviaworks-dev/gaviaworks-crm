@@ -120,3 +120,34 @@ ortak katmanda karşılığı yok. 65 ekrana tek tek yazmak da zaten yanlış ç
 ekran yalnız hangi alanın hangi kapsama karşılık geldiğini bildirecek. Süzgeç uygulandığında
 liste üstünde bilgilendirici bir çip görünecek ("Yalnız kendi kayıtlarınız").
 `scopeField` vermeyen ekran için davranış değişmez — geçiş kırılmadan yapılabilir.
+
+---
+
+## UID-06 · `GV.list` sayfa başlığı sayacı global, ikinci liste örneğini engelliyor
+
+**Nerede:** `GV.list` → kayıt sayacını `document.querySelector('[data-listcount]')` ile yazıyor.
+
+**Sorun:** Sayaç mount kapsamına değil **belgeye** bağlı. Aynı sayfada iki `GV.list` örneği
+kurulursa ikisi de aynı düğüme yazar; ikincisi birincinin sayısını ezer. Sonuç: bir ekranda
+iki liste kurmak pratikte mümkün değil. `app-egitim.html` katılımcı kırılımını bu yüzden
+ikinci liste olarak değil, elle kurulmuş bir matris olarak yazmak zorunda kaldı — yani
+ortak bileşenin kapsamadığı bir yerde tekrar markup doğdu (components.md kuralına aykırı).
+
+**Çözüm (kapanış fazında):** `GV.list`'e `countTarget` seçeneği eklenecek; verilmezse sayaç
+bileşenin **kendi mount kökü içinde** aranacak, belge genelinde değil. Matris kuran ekranlar
+ikinci `GV.list` örneğine çevrilecek.
+
+---
+
+## UID-07 · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor
+
+**Nerede:** `GV.list` `bulk[].run(ids)` — tüm liste ekranları.
+
+**Sorun:** `GV.list` dönüşü yalnız `state/refresh/setTab/setFilter` veriyor; seçili kayıtlarla
+dışa aktarımı tetikleyen bir API yok. Bu yüzden her ekranın "seçilenleri dışa aktar" toplu
+işlemi yalnız `GV.toast` basıyor — üst şeritteki Excel/CSV/PDF çıktısı çalışırken toplu
+işlemdeki aynı isimli aksiyon çalışmıyor. Kullanıcı açısından bu **sahte buton** sınırına
+yakın; en az üç ekranda aynı desen tekrarlandı.
+
+**Çözüm (kapanış fazında):** `GV.list` dönüşüne `exportRows(rows, format)` eklenecek ve
+toplu işlem bunu seçili kayıtlarla çağıracak. Ekranlarda tekrarlanan toast deseni silinecek.
