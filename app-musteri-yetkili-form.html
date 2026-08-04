@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yeni Yetkili Kişi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="musteri" data-screen="yetkili">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, mount = document.getElementById('rec');
+  var LISTE = 'app-musteri-yetkili.html';
+  var qs = new URLSearchParams(location.search);
+  var id = qs.get('id');
+  var kayit = id ? DB.contacts.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* =================================================================
+     ADRESTE id VAR AMA KAYIT YOK — uydurma yok, boş forma da düşülmez
+     ================================================================= */
+  if(id && !kayit){
+    GV.pageHead({
+      eyebrow:'Müşteri Yönetimi', title:'Yetkili Kişi Formu',
+      sub:'Aranan kayıt bulunamadı.',
+      actions:[{ label:'Yetkili kişilere dön', cls:'btn-line', href:LISTE }]
+    });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Kayıt bulunamadı',
+      desc:'“' + id + '” kodlu yetkili kişi bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="' + LISTE + '">Yetkili kişiler listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Müşteri Yönetimi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Yetkili Kişi',
+      sub:'Bu ekran rolünüze kapalı.',
+      actions:[{ label:'Yetkili kişilere dön', cls:'btn-line', href:LISTE }]
+    });
+    mount.innerHTML = '<div class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Kayıt düzenleme' : 'Kayıt ekleme') + ' yetkisi rolünüzde (' +
+           GV.session.rolAd + ') tanımlı değil. Yetkili kişiyi görüntüleyebilir ama değiştiremezsiniz.' }) + '</div>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada tekrar denenecek bir yükleme
+       yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="' + LISTE + '">Yetkili kişilere dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-musteri-detay.html?id=' + kayit.musteri +
+                   '#yetkili">Firma kartında görüntüle</a>' : '');
+    }
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni kayıt');
+  document.title = (duzenle ? kayit.ad + ' · Düzenle' : 'Yeni Yetkili Kişi') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     KAYNAKLAR
+     Yetkili kaydı yalnız `musteri` alanıyla bir müşteriye bağlanır (§9d yön kuralı:
+     bağ, doğan kaydın üstünde tutulur — müşteri kartında ayna alan yoktur).
+     `type:'customer'` diye bir alan tipi olmadığı için seçim `select` ile kurulur.
+     ================================================================= */
+  var g = kayit || {};
+
+  function cust(kod){ return DB.customers.filter(function(c){ return c.kod === kod; })[0] || null; }
+
+  /* Kayıttaki mevcut değer listede yoksa seçenek olarak eklenir — yoksa kaydet
+     sırasında sessizce boşalır ve bağ kaybolur. */
+  function ensureObj(opts, cur){
+    if(!cur) return opts;
+    var has = opts.filter(function(o){ return String(o.value) === String(cur); }).length > 0;
+    return has ? opts : opts.concat([{ value:cur, label:cur + ' · listede yok' }]);
+  }
+
+  var musteriOpts = ensureObj(DB.customers.map(function(c){
+    return { value:c.kod, label:c.unvan + ' · ' + c.kod + (c.aktif ? '' : ' (pasif)') };
+  }), g.musteri);
+
+  /* Adı geçen kayıtlar: destek talebi ve iletişim geçmişi yetkiliyi KODLA değil ADLA
+     eşleştiriyor (DB.tickets[].acan, DB.interactions[].kontak). Bu yüzden ad benzersiz
+     tutulur ve ad değişince bu satırlar birlikte güncellenir. */
+  function adlaBagli(musteriKod, ad){
+    if(!musteriKod || !ad) return { talep:[], iletisim:[] };
+    return {
+      talep: DB.tickets.filter(function(t){ return t.musteri === musteriKod && t.acan === ad; }),
+      iletisim: DB.interactions.filter(function(i){ return i.musteri === musteriKod && i.kontak === ad; })
+    };
+  }
+
+  var acikProje  = function(p){ return p.durum !== 'Teslim' && !p.arsiv; };        /* app-proje.html ile aynı */
+  var acikTeklif = function(q){ return ['Kazanıldı','Kaybedildi'].indexOf(q.durum) === -1; };
+  var acikTalep  = function(t){ return ['Kapandı','Çözüldü'].indexOf(t.durum) === -1; };
+
+  function yeniKod(){
+    var max = 0, gen = 3;
+    DB.contacts.forEach(function(x){
+      var m = /^YTK-(\d+)$/.exec(x.kod || '');
+      if(m){ max = Math.max(max, +m[1]); gen = Math.max(gen, m[1].length); }
+    });
+    var n = String(max + 1);
+    while(n.length < gen) n = '0' + n;
+    return 'YTK-' + n;                    /* koleksiyonun deseni yıl taşımaz */
+  }
+
+  /* =================================================================
+     YENİ KAYIT VARSAYILANLARI — firma kartından gelindiyse önseçili
+     ================================================================= */
+  var onMusteri = qs.get('musteri');
+  if(onMusteri && !cust(onMusteri)) onMusteri = null;
+  var yeniVarsayilan = { musteri: onMusteri || '', birincil:false, karar:false, aktif:true };
+
+  /* =================================================================
+     ALANLAR — DB.contacts kaydının 9 alanının tamamı karşılanır
+     (kod otomatik üretilir, kalan 8'i formda)
+     ================================================================= */
+  var sections = [
+    { title:'Bağlı müşteri', desc:'Yetkili kişi her zaman bir müşteri kaydına bağlıdır.', fields:[
+      { key:'musteri', label:'Müşteri firma', type:'select', options:musteriOpts, required:true, cols:12,
+        hint: duzenle
+          ? 'Firma değiştirilirse bu kişinin eski firmadaki destek ve iletişim kayıtları o firmada kalır.'
+          : 'Listede pasif firmalar da görünür; pasif firmaya yetkili eklenebilir ama listelerde pasif görünür.' }
+    ]},
+
+    { title:'Kişi bilgileri', desc:'Yetkilinin adı, görevi ve doğrudan iletişim bilgileri.', fields:[
+      { key:'ad', label:'Ad soyad', type:'text', required:true, cols:6,
+        placeholder:'Örn. Hakan Demirtaş',
+        hint:'Destek ve iletişim kayıtları yetkiliyi adıyla eşleştirir — ad benzersiz olmalıdır.',
+        validate:function(v, d){
+          var ad = String(v || '').trim();
+          if(!ad) return '';
+          var dup = DB.contacts.filter(function(x){
+            return x.kod !== (duzenle ? kayit.kod : null) &&
+                   String(x.ad || '').trim().toLocaleLowerCase('tr') === ad.toLocaleLowerCase('tr');
+          })[0];
+          if(!dup) return '';
+          var dm = cust(dup.musteri);
+          return 'Bu ad ' + dup.kod + ' (' + (dm ? dm.kisa : dup.musteri) + ') kaydında zaten kullanılıyor. ' +
+                 'Destek ve iletişim kayıtları yetkiliyi adıyla eşleştirdiği için adlar benzersiz olmalıdır.';
+        } },
+      { key:'pozisyon', label:'Pozisyon / unvan', type:'text', required:true, cols:6,
+        placeholder:'Örn. Bilgi İşlem Müdürü' },
+      { key:'tel', label:'Telefon', type:'tel', required:true, cols:6,
+        placeholder:'+90 5xx xxx xx xx' },
+      { key:'eposta', label:'E-posta', type:'email', required:true, cols:6,
+        placeholder:'ad@firma.com',
+        hint:'Teklif iletimi ve liste satır aksiyonu bu adresi kullanır.' }
+    ]},
+
+    { title:'Rol ve durum', desc:'Kişinin firmadaki iletişim rolü ve kaydın görünürlüğü.', fields:[
+      { key:'birincil', type:'switch', label:'Birincil kontak', cols:4,
+        onLabel:'Firmanın birincil kontağı',
+        hint:'Teklif ve sözleşmelerde muhatap olarak bu kişi görünür. Bir firmada tek birincil kontak olur.',
+        validate:function(v, d){
+          if(!v || !d.aktif) return '';
+          var digeri = DB.contacts.filter(function(x){
+            return x.kod !== (duzenle ? kayit.kod : null) && x.musteri === d.musteri &&
+                   x.birincil && x.aktif;
+          })[0];
+          if(!digeri) return '';
+          return digeri.ad + ' (' + digeri.kod + ') bu firmanın birincil kontağı olarak kayıtlı. ' +
+                 'Önce o kaydın birincil işaretini kaldırın.';
+        } },
+      { key:'karar', type:'switch', label:'Karar verici', cols:4,
+        onLabel:'Satın alma kararında etkili',
+        hint:'Satış aşamalarında karar vericiler ayrı sekmede listelenir.' },
+      { key:'aktif', type:'switch', label:'Kayıt durumu', cols:4,
+        onLabel:'Yetkili aktif — listelerde görünür',
+        hint:'Pasif yetkili aramada ve firma kartında “pasif” olarak görünür, kayıt silinmez.' }
+    ]}
+  ];
+
+  var etiketSozluk = {};
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ etiketSozluk[f.key] = f.label; }); });
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Müşteri Yönetimi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Yetkili Kişi',
+    sub:   duzenle ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır.'
+                   : 'Zorunlu alanlar yıldızla işaretlidir · ' + zorunlu.length + ' zorunlu alan.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:LISTE },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* =================================================================
+     BAĞLAM — düzenlemede özet + ilişkili kayıt uyarısı, yenide ne olacağı
+     ================================================================= */
+  var acts = duzenle ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; }) : [];
+  var html = '';
+
+  if(duzenle){
+    var firma    = cust(kayit.musteri);
+    var kardes   = DB.contacts.filter(function(x){ return x.musteri === kayit.musteri && x.kod !== kayit.kod; });
+    var projeler = firma ? DB.projects.filter(function(p){ return p.musteri === firma.kod; }) : [];
+    var teklifler= firma ? DB.quotes.filter(function(q){ return q.musteri === firma.kod; }) : [];
+    var talepler = firma ? DB.tickets.filter(function(t){ return t.musteri === firma.kod; }) : [];
+    var bagliAd  = adlaBagli(kayit.musteri, kayit.ad);
+    var son      = acts[0] || null;
+
+    var roller = [];
+    if(kayit.birincil) roller.push('<span class="badge is-ok no-dot">Birincil</span>');
+    if(kayit.karar)    roller.push('<span class="badge is-purple no-dot">Karar verici</span>');
+
+    var ozet = [
+      ['Kayıt no', '<span class="cell-code">' + kayit.kod + '</span>'],
+      ['Müşteri firma', firma
+        ? '<a href="app-musteri-detay.html?id=' + firma.kod + '#yetkili">' + esc(firma.unvan) + '</a>' +
+          ' ' + GV.badge(firma.aktif ? 'Aktif' : 'Pasif')
+        : null],
+      ['Pozisyon', esc(kayit.pozisyon)],
+      ['İletişim', esc(kayit.tel) + ' · <a href="mailto:' + esc(kayit.eposta) + '">' + esc(kayit.eposta) + '</a>'],
+      ['Rol', roller.length ? roller.join(' ') : null],
+      ['Müşteri temsilcisi', firma ? GV.user(firma.sorumlu, { sm:true }) : null],
+      ['Firmadaki diğer yetkililer', kardes.length ? kardes.map(function(k){
+        return esc(k.ad) + (k.aktif ? '' : ' (pasif)'); }).join(', ') : null],
+      ['Kayıt durumu', GV.badge(kayit.aktif ? 'Aktif' : 'Pasif')],
+      ['Son değiştiren', son ? esc(son.kisi) + ' · ' + F.dt(son.tarih) : null]
+    ];
+
+    html += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + GV.ico('i-info') + 'Kayıt özeti</h2>' +
+      (firma ? '<a class="btn btn-sm btn-line" href="app-musteri-detay.html?id=' + firma.kod +
+               '#yetkili">Firma kartını aç</a>' : '') + '</div>' +
+      '<div class="gc-body"><dl class="gv-dl">' + ozet.map(function(p){
+        var bos = (p[1] == null || p[1] === '');
+        return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+          (bos ? '—' : p[1]) + '</dd></div>';
+      }).join('') + '</dl></div></section>';
+
+    /* --- İlişkili kayıt uyarısı 1: firmanın açık işleri --- */
+    var acik = [];
+    if(projeler.filter(acikProje).length)   acik.push(projeler.filter(acikProje).length + ' açık proje');
+    if(teklifler.filter(acikTeklif).length) acik.push(teklifler.filter(acikTeklif).length + ' açık teklif');
+    if(talepler.filter(acikTalep).length)   acik.push(talepler.filter(acikTalep).length + ' açık destek talebi');
+
+    if(acik.length){
+      html += '<div class="u-mt-8 u-mb-8">' + GV.notice({
+        tone:'warn', title:'Firmanın açık kayıtları var',
+        text: (firma ? firma.kisa : kayit.musteri) + ' firmasında ' + acik.join(', ') + ' bulunuyor. ' +
+              'Bu kişi pasife alınır veya başka firmaya taşınırsa açık işlerin muhatabı boşta kalır; ' +
+              'önce yerine geçecek yetkiliyi işaretleyin.',
+        actions:[{ label:'Firma kartında incele', href:'app-musteri-detay.html?id=' + kayit.musteri + '#proje' }]
+      }) + '</div>';
+    }else{
+      html += '<div class="u-mt-8 u-mb-8">' + GV.notice({
+        tone:'neutral', title:'Firmanın açık kaydı yok',
+        text:'Bu firmada açık proje, teklif veya destek talebi bulunmuyor — değişiklik yalnız yetkili kartını etkiler.'
+      }) + '</div>';
+    }
+
+    /* --- İlişkili kayıt uyarısı 2: adla eşleşen kayıtlar (kod bağı değil) --- */
+    var adSayi = bagliAd.talep.length + bagliAd.iletisim.length;
+    if(adSayi){
+      var adParca = [];
+      if(bagliAd.talep.length)    adParca.push(bagliAd.talep.length + ' destek talebi');
+      if(bagliAd.iletisim.length) adParca.push(bagliAd.iletisim.length + ' iletişim kaydı');
+      html += '<div class="u-mb-8">' + GV.notice({
+        tone:'warn', icon:'i-link', title:'Bu kişi başka kayıtlarda adıyla geçiyor',
+        text:'Aynı firmada ' + adParca.join(' ve ') + ' bu kişinin adına bağlı. Destek ve iletişim ' +
+             'kayıtları yetkiliyi kodla değil adla eşleştirdiği için, ad değiştirilirse bu kayıtlardaki ' +
+             'kontak adı da birlikte güncellenir. Firma değiştirilirse eski kayıtlar eski adla kalır.',
+        actions:[{ label:'İletişim geçmişini aç', href:'app-musteri-detay.html?id=' + kayit.musteri + '#iletisim' }]
+      }) + '</div>';
+    }
+
+    /* --- Birincil kontak uyarısı --- */
+    if(kayit.birincil && kayit.aktif){
+      html += '<div class="u-mb-8">' + GV.notice({
+        tone:'info', title:'Bu kişi firmanın birincil kontağı',
+        text:'Teklif ve sözleşmelerde muhatap olarak bu kişi görünür. Pasife alınırsa ' +
+             (kardes.filter(function(k){ return k.aktif; }).length
+                ? 'firmada birincil kontak kalmaz — yerine başka bir yetkiliyi birincil işaretleyin.'
+                : 'firmanın başka aktif yetkilisi olmadığı için firma kartı muhatapsız kalır.')
+      }) + '</div>';
+    }
+  }else{
+    var onFirma = onMusteri ? cust(onMusteri) : null;
+    html += '<div class="u-mb-8">' + GV.notice({
+      tone:'info', title:'Kaydettiğinizde ne olacak',
+      text:'Yetkili ' + yeniKod() + ' numarasıyla yetkili kişiler listesine eklenir, seçtiğiniz firmanın ' +
+           'kartındaki Yetkililer sekmesinde görünür ve aktivite geçmişine “Kayıt oluşturuldu” satırı yazılır.' +
+           (onFirma ? ' Firma ' + onFirma.unvan + ' olarak önseçildi.' : '')
+    }) + '</div>';
+  }
+
+  html += '<section class="gv-card">' +
+    '<div class="gc-body"><div id="formMount"></div></div>' +
+    '<div class="gv-form-actions"><span class="spacer"></span>' +
+      '<a class="btn btn-line" href="' + LISTE + '">Vazgeç</a>' +
+      '<button type="button" class="btn btn-acc" id="btnKaydetAlt">' +
+        GV.ico('i-check') + ' ' + (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+    '</div></section>';
+
+  if(duzenle){
+    html += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + GV.ico('i-activity') + 'Aktivite geçmişi</h2></div>' +
+      '<div class="gc-body">' + GV.activity(acts) + '</div></section>';
+  }
+
+  mount.innerHTML = html;
+
+  /* =================================================================
+     FORM
+     ================================================================= */
+  var form = GV.form({
+    mount:'#formMount',
+    id:'yetkili',
+    record: kayit || yeniVarsayilan,
+    sections:sections
+  });
+
+  var btnAlt = document.getElementById('btnKaydetAlt');
+  if(btnAlt) btnAlt.addEventListener('click', kaydet);
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Form değerleri DOM'dan metin gelir; koleksiyonun tiplerine çevrilir. */
+  function normalize(v){
+    var o = {};
+    Object.keys(v).forEach(function(k){ o[k] = v[k]; });
+    ['ad','pozisyon','tel','eposta'].forEach(function(k){ o[k] = String(v[k] == null ? '' : v[k]).trim(); });
+    o.birincil = !!v.birincil;
+    o.karar    = !!v.karar;
+    o.aktif    = !!v.aktif;
+    return o;
+  }
+
+  function gorunur(k, val){
+    if(k === 'birincil') return val ? 'Birincil kontak' : 'Birincil değil';
+    if(k === 'karar')    return val ? 'Karar verici' : 'Karar verici değil';
+    if(k === 'aktif')    return val ? 'Aktif' : 'Pasif';
+    if(k === 'musteri'){ var c = cust(val); return c ? c.unvan + ' (' + val + ')' : String(val || '—'); }
+    if(val == null || val === '') return '—';
+    return String(val);
+  }
+
+  function kaydet(){
+    var v = form.submit();
+    if(!v) return;
+    var d = normalize(v);
+
+    if(duzenle){
+      var onceki = { ad:kayit.ad, musteri:kayit.musteri };
+      var degisen = 0;
+      Object.keys(d).forEach(function(k){
+        var eski = kayit[k], yeni = d[k];
+        if(String(eski == null ? '' : eski) === String(yeni == null ? '' : yeni)) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (etiketSozluk[k] || k),
+          eski:gorunur(k, eski), yeni:gorunur(k, yeni), tone:'accent', icon:'i-edit' });
+        kayit[k] = yeni;
+        degisen++;
+      });
+
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+        form.setDirty(false);
+        setTimeout(function(){ location.href = LISTE; }, 700);
+        return;
+      }
+
+      /* Ad değiştiyse, aynı firmadaki adla eşleşen kayıtlar birlikte güncellenir —
+         bu iki koleksiyon yetkiliyi kodla değil adla tutuyor, aksi hâlde bağ kopar.
+         Firma da değiştiyse eski kayıtlar eski firmaya ait olduğu için dokunulmaz. */
+      if(d.ad !== onceki.ad && d.musteri === onceki.musteri){
+        var esles = adlaBagli(onceki.musteri, onceki.ad);
+        esles.talep.forEach(function(t){ t.acan = d.ad; });
+        esles.iletisim.forEach(function(i){ i.kontak = d.ad; });
+        var n = esles.talep.length + esles.iletisim.length;
+        if(n){
+          DB.activities.unshift({
+            kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+            metin:'Bağlı kayıtlarda kontak adı güncellendi · ' + esles.talep.length + ' destek talebi, ' +
+                  esles.iletisim.length + ' iletişim kaydı',
+            eski:onceki.ad, yeni:d.ad, tone:'warn', icon:'i-link' });
+        }
+      }
+
+      GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+    }else{
+      var kod = yeniKod();
+      DB.contacts.unshift(Object.assign({ kod:kod }, d));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Kayıt oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus' });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    setTimeout(function(){ location.href = LISTE; }, 700);
+  }
+});
+</script>
+</body>
+</html>
