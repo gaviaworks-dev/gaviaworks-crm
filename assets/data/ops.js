@@ -274,6 +274,20 @@ DB.suppliers = [
    PARA EKSENİ (components.md §9b): `tahminiMaliyet` **NET** (KDV hariç).
    Doğrulandı: talebi karşılayan siparişin `DB.orders[].tutar` alanıyla birebir
    eşleşir (SAT-2026-013 → 8.400 · -012 → 28.500 · -011 → 64.000).
+
+   ONAY SAYACI EKSENİ (ders L-13 — yazılı olmadığı için bir ajanı yanılttı):
+   `onayAdim` = **bulunulan adım sırası** (1 tabanlı), onaylanan adım SAYISI değildir.
+     · Taslak (henüz gönderilmemiş)        → `onayAdim: 0`
+     · Onay sürecinde                      → `onayAdim = onaylanan adım + 1`
+     · Süreç tamamlandı                    → `onayAdim = onayToplam`
+   Ölçüm: SAT-2026-014'te bir adım onaylı ve sıradaki ikinci adım bekliyor → `onayAdim:2`.
+   "Onaylanan adım sayısı" diye okunursa kayıt çelişkili görünür; öyle DEĞİLDİR.
+   `onayToplam` = tutar ve kategoriye göre geçilecek toplam makam sayısı.
+
+   `DB.purchaseApprovals` **yalnız süreci devam eden** talepler için kayıt tutar;
+   tamamlanmış taleplerde (SAT-2026-011/012/013) adım dökümü modellenmemiştir —
+   `onayAdim === onayToplam` bilgisi yeterlidir. Ekran, zincir kaydı olmayan tamamlanmış
+   talepte "adım dökümü yok" demez, süreci tamamlanmış olarak gösterir.
    ------------------------------------------------------------------------- */
 DB.purchases = [
   { kod:'SAT-2026-014', talepEden:'EMP-010', dep:'DEP-12', proje:null, urun:'Geliştirici dizüstü bilgisayar',
