@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Toplantı Planla — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="toplanti" data-screen="toplanti">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.empName, DB.depName
+     crm.js  → DB.customers
+     work.js → DB.projects, DB.tasks, DB.activities
+     misc.js → DB.meetings, DB.decisions -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.meetings.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Toplantılar', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen toplantı kaydı sistemde yok.',
+      actions:[{ label:'Toplantı listesine dön', cls:'btn-line', href:'app-toplanti.html' }]
+    });
+    /* GV.empty desc alanını KENDİSİ escape eder — burada ön-escape yapılmaz (UID-23). */
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Toplantı bulunamadı',
+      desc:'“' + id + '” kodlu toplantı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-toplanti.html">Toplantı listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Toplantı Planla';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Toplantı kaydı finansal tutar ya da maaş alanı taşımaz; kapı yalnız
+     ekle / düzenle yetkisine bakar, alan bazlı gizleme yoktur.
+     ================================================================= */
+  var canYaz = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Toplantılar', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Toplantı listesine dön', cls:'btn-line', href:'app-toplanti.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Toplantı kaydı düzenleme' : 'Toplantı planlama') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Toplantıları listede ve ' +
+           'toplantı kartında görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; yeniden denenecek bir yükleme
+       yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-toplanti.html">Toplantı listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-toplanti-detay.html?id=' + esc(kayit.kod) +
+                   '">Toplantı kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     SABİT KÜMELER — PROMPT.md §19'daki altı toplantı türü
+     ================================================================= */
+  var TURLER   = ['Müşteri toplantısı','Proje toplantısı','Satış görüşmesi',
+                  'Departman toplantısı','Personel görüşmesi','Satın alma görüşmesi'];
+  var DURUMLAR = ['Planlandı','Tamamlandı','İptal'];
+  var MUSTERILI = ['Müşteri toplantısı','Proje toplantısı'];      /* müşteri bağı zorunlu */
+  var IC_TUR    = ['Departman toplantısı','Personel görüşmesi','Satın alma görüşmesi'];
+  var SADECE_IC = ['Departman toplantısı','Personel görüşmesi'];  /* dış katılımcı yazılmaz */
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+  function satirlar(v){
+    return String(v == null ? '' : v).split(/\r?\n/).map(function(s){ return s.trim(); })
+      .filter(function(s){ return s !== ''; });
+  }
+  function dk(hhmm){
+    var p = String(hhmm || '').split(':');
+    if(p.length !== 2) return null;
+    return (parseInt(p[0], 10) * 60) + parseInt(p[1], 10);
+  }
+  function saatMetin(m){ return pad2(Math.floor(m / 60) % 24) + ':' + pad2(m % 60); }
+  function sureMetin(d){
+    if(d == null) return '—';
+    var s = Math.floor(d / 60), k = d % 60;
+    return ((s ? s + ' sa' : '') + (k ? (s ? ' ' : '') + k + ' dk' : '')) || '0 dk';
+  }
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+  function musteriOf(kod){ return kod ? DB.customers.filter(function(c){ return c.kod === kod; })[0] || null : null; }
+  function projeOf(kod){ return kod ? DB.proj(kod) || null : null; }
+  function gorevOf(kod){ return kod ? DB.tasks.filter(function(t){ return t.kod === kod; })[0] || null : null; }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamToplanti = DB.meetings.length;
+  var turSayim = {};
+  TURLER.forEach(function(t){ turSayim[t] = 0; });
+  DB.meetings.forEach(function(m){ if(turSayim[m.tur] != null) turSayim[m.tur]++; });
+  var kayitsizTur = TURLER.filter(function(t){ return turSayim[t] === 0; });
+
+  var planliSayi = DB.meetings.filter(function(m){ return m.durum === 'Planlandı'; }).length;
+  var tamamSayi  = DB.meetings.filter(function(m){ return m.durum === 'Tamamlandı'; }).length;
+  var iptalSayi  = DB.meetings.filter(function(m){ return m.durum === 'İptal'; }).length;
+
+  var sureler   = DB.meetings.map(function(m){ return sayi(m.sure); });
+  var enKisa    = Math.min.apply(null, sureler);
+  var enUzun    = Math.max.apply(null, sureler);
+  var ortSure   = Math.round(sureler.reduce(function(s, x){ return s + x; }, 0) / toplamToplanti);
+
+  var gundemSay = DB.meetings.map(function(m){ return (m.gundem || []).length; });
+  var enAzGundem = Math.min.apply(null, gundemSay);
+  var enCokGundem = Math.max.apply(null, gundemSay);
+
+  var YERLER = [];
+  DB.meetings.forEach(function(m){ if(YERLER.indexOf(m.yer) === -1) YERLER.push(m.yer); });
+
+  /* Not alanı ölçümü: veride not YALNIZ tamamlanmış toplantılarda var. */
+  var notluSayi        = DB.meetings.filter(function(m){ return !!m.notlar; }).length;
+  var notluTamamlanan  = DB.meetings.filter(function(m){ return m.durum === 'Tamamlandı' && !!m.notlar; }).length;
+
+  /* ---- DB.decisions sözleşmesi (components.md §9): kararlar YALNIZ
+     durum:'Tamamlandı' toplantılara bağlanır. Ölçülür, varsayılmaz. ---- */
+  function mtg(kod){ return DB.meetings.filter(function(m){ return m.kod === kod; })[0] || null; }
+  function kararlariOf(kod){ return DB.decisions.filter(function(d){ return d.toplanti === kod; }); }
+  var toplamKarar   = DB.decisions.length;
+  var kararUyumlu   = DB.decisions.filter(function(d){
+    var m = mtg(d.toplanti); return m && m.durum === 'Tamamlandı'; }).length;
+  var kararliTamamlanan = DB.meetings.filter(function(m){
+    return m.durum === 'Tamamlandı' && kararlariOf(m.kod).length > 0; }).length;
+  var acikKararToplam = DB.decisions.filter(function(d){ return d.durum !== 'Tamamlandı'; }).length;
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI — hepsi veride yazılı tekil bağdan
+     ================================================================= */
+  var kararlar = duzenle ? kararlariOf(kayit.kod) : [];
+  var acikKarar = kararlar.filter(function(d){ return d.durum !== 'Tamamlandı'; });
+  var gorevliKarar = kararlar.filter(function(d){ return !!d.gorev; });
+  var kararSorumlulari = [];
+  kararlar.forEach(function(d){ if(d.sorumlu && kararSorumlulari.indexOf(d.sorumlu) === -1) kararSorumlulari.push(d.sorumlu); });
+
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     SAAT KÜMESİ — GV.form'da `time` tipi YOK; yarım saatlik select kurulur.
+     Kayıtta ızgaraya düşmeyen bir saat varsa kümeye eklenir (kayıp veri olmaz).
+     ================================================================= */
+  var SAATLER = [];
+  for(var h = 7; h <= 20; h++){ SAATLER.push(pad2(h) + ':00'); SAATLER.push(pad2(h) + ':30'); }
+  var kayitSaat = duzenle ? String(kayit.tarih).slice(11,16) : '';
+  if(kayitSaat && SAATLER.indexOf(kayitSaat) === -1){
+    SAATLER.push(kayitSaat);
+    SAATLER.sort();
+  }
+
+  /* =================================================================
+     ÇAKIŞMA — aynı gün, kesişen saat aralığı, ortak katılımcı.
+     İptal edilmiş toplantı çakışma saymaz; düzenlenen kayıt hariç tutulur.
+     ================================================================= */
+  function cakisanlar(gun, saat, sure, kisiler){
+    var b = dk(saat);
+    if(!gun || b == null) return [];
+    var s = b + sayi(sure);
+    var out = [];
+    DB.meetings.forEach(function(m){
+      if(duzenle && m.kod === kayit.kod) return;
+      if(m.durum === 'İptal') return;
+      if(String(m.tarih).slice(0,10) !== gun) return;
+      var mb = dk(String(m.tarih).slice(11,16));
+      if(mb == null) return;
+      var ms = mb + sayi(m.sure);
+      if(!(b < ms && mb < s)) return;
+      var ortak = (m.katilimci || []).filter(function(k){ return kisiler.indexOf(k) !== -1; });
+      if(ortak.length) out.push({ m:m, ortak:ortak });
+    });
+    return out;
+  }
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir.
+     `tarih` alanı forma iki parça olarak girer: gün (date) + saat (select).
+     Katılımcılar personel başına bir onay kutusudur (multiselect tipi yok).
+     ================================================================= */
+  var formRec = {
+    ad:          duzenle ? kayit.ad : '',
+    tur:         duzenle ? kayit.tur : '',
+    durum:       duzenle ? kayit.durum : 'Planlandı',
+    gun:         duzenle ? String(kayit.tarih).slice(0,10) : DB.today,
+    saat:        duzenle ? kayitSaat : '10:00',
+    sure:        duzenle ? sayi(kayit.sure) : 60,
+    yer:         duzenle ? kayit.yer : '',
+    musteri:     duzenle ? (kayit.musteri || '') : '',
+    proje:       duzenle ? (kayit.proje || '') : '',
+    disKatilimci:duzenle ? (kayit.disKatilimci || []).join('\n') : '',
+    gundem:      duzenle ? (kayit.gundem || []).join('\n') : '',
+    notlar:      duzenle ? (kayit.notlar || '') : '',
+    aktif:       duzenle ? kayit.aktif !== false : true
+  };
+  DB.employees.forEach(function(e){
+    formRec['kat_' + e.kod] = duzenle ? (kayit.katilimci || []).indexOf(e.kod) !== -1 : false;
+  });
+
+  function secilenler(d){
+    return DB.employees.filter(function(e){ return !!d['kat_' + e.kod]; })
+                       .map(function(e){ return e.kod; });
+  }
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var ust = '';
+
+  /* ---- DB.decisions kapsam notu — bu form karar kaydı ÜRETMEZ ---- */
+  var kararKapsamNot = GV.notice({
+    tone:'neutral', icon:'i-flag',
+    title:'Kararlar ve aksiyonlar bu formdan yazılmaz, ayrı ekranda yönetilir',
+    text:'Toplantı kararı kaydı (KRR-…) yalnız “Kararlar ve Aksiyonlar” ekranından açılır ve veri ' +
+         'sözleşmesi gereği YALNIZ durumu “Tamamlandı” olan toplantılara bağlanır. Bu form toplantının ' +
+         'kimliğini, zamanını, katılımcılarını, gündemini ve notunu yazar; karar, sorumlu, termin ve ' +
+         'karardan üretilen görev alanlarına dokunmaz. Ölçüm: sistemdeki ' + toplamKarar + ' kararın ' +
+         kararUyumlu + ' tanesi tamamlanmış toplantıya bağlı, ' + tamamSayi + ' tamamlanmış toplantının ' +
+         kararliTamamlanan + ' tanesinde karar kaydı var; planlı toplantıların hiçbirinde karar yok.',
+    actions:[{ label:'Kararlar ve aksiyonlar', href:'app-toplanti-karar.html' }] });
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı (form-brief §8) ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      kararlar.length
+        ? { tone:acikKarar.length ? 'warn' : 'info',
+            icon:acikKarar.length ? 'i-alert' : 'i-info',
+            title:'Bu toplantıya bağlı karar kayıtları var',
+            text:kayit.kod + ' kaydına bağlı ' + kararlar.length + ' karar kaydı tutuluyor; bunların ' +
+                 acikKarar.length + ' tanesi hâlâ açık, ' + gorevliKarar.length +
+                 ' tanesi göreve dönüştürülmüş. Kararlar yalnız tamamlanmış toplantılara bağlandığı için ' +
+                 'bu kaydın durumu “Tamamlandı” dışına alınamaz. Karar metni, sorumlu ve termin bu formdan ' +
+                 'değiştirilmez — karar ekranından yürütülür.',
+            actions:[{ label:'Kararları aç', href:'app-toplanti-karar.html?q=' + encodeURIComponent(kayit.kod) },
+                     { label:'Toplantı kartını aç', href:'app-toplanti-detay.html?id=' + kayit.kod }] }
+        : { tone:'neutral', icon:'i-info', title:'Bu toplantıya bağlı karar kaydı yok',
+            text:kayit.kod + ' için sistemde karar kaydı bulunmuyor. ' +
+                 (kayit.durum === 'Tamamlandı'
+                   ? 'Toplantı tamamlandı ancak karar girilmemiş; kararlar karar ekranından eklenir.'
+                   : 'Kararlar toplantı tamamlandıktan sonra, karar ekranından kaydedilir — bu toplantının ' +
+                     'durumu “' + kayit.durum + '”.') +
+                 ' Ölçüm: ' + tamamSayi + ' tamamlanmış toplantının ' + kararliTamamlanan +
+                 ' tanesinde karar kaydı var, sistemde toplam ' + acikKararToplam + ' açık aksiyon izleniyor.',
+            actions:[{ label:'Kararlar ve aksiyonlar', href:'app-toplanti-karar.html' },
+                     { label:'Toplantı kartını aç', href:'app-toplanti-detay.html?id=' + kayit.kod }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var son = acts[0];
+    var kMus = musteriOf(kayit.musteri);
+    var kPrj = projeOf(kayit.proje);
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Toplantı kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Başlık', esc(kayit.ad)],
+        ['Toplantı türü', '<span class="tag">' + esc(kayit.tur) + '</span>'],
+        ['Durum', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Tarih ve saat', GV.dateCell(String(kayit.tarih).slice(0,10), { done:kayit.durum === 'Tamamlandı' }) +
+          sub(String(kayit.tarih).slice(11,16) + ' · ' + sureMetin(sayi(kayit.sure)))],
+        ['Yer / platform', esc(kayit.yer)],
+        ['Müşteri', kMus
+          ? '<a href="app-musteri-detay.html?id=' + esc(kMus.kod) + '">' + esc(kMus.kisa) + '</a>' + sub(kMus.kod)
+          : null],
+        ['Proje', kPrj
+          ? '<a href="app-proje-detay.html?id=' + esc(kPrj.kod) + '">' + esc(kPrj.ad) + '</a>' + sub(kPrj.kod)
+          : null],
+        ['Katılımcı', '<b class="u-num">' + ((kayit.katilimci || []).length + (kayit.disKatilimci || []).length) +
+          '</b>' + sub((kayit.katilimci || []).length + ' personel · ' +
+                       (kayit.disKatilimci || []).length + ' dış katılımcı')],
+        ['Gündem maddesi', '<b class="u-num">' + (kayit.gundem || []).length + '</b>'],
+        ['Karar kaydı', kararlar.length
+          ? '<b class="u-num">' + kararlar.length + '</b>' +
+            sub(acikKarar.length + ' açık · ' + gorevliKarar.length + ' göreve dönüştü')
+          : '<span class="u-faint">Karar kaydı yok</span>'],
+        ['Toplantı notu', kayit.notlar ? '<span class="cell-wrap">' + esc(kayit.notlar) + '</span>' : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-toplanti-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Toplantı kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni toplantı kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki toplantı kodu atanır, aktivite geçmişine “Toplantı kaydı ' +
+             'oluşturuldu” satırı düşer ve toplantı listesine dönülür. Katılımcılara davet gönderme, ' +
+             'takvim (ICS) bağlantısı ve online toplantı bağlantısı üretme bu prototipin kapsamı ' +
+             'dışındadır; yer alanı serbest metindir. Ölçüm: sistemde ' + toplamToplanti +
+             ' toplantı kayıtlı — ' + planliSayi + ' planlı, ' + tamamSayi + ' tamamlanmış, ' +
+             iptalSayi + ' iptal.',
+        actions:[{ label:'Toplantı listesi', href:'app-toplanti.html' },
+                 { label:'Ajanda', href:'app-ajanda.html' },
+                 { label:'Kararlar ve aksiyonlar', href:'app-toplanti-karar.html' }] }) + '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-users') + 'Toplantı Bilgileri</h2>' +
+        '<div class="gc-sub">Toplantı kodu kaydederken atanır · zorunlu alanlar yıldızla işaretlidir.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-ajanda.html">' + ico('i-calendar','ic-sm') +
+            ' Ajandada gör</a></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clock') + 'Plan Özeti</h2>' +
+        '<div class="gc-sub">Alanları değiştirdikçe güncellenir: zaman aralığı, katılımcı listesi, ' +
+          'gündem ve katılımcı çakışması.</div></div></div>' +
+      '<div class="gc-body" id="planOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-flag') + 'Kararlar ve Aksiyonlar</h2>' +
+        '<div class="gc-sub">Karar kayıtları bu formdan üretilmez; yalnız tamamlanmış toplantılara ' +
+          'bağlanır ve karar ekranında yönetilir.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-toplanti-karar.html' +
+            (duzenle ? '?q=' + encodeURIComponent(kayit.kod) : '') + '">' + ico('i-flag','ic-sm') +
+            ' Karar ekranını aç</a></div></div>' +
+      '<div id="kararOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' +
+        GV.notice({ tone:'neutral', icon:'i-paperclip',
+          title:'Toplantı dosyaları ve katılım durumu bu formda yok',
+          text:'Toplantı kaydı belge bağı tutmuyor — doküman kaydında yalnız müşteri, proje ve klasör ' +
+               'bağı var, bu yüzden toplantıya dosya eklenemiyor ve belgeler doküman merkezinden ' +
+               'izleniyor. Kişi bazında katıldı / katılmadı / mazeretli gibi bir katılım durumu alanı ' +
+               'da kayıtta bulunmuyor; katılımcı listesi tek eksendir. Gündem maddeleri başlık ' +
+               'düzeyinde tutulur: madde başına sorumlu, süre ve sonuç alanı yoktur.',
+          actions:[{ label:'Doküman merkezi', href:'app-dokuman.html' }].concat(
+            duzenle ? [{ label:'Toplantı kartını aç', href:'app-toplanti-detay.html?id=' + kayit.kod }] : []) }) +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-toplanti.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Toplantı kimliği',
+    desc:'Toplantının başlığı, türü ve durumu. Tür, listenin sekmelerini ve filtresini besler; ' +
+         'toplantı kodu kaydederken sistem tarafından atanır.',
+    fields:[
+      { key:'ad', label:'Toplantı başlığı', type:'text', required:true, cols:12,
+        placeholder:'Örn. Vitalis mobil teslim toplantısı',
+        hint:'Listede, ajandada ve karar ekranında bu başlık görünür.',
+        validate:function(v, d){
+          var s = String(v || '').trim().toLowerCase();
+          if(!s) return '';
+          var ayni = DB.meetings.filter(function(m){
+            return (!duzenle || m.kod !== kayit.kod) &&
+                   String(m.ad).trim().toLowerCase() === s &&
+                   String(m.tarih).slice(0,10) === d.gun; })[0];
+          return ayni ? 'Aynı gün aynı başlıkla kayıtlı bir toplantı var (' + ayni.kod +
+                        '). Mükerrer kayıt yerine mevcut toplantı güncellenmeli.' : '';
+        } },
+
+      { key:'tur', label:'Toplantı türü', type:'select', options:TURLER, required:true, cols:6,
+        placeholder:'Tür seçin',
+        hint:'Altı tür sabittir. Ölçüm: ' + TURLER.map(function(t){ return t + ' ' + turSayim[t]; }).join(' · ') +
+             (kayitsizTur.length ? ' — “' + kayitsizTur.join('”, “') + '” türünde henüz kayıt yok.' : '.') },
+
+      { key:'durum', label:'Toplantı durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Ölçüm: ' + planliSayi + ' planlı · ' + tamamSayi + ' tamamlanmış · ' + iptalSayi +
+             ' iptal. Kararlar yalnız tamamlanmış toplantılara bağlanır.',
+        validate:function(v){
+          if(duzenle && kararlar.length && v !== 'Tamamlandı')
+            return 'Bu toplantıya bağlı ' + kararlar.length + ' karar kaydı var. Karar kayıtları yalnız ' +
+                   'durumu “Tamamlandı” olan toplantılara bağlanabilir; durum değiştirilemez.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Zaman ve yer',
+    desc:'Başlangıç günü, saati ve süresi. Bitiş saati süreden hesaplanır, ayrı alan olarak tutulmaz.',
+    fields:[
+      { key:'gun', label:'Tarih', type:'date', required:true, cols:4,
+        hint:'Sistem tarihi ' + F.date(DB.today) + '. Planlı toplantı geçmiş güne, tamamlanmış toplantı ' +
+             'gelecek güne konulamaz.',
+        validate:function(v, d){
+          if(!v) return '';
+          var fark = F.days(v);
+          if(d.durum === 'Planlandı' && fark < 0)
+            return 'Planlı toplantı geçmiş bir güne konulamaz. Geçmiş toplantı “Tamamlandı” ya da ' +
+                   '“İptal” olarak işaretlenir.';
+          if(d.durum === 'Tamamlandı' && fark > 0)
+            return 'Tamamlandı olarak işaretlenen toplantı gelecek bir güne konulamaz.';
+          return '';
+        } },
+
+      { key:'saat', label:'Başlangıç saati', type:'select', options:SAATLER, required:true, cols:4,
+        placeholder:'Saat seçin',
+        hint:'Yarım saatlik ızgara (07:00 – 20:30). Saat alanı için ayrı bir bileşen tipi yok; ' +
+             'küme sabit listeden gelir.' },
+
+      { key:'sure', label:'Süre (dakika)', type:'number', required:true, min:15, max:480, cols:4,
+        hint:'Ölçüm: kayıtlı toplantılar ' + enKisa + ' – ' + enUzun + ' dk arasında, ortalama ' +
+             ortSure + ' dk. Beş dakikanın katı olarak yazılır.',
+        validate:function(v){
+          var n = sayi(v);
+          if(String(v).trim() === '') return '';
+          if(Math.round(n) !== n) return 'Süre tam sayı olmalıdır.';
+          if(n % 5 !== 0) return 'Süre beş dakikanın katı olmalıdır (örn. 45, 60, 90).';
+          return '';
+        } },
+
+      { key:'yer', label:'Yer / platform', type:'text', required:true, cols:12,
+        placeholder:'Örn. Online — Meet',
+        hint:'Serbest metin; online toplantı bağlantısı üretme kapsam dışıdır. Kayıtlı değerler: ' +
+             YERLER.join(' · ') + '.' }
+    ]});
+
+  sections.push({ title:'Bağlam',
+    desc:'Toplantının bağlı olduğu müşteri ve proje. Müşteri ve proje toplantısında bağ zorunludur; ' +
+         'iç toplantılarda (departman, personel, satın alma) bağ tutulmaz.',
+    fields:[
+      { key:'musteri', label:'Müşteri', type:'select', cols:6,
+        placeholder:'Müşteri bağı yok (iç toplantı)',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa + ' — ' + c.unvan }; }),
+        hint:'Ölçüm: ' + DB.meetings.filter(function(m){ return !!m.musteri; }).length + ' toplantının ' +
+             'müşteri bağı var. Satış görüşmesi henüz müşteri olmayan adayla yapılabilir, bu yüzden ' +
+             'o türde müşteri zorunlu değildir.',
+        validate:function(v, d){
+          if(MUSTERILI.indexOf(d.tur) !== -1 && !v)
+            return '“' + d.tur + '” türünde müşteri bağı zorunludur.';
+          if(IC_TUR.indexOf(d.tur) !== -1 && v)
+            return '“' + d.tur + '” bir iç toplantıdır; müşteri bağı tutulmaz.';
+          return '';
+        } },
+
+      { key:'proje', label:'Proje', type:'select', cols:6,
+        placeholder:'Proje bağı yok',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }),
+        hint:'Proje seçilirse projenin müşterisiyle yukarıdaki müşteri aynı olmalıdır. Ölçüm: proje ' +
+             'bağı olan ' + DB.meetings.filter(function(m){ return !!m.proje; }).length +
+             ' toplantının tamamında müşteri de yazılı ve ikisi tutarlı.',
+        validate:function(v, d){
+          if(!v){
+            return d.tur === 'Proje toplantısı' ? '“Proje toplantısı” türünde proje bağı zorunludur.' : '';
+          }
+          if(IC_TUR.indexOf(d.tur) !== -1)
+            return '“' + d.tur + '” bir iç toplantıdır; proje bağı tutulmaz.';
+          var p = projeOf(v);
+          if(p && d.musteri && p.musteri !== d.musteri)
+            return 'Seçilen proje ' + (musteriOf(p.musteri) || {}).kisa + ' müşterisine ait; müşteri ' +
+                   'alanıyla çelişiyor. Bağ veriden okunur, tahmin edilmez.';
+          if(p && !d.musteri)
+            return 'Proje seçildiğinde projenin müşterisi de seçilmelidir (' +
+                   ((musteriOf(p.musteri) || {}).kisa || p.musteri) + ').';
+          return '';
+        } }
+    ]});
+
+  /* ---- Katılımcılar: `multiselect` tipi YOK — personel başına onay kutusu ---- */
+  var katFields = DB.employees.map(function(e, i){
+    var f = {
+      key:'kat_' + e.kod, label:e.ad, type:'checkbox', cols:4,
+      checkLabel:e.ad + ' · ' + (e.depAd || DB.depName(e.dep))
+    };
+    /* “En az bir katılımcı” kuralı gruba aittir; bileşen grup doğrulaması tanımadığı için
+       kural ilk kutuya bağlanır — hata özeti ve odak böylece grubun başına düşer. */
+    if(i === 0){
+      f.validate = function(v, d){
+        return secilenler(d).length ? '' : 'En az bir personel katılımcı seçilmelidir.';
+      };
+    }
+    return f;
+  });
+  katFields.push({ key:'disKatilimci', label:'Dış katılımcılar', type:'textarea', rows:4, cols:12,
+    placeholder:'Her satıra bir kişi — örn. Dr. Emine Karataş',
+    hint:'Her satır bir dış katılımcıdır. Kayıtta yalnız ad soyad tutulur; unvan, kurum ve iletişim ' +
+         'alanı yoktur. Ölçüm: ' + DB.meetings.filter(function(m){ return (m.disKatilimci || []).length; }).length +
+         ' toplantıda dış katılımcı var.',
+    validate:function(v, d){
+      /* Dış katılımcı yasağı YALNIZ tamamen şirket içi iki türdedir; satın alma
+         görüşmesinin dış katılımcısı tedarikçi tarafıdır ve yazılabilir. */
+      if(SADECE_IC.indexOf(d.tur) !== -1 && satirlar(v).length)
+        return '“' + d.tur + '” yalnız şirket içi katılımcılarla yapılır; dış katılımcı yazılmaz.';
+      return '';
+    } });
+
+  sections.push({ title:'Katılımcılar',
+    desc:'Personel katılımcılar onay kutusuyla seçilir (' + DB.employees.length + ' personel). Kişi ' +
+         'bazında katılım durumu (katıldı / mazeretli) kayıtta tutulmaz.',
+    fields:katFields });
+
+  sections.push({ title:'Gündem ve not',
+    desc:'Gündem maddeleri toplantı öncesinde, not ise toplantı sonrasında yazılır. Not alanı yalnız ' +
+         'tamamlanmış toplantılarda tutulur.',
+    fields:[
+      { key:'gundem', label:'Gündem maddeleri', type:'textarea', rows:5, required:true, cols:12,
+        placeholder:'Her satıra bir gündem maddesi',
+        hint:'Her satır bir maddedir. Ölçüm: kayıtlı toplantılarda ' + enAzGundem + ' – ' + enCokGundem +
+             ' madde var. Madde başına sorumlu, süre ve sonuç alanı sistemde yok.',
+        validate:function(v){
+          var l = satirlar(v);
+          if(!l.length) return 'En az bir gündem maddesi yazılmalıdır.';
+          if(l.length > 15) return 'Gündem en fazla 15 madde ile sınırlıdır; kalanlar ayrı toplantıya alınmalı.';
+          var uzun = l.filter(function(s){ return s.length > 80; })[0];
+          return uzun ? 'Gündem maddesi başlık düzeyinde yazılır (en fazla 80 karakter): “' +
+                        uzun.slice(0, 40) + '…”' : '';
+        } },
+
+      { key:'notlar', label:'Toplantı notu / özeti', type:'textarea', rows:4, cols:12,
+        placeholder:'Toplantıda konuşulanların kısa özeti',
+        hint:'Ölçüm: ' + notluSayi + ' toplantıda not var, ' + notluTamamlanan + ' tanesi tamamlanmış ' +
+             'toplantı — planlı toplantıların hiçbirinde not tutulmuyor. Kayıtta not yazarı ve yazım ' +
+             'tarihi alanı yoktur.',
+        validate:function(v, d){
+          if(d.durum === 'Tamamlandı' && !String(v || '').trim())
+            return 'Tamamlandı olarak işaretlenen toplantıda özet notu zorunludur (ölçüm: ' +
+                   tamamSayi + ' tamamlanmış toplantının ' + notluTamamlanan + ' tanesinde not var).';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Kayıt durumu arşiv eksenidir; toplantı durumundan (planlı / tamamlandı / iptal) ayrı bir alandır.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — toplantı listelerinde, ajandada ve sayaçlarda görünür',
+        hint:'Kapatılırsa toplantı arşive düşer; bağlı karar kayıtları silinmez.',
+        validate:function(v, d){
+          if(!v && d.durum === 'Planlandı')
+            return 'Planlı toplantı arşivlenemez — önce durumu “Tamamlandı” ya da “İptal” yapın.';
+          if(!v && kararlar.length && acikKarar.length)
+            return 'Bu toplantının ' + acikKarar.length + ' açık kararı var; kayıt arşivlenemez.';
+          return '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'toplanti', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER — plan ve karar blokları
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function zamanMetin(gun, saat, durum){
+    if(durum === 'İptal') return '<span class="u-faint">Toplantı iptal edildi</span>';
+    if(!gun) return '<span class="u-faint">Tarih seçilmedi</span>';
+    var g = F.days(gun);
+    if(g < 0)   return '<span class="u-num">' + Math.abs(g) + ' gün önce</span>';
+    if(g === 0) return '<b class="u-num">Bugün ' + esc(saat || '') + '</b>';
+    if(g <= 3)  return '<b class="u-num">' + g + ' gün kaldı</b>';
+    return '<span class="u-num">' + g + ' gün kaldı</span>';
+  }
+
+  function planOzetiCiz(){
+    var hedef = document.getElementById('planOzet');
+    if(!hedef) return;
+    var d = form.read();
+    var kisiler = secilenler(d);
+    var dis = satirlar(d.disKatilimci);
+    var g = satirlar(d.gundem);
+    var b = dk(d.saat);
+    var sureDk = sayi(d.sure);
+    var bitis = (b == null) ? null : saatMetin(b + sureDk);
+    var cak = cakisanlar(d.gun, d.saat, sureDk, kisiler);
+    var mus = musteriOf(d.musteri);
+    var prj = projeOf(d.proje);
+
+    var uyari = '';
+    if(cak.length){
+      uyari = GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Katılımcı çakışması var',
+        text:'Seçilen zaman aralığında ' + cak.length + ' toplantı daha var ve katılımcılar örtüşüyor: ' +
+             cak.map(function(c){
+               return c.m.kod + ' (' + String(c.m.tarih).slice(11,16) + ' · ' + c.m.sure + ' dk · ' +
+                      c.ortak.map(DB.empName).join(', ') + ')';
+             }).join(' · ') + '. Kayıt engellenmez; kaydetmeden önce onayınız istenir.' });
+    }else if(kisiler.length){
+      uyari = GV.notice({ tone:'ok', icon:'i-check-circle',
+        title:'Seçilen aralıkta katılımcı çakışması yok',
+        text:'Aynı gün ve kesişen saat aralığında, seçilen ' + kisiler.length +
+             ' personelin başka bir toplantı kaydı bulunmuyor. İptal edilmiş toplantılar çakışma sayılmaz.' });
+    }else{
+      uyari = GV.notice({ tone:'neutral', icon:'i-users',
+        title:'Henüz personel katılımcı seçilmedi',
+        text:'Katılımcı seçildikçe aynı gün ve saat aralığındaki toplantılarla çakışma burada ölçülür.' });
+    }
+
+    hedef.innerHTML = uyari + ozetListe([
+      ['Zaman aralığı', d.gun
+        ? GV.dateCell(d.gun, { done:d.durum === 'Tamamlandı' }) +
+          sub((d.saat || '—') + (bitis ? ' – ' + bitis : '') + ' · ' + sureMetin(sureDk))
+        : '<span class="u-faint">Tarih ve saat seçilmedi</span>'],
+      ['Zaman durumu', zamanMetin(d.gun, d.saat, d.durum)],
+      ['Tür ve durum', (d.tur ? '<span class="tag">' + esc(d.tur) + '</span> ' : '') +
+        (d.durum ? GV.badge(d.durum) : '<span class="u-faint">—</span>')],
+      ['Yer / platform', d.yer ? esc(d.yer) : '<span class="u-faint">Girilmedi</span>'],
+      ['Bağlam', mus
+        ? esc(mus.kisa) + (prj ? sub(prj.ad + ' · ' + prj.kod) : sub('proje bağı yok'))
+        : '<span class="u-faint">İç toplantı — müşteri ve proje bağı yok</span>'],
+      ['Katılımcı', '<b class="u-num">' + (kisiler.length + dis.length) + '</b>' +
+        sub(kisiler.length + ' personel · ' + dis.length + ' dış katılımcı')],
+      kisiler.length
+        ? ['Seçilen personel', '<span class="u-row u-wrap">' + kisiler.map(function(k){
+            return '<span class="tag">' + esc(DB.empName(k)) + '</span>'; }).join('') + '</span>']
+        : null,
+      dis.length
+        ? ['Dış katılımcı', '<span class="u-row u-wrap">' + dis.map(function(x){
+            return '<span class="tag">' + esc(x) + '</span>'; }).join('') + '</span>']
+        : null,
+      ['Gündem maddesi', g.length
+        ? '<b class="u-num">' + g.length + '</b>' + sub(g.join(' · '))
+        : '<span class="u-faint">Gündem girilmedi</span>'],
+      ['Toplantı notu', String(d.notlar || '').trim()
+        ? '<span class="cell-wrap">' + esc(String(d.notlar).trim()) + '</span>'
+        : '<span class="u-faint">' + (d.durum === 'Tamamlandı'
+            ? 'Tamamlanmış toplantıda not zorunludur' : 'Toplantı sonrası yazılır') + '</span>'],
+      ['Kayıt durumu', d.aktif ? GV.badge('Aktif') : GV.badge('Arşiv')]
+    ]);
+  }
+
+  function kararOzetiCiz(){
+    var hedef = document.getElementById('kararOzet');
+    if(!hedef) return;
+    var d = form.read();
+
+    var blok = '<div class="gc-body">' + kararKapsamNot;
+
+    if(duzenle && kararlar.length){
+      blok += ozetListe(kararlar.map(function(k){
+        var t = gorevOf(k.gorev);
+        return ['<span class="cell-wrap">' + esc(k.karar) + '</span>' + sub(k.kod + ' · ' + DB.empName(k.sorumlu)),
+          GV.badge(k.durum) + ' ' + GV.dateCell(k.termin, { done:k.durum === 'Tamamlandı' }) +
+          (k.gorev
+            ? sub('görev: ' + (t ? t.baslik : k.gorev) + ' (' + k.gorev + ')')
+            : sub('göreve dönüştürülmedi'))];
+      })) + '</div>' +
+      '<div class="gc-foot"><span class="gv-count"><b>' + kararlar.length + '</b> karar · ' +
+        acikKarar.length + ' açık · ' + gorevliKarar.length + ' göreve dönüştü</span>' +
+        '<a class="btn btn-line btn-sm" href="app-toplanti-karar.html?q=' + encodeURIComponent(kayit.kod) + '">' +
+          ico('i-flag','ic-sm') + ' Kararları aç</a></div>';
+    }else{
+      blok += ozetListe([
+        ['Bu kayda bağlı karar', duzenle
+          ? '<span class="u-faint">Karar kaydı yok</span>'
+          : '<span class="u-faint">Yeni toplantının kararı olmaz</span>'],
+        ['Forma girilen durum', d.durum ? GV.badge(d.durum) : '<span class="u-faint">—</span>'],
+        ['Karar yazılabilir mi', d.durum === 'Tamamlandı'
+          ? '<span class="badge is-ok no-dot">Evet — karar ekranından</span>'
+          : '<span class="badge is-neutral no-dot">Hayır — toplantı tamamlanmadan karar bağlanmaz</span>'],
+        ['Sistemdeki açık aksiyon', '<b class="u-num">' + acikKararToplam + '</b>' +
+          sub(toplamKarar + ' kararın ' + kararUyumlu + ' tanesi tamamlanmış toplantıya bağlı')]
+      ]) + '</div>';
+    }
+    hedef.innerHTML = blok;
+  }
+
+  function ozetleriCiz(){ planOzetiCiz(); kararOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    ad:'Toplantı başlığı', tur:'Toplantı türü', musteri:'Müşteri', proje:'Proje',
+    tarih:'Tarih ve saat', sure:'Süre', yer:'Yer / platform', katilimci:'Personel katılımcılar',
+    disKatilimci:'Dış katılımcılar', gundem:'Gündem maddeleri', durum:'Toplantı durumu',
+    notlar:'Toplantı notu', aktif:'Kayıt durumu'
+  };
+  var ALAN_SIRA = ['ad','tur','musteri','proje','tarih','sure','yer','katilimci','disKatilimci',
+                   'gundem','durum','notlar','aktif'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.meetings.forEach(function(m){
+      var x = /^TOP-\d{4}-(\d+)$/.exec(m.kod || '');
+      if(x) max = Math.max(max, parseInt(x[1], 10));
+    });
+    var n = String(max + 1);
+    while(n.length < 3) n = '0' + n;
+    return 'TOP-' + String(DB.today).slice(0,4) + '-' + n;
+  }
+
+  /* Karşılaştırma normalleştirmesi: dizi, boş metin, null ve false aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    if(Object.prototype.toString.call(x) === '[object Array]') return x.join('|');
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '') return '—';
+    if(k === 'katilimci') return (v || []).map(DB.empName).join(', ') || '—';
+    if(k === 'disKatilimci' || k === 'gundem') return (v || []).join(' · ') || '—';
+    if(k === 'musteri') return (musteriOf(v) || {}).kisa || String(v);
+    if(k === 'proje')   return (projeOf(v) || {}).ad || String(v);
+    if(k === 'tarih')   return F.dt(v);
+    if(k === 'sure')    return sureMetin(sayi(v));
+    if(k === 'aktif')   return v ? 'Aktif kayıt' : 'Arşivlendi';
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+    return {
+      ad:String(raw.ad || '').trim(),
+      tur:raw.tur,
+      musteri:raw.musteri || null,
+      proje:raw.proje || null,
+      tarih:raw.gun + 'T' + raw.saat,
+      sure:Math.round(sayi(raw.sure)),
+      yer:String(raw.yer || '').trim(),
+      katilimci:secilenler(raw),
+      disKatilimci:satirlar(raw.disKatilimci),
+      gundem:satirlar(raw.gundem),
+      durum:raw.durum,
+      notlar:String(raw.notlar || '').trim(),
+      aktif:!!raw.aktif
+    };
+  }
+
+  /* Bu form karar kaydı, görev ve davet YAZMAZ. Girilen değerler bağlı kayıtlarla
+     çelişiyorsa kullanıcı kaydetmeden önce açıkça uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var cak = cakisanlar(String(v.tarih).slice(0,10), String(v.tarih).slice(11,16), v.sure, v.katilimci);
+    if(cak.length){
+      out.push(cak.length + ' toplantı aynı gün ve kesişen saatte, ortak katılımcılarla kayıtlı: ' +
+               cak.map(function(c){ return c.m.kod + ' · ' + c.ortak.map(DB.empName).join(', '); }).join(' | ') + '.');
+    }
+    if(duzenle && kararSorumlulari.length){
+      var dusen = kararSorumlulari.filter(function(k){ return v.katilimci.indexOf(k) === -1; });
+      if(dusen.length){
+        out.push('Bu toplantının kararlarından sorumlu ' + dusen.map(DB.empName).join(', ') +
+                 ' katılımcı listesinden çıkarılıyor; karar kayıtlarındaki sorumluluk bu işlemle değişmez.');
+      }
+    }
+    if(!duzenle && v.durum === 'Tamamlandı'){
+      out.push('Toplantı doğrudan “Tamamlandı” olarak açılıyor. Karar kaydı bu formdan üretilmez; ' +
+               'alınan kararlar karar ekranından eklenmelidir.');
+    }
+    if(v.durum !== 'Tamamlandı' && v.notlar){
+      out.push('Toplantı durumu “' + v.durum + '” ancak not yazılmış. Veride not yalnız tamamlanmış ' +
+               'toplantılarda tutuluyor (' + notluSayi + ' notun ' + notluTamamlanan + ' tanesi).');
+    }
+    if(duzenle && v.durum === 'İptal' && kayit.durum !== 'İptal'){
+      out.push('Toplantı iptal ediliyor; katılımcılara bildirim gönderme bu prototipin kapsamı dışındadır.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      ALAN_SIRA.forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur; `notlar` veride yalnız
+         tamamlanmış toplantılarda bulunduğu için boşsa hiç açılmaz. */
+      var yeni = {
+        kod:kod, ad:v.ad, tur:v.tur, musteri:v.musteri, proje:v.proje,
+        tarih:v.tarih, sure:v.sure, yer:v.yer,
+        katilimci:v.katilimci, disKatilimci:v.disKatilimci, gundem:v.gundem,
+        durum:v.durum, aktif:v.aktif
+      };
+      if(v.notlar) yeni.notlar = v.notlar;
+
+      DB.meetings.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Toplantı kaydı oluşturuldu — ' + v.ad + ' · ' + v.tur + ' · ' + F.dt(v.tarih) +
+              ' · ' + v.katilimci.length + ' personel katılımcı',
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-toplanti.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz toplantı kaydı yeni değerlerle yazılır, bağlı karar ' +
+           'kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Toplantılar',
+    title:basligi,
+    sub: duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-toplanti.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
