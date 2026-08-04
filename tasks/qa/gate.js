@@ -26,7 +26,7 @@ const screens = fs.readdirSync(ROOT).filter(f => /^app-.*\.html$/.test(f)).sort(
     for (const f of screens) {
       cur = f;
       try {
-        await p.goto(B + f + '?role=' + role, { waitUntil: 'networkidle', timeout: 25000 });
+        await p.goto(B + f + (f.indexOf('?') === -1 ? '?' : '&') + 'role=' + role, { waitUntil: 'networkidle', timeout: 25000 });
         await p.waitForTimeout(220);
         const r = await p.evaluate(() => {
           const page = document.querySelector('.gv-page');

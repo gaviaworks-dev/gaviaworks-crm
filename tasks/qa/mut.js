@@ -24,7 +24,7 @@ const BASE = 'http://127.0.0.1:8791/';
     page.on('pageerror', e => errs.push('pageerror: ' + e.message));
     page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 
-    await page.goto(BASE + f + '?role=' + role, { waitUntil: 'networkidle' });
+    await page.goto(BASE + f + (f.indexOf('?') === -1 ? '?' : '&') + 'role=' + role, { waitUntil: 'networkidle' });
     await page.waitForTimeout(350);
 
     const before = await page.evaluate(() => ({

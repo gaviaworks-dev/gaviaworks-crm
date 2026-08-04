@@ -242,6 +242,80 @@ DB.referrers.forEach(r => {
   say(r.bekleyen === top - od, r.kod + ' bekleyen=' + r.bekleyen + ' ≠ ' + (top - od));
 });
 
+/* ---- 15. Modüller arası bağ alanları (VB-05 / VB-07 / VB-08) --------------
+   L-13: bağ tahmin edilmez, veride YAZILIDIR — o hâlde gösterdiği kayıt gerçekten
+   var olmalı, tekil olması gereken bağ ikiye bölünmemeli ve sayım tutarlı olmalı. */
+head('15) Modüller arası yazılı bağlar');
+
+const has = (arr, kod) => arr.some(x => x.kod === kod);
+/* bağ hedefi gerçekten var mı */
+const ref = (kayitlar, alan, hedef, ad) => kayitlar.forEach(r => {
+  if (r[alan] == null) return;
+  say(has(hedef, r[alan]), r.kod + '.' + alan + '=' + r[alan] + ' → ' + ad + ' içinde yok');
+});
+
+/* 15a. destek dönüşümü — doğan kayıt gerçek bir talebi gösterir */
+ref(DB.tasks,          'destek', DB.tickets, 'DB.tickets');
+ref(DB.bugs,           'destek', DB.tickets, 'DB.tickets');
+ref(DB.changeRequests, 'destek', DB.tickets, 'DB.tickets');
+
+/* 15b. hata ↔ görev tek yönlü: `DB.tasks[].hata` ayna alanı DOĞMAMALI (L-13) */
+say(DB.tasks.every(t => !('hata' in t)),
+    'DB.tasks[].hata ayna alanı doğmuş — hata bağı yalnız DB.bugs[].gorev tarafında tutulur');
+ref(DB.bugs, 'gorev', DB.tasks, 'DB.tasks');
+/* hata bağı olan görevin etkisi şiddet eşlemesine uyar (components.md §9) */
+const ETKI = { 'Kritik':'Çok yüksek', 'Yüksek':'Yüksek', 'Orta':'Orta', 'Düşük':'Düşük' };
+DB.bugs.filter(b => b.gorev).forEach(b => {
+  const g = DB.tasks.filter(t => t.kod === b.gorev)[0];
+  if (!g) return;
+  say(g.etki === ETKI[b.siddet],
+      b.kod + ' şiddet=' + b.siddet + ' → ' + b.gorev + ' etki=' + g.etki +
+      ', beklenen ' + ETKI[b.siddet]);
+});
+
+/* 15c. kalite zinciri — test / sprint / modül bağları */
+ref(DB.bugs,  'test',   DB.tests,   'DB.tests');
+ref(DB.bugs,  'sprint', DB.sprints, 'DB.sprints');
+ref(DB.tests, 'sprint', DB.sprints, 'DB.sprints');
+ref(DB.deliveries, 'test', DB.tests, 'DB.tests');
+/* bir hata en fazla BİR koşuma bağlanır — `test` tekil alan olduğu için yapısal olarak
+   garanti; asıl kontrol: bir koşuma bağlı hata sayısı `basarisiz`i AŞAMAZ */
+DB.tests.forEach(t => {
+  const n = DB.bugs.filter(b => b.test === t.kod).length;
+  say(n <= t.basarisiz,
+      t.kod + ' bağlı hata=' + n + ' > basarisiz=' + t.basarisiz);
+});
+/* bağ verilen sprint/modül bağın sahibiyle AYNI projede olmalı */
+const sprintProje = k => (DB.sprints.filter(s => s.kod === k)[0] || {}).proje;
+const modulProje  = k => (DB.projectModules.filter(m => m.kod === k)[0] || {}).proje;
+DB.bugs.filter(b => b.sprint).forEach(b => say(sprintProje(b.sprint) === b.proje,
+  b.kod + ' sprint=' + b.sprint + ' başka projenin sprinti'));
+DB.bugs.filter(b => b.test).forEach(b => {
+  const t = DB.tests.filter(x => x.kod === b.test)[0];
+  say(t && t.proje === b.proje, b.kod + ' test=' + b.test + ' başka projenin koşumu');
+});
+[[DB.tests, 'koşum'], [DB.deliveries, 'teslim']].forEach(([arr, ad]) => {
+  arr.forEach(r => (r.moduller || []).forEach(m => {
+    say(has(DB.projectModules, m), r.kod + ' (' + ad + ') modül=' + m + ' → DB.projectModules içinde yok');
+    say(modulProje(m) === r.proje, r.kod + ' (' + ad + ') modül=' + m + ' başka projenin modülü');
+  }));
+  say(arr.every(r => Array.isArray(r.moduller)), ad + ' kayıtlarında moduller dizi değil');
+});
+
+/* 15d. sipariş → demirbaş aktarımı */
+ref(DB.assets, 'siparis', DB.orders, 'DB.orders');
+DB.orders.forEach(o => {
+  const grup = DB.assets.filter(a => a.siparis === o.kod);
+  if (!grup.length) return;
+  say(o.durum === 'Teslim alındı',
+      o.kod + ' demirbaş doğurmuş ama durumu "' + o.durum + '" — yalnız teslim alınan sipariş demirbaş doğurur');
+  const net = grup.reduce((a, x) => a + (x.alisFiyati || 0), 0);
+  say(net === o.tutar,
+      o.kod + ' Σ demirbaş alisFiyati=' + money(net) + ' ≠ sipariş neti=' + money(o.tutar));
+  say(grup.every(a => a.tedarikci === o.tedarikci),
+      o.kod + ' demirbaş grubunda siparişten farklı tedarikçi var');
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

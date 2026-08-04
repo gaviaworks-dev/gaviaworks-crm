@@ -34,7 +34,7 @@ const TAG = /<(span|div|b|i|em|strong|br|a|small|p|ul|li|svg|button)\b/i;
   for (const f of files) {
     const page = await browser.newPage();
     try {
-      await page.goto(BASE + f + '?role=' + role, { waitUntil: 'networkidle' });
+      await page.goto(BASE + f + (f.indexOf('?') === -1 ? '?' : '&') + 'role=' + role, { waitUntil: 'networkidle' });
       await page.waitForTimeout(300);
       // sekmeli ekranlarda her paneli de tara
       const tabs = await page.$$('[role="tab"]');

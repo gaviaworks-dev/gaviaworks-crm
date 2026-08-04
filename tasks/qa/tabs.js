@@ -18,7 +18,7 @@ const BASE = 'http://127.0.0.1:8791/';
       page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
       page.on('pageerror', e => errs.push('pageerror: ' + e.message));
       page.on('requestfailed', r => errs.push('req: ' + r.url()));
-      await page.goto(BASE + f + '?role=' + role, { waitUntil: 'networkidle' });
+      await page.goto(BASE + f + (f.indexOf('?') === -1 ? '?' : '&') + 'role=' + role, { waitUntil: 'networkidle' });
       await page.waitForTimeout(300);
 
       const denied = await page.evaluate(() => !!document.querySelector('.gv-403, [data-403]') ||

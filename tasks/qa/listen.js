@@ -44,7 +44,7 @@ const BASE = 'http://127.0.0.1:8791/';
     });
     const errs = [];
     page.on('pageerror', e => errs.push(e.message));
-    await page.goto(BASE + f + '?role=' + role, { waitUntil: 'networkidle' });
+    await page.goto(BASE + f + (f.indexOf('?') === -1 ? '?' : '&') + 'role=' + role, { waitUntil: 'networkidle' });
     await page.waitForTimeout(300);
     const before = await page.evaluate(() => ({ ...window.__cnt }));
 
