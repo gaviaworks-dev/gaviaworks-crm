@@ -633,6 +633,7 @@
     'app-tedarikci.html',
     'app-siparis.html',
     'app-sozlesme.html',
+    'app-sozlesme-detay.html',
     'app-fatura.html',
     'app-tahsilat.html',
     'app-butce.html',
