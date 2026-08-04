@@ -215,7 +215,15 @@ DB.documents = [
   { kod:'DOK-2026-209', ad:'Marmara ERP Teknik Doküman', tur:'Teknik doküman', klasor:'Projeler / Marmara',
     musteri:'MUS-2025-005', proje:'PRJ-2026-003', boyut:'4,2 MB', format:'PDF', versiyon:5,
     yukleyen:'EMP-005', tarih:'2026-07-12', sonKullanma:null, kalanGun:null, gizlilik:'İç kullanım',
-    onay:'Onaylandı', aktif:true }
+    onay:'Onaylandı', aktif:true },
+  { kod:'DOK-2025-210', ad:'Kılıç Tekstil Bakım Sözleşmesi (süresi dolmuş)', tur:'Sözleşme', klasor:'Müşteriler / Kılıç Tekstil',
+    musteri:'MUS-2025-006', proje:null, boyut:'1,1 MB', format:'PDF', versiyon:1,
+    yukleyen:'EMP-002', tarih:'2024-12-18', sonKullanma:'2025-12-31', kalanGun:-215, gizlilik:'İç kullanım',
+    onay:'Onaylandı', aktif:true },
+  { kod:'DOK-2026-211', ad:'Ticari Araç Ruhsat Fotokopisi — 34 GVA 118', tur:'Ruhsat', klasor:'Filo / Belgeler',
+    musteri:null, proje:null, boyut:'420 KB', format:'PDF', versiyon:1,
+    yukleyen:'EMP-015', tarih:'2025-07-10', sonKullanma:'2026-07-20', kalanGun:-14, gizlilik:'İç kullanım',
+    onay:'Bekliyor', aktif:true }
 ];
 
 /* ---- Sohbet kanalları (PROMPT.md §13) ----------------------------------- */
