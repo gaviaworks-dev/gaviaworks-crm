@@ -311,7 +311,7 @@ DB.tickets = [
     baslik:'Sevkiyat raporuna araç filtresi eklenmesi', kategori:'Geliştirme talebi', oncelik:'Orta', etki:'Düşük',
     sla:'3 gün', sorumlu:'EMP-013', acan:'Sibel Yurtsever', acilis:'2026-07-29T11:00',
     ilkYanit:'2026-07-29T13:30', mudahaleSuresi:150, cozumSuresi:null, durum:'Müşteri bekleniyor',
-    harcananSure:1, ucretli:true, bakimPaketi:'Kurumsal', kalanDestek:26, memnuniyet:null,
+    harcananSure:1, ucretli:true, bakimPaketi:'Kurumsal', kalanDestek:62, memnuniyet:null,
     slaDurum:'Zamanında', aktif:true },
   { kod:'DST-2026-121', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.', proje:'PRJ-2026-004',
     baslik:'Fire raporu Excel çıktısı nasıl alınır?', kategori:'Kullanım sorusu', oncelik:'Düşük', etki:'Düşük',
@@ -350,4 +350,117 @@ DB.supportPackages = [
     aylikSaat:4, kullanilan:6, kalan:18, tutar:48000, durum:'Aktif', aktif:true },
   { kod:'BKP-005', musteri:'MUS-2026-010', ad:'Standart Bakım', baslangic:'2026-06-26', bitis:'2026-12-25',
     aylikSaat:4, kullanilan:12, kalan:12, tutar:42000, durum:'Aktif', aktif:true }
+];
+
+/* ---- SLA politikaları (PROMPT.md §18) -----------------------------------
+   Kategori × öncelik matrisi. DB.tickets[].sla alanı bu tablonun `cozum`
+   değeriyle birebir aynıdır — tek doğru kaynak burasıdır.
+   Süreler dakika cinsinden tutulur; `etiket` ekranda gösterilen metindir. */
+DB.slaPolicies = [
+  { kod:'SLA-01', kategori:'Hata',              oncelik:'Kritik', ilkYanit:60,   cozum:240,   etiket:'4 saat',
+    calismaSaati:'7/24', eskalasyon:'1 saat sonra takım liderine', aktif:true },
+  { kod:'SLA-02', kategori:'Hata',              oncelik:'Yüksek', ilkYanit:120,  cozum:480,   etiket:'8 saat',
+    calismaSaati:'Mesai içi', eskalasyon:'4 saat sonra takım liderine', aktif:true },
+  { kod:'SLA-03', kategori:'Hata',              oncelik:'Orta',   ilkYanit:240,  cozum:480,   etiket:'8 saat',
+    calismaSaati:'Mesai içi', eskalasyon:'Süre dolunca destek sorumlusuna', aktif:true },
+  { kod:'SLA-04', kategori:'Hata',              oncelik:'Düşük',  ilkYanit:480,  cozum:4320,  etiket:'3 gün',
+    calismaSaati:'Mesai içi', eskalasyon:'Yok', aktif:true },
+  { kod:'SLA-05', kategori:'Geliştirme talebi', oncelik:'Tümü',   ilkYanit:1440, cozum:4320,  etiket:'3 gün',
+    calismaSaati:'Mesai içi', eskalasyon:'Yok', aktif:true },
+  { kod:'SLA-06', kategori:'Kullanım sorusu',   oncelik:'Tümü',   ilkYanit:240,  cozum:2880,  etiket:'2 gün',
+    calismaSaati:'Mesai içi', eskalasyon:'Yok', aktif:true },
+  { kod:'SLA-07', kategori:'Bilgi talebi',      oncelik:'Tümü',   ilkYanit:240,  cozum:2880,  etiket:'2 gün',
+    calismaSaati:'Mesai içi', eskalasyon:'Yok', aktif:true }
+];
+
+/* ---- Memnuniyet anketleri (PROMPT.md §18) -------------------------------
+   Canonical kural: bir müşterinin YANITLANMIŞ anketlerinin puan ortalaması,
+   DB.customers[].memnuniyet değerine birebir eşittir. Destek talebine bağlı
+   anketin puanı da DB.tickets[].memnuniyet ile aynıdır. Yanıt bekleyen
+   anketlerin puanı null'dır ve ortalamaya girmez.
+   tavsiye = 0-10 tavsiye skoru (NPS): 9-10 destekleyici · 7-8 nötr · 0-6 kötüleyici. */
+DB.surveys = [
+  { kod:'ANK-2026-041', musteri:'MUS-2024-001', tur:'Proje teslimi', ilgili:'PRJ-2025-008',
+    tarih:'2026-06-30', kanal:'E-posta anketi', yanitlayan:'Sibel Yurtsever', durum:'Yanıtlandı',
+    puan:4.8, tavsiye:10, yorum:'Teslim planına birebir uyuldu, devreye alma sorunsuzdu.', aktif:true },
+  { kod:'ANK-2025-018', musteri:'MUS-2024-001', tur:'Proje teslimi', ilgili:'PRJ-2024-011',
+    tarih:'2025-11-14', kanal:'E-posta anketi', yanitlayan:'Sibel Yurtsever', durum:'Yanıtlandı',
+    puan:4.4, tavsiye:9, yorum:'Kapsam değişikliklerinde biraz gecikme yaşandı.', aktif:true },
+  { kod:'ANK-2026-052', musteri:'MUS-2024-001', tur:'Dönemsel', ilgili:'BKP-001',
+    tarih:'2026-07-01', kanal:'Telefon', yanitlayan:'Sibel Yurtsever', durum:'Yanıtlandı',
+    puan:4.6, tavsiye:9, yorum:'Bakım ekibi hızlı dönüyor.', aktif:true },
+
+  { kod:'ANK-2026-042', musteri:'MUS-2024-002', tur:'Proje teslimi', ilgili:'PRJ-2025-009',
+    tarih:'2026-04-18', kanal:'E-posta anketi', yanitlayan:'Volkan Ateş', durum:'Yanıtlandı',
+    puan:4.2, tavsiye:9, yorum:'Sonuç iyi, test süreci uzun sürdü.', aktif:true },
+  { kod:'ANK-2026-053', musteri:'MUS-2024-002', tur:'Dönemsel', ilgili:'BKP-002',
+    tarih:'2026-07-01', kanal:'E-posta anketi', yanitlayan:'Volkan Ateş', durum:'Yanıtlandı',
+    puan:4.0, tavsiye:8, yorum:'Bildirim sorunu hâlâ açık.', aktif:true },
+
+  { kod:'ANK-2026-043', musteri:'MUS-2025-003', tur:'Destek talebi', ilgili:'DST-2026-117',
+    tarih:'2026-06-21', kanal:'E-posta anketi', yanitlayan:'Cengiz Solmaz', durum:'Yanıtlandı',
+    puan:3, tavsiye:6, yorum:'Talep karşılandı ama yanıt beklediğimden yavaştı.', aktif:true },
+  { kod:'ANK-2025-019', musteri:'MUS-2025-003', tur:'Proje teslimi', ilgili:'PRJ-2025-010',
+    tarih:'2025-12-05', kanal:'Yüz yüze', yanitlayan:'Cengiz Solmaz', durum:'Yanıtlandı',
+    puan:2.8, tavsiye:5, yorum:'Devreye alma sonrası eğitim yetersizdi.', aktif:true },
+
+  { kod:'ANK-2026-044', musteri:'MUS-2025-004', tur:'Proje teslimi', ilgili:'PRJ-2026-007',
+    tarih:'2026-05-22', kanal:'E-posta anketi', yanitlayan:'Ayşen Korkmaz', durum:'Yanıtlandı',
+    puan:5, tavsiye:10, yorum:'Beklentimizin üzerinde bir teslim oldu.', aktif:true },
+  { kod:'ANK-2026-054', musteri:'MUS-2025-004', tur:'Dönemsel', ilgili:null,
+    tarih:'2026-07-01', kanal:'Telefon', yanitlayan:'Ayşen Korkmaz', durum:'Yanıtlandı',
+    puan:4.6, tavsiye:9, yorum:'İletişim çok iyi.', aktif:true },
+
+  { kod:'ANK-2026-045', musteri:'MUS-2025-005', tur:'Destek talebi', ilgili:'DST-2026-122',
+    tarih:'2026-07-19', kanal:'E-posta anketi', yanitlayan:'Gülay Şen', durum:'Yanıtlandı',
+    puan:4, tavsiye:8, yorum:'Çözüldü ama iki gün sürdü.', aktif:true },
+  { kod:'ANK-2026-055', musteri:'MUS-2025-005', tur:'Dönemsel', ilgili:'BKP-003',
+    tarih:'2026-07-01', kanal:'E-posta anketi', yanitlayan:'Gülay Şen', durum:'Yanıtlandı',
+    puan:4.8, tavsiye:10, yorum:'Bakım paketi kapsamı ihtiyacımızı karşılıyor.', aktif:true },
+
+  { kod:'ANK-2026-046', musteri:'MUS-2025-006', tur:'Proje teslimi', ilgili:'PRJ-2025-012',
+    tarih:'2026-02-10', kanal:'E-posta anketi', yanitlayan:'Nuri Kılıç', durum:'Yanıtlandı',
+    puan:4, tavsiye:8, yorum:'İş yaptığımız süre boyunca sorun çıkmadı.', aktif:true },
+  { kod:'ANK-2026-056', musteri:'MUS-2025-006', tur:'Dönemsel', ilgili:null,
+    tarih:'2026-03-01', kanal:'Telefon', yanitlayan:'Nuri Kılıç', durum:'Yanıtlandı',
+    puan:3.6, tavsiye:7, yorum:'Sözleşme bitişinde devir dokümanı geç geldi.', aktif:true },
+
+  { kod:'ANK-2026-047', musteri:'MUS-2026-007', tur:'Dönemsel', ilgili:null,
+    tarih:'2026-07-01', kanal:'E-posta anketi', yanitlayan:'Barış Ekinci', durum:'Yanıtlandı',
+    puan:4.2, tavsiye:9, yorum:'Proje başlangıcı planlandığı gibi ilerliyor.', aktif:true },
+
+  { kod:'ANK-2026-048', musteri:'MUS-2026-009', tur:'Destek talebi', ilgili:'DST-2026-121',
+    tarih:'2026-07-29', kanal:'E-posta anketi', yanitlayan:'Fadime Çetin', durum:'Yanıtlandı',
+    puan:5, tavsiye:10, yorum:'Aynı gün içinde net bir cevap aldık.', aktif:true },
+  { kod:'ANK-2026-057', musteri:'MUS-2026-009', tur:'Proje teslimi', ilgili:'PRJ-2026-004',
+    tarih:'2026-07-20', kanal:'Yüz yüze', yanitlayan:'Fadime Çetin', durum:'Yanıtlandı',
+    puan:3, tavsiye:6, yorum:'Fire raporu beklediğimiz gibi çıkmadı, revizyon gerekti.', aktif:true },
+
+  { kod:'ANK-2026-049', musteri:'MUS-2026-010', tur:'Proje teslimi', ilgili:'PRJ-2026-006',
+    tarih:'2026-07-10', kanal:'E-posta anketi', yanitlayan:'Yusuf Balaban', durum:'Yanıtlandı',
+    puan:2, tavsiye:3, yorum:'Mobil tarafta çıkan sorunlar teslim sonrası da devam etti.', aktif:true },
+  { kod:'ANK-2026-058', musteri:'MUS-2026-010', tur:'Dönemsel', ilgili:'BKP-005',
+    tarih:'2026-07-01', kanal:'Telefon', yanitlayan:'Yusuf Balaban', durum:'Yanıtlandı',
+    puan:2.8, tavsiye:5, yorum:'Destek ilgili ama sorunlar tekrar ediyor.', aktif:true },
+
+  { kod:'ANK-2026-050', musteri:'MUS-2026-011', tur:'Proje teslimi', ilgili:'PRJ-2026-008',
+    tarih:'2026-06-12', kanal:'E-posta anketi', yanitlayan:'Nihan Arslan', durum:'Yanıtlandı',
+    puan:4.8, tavsiye:10, yorum:'Ekip teknik olarak çok yetkin.', aktif:true },
+  { kod:'ANK-2026-059', musteri:'MUS-2026-011', tur:'Dönemsel', ilgili:null,
+    tarih:'2026-07-01', kanal:'E-posta anketi', yanitlayan:'Nihan Arslan', durum:'Yanıtlandı',
+    puan:4.6, tavsiye:9, yorum:'Raporlama ihtiyacımızı karşılıyor.', aktif:true },
+
+  { kod:'ANK-2025-020', musteri:'MUS-2023-012', tur:'Proje teslimi', ilgili:'PRJ-2023-014',
+    tarih:'2025-04-30', kanal:'E-posta anketi', yanitlayan:'Ergün Taşkın', durum:'Yanıtlandı',
+    puan:3.5, tavsiye:7, yorum:'İhtiyacımız karşılandı, sonrasında iletişim koptu.', aktif:true, arsiv:true },
+
+  { kod:'ANK-2026-060', musteri:'MUS-2026-010', tur:'Destek talebi', ilgili:'DST-2026-118',
+    tarih:'2026-08-01', kanal:'E-posta anketi', yanitlayan:'Yusuf Balaban', durum:'Bekliyor',
+    puan:null, tavsiye:null, yorum:null, aktif:true },
+  { kod:'ANK-2026-061', musteri:'MUS-2024-002', tur:'Destek talebi', ilgili:'DST-2026-119',
+    tarih:'2026-08-02', kanal:'E-posta anketi', yanitlayan:'Volkan Ateş', durum:'Bekliyor',
+    puan:null, tavsiye:null, yorum:null, aktif:true },
+  { kod:'ANK-2026-062', musteri:'MUS-2026-007', tur:'Destek talebi', ilgili:'DST-2026-123',
+    tarih:'2026-08-03', kanal:'E-posta anketi', yanitlayan:'Barış Ekinci', durum:'Bekliyor',
+    puan:null, tavsiye:null, yorum:null, aktif:true }
 ];
