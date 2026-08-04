@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Teklif Toplama — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satinalma" data-screen="salmateklif">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  var canFinans = GV.perm.can('finans');
+  var canOnay = GV.perm.can('onay');
+
+  /* Tercih değiştirilemeyen talep durumları — sipariş/teslim sonrası karar kilitlenir */
+  var KILIT = ['Sipariş verildi','Teslim alındı','İptal'];
+
+  /* ---- veri yardımcıları (canonical: teklif → talep → tedarikçi → sipariş) ---- */
+  function teklifler(kod){ return DB.supplierQuotes.filter(function(q){ return q.talep === kod; }); }
+  function ted(kod){ return DB.suppliers.filter(function(s){ return s.kod === kod; })[0] || null; }
+  function tedAd(kod){ var s = ted(kod); return s ? s.unvan : kod; }
+  function tercih(kod){ return teklifler(kod).filter(function(q){ return q.tercih; })[0] || null; }
+  function enDusuk(kod){
+    var q = teklifler(kod);
+    return q.length ? Math.min.apply(null, q.map(function(x){ return x.fiyat; })) : null;
+  }
+  function enDusukUygun(kod){
+    var q = teklifler(kod).filter(function(x){ return x.teknikUygun; });
+    return q.length ? Math.min.apply(null, q.map(function(x){ return x.fiyat; })) : null;
+  }
+  function enYuksekPuan(kod){
+    var q = teklifler(kod);
+    return q.length ? Math.max.apply(null, q.map(function(x){ return x.puan; })) : null;
+  }
+  function fark(kod){
+    var t = tercih(kod), m = enDusuk(kod);
+    return (t && m != null) ? t.fiyat - m : null;
+  }
+  function siparis(kod){ return DB.orders.filter(function(o){ return o.talep === kod; })[0] || null; }
+  function projeAd(kod){
+    if(!kod) return '—';
+    var p = DB.projects.filter(function(x){ return x.kod === kod; })[0];
+    return p ? (p.ad || kod) : kod;
+  }
+  function acikTalep(x){ return ['Teslim alındı','İptal'].indexOf(x.durum) === -1; }
+  function uygunsuzSayi(kod){ return teklifler(kod).filter(function(q){ return !q.teknikUygun; }).length; }
+
+  function para(v){
+    return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>'
+                     : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+  }
+  function puanBadge(v){
+    return '<span class="badge ' + (v >= 4.5 ? 'is-ok' : v >= 4 ? 'is-info' : v >= 3.5 ? 'is-warn' : 'is-danger') +
+           '">' + v + ' / 5</span>';
+  }
+
+  /* ---- canonical doğrulama: bir talebin en fazla BİR tercihi olabilir ---- */
+  function canonKontrol(){
+    var host = document.getElementById('uyari');
+    if(!host) return;
+    var ihlal = DB.purchases.filter(function(p){
+      return teklifler(p.kod).filter(function(q){ return q.tercih; }).length > 1;
+    });
+    host.innerHTML = ihlal.length
+      ? '<div class="u-mb-4">' + GV.notice({ tone:'danger', title:'Teklif verisinde uyumsuzluk',
+          text:'Şu taleplerde birden fazla teklif "tercih edildi" olarak işaretli: ' +
+               ihlal.map(function(p){ return p.kod; }).join(', ') +
+               '. Bir talebin yalnızca tek tercihi olabilir; karşılaştırma panelinden yeniden seçim yapın.' }) + '</div>'
+      : '';
+  }
+
+  /* sub verilmez: GV.list [data-listcount] alanını kayıt sayısıyla ezer */
+  GV.pageHead({ eyebrow:'Tedarik', title:'Teklif Toplama ve Karşılaştırma',
+    actions:[{ label:'Satın Alma Talepleri', icon:'i-cart', href:'app-satinalma.html' },
+             { label:'Tedarikçiler', icon:'i-building', href:'app-tedarikci.html' }] });
+
+  /* =====================================================================
+     Teklif karşılaştırma paneli — kriterler satır, teklifler kolon
+     ===================================================================== */
+  function karsilastir(p, refresh){
+    var qs = teklifler(p.kod).slice().sort(function(a,b){ return a.fiyat - b.fiyat; });
+    var min = enDusuk(p.kod), minUygun = enDusukUygun(p.kod), maxPuan = enYuksekPuan(p.kod);
+    var sec = tercih(p.kod);
+    var kilitli = KILIT.indexOf(p.durum) !== -1;
+    var sip = siparis(p.kod);
+
+    var ust = '<p class="u-sm u-muted u-mt-0">' +
+      esc(p.kod + ' · ' + p.urun + ' · ' + p.miktar + ' adet · ' + DB.depName(p.dep) + ' · ' +
+          DB.empName(p.talepEden) + ' · ihtiyaç ' + F.date(p.ihtiyacTarihi)) + '</p>';
+
+    if(!qs.length){
+      GV.drawer({
+        title:'Teklif Karşılaştırma · ' + p.kod,
+        body:ust +
+          GV.empty({ icon:'i-quote', title:'Bu talep için teklif kaydı yok',
+            desc:'Talep, teklif toplama adımı sisteme işlenmeden sonuçlandırılmış. Karşılaştırma yapılabilmesi için en az iki tedarikçiden teklif girilmelidir.' }) +
+          (sip ? '<div class="u-mt-4">' + GV.notice({ tone:'neutral', title:'Sipariş kaydı var',
+            text:sip.kod + ' · ' + tedAd(sip.tedarikci) + ' · ' + (canFinans ? F.money(sip.tutar) : '••••••') +
+                 ' · ' + F.date(sip.tarih) + ' — sipariş doğrudan bu tedarikçiye verilmiş.' }) + '</div>' : ''),
+        actions:[{ label:'Kapat', cls:'btn-line' }]
+      });
+      return;
+    }
+
+    var basliklar = '<th>Kriter</th>' + qs.map(function(q){
+      return '<th class="th-narrow">' + esc(tedAd(q.tedarikci)) +
+             (q.tercih ? ' <span class="badge is-ok">Tercih</span>' : '') +
+             '<span class="cell-sub">' + q.tedarikci + '</span></th>';
+    }).join('');
+
+    function satir(label, cells, cls){
+      return '<tr><td><b class="u-b">' + esc(label) + '</b></td>' +
+             qs.map(function(q, i){
+               return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + cells(q, i) + '</td>';
+             }).join('') + '</tr>';
+    }
+
+    var govde =
+      satir('Tedarikçi kategorisi', function(q){
+        var s = ted(q.tedarikci);
+        return s ? '<span class="tag">' + esc(s.kategori) + '</span>' : '<span class="u-faint">—</span>';
+      }) +
+      satir('Fiyat', function(q){
+        return para(q.fiyat) + (q.fiyat === min ? ' <span class="badge is-ok">En düşük</span>' : '');
+      }, 'num') +
+      satir('Teslim süresi', function(q){ return esc(q.teslimSuresi); }) +
+      satir('Garanti', function(q){
+        return q.garanti && q.garanti !== '—' ? esc(q.garanti) : '<span class="u-faint">—</span>';
+      }) +
+      satir('Ödeme koşulu', function(q){ return esc(q.odeme); }) +
+      satir('Teknik uygunluk', function(q){
+        return q.teknikUygun ? GV.badge('Teknik uygun','is-ok') : GV.badge('Teknik uygun değil','is-danger');
+      }) +
+      satir('Tedarikçi puanı', function(q){
+        var s = ted(q.tedarikci);
+        return puanBadge(q.puan) + (q.puan === maxPuan ? ' <span class="badge is-ok">En yüksek</span>' : '') +
+               (s ? '<span class="cell-sub">tedarikçi geneli ' + s.puan + '</span>' : '');
+      }) +
+      satir('Gerekçe', function(q){
+        return q.gerekce ? esc(q.gerekce) : '<span class="u-faint">—</span>';
+      }, 'cell-wrap') +
+      satir('Tercih', function(q){
+        return q.tercih ? GV.badge('Tercih edildi','is-ok') : '<span class="u-faint">Seçilmedi</span>';
+      });
+
+    if(!kilitli && canOnay){
+      govde += '<tr><td><b class="u-b">Seçim</b></td>' + qs.map(function(q){
+        return '<td>' + (q.tercih
+          ? '<span class="badge is-ok">Seçili</span>'
+          : '<button type="button" class="btn btn-sm btn-acc" data-pick="' + esc(q.tedarikci) + '">Bu tedarikçiyi seç</button>') +
+          '</td>';
+      }).join('') + '</tr>';
+    }
+
+    /* Karar özeti — en düşük ile tercih edilen arasındaki fark ve teknik uygunluk notu */
+    var ozet = '';
+    if(sec){
+      var d = sec.fiyat - min;
+      ozet = GV.notice({
+        tone:d > 0 ? 'warn' : 'ok',
+        title:d > 0 ? 'En düşük teklif seçilmedi' : 'En düşük teklif seçildi',
+        text:'Tercih: ' + tedAd(sec.tedarikci) + (canFinans ? ' · ' + F.money(sec.fiyat) : '') +
+             (d > 0
+               ? ' — en düşük teklife göre ' + (canFinans ? F.money(d) : '••••••') +
+                 ' (%' + Math.round(d / min * 100) + ') daha yüksek. Gerekçe: ' + sec.gerekce
+               : ' — hem en düşük fiyat hem de kayıtlı tercih aynı teklifte. Gerekçe: ' + sec.gerekce) +
+             (minUygun != null && min !== minUygun
+               ? '. Not: en düşük fiyatlı teklif teknik olarak uygun değil; teknik uygun en düşük teklif ' +
+                 (canFinans ? F.money(minUygun) : '••••••') + '.'
+               : '')
+      });
+    }else{
+      ozet = GV.notice({ tone:'info', title:'Tercih henüz yapılmadı',
+        text:qs.length + ' teklif toplandı, karar bekleniyor. En düşük teklif ' +
+             (canFinans ? F.money(min) : '••••••') + '. Seçim, talebin onay zincirine girmeden önce yapılmalıdır.' });
+    }
+
+    var kilitNot = '';
+    if(kilitli){
+      kilitNot = '<div class="u-mt-4">' + GV.notice({ tone:'neutral', title:'Tedarikçi seçimi kapalı',
+        text:'Talep "' + p.durum + '" durumunda; teklif tercihi artık değiştirilemez.' +
+             (sip ? ' İlgili sipariş: ' + sip.kod + ' · ' + tedAd(sip.tedarikci) + '.' : '') }) + '</div>';
+    }else if(!canOnay){
+      kilitNot = '<div class="u-mt-4">' + GV.notice({ tone:'neutral', title:'Seçim yetkiniz yok',
+        text:'Teklif tercihi yalnızca onay yetkisi olan roller tarafından değiştirilebilir. Karşılaştırmayı görüntüleyebilirsiniz.' }) + '</div>';
+    }
+
+    GV.drawer({
+      title:'Teklif Karşılaştırma · ' + p.kod,
+      body:ust + ozet + kilitNot +
+        '<div class="gv-tablewrap is-sticky1 is-mobilescroll u-mt-4"><table class="gtable"><thead><tr>' +
+        basliklar + '</tr></thead><tbody>' + govde + '</tbody></table></div>' +
+        '<p class="u-xs u-muted u-mt-4">' +
+          esc('Teklifler fiyata göre artan sıralanmıştır. Tedarikçi puanı bu teklife verilen değerlendirme puanıdır; ' +
+              'tedarikçinin genel puanı alt satırda gösterilir.') + '</p>',
+      actions:[{ label:'Kapat', cls:'btn-line' }],
+      onOpen:function(el, close){
+        Array.prototype.forEach.call(el.querySelectorAll('[data-pick]'), function(b){
+          b.addEventListener('click', function(){
+            var yeni = b.getAttribute('data-pick');
+            var eski = tercih(p.kod);
+            DB.supplierQuotes.forEach(function(q){
+              if(q.talep === p.kod) q.tercih = (q.tedarikci === yeni);
+            });
+            GV.toast(p.kod + ' için ' + tedAd(yeni) + ' seçildi' +
+                     (eski && eski.tedarikci !== yeni ? ' — önceki tercih (' + tedAd(eski.tedarikci) + ') kaldırıldı' : ''), 'ok');
+            canonKontrol();
+            refresh();
+            close();
+          });
+        });
+      }
+    });
+  }
+
+  /* =====================================================================
+     Talep bazlı karşılaştırma listesi
+     ===================================================================== */
+  var filtreler = [
+    { key:'dep', label:'Talep eden departman', type:'multi',
+      options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }) },
+    { key:'talepEden', label:'Talep eden', type:'select',
+      options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+    { key:'tedarikci', label:'Teklif veren tedarikçi', type:'select',
+      options:DB.suppliers.map(function(s){ return { value:s.kod, label:s.unvan }; }),
+      test:function(x, v){ return teklifler(x.kod).some(function(q){ return q.tedarikci === v; }); } },
+    { key:'durum', label:'Talep durumu', type:'multi',
+      options:['Taslak','Onay bekliyor','Sipariş verildi','Teslim alındı','İptal'] },
+    { key:'teknikUygun', label:'Teknik uygunluk', type:'select',
+      options:[{ value:'uygunsuz', label:'Teknik uygunsuz teklif içeriyor' },
+               { value:'uygun', label:'Tüm teklifleri teknik uygun' }],
+      test:function(x, v){
+        var n = uygunsuzSayi(x.kod);
+        return v === 'uygunsuz' ? n > 0 : (teklifler(x.kod).length > 0 && n === 0);
+      } },
+    { key:'oncelik', label:'Öncelik', type:'multi', options:DB.priorities }
+  ];
+  if(canFinans){
+    filtreler.push({ key:'fiyatMin', label:'En düşük teklif — alt sınır (₺)', type:'text',
+      test:function(x, v){ var m = enDusuk(x.kod); return m != null && m >= (parseFloat(v) || 0); } });
+    filtreler.push({ key:'fiyatMax', label:'En düşük teklif — üst sınır (₺)', type:'text',
+      test:function(x, v){ var m = enDusuk(x.kod); return m != null && m <= (parseFloat(v) || Infinity); } });
+  }
+
+  var L = GV.list({
+    mount:'#liste', id:'salmateklif', key:'kod', source:function(){ return DB.purchases; },
+    exportName:'teklif-karsilastirma', exportTitle:'Teklif Toplama ve Karşılaştırma',
+    pageSize:10, views:['table','card'],
+    search:{ placeholder:'Talep no, ürün, kategori, tedarikçi veya gerekçe ara',
+      fields:['kod','urun','kategori','aciklama','gerekce','butceKodu'],
+      extra:function(r){
+        return DB.empName(r.talepEden) + ' ' + DB.depName(r.dep) + ' ' +
+               teklifler(r.kod).map(function(q){ return tedAd(q.tedarikci) + ' ' + q.gerekce; }).join(' ');
+      } },
+    defaultSort:'teklifSayisi', defaultDir:'desc',
+    kpis:[
+      { label:'Teklif bekleyen talep', icon:'i-hourglass', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return acikTalep(x) && !teklifler(x.kod).length; }).length; },
+        meta:function(a){
+          var n = a.filter(function(x){ return !teklifler(x.kod).length; }).length;
+          return n ? n + ' talebin hiç teklif kaydı yok' : 'Tüm açık taleplerde teklif var';
+        }, metaTone:'flat' },
+      { label:'Toplanan teklif', icon:'i-quote', tone:'info',
+        calc:function(a){ return a.reduce(function(s, x){ return s + teklifler(x.kod).length; }, 0); } },
+      { label:'Ortalama teklif / talep', icon:'i-chart-bar', tone:'accent',
+        format:function(v){ return F.num(v, 1); },
+        calc:function(a){
+          var t = a.filter(function(x){ return teklifler(x.kod).length; });
+          return t.length ? t.reduce(function(s, x){ return s + teklifler(x.kod).length; }, 0) / t.length : 0;
+        } },
+      { label:'Tercih bekleyen talep', icon:'i-stamp', tone:'purple',
+        calc:function(a){ return a.filter(function(x){ return teklifler(x.kod).length && !tercih(x.kod); }).length; } },
+      { label:'En düşük dışı tercih', icon:'i-wallet', tone:'danger',
+        calc:function(a){ return a.filter(function(x){ var d = fark(x.kod); return d != null && d > 0; }).length; },
+        meta:function(a){
+          if(!canFinans) return 'Fark tutarı için finans yetkisi gerekir';
+          var t = a.reduce(function(s, x){ var d = fark(x.kod); return s + (d && d > 0 ? d : 0); }, 0);
+          return t ? 'Toplam ' + F.money(t) + ' fazla, gerekçeli' : 'Fazla ödeme yok';
+        }, metaTone:'flat' }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'toplaniyor', label:'Teklif Toplanıyor', icon:'i-quote',
+        filter:function(x){ return teklifler(x.kod).length > 0 && KILIT.indexOf(x.durum) === -1; } },
+      { key:'secildi', label:'Tercih Yapıldı', icon:'i-check-circle',
+        filter:function(x){ return !!tercih(x.kod); } },
+      { key:'bekliyor', label:'Tercih Bekliyor', icon:'i-stamp',
+        filter:function(x){ return teklifler(x.kod).length > 0 && !tercih(x.kod); } },
+      { key:'uygunsuz', label:'Teknik Uygunsuz Teklifli', icon:'i-alert',
+        filter:function(x){ return uygunsuzSayi(x.kod) > 0; } }
+    ],
+    columns:[
+      { key:'urun', label:'Talep', width:'22%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-satinalma-detay.html?id=' + x.kod + '">' + esc(x.urun) + '</a>' +
+                 '<span class="cell-sub">' + esc(x.aciklama) + '</span><span class="cell-code">' + x.kod + '</span>'; } },
+      { key:'dep', label:'Departman', render:function(x){ return '<span class="tag">' + esc(DB.depName(x.dep)) + '</span>'; },
+        sortValue:function(x){ return DB.depName(x.dep); }, exportValue:function(x){ return DB.depName(x.dep); } },
+      { key:'talepEden', label:'Talep eden', render:function(x){ return GV.user(x.talepEden, { sm:true }); },
+        sortValue:function(x){ return DB.empName(x.talepEden); }, exportValue:function(x){ return DB.empName(x.talepEden); } },
+      { key:'teklifSayisi', label:'Teklif', cellClass:'num',
+        sortValue:function(x){ return teklifler(x.kod).length; },
+        exportValue:function(x){ return teklifler(x.kod).length; },
+        render:function(x){
+          var n = teklifler(x.kod).length, u = uygunsuzSayi(x.kod);
+          if(!n) return '<span class="u-faint">—</span>';
+          return '<b class="u-num">' + n + '</b>' +
+                 (u ? '<span class="cell-sub u-danger">' + u + ' teknik uygunsuz</span>' : '');
+        } },
+      { key:'enDusuk', label:'En düşük fiyat', cellClass:'num',
+        sortValue:function(x){ return enDusuk(x.kod); },
+        exportValue:function(x){ return canFinans ? enDusuk(x.kod) : ''; },
+        render:function(x){
+          var m = enDusuk(x.kod);
+          if(m == null) return '<span class="u-faint">—</span>';
+          var mu = enDusukUygun(x.kod);
+          return para(m) + (mu != null && mu !== m
+            ? '<span class="cell-sub u-warn">teknik uygun en düşük ' + (canFinans ? F.money(mu) : '••••••') + '</span>' : '');
+        } },
+      { key:'tercihEdilen', label:'Tercih edilen tedarikçi', cellClass:'cell-wrap',
+        sortValue:function(x){ var t = tercih(x.kod); return t ? tedAd(t.tedarikci) : ''; },
+        exportValue:function(x){ var t = tercih(x.kod); return t ? tedAd(t.tedarikci) : ''; },
+        render:function(x){
+          var t = tercih(x.kod);
+          if(!t) return teklifler(x.kod).length
+            ? GV.badge('Tercih bekliyor','is-warn')
+            : '<span class="u-faint">—</span>';
+          return '<span class="cell-main">' + esc(tedAd(t.tedarikci)) + '</span>' +
+                 '<span class="cell-sub">' + esc(t.teslimSuresi + ' · ' + t.odeme) + ' · ' + t.puan + '/5</span>';
+        } },
+      { key:'fark', label:'Fiyat farkı', cellClass:'num',
+        sortValue:function(x){ return fark(x.kod); },
+        exportValue:function(x){ return canFinans ? fark(x.kod) : ''; },
+        render:function(x){
+          var d = fark(x.kod);
+          if(d == null) return '<span class="u-faint">—</span>';
+          if(d === 0) return GV.badge('En düşük teklif','is-ok');
+          if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+          return '<span class="cell-money u-warn">+' + F.money(d) + '</span>' +
+                 '<span class="cell-sub">%' + Math.round(d / enDusuk(x.kod) * 100) + ' fazla</span>';
+        } },
+      { key:'kategori', label:'Kategori', visible:false, render:function(x){ return '<span class="tag">' + esc(x.kategori) + '</span>'; } },
+      { key:'oncelik', label:'Öncelik', visible:false, render:function(x){ return GV.pri(x.oncelik); } },
+      { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', visible:false,
+        render:function(x){ return GV.dateCell(x.ihtiyacTarihi, { done:x.durum === 'Teslim alındı' }); } },
+      { key:'proje', label:'Proje', visible:false,
+        sortValue:function(x){ return projeAd(x.proje); }, exportValue:function(x){ return projeAd(x.proje); },
+        render:function(x){ return x.proje ? esc(projeAd(x.proje)) : '<span class="u-faint">—</span>'; } },
+      { key:'butceKodu', label:'Bütçe kodu', visible:false },
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+    ],
+    filters:filtreler,
+    card:function(x){
+      var n = teklifler(x.kod).length, t = tercih(x.kod), m = enDusuk(x.kod);
+      return '<div class="gv-rcard-top"><div>' +
+          '<a class="cell-main" href="app-satinalma-detay.html?id=' + x.kod + '">' + esc(x.urun) + '</a>' +
+          '<div class="cell-sub">' + x.kod + ' · ' + esc(DB.depName(x.dep)) + '</div></div>' +
+          GV.badge(x.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + (n ? n + ' teklif' : 'teklif yok') + '</span>' +
+          (m != null ? '<span>en düşük ' + (canFinans ? F.moneyK(m) : '••••••') + '</span>' : '') +
+          (uygunsuzSayi(x.kod) ? '<span class="u-danger">' + uygunsuzSayi(x.kod) + ' teknik uygunsuz</span>' : '') + '</div>' +
+        '<div class="gv-rcard-meta">' +
+          (t ? '<span>Tercih: ' + esc(tedAd(t.tedarikci)) + '</span>' : (n ? '<span class="u-warn">Tercih bekliyor</span>' : '')) + '</div>' +
+        '<div class="gv-rcard-foot">' + GV.user(x.talepEden, { sm:true }) +
+          '<button type="button" class="btn btn-sm btn-line" data-cmp="' + x.kod + '">' +
+          '<svg class="ic ic-sm"><use href="#i-columns"></use></svg> Karşılaştır</button></div>';
+    },
+    mobile:function(x){
+      var n = teklifler(x.kod).length, t = tercih(x.kod), m = enDusuk(x.kod);
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-satinalma-detay.html?id=' + x.kod + '">' +
+          esc(x.urun) + '</a>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(DB.depName(x.dep)) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-quote','ic-sm') + (n ? n + ' teklif' : 'teklif yok') + '</span>' +
+          (m != null && canFinans ? '<span>' + GV.ico('i-wallet','ic-sm') + F.money(m) + '</span>' : '') +
+          '<span>' + GV.ico('i-user','ic-sm') + esc(DB.empName(x.talepEden)) + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+          (t ? GV.badge(tedAd(t.tedarikci), 'is-ok') : (n ? GV.badge('Tercih bekliyor','is-warn') : '')) + '</span>' +
+          '<button type="button" class="btn btn-sm btn-line" data-cmp="' + x.kod + '">' +
+          '<svg class="ic ic-sm"><use href="#i-columns"></use></svg> Karşılaştır</button></div>';
+    },
+    rowActions:[
+      { key:'kars', icon:'i-columns', label:'Teklifleri karşılaştır',
+        run:function(x, refresh){ karsilastir(x, refresh); } },
+      { key:'talep', icon:'i-external', label:'Talep listesinde aç',
+        href:function(x){ return 'app-satinalma.html?q=' + x.kod + '&t=tumu'; } }
+    ],
+    bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download' }],
+    emptyState:{ icon:'i-quote', title:'Bu görünümde karşılaştırılacak talep yok',
+      desc:'Her satın alma talebi için en az iki tedarikçiden teklif toplanır; teklifler fiyat, teslim, garanti, ödeme, teknik uygunluk ve tedarikçi puanı üzerinden karşılaştırılır.',
+      action:'<a class="btn btn-acc" href="app-satinalma.html"><svg class="ic"><use href="#i-cart"></use></svg> Satın Alma Talepleri</a>' }
+  });
+
+  /* Kart ve mobil görünümde satır aksiyonu basılmaz — karşılaştırma butonu olay
+     yetkilendirmesiyle bağlanır (mount elemanı render'lar arasında korunur). */
+  var host = document.getElementById('liste');
+  if(host){
+    host.addEventListener('click', function(e){
+      var b = e.target.closest('[data-cmp]');
+      if(!b) return;
+      var p = DB.purchases.filter(function(x){ return x.kod === b.getAttribute('data-cmp'); })[0];
+      if(p) karsilastir(p, L.refresh);
+    });
+  }
+
+  canonKontrol();
+});
+</script>
+</body>
+</html>

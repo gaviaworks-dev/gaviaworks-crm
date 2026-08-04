@@ -603,6 +603,8 @@
     'app-zaman.html',
     'app-zaman-onay.html',
     'app-egitim.html',
+    'app-satinalma-teklif.html',
+    'app-odemeplani.html',
     'app-kapasite.html',
     'app-performans.html',
     'app-demirbas.html',
