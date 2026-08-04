@@ -190,11 +190,17 @@ DB.sprints = [
 ];
 
 /* ---- Görevler (PROMPT.md §12) ------------------------------------------ */
+/* BAĞ ALANI (lessons L-13): `destek` = görevi doğuran destek talebi (DST-*).
+   PROMPT.md §18 "destek → görev" dönüşümünün veri karşılığıdır; `app-destek-detay.html`
+   göreve dönüştürme mutasyonu bu alanı yazar. null = görev destek talebinden doğmadı.
+   Hata bağı burada DEĞİL, `DB.bugs[].gorev` tarafında tutulur — tek yön, ayna alan yok.
+   `etki` ekseni: hatadan doğan görevin etkisi hatanın şiddetinden gelir
+   (şiddet 'Kritik' → etki 'Çok yüksek', diğer üçü birebir — components.md §9). */
 DB.tasks = [
   { kod:'GRV-2026-101', baslik:'Tahlil sonuç ekranında PDF indirme hatası düzeltilecek', tur:'Hata',
     proje:'PRJ-2026-001', modul:'MOD-002', sprint:'SPR-2026-018', musteri:'MUS-2024-002', dep:'DEP-09',
     olusturan:'EMP-009', veren:'EMP-003', sorumlu:'EMP-008', yardimci:['EMP-005'], izleyiciler:['EMP-003','EMP-013'],
-    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Kritik', etki:'Yüksek', aciliyet:'Yüksek',
+    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Kritik', etki:'Çok yüksek', aciliyet:'Yüksek', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-30', termin:'2026-08-01', tamamlanma:null,
     tahminiSure:8, gercekSure:6.5, faturalanabilir:6.5, ilerleme:70, revizyon:0, yenidenAcilma:1,
     aciklama:'iOS 17 cihazlarda PDF indirme akışı sessizce başarısız oluyor. Android etkilenmiyor.',
@@ -204,7 +210,7 @@ DB.tasks = [
   { kod:'GRV-2026-102', baslik:'App Store yayın notları ve ekran görüntüleri hazırlanacak', tur:'Proje görevi',
     proje:'PRJ-2026-001', modul:null, sprint:'SPR-2026-018', musteri:'MUS-2024-002', dep:'DEP-06',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-004', yardimci:[], izleyiciler:['EMP-008'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Orta', aciliyet:'Yüksek',
+    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Orta', aciliyet:'Yüksek', destek:null,
     durum:'Kontrol bekliyor', baslangic:'2026-07-29', termin:'2026-08-02', tamamlanma:null,
     tahminiSure:6, gercekSure:5, faturalanabilir:5, ilerleme:100, revizyon:1, yenidenAcilma:0,
     aciklama:'6.7" ve 6.1" ekran görüntüleri, TR ve EN yayın notları.',
@@ -213,7 +219,7 @@ DB.tasks = [
   { kod:'GRV-2026-103', baslik:'Skorlama modeli doğruluk raporu çıkarılacak', tur:'Yazılım geliştirme görevi',
     proje:'PRJ-2026-002', modul:'MOD-006', sprint:'SPR-2026-019', musteri:'MUS-2026-011', dep:'DEP-10',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-007', yardimci:[], izleyiciler:['EMP-002'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-001', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Orta',
+    kontrolEden:'EMP-003', onaylayan:'EMP-001', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Orta', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-28', termin:'2026-08-07', tamamlanma:null,
     tahminiSure:16, gercekSure:9, faturalanabilir:9, ilerleme:55, revizyon:0, yenidenAcilma:0,
     aciklama:'Test kümesi üzerinde precision/recall ve karışıklık matrisi.',
@@ -222,7 +228,7 @@ DB.tasks = [
   { kod:'GRV-2026-104', baslik:'Başvuru inceleme paneli liste ekranı', tur:'Yazılım geliştirme görevi',
     proje:'PRJ-2026-002', modul:'MOD-007', sprint:'SPR-2026-019', musteri:'MUS-2026-011', dep:'DEP-07',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-006', yardimci:['EMP-016'], izleyiciler:[],
-    kontrolEden:'EMP-005', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-005', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-31', termin:'2026-08-08', tamamlanma:null,
     tahminiSure:20, gercekSure:7, faturalanabilir:7, ilerleme:40, revizyon:0, yenidenAcilma:0,
     aciklama:'Filtre, sayfalama ve skor bazlı sıralama içeren başvuru listesi.',
@@ -231,7 +237,7 @@ DB.tasks = [
   { kod:'GRV-2026-105', baslik:'Logo ERP stok senkronizasyon servisi', tur:'Yazılım geliştirme görevi',
     proje:'PRJ-2026-003', modul:'MOD-011', sprint:'SPR-2026-021', musteri:'MUS-2025-005', dep:'DEP-08',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-005', yardimci:[], izleyiciler:['EMP-010'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Orta',
+    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Orta', destek:null,
     durum:'Engellendi', baslangic:'2026-07-22', termin:'2026-08-05', tamamlanma:null,
     tahminiSure:24, gercekSure:11, faturalanabilir:11, ilerleme:45, revizyon:0, yenidenAcilma:0,
     aciklama:'Logo tarafındaki stok hareketlerinin 15 dakikada bir çekilmesi.',
@@ -241,7 +247,7 @@ DB.tasks = [
   { kod:'GRV-2026-106', baslik:'Rapor merkezi ekran tasarımları', tur:'Tasarım görevi',
     proje:'PRJ-2026-003', modul:'MOD-012', sprint:'SPR-2026-021', musteri:'MUS-2025-005', dep:'DEP-06',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-004', yardimci:['EMP-015'], izleyiciler:[],
-    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Düşük',
+    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Düşük', destek:null,
     durum:'Atandı', baslangic:'2026-08-03', termin:'2026-08-16', tamamlanma:null,
     tahminiSure:28, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'8 rapor ekranı için tasarım ve etkileşim akışları.',
@@ -250,7 +256,7 @@ DB.tasks = [
   { kod:'GRV-2026-107', baslik:'Trakya randevu ekranı 8. revizyon talebi', tur:'Revizyon',
     proje:'PRJ-2026-006', modul:'MOD-015', sprint:'SPR-2026-023', musteri:'MUS-2026-010', dep:'DEP-07',
     olusturan:'EMP-013', veren:'EMP-003', sorumlu:'EMP-006', yardimci:[], izleyiciler:['EMP-001','EMP-002'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Yüksek', aciliyet:'Yüksek',
+    kontrolEden:'EMP-003', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Yüksek', aciliyet:'Yüksek', destek:null,
     durum:'Revize bekliyor', baslangic:'2026-07-25', termin:'2026-07-30', tamamlanma:null,
     tahminiSure:12, gercekSure:18, faturalanabilir:0, ilerleme:60, revizyon:7, yenidenAcilma:3,
     aciklama:'Müşteri randevu adımlarının sırasını yeniden değiştirmek istiyor.',
@@ -260,7 +266,7 @@ DB.tasks = [
   { kod:'GRV-2026-108', baslik:'Nova rezervasyon takvimi bileşeni', tur:'Yazılım geliştirme görevi',
     proje:'PRJ-2026-005', modul:'MOD-013', sprint:'SPR-2026-022', musteri:'MUS-2026-007', dep:'DEP-07',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-006', yardimci:['EMP-016'], izleyiciler:[],
-    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-29', termin:'2026-08-09', tamamlanma:null,
     tahminiSure:22, gercekSure:12, faturalanabilir:12, ilerleme:50, revizyon:0, yenidenAcilma:0,
     aciklama:'Müsaitlik takvimi, çoklu oda seçimi ve fiyat gösterimi.',
@@ -269,7 +275,7 @@ DB.tasks = [
   { kod:'GRV-2026-109', baslik:'Ege Eğitim veli portalı bilgi mimarisi', tur:'Ön analiz görevi',
     proje:'PRJ-2026-007', modul:null, sprint:null, musteri:'MUS-2025-004', dep:'DEP-04',
     olusturan:'EMP-002', veren:'EMP-003', sorumlu:'EMP-003', yardimci:[], izleyiciler:['EMP-004'],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Devam ediyor', baslangic:'2026-08-01', termin:'2026-08-12', tamamlanma:null,
     tahminiSure:14, gercekSure:3, faturalanabilir:3, ilerleme:22, revizyon:0, yenidenAcilma:0,
     aciklama:'Veli, öğretmen ve idare rolleri için sayfa haritası.',
@@ -278,7 +284,7 @@ DB.tasks = [
   { kod:'GRV-2026-110', baslik:'Aylık sunucu maliyet raporu hazırlanacak', tur:'Tekrarlayan görev',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-12',
     olusturan:'EMP-001', veren:'EMP-001', sorumlu:'EMP-010', yardimci:[], izleyiciler:['EMP-012'],
-    kontrolEden:'EMP-012', onaylayan:'EMP-001', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük',
+    kontrolEden:'EMP-012', onaylayan:'EMP-001', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük', destek:null,
     durum:'Devam ediyor', baslangic:'2026-08-01', termin:'2026-08-05', tamamlanma:null,
     tahminiSure:4, gercekSure:1, faturalanabilir:0, ilerleme:25, revizyon:0, yenidenAcilma:0,
     aciklama:'Tüm projelerin bulut maliyetleri proje bazında ayrıştırılacak.',
@@ -287,7 +293,7 @@ DB.tasks = [
   { kod:'GRV-2026-111', baslik:'Yeni geliştirici için ekipman zimmet hazırlığı', tur:'Demirbaş görevi',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-17',
     olusturan:'EMP-011', veren:'EMP-011', sorumlu:'EMP-012', yardimci:[], izleyiciler:['EMP-010'],
-    kontrolEden:'EMP-011', onaylayan:'EMP-011', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-011', onaylayan:'EMP-011', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Havuzda', baslangic:null, termin:'2026-08-18', tamamlanma:null,
     tahminiSure:5, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'Dizüstü, monitör, klavye ve lisans hazırlığı.',
@@ -296,7 +302,7 @@ DB.tasks = [
   { kod:'GRV-2026-112', baslik:'Anadolu Perakende geciken tahsilat takibi', tur:'Müşteri görevi',
     proje:null, modul:null, sprint:null, musteri:'MUS-2025-003', dep:'DEP-15',
     olusturan:'EMP-001', veren:'EMP-001', sorumlu:'EMP-012', yardimci:[], izleyiciler:['EMP-002'],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Yüksek', aciliyet:'Yüksek',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Yüksek', aciliyet:'Yüksek', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-20', termin:'2026-07-31', tamamlanma:null,
     tahminiSure:6, gercekSure:4, faturalanabilir:0, ilerleme:60, revizyon:0, yenidenAcilma:0,
     aciklama:'FTR-2026-018 numaralı fatura 41 gündür ödenmedi.',
@@ -305,7 +311,7 @@ DB.tasks = [
   { kod:'GRV-2026-113', baslik:'Vitalis mobil regresyon test seti', tur:'Test görevi',
     proje:'PRJ-2026-001', modul:'MOD-002', sprint:'SPR-2026-018', musteri:'MUS-2024-002', dep:'DEP-11',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-009', yardimci:[], izleyiciler:['EMP-008'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Yüksek',
+    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Yüksek', destek:null,
     durum:'Onay bekliyor', baslangic:'2026-07-26', termin:'2026-08-03', tamamlanma:null,
     tahminiSure:18, gercekSure:17, faturalanabilir:17, ilerleme:100, revizyon:0, yenidenAcilma:0,
     aciklama:'62 senaryoluk regresyon seti koşuldu, 3 hata bulundu.',
@@ -314,7 +320,7 @@ DB.tasks = [
   { kod:'GRV-2026-114', baslik:'Marmara Faz 1 kabul testi senaryoları', tur:'Test görevi',
     proje:'PRJ-2026-003', modul:'MOD-010', sprint:'SPR-2026-021', musteri:'MUS-2025-005', dep:'DEP-11',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-009', yardimci:[], izleyiciler:['EMP-005'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Havuzda', baslangic:null, termin:'2026-08-20', tamamlanma:null,
     tahminiSure:20, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'Müşteri kabul testi için senaryo seti hazırlanacak.',
@@ -323,7 +329,7 @@ DB.tasks = [
   { kod:'GRV-2026-115', baslik:'Ofis yedekleme politikası gözden geçirilecek', tur:'Genel görev',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-12',
     olusturan:'EMP-010', veren:'EMP-001', sorumlu:'EMP-010', yardimci:[], izleyiciler:['EMP-001'],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Düşük', etki:'Orta', aciliyet:'Düşük',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Düşük', etki:'Orta', aciliyet:'Düşük', destek:null,
     durum:'Havuzda', baslangic:null, termin:'2026-08-28', tamamlanma:null,
     tahminiSure:8, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'Müşteri verisi barındıran sistemlerin yedekleme sıklığı gözden geçirilecek.',
@@ -332,7 +338,7 @@ DB.tasks = [
   { kod:'GRV-2026-116', baslik:'Zirve Market teknik değerlendirme notu', tur:'Satış görevi',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-04',
     olusturan:'EMP-014', veren:'EMP-002', sorumlu:'EMP-003', yardimci:['EMP-008'], izleyiciler:['EMP-014'],
-    kontrolEden:'EMP-002', onaylayan:'EMP-002', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Yüksek',
+    kontrolEden:'EMP-002', onaylayan:'EMP-002', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Yüksek', destek:null,
     durum:'Devam ediyor', baslangic:'2026-08-01', termin:'2026-08-04', tamamlanma:null,
     tahminiSure:6, gercekSure:2, faturalanabilir:0, ilerleme:35, revizyon:0, yenidenAcilma:0,
     aciklama:'POS entegrasyonunun teknik yapılabilirliği değerlendirilecek.',
@@ -341,7 +347,7 @@ DB.tasks = [
   { kod:'GRV-2026-117', baslik:'Kurumsal site blog bölümü içerik güncellemesi', tur:'Genel görev',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-18',
     olusturan:'EMP-002', veren:'EMP-002', sorumlu:'EMP-015', yardimci:[], izleyiciler:[],
-    kontrolEden:'EMP-002', onaylayan:'EMP-002', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük',
+    kontrolEden:'EMP-002', onaylayan:'EMP-002', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük', destek:null,
     durum:'Kabul bekliyor', baslangic:null, termin:'2026-08-15', tamamlanma:null,
     tahminiSure:10, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'4 yeni vaka çalışması görseli ve düzeni.',
@@ -350,7 +356,7 @@ DB.tasks = [
   { kod:'GRV-2026-118', baslik:'Vitalis push bildirim şablonları', tur:'Yazılım geliştirme görevi',
     proje:'PRJ-2026-001', modul:'MOD-003', sprint:'SPR-2026-018', musteri:'MUS-2024-002', dep:'DEP-08',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-005', yardimci:[], izleyiciler:['EMP-008'],
-    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Tamamlandı', baslangic:'2026-07-20', termin:'2026-07-28', tamamlanma:'2026-07-27',
     tahminiSure:10, gercekSure:9, faturalanabilir:9, ilerleme:100, revizyon:1, yenidenAcilma:0,
     aciklama:'Randevu hatırlatma ve sonuç bildirimi şablonları.',
@@ -359,7 +365,7 @@ DB.tasks = [
   { kod:'GRV-2026-119', baslik:'Öz Gıda devreye alma sonrası kontrol', tur:'Proje görevi',
     proje:'PRJ-2026-004', modul:null, sprint:null, musteri:'MUS-2026-009', dep:'DEP-12',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-010', yardimci:[], izleyiciler:['EMP-005'],
-    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Düşük',
+    kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Düşük', destek:null,
     durum:'Tamamlandı', baslangic:'2026-07-22', termin:'2026-07-26', tamamlanma:'2026-07-25',
     tahminiSure:6, gercekSure:5, faturalanabilir:5, ilerleme:100, revizyon:0, yenidenAcilma:0,
     aciklama:'Canlı ortam izleme, yedekleme ve uyarı kurulumları.',
@@ -368,7 +374,7 @@ DB.tasks = [
   { kod:'GRV-2026-120', baslik:'Deniz Lojistik bakım paketi yenileme teklifi', tur:'Satış görevi',
     proje:null, modul:null, sprint:null, musteri:'MUS-2024-001', dep:'DEP-02',
     olusturan:'EMP-002', veren:'EMP-001', sorumlu:'EMP-002', yardimci:[], izleyiciler:['EMP-001'],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Orta',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Yüksek', etki:'Yüksek', aciliyet:'Orta', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-31', termin:'2026-08-12', tamamlanma:null,
     tahminiSure:8, gercekSure:2, faturalanabilir:0, ilerleme:20, revizyon:0, yenidenAcilma:0,
     aciklama:'Mevcut paketin kapsamı genişletilerek yenileme teklifi hazırlanacak.',
@@ -377,7 +383,7 @@ DB.tasks = [
   { kod:'GRV-2026-121', baslik:'Marmara iş emri ekranı erişilebilirlik düzeltmeleri', tur:'Revizyon',
     proje:'PRJ-2026-003', modul:'MOD-010', sprint:'SPR-2026-020', musteri:'MUS-2025-005', dep:'DEP-07',
     olusturan:'EMP-009', veren:'EMP-003', sorumlu:'EMP-006', yardimci:[], izleyiciler:[],
-    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Tamamlandı', baslangic:'2026-07-21', termin:'2026-07-29', tamamlanma:'2026-07-28',
     tahminiSure:12, gercekSure:13, faturalanabilir:13, ilerleme:100, revizyon:1, yenidenAcilma:0,
     aciklama:'Klavye navigasyonu ve kontrast düzeltmeleri.',
@@ -386,7 +392,7 @@ DB.tasks = [
   { kod:'GRV-2026-122', baslik:'Araç muayene randevusu alınacak — 34 GW 1907', tur:'Araç görevi',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-17',
     olusturan:'EMP-011', veren:'EMP-011', sorumlu:'EMP-012', yardimci:[], izleyiciler:['EMP-001'],
-    kontrolEden:'EMP-011', onaylayan:'EMP-011', oncelik:'Yüksek', etki:'Orta', aciliyet:'Yüksek',
+    kontrolEden:'EMP-011', onaylayan:'EMP-011', oncelik:'Yüksek', etki:'Orta', aciliyet:'Yüksek', destek:null,
     durum:'Atandı', baslangic:'2026-08-03', termin:'2026-08-10', tamamlanma:null,
     tahminiSure:2, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'Muayene geçerlilik tarihi 28 Ağustos, randevu alınmalı.',
@@ -395,7 +401,7 @@ DB.tasks = [
   { kod:'GRV-2026-123', baslik:'Q3 personel performans dönemi açılışı', tur:'Personel görevi',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-14',
     olusturan:'EMP-011', veren:'EMP-001', sorumlu:'EMP-011', yardimci:[], izleyiciler:['EMP-001'],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Orta', etki:'Orta', aciliyet:'Orta',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
     durum:'Planlandı', baslangic:'2026-08-10', termin:'2026-08-24', tamamlanma:null,
     tahminiSure:12, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'Hedef belirleme ve öz değerlendirme formlarının açılması.',
@@ -404,7 +410,7 @@ DB.tasks = [
   { kod:'GRV-2026-124', baslik:'Eski proje arşiv temizliği', tur:'Genel görev',
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-12',
     olusturan:'EMP-010', veren:'EMP-010', sorumlu:'EMP-010', yardimci:[], izleyiciler:[],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük', destek:null,
     durum:'Arşivlendi', baslangic:'2026-01-12', termin:'2026-02-28', tamamlanma:'2026-02-26',
     tahminiSure:10, gercekSure:9, faturalanabilir:0, ilerleme:100, revizyon:0, yenidenAcilma:0,
     aciklama:'2023 öncesi proje dosyaları soğuk depolamaya taşındı.',
@@ -413,7 +419,7 @@ DB.tasks = [
   { kod:'GRV-2026-125', baslik:'Trakya Otomotiv müşteri memnuniyet eskalasyonu', tur:'Müşteri görevi',
     proje:'PRJ-2026-006', modul:null, sprint:null, musteri:'MUS-2026-010', dep:'DEP-03',
     olusturan:'EMP-013', veren:'EMP-001', sorumlu:'EMP-002', yardimci:['EMP-003'], izleyiciler:['EMP-001'],
-    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Çok yüksek', aciliyet:'Yüksek',
+    kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Çok yüksek', aciliyet:'Yüksek', destek:null,
     durum:'Devam ediyor', baslangic:'2026-07-28', termin:'2026-08-04', tamamlanma:null,
     tahminiSure:6, gercekSure:3, faturalanabilir:0, ilerleme:45, revizyon:0, yenidenAcilma:0,
     aciklama:'Memnuniyet puanı 2,4. Kapsam ve beklenti yeniden hizalanacak.',
@@ -476,57 +482,93 @@ DB.deptRequests = [
 ];
 
 /* ---- Hatalar ----------------------------------------------------------- */
+/* BAĞ ALANLARI (lessons L-13 — bağ tahmin edilmez, burada YAZILIDIR):
+   `gorev`  = hatayı düzelten görev. **Hata ↔ görev bağının tek yönü budur**;
+              `DB.tasks[].hata` diye bir ayna alan YOKTUR (iki yönlü bağ ayrışır).
+              Bağ yazılıysa görevin `etki` değeri şiddet eşlemesine uyar:
+              şiddet 'Kritik' → etki 'Çok yüksek', diğer üçü birebir (components.md §9).
+   `test`   = hatayı ortaya çıkaran test koşumu. Bir hata **en fazla bir** koşuma bağlanır.
+              null = hata bir koşumdan değil, başka bir kanaldan (destek, kullanıcı) geldi.
+   `destek` = hatayı doğuran destek talebi (DST-*). PROMPT.md §18 destek → hata dönüşümü.
+   `sprint` = hatanın **ele alındığı** sprint (açıldığı değil). Kapanmış hatada düzeltmenin
+              yapıldığı sprint, açık hatada içinde bulunulan sprint. */
 DB.bugs = [
   { kod:'HTA-2026-071', proje:'PRJ-2026-001', baslik:'iOS PDF indirme sessizce başarısız', modul:'MOD-002',
     siddet:'Kritik', oncelik:'Kritik', durum:'Devam ediyor', bulan:'EMP-009', sorumlu:'EMP-008',
-    bulunma:'2026-07-30', cozum:null, ortam:'iOS 17.4', tekrarlanabilir:'Her zaman', gorev:'GRV-2026-101', aktif:true },
+    bulunma:'2026-07-30', cozum:null, ortam:'iOS 17.4', tekrarlanabilir:'Her zaman', gorev:'GRV-2026-101',
+    test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-072', proje:'PRJ-2026-001', baslik:'Randevu listesi 50+ kayıtta yavaşlıyor', modul:'MOD-001',
     siddet:'Orta', oncelik:'Orta', durum:'Açık', bulan:'EMP-009', sorumlu:'EMP-008',
-    bulunma:'2026-07-30', cozum:null, ortam:'Android 14', tekrarlanabilir:'Bazen', gorev:null, aktif:true },
+    bulunma:'2026-07-30', cozum:null, ortam:'Android 14', tekrarlanabilir:'Bazen', gorev:null,
+    test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-073', proje:'PRJ-2026-001', baslik:'Bildirim zamanı yanlış saat diliminde', modul:'MOD-003',
     siddet:'Yüksek', oncelik:'Yüksek', durum:'Açık', bulan:'EMP-009', sorumlu:'EMP-005',
-    bulunma:'2026-07-31', cozum:null, ortam:'Tümü', tekrarlanabilir:'Her zaman', gorev:null, aktif:true },
+    bulunma:'2026-07-31', cozum:null, ortam:'Tümü', tekrarlanabilir:'Her zaman', gorev:null,
+    test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-074', proje:'PRJ-2026-006', baslik:'Tarih seçici mobilde açılmıyor', modul:'MOD-015',
     siddet:'Kritik', oncelik:'Kritik', durum:'Devam ediyor', bulan:'EMP-013', sorumlu:'EMP-006',
-    bulunma:'2026-07-30', cozum:null, ortam:'Safari iOS', tekrarlanabilir:'Her zaman', gorev:null, aktif:true },
+    bulunma:'2026-07-30', cozum:null, ortam:'Safari iOS', tekrarlanabilir:'Her zaman', gorev:null,
+    test:null, sprint:'SPR-2026-023', destek:'DST-2026-118', aktif:true },
   { kod:'HTA-2026-075', proje:'PRJ-2026-003', baslik:'İş emri filtresi tarih aralığını yok sayıyor', modul:'MOD-010',
     siddet:'Orta', oncelik:'Orta', durum:'Kapandı', bulan:'EMP-009', sorumlu:'EMP-006',
-    bulunma:'2026-07-18', cozum:'2026-07-24', ortam:'Web', tekrarlanabilir:'Her zaman', gorev:null, aktif:true },
+    bulunma:'2026-07-18', cozum:'2026-07-24', ortam:'Web', tekrarlanabilir:'Her zaman', gorev:null,
+    test:null, sprint:'SPR-2026-020', destek:'DST-2026-122', aktif:true },
   { kod:'HTA-2026-076', proje:'PRJ-2026-005', baslik:'Takvimde geçmiş tarihler seçilebiliyor', modul:'MOD-013',
     siddet:'Düşük', oncelik:'Düşük', durum:'Açık', bulan:'EMP-016', sorumlu:'EMP-006',
-    bulunma:'2026-08-01', cozum:null, ortam:'Web', tekrarlanabilir:'Her zaman', gorev:null, aktif:true }
+    bulunma:'2026-08-01', cozum:null, ortam:'Web', tekrarlanabilir:'Her zaman', gorev:null,
+    test:null, sprint:'SPR-2026-022', destek:null, aktif:true }
 ];
 
 /* ---- Testler ----------------------------------------------------------- */
+/* KAPSAM ALANLARI (lessons L-13):
+   `moduller` = koşumun kapsadığı proje modülleri (**dizi** — bir koşum birden çok modülü
+                tarayabilir). Boş dizi = projenin modül kırılımı veride yok, kapsam proje ekseninde.
+   `sprint`   = koşumun düştüğü sprint. null = koşum tarihi hiçbir sprint aralığına girmiyor
+                (veride o dönemin sprinti yok) — tarih yakınlığıyla UYDURULMAZ.
+   `basarisiz` ile bağlı hata sayısı **eşit olmak zorunda değildir**: her düşen senaryo
+   ayrı bir hata kaydı doğurmaz. Kural yalnız şudur: bağlı hata sayısı ≤ `basarisiz`. */
 DB.tests = [
   { kod:'TST-2026-018', proje:'PRJ-2026-001', ad:'Mobil regresyon — Sprint 18', tur:'Regresyon', senaryo:62,
-    basarili:59, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-07-31', durum:'Tamamlandı', aktif:true },
+    basarili:59, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-07-31', durum:'Tamamlandı',
+    moduller:['MOD-001','MOD-002','MOD-003'], sprint:'SPR-2026-018', aktif:true },
   { kod:'TST-2026-019', proje:'PRJ-2026-003', ad:'İş emri modülü fonksiyonel test', tur:'Fonksiyonel', senaryo:44,
-    basarili:42, basarisiz:2, sorumlu:'EMP-009', tarih:'2026-07-28', durum:'Tamamlandı', aktif:true },
+    basarili:42, basarisiz:2, sorumlu:'EMP-009', tarih:'2026-07-28', durum:'Tamamlandı',
+    moduller:['MOD-010'], sprint:'SPR-2026-020', aktif:true },
   { kod:'TST-2026-020', proje:'PRJ-2026-002', ad:'Skorlama API yük testi', tur:'Performans', senaryo:12,
-    basarili:12, basarisiz:0, sorumlu:'EMP-010', tarih:'2026-07-26', durum:'Tamamlandı', aktif:true },
+    basarili:12, basarisiz:0, sorumlu:'EMP-010', tarih:'2026-07-26', durum:'Tamamlandı',
+    moduller:['MOD-006'], sprint:null, aktif:true },
   { kod:'TST-2026-021', proje:'PRJ-2026-005', ad:'Rezervasyon akışı duman testi', tur:'Duman', senaryo:18,
-    basarili:15, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-08-01', durum:'Devam ediyor', aktif:true },
+    basarili:15, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-08-01', durum:'Devam ediyor',
+    moduller:['MOD-013'], sprint:'SPR-2026-022', aktif:true },
   { kod:'TST-2026-022', proje:'PRJ-2026-003', ad:'Faz 1 kabul testi', tur:'Kabul', senaryo:0,
-    basarili:0, basarisiz:0, sorumlu:'EMP-009', tarih:'2026-08-20', durum:'Planlandı', aktif:true }
+    basarili:0, basarisiz:0, sorumlu:'EMP-009', tarih:'2026-08-20', durum:'Planlandı',
+    moduller:['MOD-009','MOD-010','MOD-011'], sprint:null, aktif:true }
 ];
 
 /* ---- Teslimler --------------------------------------------------------- */
 /* `milestone` = teslimin karşılık geldiği ödeme planı taksiti (tekil bağ, lessons L-13).
    Türetme/tarih yakınlığı ile TAHMİN EDİLMEZ, burada yazılıdır.
    `musteriOnay` durum değeridir: 'Onaylandı' | 'Bekliyor' | 'Revizyon istendi'.
-   Sentinel '—' kullanılmaz. */
+   Sentinel '—' kullanılmaz.
+   `moduller` = teslimin kapsadığı proje modülleri (**dizi**). Boş dizi = projenin modül
+   kırılımı veride yok (PRJ-2026-004), teslim proje ekseninde okunur.
+   `test` = teslimi kabule bağlayan test koşumu; null = teslim bir kabul koşumuna bağlı değil. */
 DB.deliveries = [
   { kod:'TSL-2026-031', proje:'PRJ-2026-001', milestone:'MS-001', ad:'Beta sürüm (v0.9)', tarih:'2026-07-10', durum:'Onaylandı',
-    teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-14', not:'Test cihazlarına dağıtıldı', aktif:true },
+    teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-14', not:'Test cihazlarına dağıtıldı',
+    moduller:['MOD-001','MOD-002','MOD-003'], test:null, aktif:true },
   { kod:'TSL-2026-032', proje:'PRJ-2026-004', milestone:'MS-009', ad:'Üretim takip v1.0 canlı', tarih:'2026-07-22', durum:'Onaylandı',
-    teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-25', not:'Sorunsuz geçiş', aktif:true },
+    teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-25', not:'Sorunsuz geçiş',
+    moduller:[], test:null, aktif:true },
   { kod:'TSL-2026-033', proje:'PRJ-2026-002', milestone:'MS-003', ad:'POC sonuç paketi', tarih:'2026-07-25', durum:'Onaylandı',
-    teslimEden:'EMP-007', musteriOnay:'Onaylandı', onayTarihi:'2026-07-29', not:'Doğruluk %87', aktif:true },
+    teslimEden:'EMP-007', musteriOnay:'Onaylandı', onayTarihi:'2026-07-29', not:'Doğruluk %87',
+    moduller:['MOD-005','MOD-006'], test:null, aktif:true },
   { kod:'TSL-2026-034', proje:'PRJ-2026-003', milestone:'MS-005', ad:'Faz 1 modül paketi', tarih:'2026-08-29', durum:'Planlandı',
-    teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Kabul testi sonrası', aktif:true },
+    teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Kabul testi sonrası',
+    moduller:['MOD-009','MOD-010','MOD-011'], test:'TST-2026-022', aktif:true },
   { kod:'TSL-2026-035', proje:'PRJ-2026-006', milestone:'MS-008', ad:'Randevu sistemi canlı', tarih:'2026-06-26', durum:'Gecikti',
-    teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Revizyon turu devam ediyor', aktif:true }
+    teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Revizyon turu devam ediyor',
+    moduller:['MOD-015'], test:null, aktif:true }
 ];
 
 /* ---- Değişiklik talepleri ---------------------------------------------- */
@@ -537,20 +579,24 @@ DB.deliveries = [
    `etkiMaliyet` **NET** (KDV hariç), müşteriye yansıyan bedel — sözleşme netiyle
    (`contracts.tutar`) aynı eksende. `projects.butce` / `.gerceklesenMaliyet` **iç maliyet**
    eksenidir, bu alanla aynı satırda toplanmaz.
-   `etki` diye bir alan **YOKTUR** — etki düzeyi süre/bedel sapmasından hesaplanır. */
+   `etki` diye bir alan **YOKTUR** — etki düzeyi süre/bedel sapmasından hesaplanır.
+   AD ÇAKIŞMASI UYARISI: `talep` bu koleksiyonda **talebi açan taraf**tır
+   ('Müşteri' | 'İç ekip'), destek talebi kodu DEĞİLDİR. Destek talebi bağı için
+   projenin her yerinde olduğu gibi **`destek`** alanı kullanılır (DST-*).
+   `destek` null = değişiklik talebi bir destek talebinden doğmadı. */
 DB.changeRequests = [
   { kod:'DGS-2026-012', proje:'PRJ-2026-006', baslik:'Randevu adımlarının sırası değiştirilsin',
     talep:'Müşteri', tarih:'2026-07-25', etkiSure:12, etkiMaliyet:38000, durum:'Onay bekliyor',
-    kapsamIci:false, karar:'Ek teklif gerekiyor', sorumlu:'EMP-003', aktif:true },
+    kapsamIci:false, karar:'Ek teklif gerekiyor', sorumlu:'EMP-003', destek:null, aktif:true },
   { kod:'DGS-2026-013', proje:'PRJ-2026-003', baslik:'Rapor merkezine 3 yeni rapor eklensin',
     talep:'Müşteri', tarih:'2026-07-18', etkiSure:60, etkiMaliyet:145000, durum:'Onaylandı',
-    kapsamIci:false, karar:'Faz 2 kapsamına alındı', sorumlu:'EMP-003', aktif:true },
+    kapsamIci:false, karar:'Faz 2 kapsamına alındı', sorumlu:'EMP-003', destek:null, aktif:true },
   { kod:'DGS-2026-014', proje:'PRJ-2026-001', baslik:'Bildirim sesleri özelleştirilsin',
     talep:'Müşteri', tarih:'2026-07-12', etkiSure:6, etkiMaliyet:0, durum:'Reddedildi',
-    kapsamIci:false, karar:'Store yayını sonrası değerlendirilecek', sorumlu:'EMP-003', aktif:true },
+    kapsamIci:false, karar:'Store yayını sonrası değerlendirilecek', sorumlu:'EMP-003', destek:null, aktif:true },
   { kod:'DGS-2026-015', proje:'PRJ-2026-005', baslik:'Ödeme sağlayıcı iyzico yerine PayTR olsun',
     talep:'Müşteri', tarih:'2026-07-28', etkiSure:16, etkiMaliyet:22000, durum:'Değerlendiriliyor',
-    kapsamIci:false, karar:'—', sorumlu:'EMP-003', aktif:true }
+    kapsamIci:false, karar:'—', sorumlu:'EMP-003', destek:null, aktif:true }
 ];
 
 /* ---- Onay kuyruğu (tüm modüllerden) ------------------------------------ */

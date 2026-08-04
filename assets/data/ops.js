@@ -10,55 +10,80 @@ DB.assetCategories = ['Bilgisayar','Monitör','Telefon','Tablet','Klavye','Mouse
   'Otomobil','Ticari araç','Motosiklet','Kiralık araç','Diğer'];
 
 /* ---- Demirbaşlar (PROMPT.md §15) --------------------------------------- */
+/* PARA EKSENİ (lessons L-13): `alisFiyati` **NET**tir (KDV hariç) — bağlı siparişin
+   `tutar` alanıyla aynı eksende. Bir siparişten doğan demirbaş grubunun `alisFiyati`
+   toplamı o siparişin **netine** eşittir, brütüne değil.
+   BAĞ ALANI: `siparis` = demirbaşın satın alındığı sipariş (SIP-*). PROMPT.md §17
+   "demirbaşa / araca otomatik aktarım" bağının veri karşılığı.
+   null = demirbaş bu prototipte modellenmiş bir siparişten gelmiyor (2024-2025 alımları,
+   sipariş kayıtları 2026'dan başlıyor) — tedarikçi eşleşmesi bağ yerine GEÇMEZ.
+   Yalnız **teslim alınmış** sipariş demirbaş doğurur; 'Sipariş verildi' durumundaki
+   siparişin karşılığı henüz yoktur. Sarf malzemesi ve kredi/abonelik paketi
+   (SIP-2026-007 OpenAI API kredisi, SIP-2026-009 ofis sarfı) demirbaş doğurmaz. */
 DB.assets = [
   { kod:'DMB-2024-001', kategori:'Bilgisayar', altKategori:'Dizüstü', marka:'Apple', model:'MacBook Pro 14 M3', seri:'C02X1234ABCD',
     ozellik:'M3 Pro · 18 GB RAM · 512 GB SSD', alisTarihi:'2024-01-18', alisFiyati:82000, tedarikci:'TDR-002',
     garantiBas:'2024-01-18', garantiBit:'2027-01-18', lokasyon:'Ofis · Ankara', dep:'DEP-08',
-    durum:'Zimmetli', zimmetli:'EMP-005', zimmetTarihi:'2024-01-22', iadeTarihi:null, barkod:'GW-DMB-0001', aktif:true },
+    durum:'Zimmetli', zimmetli:'EMP-005', zimmetTarihi:'2024-01-22', iadeTarihi:null, barkod:'GW-DMB-0001', siparis:null, aktif:true },
   { kod:'DMB-2024-002', kategori:'Bilgisayar', altKategori:'Dizüstü', marka:'Apple', model:'MacBook Air 15 M2', seri:'C02X5678EFGH',
     ozellik:'M2 · 16 GB RAM · 512 GB SSD', alisTarihi:'2024-03-05', alisFiyati:61000, tedarikci:'TDR-002',
     garantiBas:'2024-03-05', garantiBit:'2027-03-05', lokasyon:'Ofis · Ankara', dep:'DEP-06',
-    durum:'Zimmetli', zimmetli:'EMP-004', zimmetTarihi:'2024-03-08', iadeTarihi:null, barkod:'GW-DMB-0002', aktif:true },
+    durum:'Zimmetli', zimmetli:'EMP-004', zimmetTarihi:'2024-03-08', iadeTarihi:null, barkod:'GW-DMB-0002', siparis:null, aktif:true },
   { kod:'DMB-2024-003', kategori:'Bilgisayar', altKategori:'Masaüstü', marka:'Dell', model:'OptiPlex 7010', seri:'DL7010X991',
     ozellik:'i7 · 32 GB RAM · 1 TB SSD', alisTarihi:'2024-06-11', alisFiyati:47000, tedarikci:'TDR-001',
     garantiBas:'2024-06-11', garantiBit:'2027-06-11', lokasyon:'Ofis · Ankara', dep:'DEP-07',
-    durum:'Zimmetli', zimmetli:'EMP-006', zimmetTarihi:'2024-06-14', iadeTarihi:null, barkod:'GW-DMB-0003', aktif:true },
+    durum:'Zimmetli', zimmetli:'EMP-006', zimmetTarihi:'2024-06-14', iadeTarihi:null, barkod:'GW-DMB-0003', siparis:null, aktif:true },
   { kod:'DMB-2025-004', kategori:'Monitör', altKategori:'27 inç', marka:'LG', model:'27UP850', seri:'LG27UP1234',
     ozellik:'4K · USB-C 90W', alisTarihi:'2025-02-20', alisFiyati:18500, tedarikci:'TDR-001',
     garantiBas:'2025-02-20', garantiBit:'2027-02-20', lokasyon:'Ofis · Ankara', dep:'DEP-07',
-    durum:'Zimmetli', zimmetli:'EMP-006', zimmetTarihi:'2025-02-24', iadeTarihi:null, barkod:'GW-DMB-0004', aktif:true },
+    durum:'Zimmetli', zimmetli:'EMP-006', zimmetTarihi:'2025-02-24', iadeTarihi:null, barkod:'GW-DMB-0004', siparis:null, aktif:true },
   { kod:'DMB-2025-005', kategori:'Monitör', altKategori:'27 inç', marka:'Dell', model:'U2723QE', seri:'DLU27X8877',
     ozellik:'4K · USB-C hub', alisTarihi:'2025-02-20', alisFiyati:21000, tedarikci:'TDR-001',
     garantiBas:'2025-02-20', garantiBit:'2027-02-20', lokasyon:'Depo · Ankara', dep:'DEP-17',
-    durum:'Depoda', zimmetli:null, zimmetTarihi:null, iadeTarihi:'2026-05-14', barkod:'GW-DMB-0005', aktif:true },
+    durum:'Depoda', zimmetli:null, zimmetTarihi:null, iadeTarihi:'2026-05-14', barkod:'GW-DMB-0005', siparis:null, aktif:true },
   { kod:'DMB-2025-006', kategori:'Telefon', altKategori:'Test cihazı', marka:'Apple', model:'iPhone 15', seri:'IP15XZ4471',
     ozellik:'128 GB · iOS 18', alisTarihi:'2025-04-02', alisFiyati:54000, tedarikci:'TDR-002',
     garantiBas:'2025-04-02', garantiBit:'2027-04-02', lokasyon:'Ofis · Ankara', dep:'DEP-09',
-    durum:'Zimmetli', zimmetli:'EMP-008', zimmetTarihi:'2025-04-05', iadeTarihi:null, barkod:'GW-DMB-0006', aktif:true },
+    durum:'Zimmetli', zimmetli:'EMP-008', zimmetTarihi:'2025-04-05', iadeTarihi:null, barkod:'GW-DMB-0006', siparis:null, aktif:true },
   { kod:'DMB-2025-007', kategori:'Telefon', altKategori:'Test cihazı', marka:'Samsung', model:'Galaxy S24', seri:'SGS24AA1029',
     ozellik:'256 GB · Android 14', alisTarihi:'2025-04-02', alisFiyati:41000, tedarikci:'TDR-002',
     garantiBas:'2025-04-02', garantiBit:'2027-04-02', lokasyon:'Ofis · Ankara', dep:'DEP-11',
-    durum:'Zimmetli', zimmetli:'EMP-009', zimmetTarihi:'2025-04-05', iadeTarihi:null, barkod:'GW-DMB-0007', aktif:true },
+    durum:'Zimmetli', zimmetli:'EMP-009', zimmetTarihi:'2025-04-05', iadeTarihi:null, barkod:'GW-DMB-0007', siparis:null, aktif:true },
   { kod:'DMB-2025-008', kategori:'Sunucu', altKategori:'NAS', marka:'Synology', model:'DS923+', seri:'SYN923X445',
     ozellik:'4 yuva · 32 TB', alisTarihi:'2025-08-14', alisFiyati:68000, tedarikci:'TDR-001',
     garantiBas:'2025-08-14', garantiBit:'2028-08-14', lokasyon:'Ofis · Sistem odası', dep:'DEP-12',
-    durum:'Aktif', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0008', aktif:true },
+    durum:'Aktif', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0008', siparis:null, aktif:true },
   { kod:'DMB-2025-009', kategori:'Yazılım lisansı', altKategori:'Tasarım', marka:'Figma', model:'Organization', seri:'FIG-ORG-2025',
     ozellik:'8 düzenleyici koltuk', alisTarihi:'2025-09-01', alisFiyati:42000, tedarikci:'TDR-003',
     garantiBas:'2025-09-01', garantiBit:'2026-08-31', lokasyon:'Bulut', dep:'DEP-06',
-    durum:'Aktif', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0009', aktif:true },
+    durum:'Aktif', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0009', siparis:null, aktif:true },
   { kod:'DMB-2025-010', kategori:'Kurumsal abonelik', altKategori:'Bulut', marka:'AWS', model:'Kurumsal hesap', seri:'AWS-GW-01',
     ozellik:'Aylık ortalama 34.000 ₺', alisTarihi:'2025-01-01', alisFiyati:0, tedarikci:'TDR-004',
     garantiBas:'2025-01-01', garantiBit:'2026-12-31', lokasyon:'Bulut', dep:'DEP-12',
-    durum:'Aktif', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0010', aktif:true },
+    durum:'Aktif', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0010', siparis:null, aktif:true },
   { kod:'DMB-2023-011', kategori:'Bilgisayar', altKategori:'Dizüstü', marka:'Lenovo', model:'ThinkPad T14', seri:'LNT14X2210',
     ozellik:'i5 · 16 GB RAM', alisTarihi:'2023-02-10', alisFiyati:38000, tedarikci:'TDR-001',
     garantiBas:'2023-02-10', garantiBit:'2026-02-10', lokasyon:'Depo · Ankara', dep:'DEP-17',
-    durum:'Hurda', zimmetli:null, zimmetTarihi:null, iadeTarihi:'2026-03-20', barkod:'GW-DMB-0011', aktif:false, arsiv:true },
+    durum:'Hurda', zimmetli:null, zimmetTarihi:null, iadeTarihi:'2026-03-20', barkod:'GW-DMB-0011', siparis:null, aktif:false, arsiv:true },
   { kod:'DMB-2026-012', kategori:'Kulaklık', altKategori:'Kablosuz', marka:'Sony', model:'WH-1000XM5', seri:'SNY1000X77',
     ozellik:'Gürültü engelleme', alisTarihi:'2026-01-15', alisFiyati:14500, tedarikci:'TDR-002',
     garantiBas:'2026-01-15', garantiBit:'2028-01-15', lokasyon:'Ofis · Ankara', dep:'DEP-10',
-    durum:'Zimmetli', zimmetli:'EMP-007', zimmetTarihi:'2026-01-18', iadeTarihi:null, barkod:'GW-DMB-0012', aktif:true }
+    durum:'Zimmetli', zimmetli:'EMP-007', zimmetTarihi:'2026-01-18', iadeTarihi:null, barkod:'GW-DMB-0012', siparis:null, aktif:true },
+  /* SIP-2026-008 (SAT-2026-012 · 3 adet ergonomik sandalye · TDR-005) 2026-07-30'da
+     "Tam" teslim kontrolüyle kapandı; demirbaş karşılığı bu üç kayıttır.
+     Σ alisFiyati = 3 × 9.500 = 28.500 = siparişin **neti** (brüt 34.200 değil). */
+  { kod:'DMB-2026-013', kategori:'Ofis mobilyası', altKategori:'Çalışma sandalyesi', marka:'Ergohuman', model:'Enjoy Elite', seri:'ERG-EE-77101',
+    ozellik:'Bel destekli · ayarlanabilir kolçak · file sırt', alisTarihi:'2026-07-30', alisFiyati:9500, tedarikci:'TDR-005',
+    garantiBas:'2026-07-30', garantiBit:'2028-07-30', lokasyon:'Ofis · Ankara', dep:'DEP-17',
+    durum:'Zimmetli', zimmetli:'EMP-011', zimmetTarihi:'2026-07-31', iadeTarihi:null, barkod:'GW-DMB-0013', siparis:'SIP-2026-008', aktif:true },
+  { kod:'DMB-2026-014', kategori:'Ofis mobilyası', altKategori:'Çalışma sandalyesi', marka:'Ergohuman', model:'Enjoy Elite', seri:'ERG-EE-77102',
+    ozellik:'Bel destekli · ayarlanabilir kolçak · file sırt', alisTarihi:'2026-07-30', alisFiyati:9500, tedarikci:'TDR-005',
+    garantiBas:'2026-07-30', garantiBit:'2028-07-30', lokasyon:'Ofis · Ankara', dep:'DEP-17',
+    durum:'Zimmetli', zimmetli:'EMP-012', zimmetTarihi:'2026-07-31', iadeTarihi:null, barkod:'GW-DMB-0014', siparis:'SIP-2026-008', aktif:true },
+  { kod:'DMB-2026-015', kategori:'Ofis mobilyası', altKategori:'Çalışma sandalyesi', marka:'Ergohuman', model:'Enjoy Elite', seri:'ERG-EE-77103',
+    ozellik:'Bel destekli · ayarlanabilir kolçak · file sırt', alisTarihi:'2026-07-30', alisFiyati:9500, tedarikci:'TDR-005',
+    garantiBas:'2026-07-30', garantiBit:'2028-07-30', lokasyon:'Depo · Ankara', dep:'DEP-17',
+    durum:'Depoda', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0015', siparis:'SIP-2026-008', aktif:true }
 ];
 
 /* ---- Zimmet kayıtları --------------------------------------------------- */
@@ -327,6 +352,10 @@ DB.supplierQuotes = [
    PARA EKSENİ: `tutar` **NET** · `vergi` KDV · `toplam` **BRÜT** (`tutar + vergi`).
    `teslimTarihi` çift anlamlıdır: sipariş henüz teslim alınmadıysa **planlanan**,
    `durum:'Teslim alındı'` ise **gerçekleşen** tarihtir — ekranda hangisi olduğu yazılır.
+   DEMİRBAŞ BAĞI tek yönlüdür ve **`DB.assets[].siparis`** tarafında tutulur; siparişte
+   ayna alan yoktur. Bir siparişin demirbaş grubu `assets.filter(a => a.siparis === kod)`
+   ile okunur. `SIP-2026-008` → DMB-2026-013/014/015 (Σ net 28.500 = siparişin neti).
+   `SIP-2026-007` (OpenAI API kredisi) ve `SIP-2026-009` (ofis sarfı) demirbaş doğurmaz.
    -------------------------------------------------------------------------- */
 DB.orders = [
   { kod:'SIP-2026-009', talep:'SAT-2026-013', tedarikci:'TDR-005', tarih:'2026-07-26', teslimTarihi:'2026-08-08',
@@ -344,7 +373,19 @@ DB.orders = [
    `slaDurum` iki eksenin KÖTÜSÜNÜ yansıtır: ilk yanıt ve çözüm.
    Her eksende tüketim = geçen / hedef (hedefler DB.slaPolicies'ten gelir);
    ≥1 → 'İhlal edildi' · ≥0,75 → 'Risk altında' · altı → 'Zamanında'.
-   Açık taleplerde geçen süre DB.today gününün başlangıcına göre ölçülür. */
+   Açık taleplerde geçen süre DB.today gününün başlangıcına göre ölçülür.
+
+   DÖNÜŞÜM BAĞI (PROMPT.md §18 · lessons L-13) — talepte ayna alan YOKTUR, bağ
+   **doğan kaydın** üstünde tutulur ve tek yönlüdür:
+     görev            → `DB.tasks[].destek`
+     hata             → `DB.bugs[].destek`
+     değişiklik talebi→ `DB.changeRequests[].destek`  (`talep` alanı DEĞİL — o, talebi
+                        açan taraftır; bkz. work.js `DB.changeRequests` başlığı)
+   Bir talebin dönüşümleri `X.filter(r => r.destek === kod)` ile okunur.
+   `etiketler` üzerinden metin eşleştirmek bağ yerine GEÇMEZ.
+   Yazılı bağlar: DST-2026-118 → HTA-2026-074 · DST-2026-122 → HTA-2026-075.
+   Diğer beş talebin dönüşümü yoktur (kullanım sorusu / bilgi talebi ya da henüz
+   müşteri onayı bekleyen ek teklif) — bkz. assumptions.md V-38. */
 DB.tickets = [
   { kod:'DST-2026-118', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis', proje:'PRJ-2026-006',
     baslik:'Randevu formunda tarih seçici mobilde açılmıyor', kategori:'Hata', oncelik:'Kritik', etki:'Yüksek',
