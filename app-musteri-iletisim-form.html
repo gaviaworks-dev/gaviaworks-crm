@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Görüşme Kaydet — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="musteri" data-screen="iletisim">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, mount = document.getElementById('rec');
+  var LISTE = 'app-musteri-iletisim.html';
+  var TUR_ICON = { 'Toplantı':'i-users', 'Telefon':'i-phone', 'E-posta':'i-mail', 'Ziyaret':'i-home' };
+
+  var qs = new URLSearchParams(location.search);
+  var id = qs.get('id');
+  var kayit = id ? DB.interactions.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* =================================================================
+     ADRESTE id VAR AMA KAYIT YOK — uydurma yok, boş forma da düşülmez
+     ================================================================= */
+  if(id && !kayit){
+    GV.pageHead({
+      eyebrow:'Müşteri Yönetimi', title:'Görüşme Kaydı Formu',
+      sub:'Aranan kayıt bulunamadı.',
+      actions:[{ label:'İletişim geçmişine dön', cls:'btn-line', href:LISTE }]
+    });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Kayıt bulunamadı',
+      desc:'“' + id + '” kodlu görüşme kaydı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="' + LISTE + '">İletişim geçmişi listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5, ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Müşteri Yönetimi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Görüşme Kaydet',
+      sub:'Bu ekran rolünüze kapalı.',
+      actions:[{ label:'İletişim geçmişine dön', cls:'btn-line', href:LISTE }]
+    });
+    mount.innerHTML = '<div class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Kayıt düzenleme' : 'Kayıt ekleme') + ' yetkisi rolünüzde (' +
+           GV.session.rolAd + ') tanımlı değil. Görüşme geçmişini okuyabilir ama değiştiremezsiniz.' }) + '</div>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; tekrar denenecek bir yükleme
+       yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403) acts403.innerHTML = '<a class="btn btn-acc" href="' + LISTE + '">İletişim geçmişine dön</a>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni görüşme');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Görüşme Kaydet') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function uniq(arr){
+    var out = [];
+    arr.forEach(function(v){ if(v != null && v !== '' && v !== '—' && out.indexOf(v) === -1) out.push(v); });
+    return out;
+  }
+  /* Kayıttaki mevcut değer listede yoksa seçenek olarak eklenir — yoksa kaydet
+     sırasında sessizce boşalır ve veri kaybolur. */
+  function ensureObj(opts, cur){
+    if(!cur) return opts;
+    var has = opts.filter(function(o){ return String(o.value) === String(cur); }).length > 0;
+    return has ? opts : opts.concat([{ value:cur, label:cur + ' · listede yok' }]);
+  }
+  function musteriOf(kod){ return DB.customers.filter(function(c){ return c.kod === kod; })[0] || null; }
+  function leadOf(kod){ return DB.leads.filter(function(l){ return l.kod === kod; })[0] || null; }
+  function tarafAd(m, l){
+    var c = m ? musteriOf(m) : null; if(c) return c.unvan;
+    var d = l ? leadOf(l) : null;    if(d) return d.firma;
+    return m || l || '—';
+  }
+  function tarafHref(m, l){
+    if(m) return 'app-musteri-detay.html?id=' + m;
+    if(l) return 'app-lead-detay.html?id=' + l;
+    return null;
+  }
+
+  /* =================================================================
+     SEÇENEK KAYNAKLARI — hepsi mevcut koleksiyonlardan türetilir
+     ================================================================= */
+  var g = kayit || {};
+
+  /* Kanal ekseni: liste ekranının filtre sözlüğü (app-musteri-iletisim.html) esas alınır,
+     veride geçen değerlerle birleştirilir ki mevcut kayıt kaybolmasın. */
+  var turOpts = uniq(['Toplantı','Telefon','E-posta','Ziyaret']
+                     .concat(DB.interactions.map(function(x){ return x.tur; })).concat([g.tur]));
+
+  var musteriOpts = ensureObj(DB.customers.map(function(c){
+    return { value:c.kod, label:c.unvan + ' · ' + c.kod + (c.aktif ? '' : ' (pasif)') };
+  }), g.musteri);
+
+  var leadOpts = ensureObj(DB.leads.map(function(l){
+    return { value:l.kod, label:l.firma + ' · ' + l.kod + (l.aktif ? '' : ' (pasif)') };
+  }), g.lead);
+
+  var kisiOpts = ensureObj(DB.employees.filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; }), g.kisi);
+
+  /* Saat ekseni — GV.form'da `time` tipi yok (components.md §4). Görüşme saati 15 dakikalık
+     adımlarla seçilir; kayıttaki saat listede yoksa seçenek olarak eklenir. */
+  function saatSecenekleri(){
+    var out = [];
+    for(var h = 7; h <= 21; h++){
+      for(var m = 0; m < 60; m += 15){
+        if(h === 21 && m > 0) break;
+        out.push((h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m);
+      }
+    }
+    return out;
+  }
+  var kayitSaat = duzenle ? String(kayit.tarih || '').slice(11,16) : '';
+  var saatOpts = ensureObj(saatSecenekleri().map(function(s){ return { value:s, label:s }; }), kayitSaat);
+
+  /* Görüşülen kişi seçenekleri seçili tarafa göre daraltılır (aşağıda canlı bağlanır). */
+  function kontakOpts(mKod, lKod){
+    var out = [];
+    if(mKod){
+      DB.contacts.filter(function(y){ return y.musteri === mKod; }).forEach(function(y){
+        out.push({ value:y.ad, label:y.ad + ' · ' + y.pozisyon + (y.aktif ? '' : ' (pasif)') });
+      });
+    }else if(lKod){
+      var l = leadOf(lKod);
+      if(l && l.yetkili) out.push({ value:l.yetkili, label:l.yetkili + ' · aday yetkilisi' });
+    }else{
+      DB.contacts.forEach(function(y){
+        var c = musteriOf(y.musteri);
+        out.push({ value:y.ad, label:y.ad + ' · ' + (c ? c.kisa : y.musteri) });
+      });
+      DB.leads.forEach(function(l){
+        if(l.yetkili) out.push({ value:l.yetkili, label:l.yetkili + ' · ' + l.firma + ' (aday)' });
+      });
+    }
+    return out;
+  }
+
+  /* =================================================================
+     ÖN DOLDURMA — ?musteri=MUS-... / ?lead=LEAD-... adres parametresi
+     (kaynak liste ve müşteri/aday detayından bağlanabilsin diye)
+     ================================================================= */
+  var onMusteri = qs.get('musteri');
+  var onLead    = qs.get('lead');
+  if(onMusteri && !musteriOf(onMusteri)) onMusteri = null;
+  if(onLead && !leadOf(onLead)) onLead = null;
+  if(onMusteri) onLead = null;                       /* iki taraf birden bağlanamaz */
+
+  var simdiSaat = new Date().toTimeString().slice(0,5);
+  var yuvarlak = simdiSaat.slice(0,3) + (['00','15','30','45'][Math.floor(+simdiSaat.slice(3,5) / 15)]);
+  var varsayilanSaat = saatSecenekleri().indexOf(yuvarlak) !== -1 ? yuvarlak : '09:00';
+  var benVarim = kisiOpts.filter(function(o){ return o.value === GV.session.emp; }).length > 0;
+
+  var formRec = duzenle
+    ? { musteri:kayit.musteri || '', lead:kayit.lead || '', kontak:kayit.kontak || '',
+        tur:kayit.tur || '', tarihGun:String(kayit.tarih || '').slice(0,10), saat:kayitSaat,
+        kisi:kayit.kisi || '', konu:kayit.konu || '', ozet:kayit.ozet || '',
+        sonuc:kayit.sonuc === '—' ? '' : (kayit.sonuc || '') }
+    : { musteri:onMusteri || '', lead:onLead || '', kontak:'', tur:'Toplantı',
+        tarihGun:DB.today, saat:varsayilanSaat, kisi: benVarim ? GV.session.emp : '',
+        konu:'', ozet:'', sonuc:'' };
+
+  /* Ön doldurulan tarafın tek yetkilisi varsa görüşülen kişi de hazır gelir. */
+  if(!duzenle){
+    var onOpts = kontakOpts(formRec.musteri, formRec.lead);
+    if(onOpts.length === 1) formRec.kontak = onOpts[0].value;
+  }
+
+  /* =================================================================
+     ALANLAR — DB.interactions kaydının dokuz alanının tamamı karşılanır
+     (kod otomatik üretilir, tarih = tarihGun + saat)
+     ================================================================= */
+  var bugun = DB.today;
+
+  var sections = [
+    { title:'Görüşülen taraf', desc:'Görüşme ya mevcut bir müşteriye ya da bir müşteri adayına bağlanır — ikisine birden değil.', fields:[
+      { key:'musteri', label:'Müşteri', type:'select', options:musteriOpts, cols:6,
+        placeholder:'Müşteri seçiniz',
+        hint:'Mevcut müşteriyle yapılan görüşmelerde doldurulur.',
+        validate:function(v, d){
+          return (!v && !d.lead) ? 'Müşteri veya müşteri adayından biri seçilmelidir.' : ''; } },
+      { key:'lead', label:'Müşteri adayı', type:'select', options:leadOpts, cols:6,
+        placeholder:'Müşteri adayı seçiniz',
+        hint:'Henüz müşteriye dönüşmemiş adaylarda doldurulur.',
+        validate:function(v, d){
+          return (v && d.musteri)
+            ? 'Görüşme hem müşteriye hem müşteri adayına bağlanamaz — birini boşaltın.' : ''; } },
+      { key:'kontak', label:'Görüşülen kişi', type:'select', required:true, cols:12,
+        options:ensureObj(kontakOpts(formRec.musteri, formRec.lead), formRec.kontak),
+        placeholder:'Karşı taraftaki kişiyi seçiniz',
+        hint:'Seçenekler seçili müşterinin yetkilileriyle sınırlanır; adaylarda kayıtlı yetkili gelir.',
+        validate:function(v, d){
+          if(!v || v === formRec.kontak) return '';   /* kaydın kendi değeri her zaman geçerli */
+          var gecerli = kontakOpts(d.musteri, d.lead).filter(function(o){ return o.value === v; }).length > 0;
+          return gecerli ? '' : 'Seçilen kişi bu müşteri/aday kaydının yetkilisi değil — listeden yeniden seçin.';
+        } }
+    ]},
+
+    { title:'Görüşme künyesi', desc:'Kanal, zaman ve görüşmeyi yapan şirket içi kişi.', fields:[
+      { key:'tur', label:'İletişim kanalı', type:'select', options:turOpts, required:true, cols:6 },
+      { key:'kisi', label:'Şirket içi katılımcı', type:'select', options:kisiOpts, required:true, cols:6,
+        hint:'Görüşmeyi yürüten Gavia Works çalışanı.' },
+      { key:'tarihGun', label:'Görüşme tarihi', type:'date', required:true, cols:6,
+        validate:function(v, d){
+          if(!v) return '';
+          if(v > bugun) return 'Görüşme tarihi ileri bir tarih olamaz — planlanan görüşme ajandaya yazılır.';
+          if(d.musteri){
+            var c = musteriOf(d.musteri);
+            if(c && c.ilkKayit && v < c.ilkKayit)
+              return 'Görüşme tarihi müşterinin ilk kayıt tarihinden (' + F.date(c.ilkKayit) + ') önce olamaz.';
+          }
+          if(d.lead){
+            var l = leadOf(d.lead);
+            if(l && l.talepTarihi && v < l.talepTarihi)
+              return 'Görüşme tarihi adayın talep tarihinden (' + F.date(l.talepTarihi) + ') önce olamaz.';
+          }
+          return '';
+        } },
+      { key:'saat', label:'Görüşme saati', type:'select', options:saatOpts, required:true, cols:6,
+        hint:'15 dakikalık adımlarla seçilir.' }
+    ]},
+
+    { title:'İçerik', desc:'Görüşmenin konusu, özeti ve varılan sonuç.', fields:[
+      { key:'konu', label:'Görüşme konusu', type:'text', required:true, cols:12,
+        placeholder:'Örn. Q4 bakım paketi yenileme' },
+      { key:'ozet', label:'Görüşme özeti', type:'textarea', required:true, cols:12, rows:3,
+        placeholder:'Konuşulanlar, karşı tarafın talepleri, itirazlar…' },
+      { key:'sonuc', label:'Sonuç / sonraki adım', type:'text', cols:12,
+        placeholder:'Örn. Teklif hazırlanacak',
+        hint:'Boş bırakılırsa listede “—” görünür.' }
+    ]}
+  ];
+
+  var etiketSozluk = { tarih:'Görüşme zamanı' };
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){
+    etiketSozluk[f.key] = f.label;
+    if(f.required) zorunlu.push(f.label);
+  }); });
+
+  /* =================================================================
+     YENİ KOD — dizi uzunluğundan DEĞİL, en yüksek numaradan +1
+     ================================================================= */
+  function yeniKod(){
+    var max = 0, gen = 3;
+    DB.interactions.forEach(function(x){
+      var m = /^ILT-(\d+)$/.exec(x.kod || '');
+      if(m){ max = Math.max(max, +m[1]); gen = Math.max(gen, m[1].length); }
+    });
+    var n = String(max + 1);
+    while(n.length < gen) n = '0' + n;
+    return 'ILT-' + n;
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Müşteri Yönetimi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Görüşme Kaydet',
+    sub:   duzenle ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır.'
+                   : 'Zorunlu alanlar yıldızla işaretlidir · ' + zorunlu.length + ' zorunlu alan.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:LISTE },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* =================================================================
+     BAĞLAM — düzenlemede özet + ilişkili kayıt uyarısı, yenide ne olacağı
+     ================================================================= */
+  var acts = duzenle ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; }) : [];
+  var html = '';
+
+  /* Bir tarafın son iletişim tarihini hangi görüşme belirliyor? */
+  function tarafGorusmeleri(m, l){
+    var k = m || l;
+    if(!k) return [];
+    return DB.interactions.filter(function(x){ return (x.musteri || x.lead) === k; });
+  }
+
+  if(duzenle){
+    var kardes = tarafGorusmeleri(kayit.musteri, kayit.lead);
+    var enSon = kardes.map(function(x){ return String(x.tarih); }).sort().slice(-1)[0];
+    var sonBelirleyen = String(kayit.tarih) === enSon;
+    var taraf = musteriOf(kayit.musteri) || leadOf(kayit.lead) || null;
+    var son = acts[0] || null;
+    var href = tarafHref(kayit.musteri, kayit.lead);
+
+    var ozet = [
+      ['Kayıt no', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+      ['Kanal', '<span class="tag">' + GV.ico(TUR_ICON[kayit.tur] || 'i-chat','ic-sm') + ' ' + esc(kayit.tur) + '</span>'],
+      ['Görüşülen taraf', href
+        ? '<a href="' + href + '">' + esc(tarafAd(kayit.musteri, kayit.lead)) + '</a>' +
+          ' <span class="cell-code">' + esc(kayit.musteri || kayit.lead) + '</span>'
+        : null],
+      ['Görüşülen kişi', esc(kayit.kontak)],
+      ['Şirket içi katılımcı', GV.user(kayit.kisi, { sm:true })],
+      ['Görüşme zamanı', F.dt(kayit.tarih) + ' · ' + F.rel(kayit.tarih)],
+      ['Son değiştiren', son ? esc(son.kisi) + ' · ' + F.dt(son.tarih) : null]
+    ];
+
+    html += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + GV.ico('i-info') + 'Görüşme özeti</h2>' +
+      (href ? '<a class="btn btn-sm btn-line" href="' + href + '">Kartı aç</a>' : '') + '</div>' +
+      '<div class="gc-body"><dl class="gv-dl">' + ozet.map(function(p){
+        var bos = (p[1] == null || p[1] === '');
+        return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+          (bos ? '—' : p[1]) + '</dd></div>';
+      }).join('') + '</dl></div></section>';
+
+    var bagliMetin = '';
+    if(sonBelirleyen && taraf){
+      bagliMetin = tarafAd(kayit.musteri, kayit.lead) + ' kaydının “son iletişim” tarihi (' +
+        F.date(taraf.sonIletisim) + ') bu görüşmeden geliyor. Tarihi ya da bağlı tarafı ' +
+        'değiştirirseniz müşteri/aday kartındaki son iletişim tarihi de yeniden hesaplanır.';
+    }else if(taraf){
+      bagliMetin = tarafAd(kayit.musteri, kayit.lead) + ' kaydında toplam ' + kardes.length +
+        ' görüşme var; son iletişim tarihini bunlardan daha yenisi belirliyor. Bu kaydın tarihi ' +
+        'ileri alınırsa son iletişim tarihi bu görüşmeye geçer.';
+    }
+    if(bagliMetin){
+      html += '<div class="u-mt-8 u-mb-8">' + GV.notice({
+        tone: sonBelirleyen ? 'warn' : 'neutral',
+        title: sonBelirleyen ? 'Bu görüşme müşteri kartını besliyor' : 'Aynı tarafa ait diğer görüşmeler',
+        text:bagliMetin,
+        actions: href ? [{ label:'Kartı incele', href:href }] : null
+      }) + '</div>';
+    }
+  }else{
+    var onTaraf = (onMusteri || onLead) ? tarafAd(onMusteri, onLead) : null;
+    html += '<div class="u-mb-8">' + GV.notice({
+      tone:'info', title:'Kaydettiğinizde ne olacak',
+      text:(onTaraf ? 'Görüşme ' + onTaraf + ' kaydına bağlı olarak ' : 'Görüşme ') +
+           yeniKod() + ' numarasıyla iletişim geçmişine eklenir, bağlı müşteri veya adayın ' +
+           '“son iletişim” tarihi bu görüşmeye göre yeniden hesaplanır, aktivite geçmişine ' +
+           '“Kayıt oluşturuldu” satırı yazılır ve liste ekranına dönülür.'
+    }) + '</div>';
+  }
+
+  html += '<section class="gv-card">' +
+    '<div class="gc-body"><div id="formMount"></div></div>' +
+    '<div class="gv-form-actions"><span class="spacer"></span>' +
+      '<a class="btn btn-line" href="' + LISTE + '">Vazgeç</a>' +
+      '<button type="button" class="btn btn-acc" id="btnKaydetAlt">' +
+        GV.ico('i-check') + ' ' + (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+    '</div></section>';
+
+  if(duzenle){
+    html += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + GV.ico('i-activity') + 'Aktivite geçmişi</h2></div>' +
+      '<div class="gc-body">' + GV.activity(acts) + '</div></section>';
+  }
+
+  mount.innerHTML = html;
+
+  /* =================================================================
+     FORM
+     ================================================================= */
+  var form = GV.form({
+    mount:'#formMount',
+    id:'iletisim',
+    record:formRec,
+    sections:sections
+  });
+
+  /* ---- Taraf değişince görüşülen kişi listesi daraltılır --------------
+     Mount içindeki düğümler: GV.refresh() mount'u taze kopyayla değiştirdiği
+     için normal addEventListener yeterli (ders L-16). */
+  var selM = document.getElementById('f_musteri');
+  var selL = document.getElementById('f_lead');
+  var selK = document.getElementById('f_kontak');
+
+  function tazeleKontak(){
+    if(!selK) return;
+    var cur = selK.value;
+    var opts = kontakOpts(selM ? selM.value : '', selL ? selL.value : '');
+    var korunur = opts.filter(function(o){ return o.value === cur; }).length > 0;
+    selK.innerHTML = '<option value="">Karşı taraftaki kişiyi seçiniz</option>' +
+      opts.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (korunur && o.value === cur ? ' selected' : '') +
+               '>' + esc(o.label) + '</option>';
+      }).join('');
+    selK.value = korunur ? cur : (opts.length === 1 ? opts[0].value : '');
+  }
+
+  if(selM) selM.addEventListener('change', function(){
+    if(selM.value && selL) selL.value = '';      /* iki taraf birden seçilemez */
+    tazeleKontak();
+  });
+  if(selL) selL.addEventListener('change', function(){
+    if(selL.value && selM) selM.value = '';
+    tazeleKontak();
+  });
+
+  var btnAlt = document.getElementById('btnKaydetAlt');
+  if(btnAlt) btnAlt.addEventListener('click', kaydet);
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Form değerleri DOM'dan metin gelir; koleksiyonun şemasına çevrilir. */
+  function normalize(v){
+    return {
+      musteri: v.musteri || null,
+      lead:    v.lead || null,
+      tur:     v.tur,
+      tarih:   v.tarihGun + 'T' + v.saat,
+      kisi:    v.kisi,
+      kontak:  v.kontak,
+      konu:    v.konu,
+      ozet:    v.ozet,
+      sonuc:   (v.sonuc && v.sonuc.trim()) ? v.sonuc.trim() : '—'
+    };
+  }
+
+  function gorunur(k, val){
+    if(val == null || val === '') return '—';
+    if(k === 'tarih') return F.dt(val);
+    if(k === 'kisi') return DB.empName(val);
+    if(k === 'musteri' || k === 'lead') return tarafAd(k === 'musteri' ? val : null, k === 'lead' ? val : null);
+    return String(val);
+  }
+
+  /* Son iletişim ekseni: müşteri/aday kartındaki `sonIletisim`, o tarafa ait
+     görüşmelerin en yenisidir (canonical — sekiz kayıtta da tutuyor). Görüşme
+     eklenince/değişince yeniden hesaplanır, elle tahmin yazılmaz. */
+  function senkronSonIletisim(tarafKod){
+    if(!tarafKod) return null;
+    var hedef = musteriOf(tarafKod) || leadOf(tarafKod);
+    if(!hedef) return null;
+    var gunler = DB.interactions.filter(function(x){ return (x.musteri || x.lead) === tarafKod; })
+      .map(function(x){ return String(x.tarih).slice(0,10); }).sort();
+    var yeni = gunler.length ? gunler[gunler.length - 1] : null;
+    if(!yeni || hedef.sonIletisim === yeni) return null;
+    var eski = hedef.sonIletisim;
+    hedef.sonIletisim = yeni;
+    DB.activities.unshift({ kayit:tarafKod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Son iletişim tarihi güncellendi', eski:F.date(eski), yeni:F.date(yeni),
+      tone:'info', icon:'i-phone' });
+    return yeni;
+  }
+
+  function kaydet(){
+    var v = form.submit();
+    if(!v) return;
+    var d = normalize(v);
+
+    if(duzenle){
+      var eskiTaraf = kayit.musteri || kayit.lead;
+      var degisen = 0;
+      Object.keys(d).forEach(function(k){
+        var eski = kayit[k], yeni = d[k];
+        if(String(eski == null ? '' : eski) === String(yeni == null ? '' : yeni)) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (etiketSozluk[k] || k),
+          eski:gorunur(k, eski), yeni:gorunur(k, yeni), tone:'accent', icon:'i-edit' });
+        kayit[k] = yeni;
+        degisen++;
+      });
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+        form.setDirty(false);
+        setTimeout(function(){ location.href = LISTE; }, 700);
+        return;
+      }
+      senkronSonIletisim(eskiTaraf);
+      if((d.musteri || d.lead) !== eskiTaraf) senkronSonIletisim(d.musteri || d.lead);
+      GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+    }else{
+      var kod = yeniKod();
+      DB.interactions.unshift(Object.assign({ kod:kod }, d));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Kayıt oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus' });
+      var tarafKod = d.musteri || d.lead;
+      DB.activities.unshift({
+        kayit:tarafKod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'İletişim kaydı eklendi — ' + d.konu, eski:null, yeni:kod, tone:'info', icon:'i-phone' });
+      senkronSonIletisim(tarafKod);
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    setTimeout(function(){ location.href = LISTE; }, 700);
+  }
+});
+</script>
+</body>
+</html>
