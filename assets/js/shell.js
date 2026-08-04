@@ -692,7 +692,10 @@
     'app-referans-form.html',
     'app-komisyon-form.html',
     'app-onanaliz-form.html',
-    'app-teklif-form.html'
+    'app-teklif-form.html',
+    'app-proje-form.html',
+    'app-gorev-form.html',
+    'app-destek-form.html'
   ];
   GV.built = BUILT;
 
