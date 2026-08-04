@@ -248,7 +248,17 @@ DB.fines = [
    Ölçüldü (5. oturum): brüt olsaydı /1,2 tam liraya inmesi gerekirdi; TDR-001
    (485.000), TDR-002 (392.000) ve TDR-004 (742.000) inmiyor, yani alan brüt olamaz.
    Doğrulayıcı örnek TDR-003: 126.000 / 3 sipariş = 42.000 = `SAT-2026-015`
-   talebinin NET `tahminiMaliyet`i ile birebir. */
+   talebinin NET `tahminiMaliyet`i ile birebir.
+
+   ÖMÜR BOYU SAYAÇ (L-08 istisnası — 7. oturumda ölçüldü ve yazıldı):
+   `toplamTutar` ve `siparisSayisi` **türetilemez**; sistem öncesi tedarik geçmişini de
+   kapsarlar. `DB.orders` yalnız bu prototipteki üç siparişi taşıdığı için 6 tedarikçinin
+   4'ünde (TDR-001/002/003/006) hiç sipariş kaydı yokken kartta hacim yazılıdır.
+   Kural — yön her zaman aynıdır: **kart değeri, sistemdeki sipariş kayıtlarından
+   hesaplanandan küçük olamaz** (6/6 doğrulandı: 485.000≥0 · 392.000≥0 · 126.000≥0 ·
+   742.000≥64.000 · 96.000≥36.900 · 882.000≥0). `DB.referrers` sayaçlarıyla aynı sınıf.
+   Ekran bu iki sayıyı gösterirken kart değerini ve sistemden hesaplananı **ayrı satırda**
+   verir, birini diğerinin yerine yazmaz. */
 DB.suppliers = [
   { kod:'TDR-001', unvan:'Teknomarket Bilişim Ltd.', kategori:'Donanım', yetkili:'Cem Aksu', tel:'+90 312 000 00 60',
     eposta:'satis@teknomarket.com', vergiNo:'1102938475', adres:'Ostim, Ankara', puan:4.4, siparisSayisi:14,
