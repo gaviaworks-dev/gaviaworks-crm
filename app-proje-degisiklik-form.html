@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Değişiklik Talebi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="degisiklik">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js   → DB.employees, DB.emp, DB.empName, DB.today
+     work.js  → DB.changeRequests, DB.projects, DB.impacts, DB.tasks,
+                DB.approvals, DB.activities, DB.proj, DB.projName
+     misc.js  → DB.contracts
+     ops.js   → DB.tickets (destek bağı seçenekleri — DST-*) -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.changeRequests.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Proje Yönetimi', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen değişiklik talebi sistemde yok.',
+      actions:[{ label:'Değişiklik talepleri', cls:'btn-line', href:'app-proje-degisiklik.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Değişiklik talebi bulunamadı',
+      desc:'“' + esc(id) + '” kodlu değişiklik talebi bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-degisiklik.html">Değişiklik talepleri listesine dön</a>' }) +
+      '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Değişiklik Talebi');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Değişiklik Talebi') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Proje Yönetimi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Değişiklik Talebi',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Değişiklik talepleri', cls:'btn-line', href:'app-proje-degisiklik.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Değişiklik talebi düzenleme' : 'Değişiklik talebi ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Talepleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-proje-degisiklik.html">Talep listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-proje-degisiklik-detay.html?id=' + kayit.kod +
+                   '">Talep kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     EKSEN KURALLARI (components.md §9b · §9d · work.js koleksiyon başlığı)
+       · `etkiSure`     SAAT eksenindedir; gün karşılığı 8 sa/gün ile TÜRETİLİR.
+       · `etkiMaliyet`  NET (KDV hariç) — sözleşme netiyle (contracts.tutar) aynı
+                        eksende. projects.butce iç maliyet eksenidir, toplanmaz.
+       · `talep`        TALEBİ AÇAN TARAF ('Müşteri' | 'İç ekip').
+       · `destek`       talebi doğuran DESTEK TALEBİ kodudur (DST-*). İkisi ayrı eksen.
+       · `etki`         diye bir alan YOKTUR — düzey sapmadan hesaplanır, yazılmaz.
+     ================================================================= */
+  var TARAFLAR = ['Müşteri','İç ekip'];
+  DB.changeRequests.forEach(function(d){
+    if(d.talep && TARAFLAR.indexOf(d.talep) === -1) TARAFLAR.push(d.talep); });
+
+  /* Durum kümesi veride koleksiyon olarak yok; küme app-proje-degisiklik.html'in
+     durum filtresi ve kanban kolonlarıyla birebir aynı dört değerdir. */
+  var DURUMLAR = ['Değerlendiriliyor','Onay bekliyor','Onaylandı','Reddedildi'];
+  if(duzenle && kayit.durum && DURUMLAR.indexOf(kayit.durum) === -1) DURUMLAR.push(kayit.durum);
+  var KARAR_DURUM = ['Onaylandı','Reddedildi'];
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  var toplamTalep  = DB.changeRequests.length;
+  var destekliTal  = DB.changeRequests.filter(function(d){ return !!d.destek; }).length;
+  var kapsamDisi   = DB.changeRequests.filter(function(d){ return d.kapsamIci === false; }).length;
+  var kararSentinel = DB.changeRequests.filter(function(d){ return d.karar === '—'; }).length;
+  var etkiAlani    = DB.changeRequests.filter(function(d){ return d.etki != null; }).length;
+  var sozlesmeliPrj = DB.projects.filter(function(p){
+    return DB.contracts.some(function(c){ return c.proje === p.kod && c.aktif !== false; }); }).length;
+
+  function sozlesmeOf(pk){
+    if(!pk) return null;
+    return DB.contracts.filter(function(c){ return c.proje === pk && c.aktif !== false; })[0] || null;
+  }
+  function acikGorev(pk){
+    return DB.tasks.filter(function(t){
+      return t.proje === pk && t.durum !== 'Tamamlandı' && t.durum !== 'İptal edildi' && t.aktif !== false;
+    }).length;
+  }
+  function bekleGun(tarih){ var g = F.days(tarih); return g == null ? null : -g; }
+
+  /* =================================================================
+     ADRES PARAMETRESİYLE ÖN DOLDURMA — ?proje=PRJ-…
+     ================================================================= */
+  var qsProje = qs.get('proje');
+  var onProje = qsProje ? DB.proj(qsProje) : null;
+  var baslangicProje = duzenle ? kayit.proje : (onProje ? onProje.kod : '');
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden
+     ================================================================= */
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){
+      var say = DB.changeRequests.filter(function(d){
+        return d.proje === p.kod && (!duzenle || d.kod !== kayit.kod); }).length;
+      return { value:p.kod, label:p.ad + ' · ' + p.kod + (say ? ' · ' + say + ' talep' : '') };
+    });
+
+  var KISILER = DB.employees
+    .filter(function(e){ return e.aktif !== false || (duzenle && e.kod === kayit.sorumlu); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+
+  /* Destek bağı seçenekleri yalnız AYNI projenin talepleridir — bağ hedefi
+     başka projeye kayarsa canon.js eksen 15 yakalar. */
+  function destekSecenek(pk){
+    return DB.tickets.filter(function(t){ return t.proje === pk; })
+      .map(function(t){
+        return { value:t.kod, label:t.kod + ' · ' + t.baslik + ' · ' + t.kategori + ' · ' + t.durum };
+      });
+  }
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  /* `kapsamIci` veride BOOLEAN; formda iki seçenekli radyo olarak tutulur ve
+     kaydederken boolean'a geri çevrilir. `karar` alanındaki '—' sentinel'i
+     forma boş olarak açılır (bkz. rapor — veri çelişkisi). */
+  var KAPSAM_ICI = 'Kapsam içi', KAPSAM_DISI = 'Kapsam dışı';
+  function kapsamMetin(b){ return b === true ? KAPSAM_ICI : b === false ? KAPSAM_DISI : ''; }
+  function kararMetin(k){ return (!k || k === '—') ? '' : k; }
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.kapsamIci = kapsamMetin(kayit.kapsamIci);
+    formRec.karar     = kararMetin(kayit.karar);
+    formRec.destek    = kayit.destek || '';
+    formRec.sorumlu   = kayit.sorumlu || '';
+    formRec.etkiSure  = kayit.etkiSure == null ? '' : kayit.etkiSure;
+    formRec.etkiMaliyet = kayit.etkiMaliyet == null ? '' : kayit.etkiMaliyet;
+    formRec.aktif     = kayit.aktif !== false;
+  }else{
+    var benim = (GV.session && GV.session.emp && DB.emp(GV.session.emp)) ? GV.session.emp : '';
+    formRec = {
+      baslik:'', proje:baslangicProje,
+      talep:'', tarih:DB.today,
+      etkiSure:'', etkiMaliyet:'',
+      durum:'Değerlendiriliyor', kapsamIci:'',
+      karar:'', sorumlu:benim, destek:'',
+      aktif:true
+    };
+  }
+
+  /* =================================================================
+     BAĞLAM — düzenleme modunda kaydın ilişkileri
+     ================================================================= */
+  var proje    = duzenle && kayit.proje ? DB.proj(kayit.proje) : null;
+  var sozlesme = duzenle ? sozlesmeOf(kayit.proje) : null;
+  /* Onay kuyruğu adımı: DB.approvals[].kayit YAZILI bağdır — türetilmez. */
+  var ony      = duzenle
+    ? DB.approvals.filter(function(a){ return a.kayit === kayit.kod; })[0] || null : null;
+  var talepTicket = duzenle && kayit.destek
+    ? DB.tickets.filter(function(t){ return t.kod === kayit.destek; })[0] || null : null;
+  var acts     = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+  /* Para her yerde maskelenir — yetkisi olmayan rol tutarı hiçbir türevinde görmez. */
+  function para(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="cell-money">' + F.money(v) + '</span>';
+  }
+  function saatGun(saat){
+    return '<b class="u-num">' + F.hours(saat) + '</b> ' +
+      sub('≈ ' + F.num(saat / 8, 1) + ' adam-gün (8 sa/gün — türetilmiş)');
+  }
+
+  var ust = '';
+
+  /* Kayıtta `etki` alanı doğdu mu? Doğduysa hesaplanan düzeyle çakışır. */
+  if(etkiAlani){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', title:'Değişiklik taleplerinde “etki” alanı doğmuş',
+      text:'work.js koleksiyon başlığı bu kayıtlarda etki alanı olmadığını, etki düzeyinin süre ve ' +
+           'bedel sapmasından hesaplandığını söylüyor. Şu an ' + etkiAlani + ' talepte “etki” alanı ' +
+           'yazılı. Bu form o alanı yazmaz; iki eksen (yazılı etki ↔ hesaplanan düzey) veri ' +
+           'katmanında birleştirilmelidir.' }) + '</div></section>';
+  }
+
+  if(duzenle){
+    /* ---- Onay akışı: yalnız VERİDEN okunur, form zincir kurmaz ---- */
+    var onayNot;
+    if(ony){
+      var tutarUyum = (ony.tutar == null && !kayit.etkiMaliyet) || ony.tutar === kayit.etkiMaliyet;
+      onayNot = GV.notice({
+        tone:tutarUyum ? 'ok' : 'warn',
+        title:'Onay kaydı veride yazılı: ' + ony.kod,
+        text:ony.tur + ' · onaylayan ' + DB.empName(ony.onaylayan) + ' · talep eden ' +
+             DB.empName(ony.talepEden) + ' · aciliyet ' + ony.aciliyet + ' · onay durumu “' +
+             ony.durum + '”. Onaylayan kişi, onay tarihi ve aciliyet DB.approvals kaydının ' +
+             'alanlarıdır; değişiklik talebi kaydında karşılıkları yoktur, bu yüzden bu formda ' +
+             'düzenlenmez ve form onay zinciri kurmaz. ' +
+             (canFinans
+               ? (tutarUyum
+                   ? 'Onaydaki tutar talebin maliyet etkisiyle birebir aynı.'
+                   : 'Onaydaki tutar (' + F.money(ony.tutar) + ') talebin maliyet etkisinden (' +
+                     F.money(kayit.etkiMaliyet) + ') farklı; maliyet etkisini burada değiştirirseniz ' +
+                     'onay kaydındaki tutar kendiliğinden güncellenmez.')
+               : 'Onaydaki tutar karşılaştırması finans yetkisi gerektirdiği için gösterilmiyor.'),
+        actions:[{ label:'Onay kuyruğunu aç', href:'app-panel-onaylar.html' },
+                 { label:'Talep kartını aç', href:'app-proje-degisiklik-detay.html?id=' + kayit.kod }] });
+    }else{
+      onayNot = GV.notice({
+        tone:'info', title:'Bu talebin onay kuyruğunda adımı yok',
+        text:'DB.approvals içinde ' + kayit.kod + ' kaydına bağlı adım bulunmuyor. Talebin durumunu ' +
+             'burada değiştirebilirsiniz ama form onay adımı OLUŞTURMAZ — onaylayan ve onay tarihi ' +
+             'yalnız onay kuyruğu kaydında tutulur. Ölçüm: ' + toplamTalep + ' talebin ' +
+             DB.changeRequests.filter(function(d){
+               return DB.approvals.some(function(a){ return a.kayit === d.kod; }); }).length +
+             ' tanesinde onay kaydı var.' });
+    }
+    ust += '<section class="gv-card"><div class="gc-body">' + onayNot + '</div></section>';
+
+    /* ---- Destek bağı (§9d) ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:talepTicket ? 'ok' : 'info',
+      title:talepTicket ? 'Talebi doğuran destek talebi veride yazılı: ' + talepTicket.kod
+                        : 'Bu talep bir destek talebinden doğmamış',
+      text:(talepTicket
+             ? talepTicket.baslik + ' · ' + talepTicket.kategori + ' · ' + talepTicket.durum +
+               '. Bağ değişiklik talebinin üstünde (`destek`) tutulur, destek talebinde ayna alan açılmaz. '
+             : '`destek` alanı boş; bu, talebin destek kanalından değil doğrudan açıldığı anlamına gelir. ' +
+               'Bağ tarih ya da metin yakınlığından türetilmez, yalnız bilinen bağ yazılır. ') +
+           '“Talebi açan taraf” (' + kayit.talep + ') bununla AYNI EKSEN DEĞİLDİR: o, talebi ilettiği ' +
+           'için müşteri ya da iç ekip der. Ölçüm: ' + toplamTalep + ' talebin ' + destekliTal +
+           ' tanesinde destek bağı yazılı.',
+      actions:talepTicket
+        ? [{ label:'Destek talebini aç', href:'app-destek-detay.html?id=' + talepTicket.kod }]
+        : [{ label:'Destek talepleri', href:'app-destek.html' }] }) + '</div></section>';
+
+    /* ---- İlişkili kayıt uyarısı: sözleşme ve açık görevler ---- */
+    var gorevSay = kayit.proje ? acikGorev(kayit.proje) : 0;
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:sozlesme ? 'info' : 'warn',
+      title:sozlesme ? 'Talep ' + sozlesme.kod + ' sözleşmeli bir projeye bağlı'
+                     : 'Projenin aktif sözleşmesi bulunamadı',
+      text:(sozlesme
+             ? sozlesme.ad + ' · bedel ekseni NET (KDV hariç) · KDV %' + sozlesme.kdvOran + '. ' +
+               'Maliyet etkisini değiştirmek sözleşme kaydını GÜNCELLEMEZ: bedele yansıma zeyilname ' +
+               'ile yürür ve bu prototipte sözleşme kaydında karşılığı yoktur. Talep kartındaki ' +
+               '“Sözleşme etkisi” hesabı projeksiyondur. '
+             : (proje ? proje.ad : kayit.proje) + ' projesine bağlı aktif sözleşme kaydı yok; ' +
+               'maliyet etkisinin bedele oranı hesaplanamaz. Ölçüm: ' + DB.projects.length +
+               ' projenin ' + sozlesmeliPrj + ' tanesinde aktif sözleşme var. ') +
+           (gorevSay ? 'Projede ' + gorevSay + ' açık görev var; talebin süre etkisi bu görevlerin ' +
+                       'planına elle işlenir, form görev üretmez.'
+                     : 'Projede açık görev yok.'),
+      actions:(sozlesme
+        ? [{ label:'Sözleşmeyi aç', href:'app-sozlesme-detay.html?id=' + sozlesme.kod }]
+        : [{ label:'Sözleşmeler', href:'app-sozlesme.html' }])
+        .concat(kayit.proje ? [{ label:'Projeyi aç', href:'app-proje-detay.html?id=' + kayit.proje }] : []) })
+      + '</div></section>';
+
+    if(!canFinans){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-lock', title:'Maliyet etkisi alanı forma basılmadı',
+        text:'Rolünüzde finansal tutar yetkisi yok, bu yüzden “Maliyet etkisi (KDV hariç)” alanı ' +
+             'gösterilmiyor. Kaydın mevcut maliyet etkisi olduğu gibi korunur; kaydetmek onu ' +
+             'sıfırlamaz.' }) + '</div></section>';
+    }
+
+    /* ---- Bağlam kartı ---- */
+    var son  = acts[0];
+    var acik = kayit.durum === 'Onay bekliyor' || kayit.durum === 'Değerlendiriliyor';
+    var bkl  = bekleGun(kayit.tarih);
+    /* Hesaplanan etki düzeyi DB.impacts ölçeğindedir; kayıtta `etki` alanı yoktur.
+       Finans yetkisi yoksa bedel sapması kullanılmaz — maskeli tutar oran üzerinden sızmasın. */
+    var sozNet    = sozlesme ? sozlesme.tutar : (proje ? proje.sozlesmeTutari : null);
+    var sureSapma = (proje && proje.tahminiSure) ? (kayit.etkiSure || 0) / proje.tahminiSure * 100 : null;
+    var bedelSapma = sozNet ? (kayit.etkiMaliyet || 0) / sozNet * 100 : null;
+    var sapma = canFinans ? Math.max(sureSapma || 0, bedelSapma || 0) : (sureSapma || 0);
+    var duzey = sapma >= 20 ? DB.impacts[0] : sapma >= 10 ? DB.impacts[1]
+              : sapma >= 3 ? DB.impacts[2] : DB.impacts[3];
+    /* DB.impacts değerleri GV.badge ton sözlüğünde yok (öncelik/risk ile aynı kelimeler,
+       components.md §5) — açık ton geçilir, yerel ton haritası yazılmaz. */
+    var duzeyTon = duzey === DB.impacts[0] ? 'is-danger' : duzey === DB.impacts[1] ? 'is-warn'
+                 : duzey === DB.impacts[2] ? 'is-info' : 'is-neutral';
+
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Talep numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Talep başlığı', esc(kayit.baslik)],
+        ['Proje', proje
+          ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+            sub(proje.kod + ' · ' + proje.durum + ' · müşteri ' + proje.musteriAd)
+          : (kayit.proje ? '<span class="u-num">' + esc(kayit.proje) + '</span>' + sub('Proje kaydı bulunamadı') : null)],
+        ['Talebi açan taraf', '<span class="badge is-neutral no-dot">' + esc(kayit.talep) + '</span>' +
+          sub('destek talebi bağı ayrı alandır')],
+        ['Talep tarihi', GV.dateCell(kayit.tarih, { done:!acik }) + sub(F.dateLong(kayit.tarih))],
+        ['Karara bağlanmadan geçen süre', acik && bkl != null
+          ? '<b class="u-num' + (bkl > 7 ? ' u-danger' : bkl > 3 ? ' u-warn' : '') + '">' +
+            F.num(bkl) + ' gün</b>' + sub('bugün ' + F.date(DB.today))
+          : null],
+        ['Durum', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Kapsam', kayit.kapsamIci ? GV.badge(KAPSAM_ICI, 'is-ok') : GV.badge(KAPSAM_DISI, 'is-warn')],
+        ['Süre etkisi <span class="u-faint">(saat)</span>', saatGun(kayit.etkiSure || 0)],
+        ['Maliyet etkisi <span class="u-faint">(KDV hariç · net)</span>',
+          kayit.etkiMaliyet ? para(kayit.etkiMaliyet) : '<span class="u-faint">Maliyet etkisi yok</span>'],
+        ['Sözleşme bedeli <span class="u-faint">(KDV hariç · net)</span>',
+          sozNet == null ? null : para(sozNet) + sub(sozlesme ? sozlesme.kod : 'proje kartından')],
+        ['Hesaplanan etki düzeyi <span class="u-faint">(kayıtta etki alanı yok)</span>',
+          GV.badge(duzey, duzeyTon) +
+          sub(canFinans ? 'süre ve bedel sapmalarının büyüğünden türetildi'
+                        : 'yalnız süre sapmasından — bedel sapması finans yetkisi ister')],
+        ['Talep sorumlusu', GV.user(kayit.sorumlu, { sm:true })],
+        ['Karar', kararMetin(kayit.karar) ? esc(kararMetin(kayit.karar)) : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-proje-degisiklik-detay.html?id=' + kayit.kod + '">' +
+        ico('i-external','ic-sm') + ' Talep kartını aç</a>');
+
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni değişiklik talebi oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki talep numarası atanır, aktivite geçmişine “Değişiklik talebi ' +
+           'oluşturuldu” satırı düşülür ve talep listesine dönülür. Form onay kuyruğunda adım ' +
+           'AÇMAZ ve onay zinciri kurmaz: onaylayan ile onay tarihi DB.approvals kaydının ' +
+           'alanlarıdır, değişiklik talebi kaydında karşılıkları yoktur. Form görev de üretmez.',
+      actions:[{ label:'Değişiklik talepleri', href:'app-proje-degisiklik.html' }] });
+
+    var onNot = '';
+    if(qsProje && !onProje){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki proje bulunamadı',
+        text:'“' + qsProje + '” numaralı proje kaydı sistemde yok, bu yüzden proje alanı ön seçili ' +
+             'gelmedi. Listeden geçerli bir proje seçebilirsiniz.',
+        actions:[{ label:'Projeler', href:'app-proje.html' }] });
+    }else if(onProje){
+      var pTalep = DB.changeRequests.filter(function(d){ return d.proje === onProje.kod; });
+      var pSoz   = sozlesmeOf(onProje.kod);
+      onNot += GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
+        text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili ' +
+             'açıldı. Bu projede ' + pTalep.length + ' değişiklik talebi var, ' +
+             pTalep.filter(function(d){
+               return d.durum === 'Onay bekliyor' || d.durum === 'Değerlendiriliyor'; }).length +
+             ' tanesi karar bekliyor. ' +
+             (pSoz ? 'Projenin aktif sözleşmesi ' + pSoz.kod + '; maliyet etkisi onun netiyle (KDV hariç) aynı eksende yazılır.'
+                   : 'Projenin aktif sözleşmesi yok — maliyet etkisi bir sözleşme netiyle karşılaştırılamaz.'),
+        actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + onProje.kod }] });
+    }
+    if(!canFinans){
+      onNot += GV.notice({ tone:'neutral', icon:'i-lock', title:'Maliyet etkisi alanı forma basılmadı',
+        text:'Rolünüzde finansal tutar yetkisi yok. Talep maliyet etkisi BOŞ olarak kaydedilir — ' +
+             '“maliyet etkisi yok” demek değildir; finans yetkili bir kullanıcı kaydı açıp tutarı ' +
+             'yazmalıdır.' });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + onNot + '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-refresh') + 'Talep Künyesi</h2>' +
+        '<div class="gc-sub">Kapsam, karar, süre ve bedel etkisi · zorunlu alanlar yıldızla ' +
+          'işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-proje-degisiklik.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  function pk(){ /* forma yazılmış güncel proje kodu */
+    var el = document.querySelector('#formMount [name="proje"]');
+    return el ? el.value : baslangicProje;
+  }
+
+  var sections = [
+    { title:'Talep kimliği',
+      desc:'Talebin başlığı, hangi projeye ait olduğu ve kimin ilettiği. Talep numarası ' +
+           'kaydederken sistem tarafından atanır, elle girilmez.',
+      fields:[
+        { key:'baslik', label:'Talep başlığı', type:'text', required:true, cols:12,
+          placeholder:'Örn. Randevu adımlarının sırası değiştirilsin',
+          hint:'İstenen değişiklik tek cümlede yazılır; gerekçe ve karar ayrı alanlardadır.',
+          validate:function(v, d){
+            var ayni = DB.changeRequests.filter(function(x){
+              return (!duzenle || x.kod !== kayit.kod) && x.proje === d.proje &&
+                     String(x.baslik).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+            return ayni ? 'Aynı projede aynı başlıkla bir değişiklik talebi var (' + ayni.kod +
+                          '). Başlık ayırt edici olmalı ya da mevcut talep güncellenmeli.' : '';
+          } },
+        { key:'proje', label:'Proje', type:'select', options:PROJELER, required:true, cols:6,
+          placeholder:'Proje seçin',
+          hint:'Proje değişince destek talebi seçenekleri yeniden kurulur. Ölçüm: ' +
+               DB.projects.length + ' projenin ' + sozlesmeliPrj + ' tanesinde aktif sözleşme var.' },
+        { key:'tarih', label:'Talep tarihi', type:'date', required:true, cols:6,
+          hint:'Karar bekleme süresi bu tarihten ölçülür; gün farkı sistem saatinden değil veri ' +
+               'ekseninden (' + F.date(DB.today) + ') hesaplanır.',
+          validate:function(v){
+            return (v && v > DB.today) ? 'Talep tarihi ileri bir tarih olamaz.' : '';
+          } },
+        { key:'talep', label:'Talebi açan taraf', type:'select', options:TARAFLAR, required:true, cols:6,
+          placeholder:'Taraf seçin',
+          hint:'Bu alan talebi İLETEN taraftır, destek talebi kodu değildir — destek bağı aşağıda ' +
+               'ayrı alandadır.' },
+        { key:'sorumlu', label:'Talep sorumlusu', type:'select', options:KISILER, required:true, cols:6,
+          placeholder:'Çalışan seçin',
+          hint:duzenle ? 'Talebi değerlendirmekle yükümlü çalışan.'
+                       : 'Oturumdaki kullanıcı seçili geldi; değiştirebilirsiniz.' }
+      ]},
+
+    { title:'Kapsam ve karar',
+      desc:'Kapsam değerlendirmesi talebin ek bedel doğurup doğurmayacağını belirler; karar alanı ' +
+           'ise verilen kararın gerekçesidir. Ölçüm: ' + toplamTalep + ' talebin ' + kapsamDisi +
+           ' tanesi kapsam dışı.',
+      fields:[
+        { key:'kapsamIci', label:'Kapsam değerlendirmesi', type:'radio',
+          options:[KAPSAM_ICI, KAPSAM_DISI], cols:6,
+          hint:'Kapsam içi: sözleşme kapsamında görülür, ek bedel doğurmaz. Kapsam dışı: ek teklif ' +
+               've sözleşme zeyilnamesiyle yürür.',
+          /* radyo alanında bileşenin yerleşik `required` denetimi çalışmıyor (ilk seçeneğin
+             value'suna bakıyor); zorunluluk alan bazlı doğrulamayla kuruluyor. */
+          validate:function(v, d){
+            return d.kapsamIci ? '' : 'Kapsam değerlendirmesi zorunludur — kapsam içi ya da kapsam dışı seçin.';
+          } },
+        { key:'durum', label:'Talep durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+          hint:'Karara bağlanan talep “Onaylandı” ya da “Reddedildi” olur; ikisinde de karar alanı ' +
+               'doldurulur.' },
+        { key:'karar', label:'Karar', type:'textarea', rows:3, cols:12,
+          placeholder:'Faz 2 kapsamına alındı · ek teklif hazırlanacak · sürüm sonrası değerlendirilecek…',
+          hint:'Reddedilen talepte gerekçe zorunludur (en az 10 karakter). Onaylanan talepte kararın ' +
+               'ne olduğu yazılmazsa talep kartında “Karar yazılmadı” görünür. Ölçüm: ' +
+               toplamTalep + ' talebin ' + kararSentinel + ' tanesinde karar alanı “—” sentinel’i ' +
+               'taşıyor; bu form boş karar için null yazar.',
+          validate:function(v, d){
+            var t = String(v || '').trim();
+            if(d.durum === 'Reddedildi' && t.length < 10)
+              return 'Reddedilen talepte red gerekçesi zorunludur — en az 10 karakter yazın.';
+            if(t === '—') return 'Karar alanına “—” yazılmaz; karar yoksa alan boş bırakılır.';
+            return '';
+          } }
+      ]},
+
+    { title:'Etki',
+      desc:'Süre etkisi SAAT eksenindedir (gün karşılığı 8 sa/gün dönüşümüyle türetilir). Maliyet ' +
+           'etkisi müşteriye yansıyacak NET bedeldir ve sözleşme netiyle aynı eksende yazılır; ' +
+           'projenin iç bütçesiyle aynı satırda toplanmaz.',
+      fields:[
+        { key:'etkiSure', label:'Süre etkisi (saat)', type:'number', required:true, cols:6, min:0,
+          placeholder:'0',
+          hint:'Adam-saat cinsinden ek efor. 0 yazılırsa talep kartında “Süre etkisi yok” görünür. ' +
+               '8 saat ≈ 1 adam-gün.',
+          validate:function(v){
+            var n = Number(v);
+            if(v !== '' && (isNaN(n) || n < 0)) return 'Süre etkisi negatif olamaz.';
+            return (n > 2000) ? 'Süre etkisi 2.000 saati aşamaz — bu ölçekteki bir iş ayrı proje olarak açılır.' : '';
+          } }
+      ].concat(canFinans
+        ? [{ key:'etkiMaliyet', label:'Maliyet etkisi (KDV hariç)', type:'money', cols:6, min:0,
+             hint:'NET tutar — sözleşme bedeliyle (contracts.tutar) aynı eksende. Boş ya da 0 ' +
+                  'bırakılırsa “maliyet etkisi yok” demektir. KDV bu alanda tutulmaz.',
+             validate:function(v, d){
+               var n = Number(v || 0);
+               if(v !== '' && (isNaN(n) || n < 0)) return 'Maliyet etkisi negatif olamaz.';
+               if(n > 0 && d.kapsamIci === KAPSAM_ICI)
+                 return 'Kapsam içi talep ek bedel doğurmaz; maliyet etkisi yazılacaksa talep ' +
+                        '“Kapsam dışı” işaretlenmelidir.';
+               return '';
+             } }]
+        : []) },
+
+    { title:'Bağ',
+      desc:'Talebi doğuran destek talebi (DST-*) veride yazılı tekil bağdır; tarih ya da metin ' +
+           'yakınlığından türetilmez. Bağ değişiklik talebinin üstünde tutulur, destek talebinde ' +
+           'ayna alan açılmaz.',
+      fields:[
+        { key:'destek', label:'Talebi doğuran destek talebi', type:'select',
+          options:destekSecenek(baslangicProje), cols:12,
+          placeholder:'Destek talebinden doğmadı',
+          hint:'Yalnız seçili projenin destek talepleri listelenir. Ölçüm: ' + toplamTalep +
+               ' talebin ' + destekliTal + ' tanesinde destek bağı yazılı. Bu alan “talebi açan ' +
+               'taraf” ile aynı eksen değildir.',
+          validate:function(v, d){
+            if(!v) return '';
+            var t = DB.tickets.filter(function(x){ return x.kod === v; })[0];
+            if(!t) return 'Seçilen destek talebi bulunamadı.';
+            return t.proje !== d.proje
+              ? 'Destek talebi başka bir projeye ait (' + (t.proje || 'projesiz') +
+                '); bağ aynı projede olmalıdır.' : '';
+          } }
+      ]},
+
+    { title:'Kayıt durumu',
+      desc:'Liste bileşeni pasif kaydı arşiv sayar; arşivlenen talep yalnız “Arşivlenenleri göster” ' +
+           'açıkken listelenir.',
+      fields:[
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+          onLabel:'Kayıt aktif — talep listelerinde ve sayaçlarda görünür',
+          hint:'Kapatılırsa kayıt arşive düşer; bağlı destek talebi ve onay kaydı silinmez.',
+          validate:function(v, d){
+            return (!v && KARAR_DURUM.indexOf(d.durum) === -1)
+              ? 'Karara bağlanmamış talep arşivlenemez — önce durumu “Onaylandı” ya da “Reddedildi” yapın.'
+              : '';
+          } }
+      ]}
+  ];
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){
+    if(f.required || f.key === 'kapsamIci') zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'degisiklik', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     PROJEYE BAĞLI SEÇENEKLER — proje değişince yeniden kurulur.
+     Mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze kopyayla
+     değiştirdiği için dinleyici birikmez (ders L-16).
+     ================================================================= */
+  function doldur(key, secenekler, bosMetin){
+    var el = form.el.querySelector('[name="' + key + '"]');
+    if(!el) return false;
+    var eski = el.value;
+    var korunur = secenekler.some(function(o){ return o.value === eski; });
+    el.innerHTML = '<option value="">' + esc(bosMetin) + '</option>' +
+      secenekler.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (o.value === eski && korunur ? ' selected' : '') +
+          '>' + esc(o.label) + '</option>';
+      }).join('');
+    el.value = korunur ? eski : '';
+    return !!eski && !korunur;                 /* seçim düştü mü */
+  }
+
+  form.el.addEventListener('change', function(e){
+    if(!e.target || e.target.name !== 'proje') return;
+    if(doldur('destek', destekSecenek(pk()), 'Destek talebinden doğmadı')){
+      GV.toast('Destek bağı temizlendi — seçili talep yeni projeye ait değil', 'warn');
+    }
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    baslik:'Talep başlığı', proje:'Proje', tarih:'Talep tarihi', talep:'Talebi açan taraf',
+    sorumlu:'Talep sorumlusu', kapsamIci:'Kapsam değerlendirmesi', durum:'Talep durumu',
+    karar:'Karar', etkiSure:'Süre etkisi', etkiMaliyet:'Maliyet etkisi', destek:'Destek talebi bağı',
+    aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.changeRequests.forEach(function(x){
+      var m = /^DGS-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'DGS-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false, boş metin ve veride karar alanında
+     kullanılan '—' sentinel'i aynı kovaya düşer — yoksa hiç dokunulmamış bir karar
+     alanı için “— → —” diye anlamsız bir aktivite satırı yazılırdı. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşivli';
+    if(k === 'kapsamIci') return v ? KAPSAM_ICI : KAPSAM_DISI;
+    if(v == null || v === '') return '—';
+    if(k === 'sorumlu') return DB.empName(v);
+    if(k === 'proje') return DB.projName(v);
+    if(k === 'tarih') return F.date(v);
+    if(k === 'etkiSure') return F.hours(v);
+    if(k === 'etkiMaliyet') return canFinans ? F.money(v) + ' (KDV hariç)' : '••••••';
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.baslik    = String(v.baslik || '').trim();
+    v.kapsamIci = v.kapsamIci === KAPSAM_ICI;              /* radyo → boolean */
+    v.aktif     = !!v.aktif;
+    v.etkiSure  = v.etkiSure === '' || v.etkiSure == null ? 0 : Number(v.etkiSure);
+    if(canFinans){
+      v.etkiMaliyet = (v.etkiMaliyet === '' || v.etkiMaliyet == null) ? 0 : Number(v.etkiMaliyet);
+    }
+    /* Boş seçim veride null olarak tutulur — '' ya da '—' sentinel'i yazılmaz. */
+    v.destek = String(v.destek == null ? '' : v.destek).trim() || null;
+    v.karar  = String(v.karar == null ? '' : v.karar).trim() || null;
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0, kararaBaglandi = false;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        if(k === 'durum' && KARAR_DURUM.indexOf(v[k]) !== -1) kararaBaglandi = true;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+
+      /* Onay kuyruğu kaydı bu formda OLUŞTURULMAZ; var olan kayıt karara bağlandığında
+         yalnız durumu talebe eşitlenir — onaylayan ve onay tarihi el sürülmez. */
+      if(kararaBaglandi && ony && ony.durum === 'Bekliyor'){
+        ony.durum = v.durum;
+        DB.activities.unshift({
+          kayit:ony.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:kayit.kod + ' değişiklik talebi karara bağlandı',
+          eski:'Bekliyor', yeni:v.durum,
+          tone:v.durum === 'Onaylandı' ? 'ok' : 'danger',
+          icon:v.durum === 'Onaylandı' ? 'i-check-circle' : 'i-x-circle'
+        });
+      }
+
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan' +
+          (kararaBaglandi && ony ? ' · ' + ony.kod + ' onay kaydı da güncellendi' : ''), 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      /* Finans yetkisi yoksa alan forma basılmadı — tutar UYDURULMAZ, null yazılır. */
+      DB.changeRequests.unshift(Object.assign({ kod:kod }, v,
+        canFinans ? {} : { etkiMaliyet:null }));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Değişiklik talebi oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ hedefine yalnız AKTİVİTE satırı düşülür — destek talebinde ayna ALAN
+         açılmaz (components.md §9d yön kuralı). */
+      if(v.destek){
+        DB.activities.unshift({
+          kayit:v.destek, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Talepten değişiklik talebi açıldı: ' + kod, eski:null, yeni:v.baslik,
+          tone:'accent', icon:'i-refresh'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-proje-degisiklik.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Proje Yönetimi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Değişiklik Talebi',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-proje-degisiklik.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
