@@ -217,6 +217,31 @@ head('13) Teslim ↔ milestone');
   });
 }
 
+/* ---- 14. Yönlendiren kartı ömür boyu sayaçtır: modellenenden KÜÇÜK olamaz ----
+   `DB.referrers` kartındaki ciro/yönlendirme/kazanılan sayaçları modellenmemiş
+   geçmişi de kapsar (DB.customers yalnız güncel müşterileri tutar — projeSayisi ile
+   aynı bilinçli istisna). Bu yüzden kart >= türetilen olmak ZORUNDA; küçük olması
+   çelişkidir. 4. oturumda `toplamCiro` düzeltilince üç kayıtta bu bozulmuştu
+   (REF-002 · REF-006 · REF-007), 5. oturumda türetilene hizalandı. */
+head('14) Yönlendiren kartı >= türetilen');
+DB.referrers.forEach(r => {
+  const musteriler = DB.customers.filter(c => c.referans === r.kod);
+  const leadler    = DB.leads.filter(l => l.referans === r.kod);
+  const turCiro    = musteriler.reduce((a, c) => a + (c.toplamCiro || 0), 0);
+  say(r.ciro >= turCiro,
+      r.kod + ' ciro=' + r.ciro + ' < müşterilerinin toplamCiro toplamı=' + turCiro);
+  say(r.yonlendirme >= leadler.length,
+      r.kod + ' yonlendirme=' + r.yonlendirme + ' < DB.leads kaydı=' + leadler.length);
+  say(r.kazanilan >= musteriler.length,
+      r.kod + ' kazanilan=' + r.kazanilan + ' < DB.customers kaydı=' + musteriler.length);
+  const koms = DB.commissions.filter(k => k.referans === r.kod);
+  const top  = koms.reduce((a, k) => a + (k.tutar || 0), 0);
+  const od   = koms.filter(k => k.durum === 'Ödendi').reduce((a, k) => a + (k.tutar || 0), 0);
+  say(r.hakedis === top, r.kod + ' hakedis=' + r.hakedis + ' ≠ Σ komisyon=' + top);
+  say(r.odenen === od,  r.kod + ' odenen=' + r.odenen + ' ≠ Σ ödenmiş komisyon=' + od);
+  say(r.bekleyen === top - od, r.kod + ' bekleyen=' + r.bekleyen + ' ≠ ' + (top - od));
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
