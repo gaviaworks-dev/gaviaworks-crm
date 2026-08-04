@@ -93,6 +93,12 @@
      1. DURUM SÖZLÜKLERİ (semantik ton eşlemesi)
      =================================================================== */
   var TONE = {
+    /* teslim müşteri onayı — DB.deliveries[].musteriOnay */
+    'Revizyon istendi':'warn',
+    /* lead sıcaklığı — DB.leads[].sicaklik (tek eksende geçer, çakışma yok) */
+    'Sıcak':'danger', 'Ilık':'warn', 'Soğuk':'info',
+    /* ön analiz durumu — DB.analyses[].durum */
+    'Hazırlanıyor':'accent',
     /* değişiklik talebi — DB.changeRequests[].durum */
     'Değerlendiriliyor':'accent',
     /* test türleri — DB.tests[].tur (app-proje-test.html) */
