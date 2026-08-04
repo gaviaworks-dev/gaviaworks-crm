@@ -56,18 +56,27 @@ document.addEventListener('gv:ready', function(){
   var yillikGelir = function(p){ var m = donemAy(p); return Math.round((p.tutar || 0) / m * 12); };
 
   var yilEkle = function(iso){ return iso ? (Number(String(iso).slice(0,4)) + 1) + String(iso).slice(4) : iso; };
+
+  /* Yenileme: dönem bir yıl uzatılır, bekleyen yenileme işareti tüketilir. */
   var yenile  = function(p){
-    p.baslangic = yilEkle(p.baslangic);
-    p.bitis     = yilEkle(p.bitis);
-    p.durum     = 'Aktif';
+    p.baslangic      = yilEkle(p.baslangic);
+    p.bitis          = yilEkle(p.bitis);
+    p.durum          = 'Aktif';
+    p.yenileme       = false;
+    p.yenilemeTarihi = null;
+  };
+  var isaretle = function(p){
+    p.yenileme       = true;
+    p.yenilemeTarihi = p.yenilemeTarihi || p.bitis;
   };
 
-  /* Yenilemeye işaretleme — DB'de böyle bir alan yok; sayfa oturumu boyunca
-     tutulan geçici işaret listesidir (kaynak veriye alan eklenmez). */
-  var isaretli = {};
   var isaretRozet = function(p){
-    return isaretli[p.kod] ? '<span class="badge is-warn no-dot">Yenilemeye işaretli</span>' : '';
+    return p.yenileme ? '<span class="badge is-warn no-dot">Yenilenecek</span>' : '';
   };
+
+  /* Sözleşme hedefi — app-sozlesme.html araması `kod` alanını kapsıyor,
+     ilk sekmesi 'aktif' olduğu için tüm kayıtlara 't=tumu' ile açılır. */
+  var sozlesmeHref = function(p){ return 'app-sozlesme.html?t=tumu&q=' + p.sozlesme; };
 
   var TUKETIM = { '%50 ve üzeri':50, '%70 ve üzeri':70, '%80 ve üzeri':80, '%90 ve üzeri':90 };
 
@@ -87,8 +96,8 @@ document.addEventListener('gv:ready', function(){
   GV.list({
     mount:'#liste', id:'destekpaket', key:'kod', source:function(){ return DB.supportPackages; },
     exportName:'bakim-paketleri', exportTitle:'Bakım Paketleri', pageSize:10, views:['table','card'],
-    search:{ placeholder:'Paket kodu, paket adı veya müşteri ara',
-             fields:['kod','ad','musteri','durum'],
+    search:{ placeholder:'Paket kodu, paket adı, sözleşme no veya müşteri ara',
+             fields:['kod','ad','musteri','sozlesme','durum'],
              extra:function(p){ return musteriAd(p) + ' ' + musteriKisa(p); } },
     defaultSort:'bitis', defaultDir:'asc',
 
@@ -124,6 +133,12 @@ document.addEventListener('gv:ready', function(){
         render:function(p){ return '<a class="cell-main" href="app-musteri.html?q=' + p.musteri + '">' + esc(musteriAd(p)) + '</a>' +
           '<span class="cell-code">' + p.musteri + '</span>'; },
         exportValue:function(p){ return musteriAd(p); } },
+      { key:'sozlesme', label:'Sözleşme',
+        render:function(p){
+          return p.sozlesme
+            ? '<a class="cell-code" href="' + sozlesmeHref(p) + '">' + p.sozlesme + '</a>'
+            : '<span class="u-faint">—</span>'; },
+        exportValue:function(p){ return p.sozlesme || ''; } },
       { key:'ad', label:'Paket adı', visible:false,
         render:function(p){ return '<span class="tag">' + esc(p.ad) + '</span>'; } },
       { key:'aylikSaat', label:'Aylık saat', cellClass:'num',
@@ -193,6 +208,10 @@ document.addEventListener('gv:ready', function(){
         options:DB.supportPackages.map(function(p){ return p.durum; })
           .filter(function(v, i, s){ return s.indexOf(v) === i; }) },
       { key:'bitis', label:'Bitiş tarihi', type:'daterange' },
+      { key:'yenileme', label:'Yenileme işareti', type:'select', options:['Yenilenecek','İşaretsiz'],
+        test:function(p, v){ return v === 'Yenilenecek' ? p.yenileme === true : p.yenileme !== true; } },
+      { key:'sozlesmeBag', label:'Sözleşme bağlantısı', type:'select', options:['Sözleşmeye bağlı','Sözleşmesiz'],
+        test:function(p, v){ return v === 'Sözleşmeye bağlı' ? !!p.sozlesme : !p.sozlesme; } },
       { key:'tuketimEsik', label:'Tüketim eşiği', type:'select', options:Object.keys(TUKETIM),
         test:function(p, v){ var e = TUKETIM[v]; return e == null || oran(p) >= e; } }
     ],
@@ -203,7 +222,8 @@ document.addEventListener('gv:ready', function(){
       var o = oran(p), d = kalanGun(p);
       return '<div class="gv-rcard-top"><div>' +
           '<a class="cell-main" href="app-musteri.html?q=' + p.musteri + '">' + esc(musteriAd(p)) + '</a>' +
-          '<div class="cell-sub">' + p.kod + ' · ' + esc(p.ad) + '</div></div>' +
+          '<div class="cell-sub">' + p.kod + ' · ' + esc(p.ad) +
+            (p.sozlesme ? ' · ' + p.sozlesme : '') + '</div></div>' +
           GV.badge(dolmus(p) ? 'Süresi doldu' : p.durum) + '</div>' +
         '<div class="gv-rcard-meta">' +
           '<span>Aylık ' + F.hours(p.aylikSaat) + '</span>' +
@@ -213,8 +233,8 @@ document.addEventListener('gv:ready', function(){
         '</div>' +
         GV.progress(o, { tone:o >= 90 ? 'danger' : o >= 80 ? 'warn' : 'ok' }) +
         '<div class="gv-rcard-foot">' + moneyCell(p.tutar) +
-          (isaretli[p.kod] ? '<span class="badge is-warn no-dot">Yenilemeye işaretli</span>'
-                           : '<span class="cell-sub">Bitiş ' + F.dateShort(p.bitis) + '</span>') + '</div>';
+          (p.yenileme ? '<span class="badge is-warn no-dot">Yenilenecek · ' + F.dateShort(p.yenilemeTarihi || p.bitis) + '</span>'
+                      : '<span class="cell-sub">Bitiş ' + F.dateShort(p.bitis) + '</span>') + '</div>';
     },
 
     mobile:function(p){
@@ -237,16 +257,23 @@ document.addEventListener('gv:ready', function(){
         href:function(p){ return 'app-musteri.html?q=' + p.musteri; } },
       { key:'talepler', icon:'i-support', label:'Talepleri gör',
         href:function(p){ return 'app-destek.html?t=tumu&f_musteri=' + p.musteri; } },
+      /* Sözleşmesi olan satırda gerçek bağlantı basılır; olmayanda GV.list
+         zorunlu olarak buton basar (rowActions koşullu gizlemeyi desteklemiyor),
+         o yüzden buton boş durmaz — nedenini söyleyip müşteriyi açar. */
+      { key:'sozlesme', icon:'i-file-check', label:'Sözleşmeyi aç',
+        href:function(p){ return p.sozlesme ? sozlesmeHref(p) : null; },
+        run:function(p){
+          GV.toast(p.kod + ' bir sözleşme kaydına bağlı değil — müşterinin sözleşmeleri açılıyor.', 'info');
+          location.href = 'app-sozlesme.html?t=tumu&f_musteri=' + p.musteri; } },
       { key:'yenile', icon:'i-refresh', label:'Paketi yenile', run:function(p, refresh){
           if(!GV.perm.can('duzenle')){ GV.toast('Bakım paketi güncelleme yetkiniz yok.', 'danger'); return; }
           GV.confirm({ title:'Bakım paketini yenile',
             text:p.kod + ' dönemi ' + F.date(p.baslangic) + ' – ' + F.date(p.bitis) + ' yerine ' +
                  F.date(yilEkle(p.baslangic)) + ' – ' + F.date(yilEkle(p.bitis)) +
-                 ' olarak bir yıl uzatılacak. Kalan saat kotası devreder, dönem sonunda kapatılmaz.',
+                 ' olarak bir yıl uzatılacak. Kalan saat kotası devreder, bekleyen yenileme işareti kapanır.',
             okLabel:'Yenile' }).then(function(ok){
               if(!ok) return;
               yenile(p);
-              delete isaretli[p.kod];
               GV.toast(p.kod + ' bir yıl yenilendi', 'ok');
               refresh(); }); } }
     ],
@@ -256,8 +283,13 @@ document.addEventListener('gv:ready', function(){
         confirm:'Seçili {n} paket yenileme listesine işaretlenecek ve müşteri sorumlusuna hatırlatma düşecek.',
         run:function(ids){
           if(!GV.perm.can('duzenle')){ GV.toast('Bakım paketi güncelleme yetkiniz yok.', 'danger'); return; }
-          ids.forEach(function(k){ isaretli[k] = true; });
-          GV.toast(ids.length + ' paket yenilemeye işaretlendi', 'ok');
+          var n = 0;
+          DB.supportPackages.forEach(function(p){
+            if(ids.indexOf(p.kod) !== -1 && !p.yenileme){ isaretle(p); n++; }
+          });
+          GV.toast(n ? (n + ' paket yenilemeye işaretlendi' +
+                        (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt zaten işaretliydi' : ''))
+                     : 'Seçili paketlerin tamamı zaten yenilemeye işaretli', n ? 'ok' : 'info');
         } },
       { key:'disa', label:'Dışa aktar', icon:'i-download' }
     ],
