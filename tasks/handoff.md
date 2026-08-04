@@ -14,13 +14,14 @@
 > oraya yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki
 > **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde ortak katmanda çözülür.
 
-**Güncelleme:** 2026-08-04 (6. oturum sonu) · **105 ekran** · **25 detay ekranı**
+**Güncelleme:** 2026-08-04 (6. oturum sonu) · **108 ekran** · 25 detay · **3 form ekranı**
 **plan.md ilerleme:** başındaki tek satırda tutuluyor — işaretli / toplam madde.
 **Son tam tarama (bu oturumda koşuldu):**
 `gate.js` **525 sayfa yüklemesi (105 ekran × 5 rol)** — konsol hatası 0, boş sayfa 0,
-kırık istek 0 · `canon.js` **521 kontrol** temiz (445'ti, eksen 15 eklendi) ·
-`dbref.js` 105 ekran temiz · `links.js` temiz, **36 hedef kuyrukta** (hepsi form) ·
-`esc.js` · `mut.js` · `listen.js` · `grip-qa.js` temiz.
+kırık istek 0 (3 form ekranı eklendikten SONRA koşulmadı, 7. oturumun ilk işi) ·
+`canon.js` **601 kontrol** temiz (445'ti; eksen 15, 16, 17 eklendi) ·
+`dbref.js` **108 ekran** temiz · `links.js` temiz, **33 hedef kuyrukta** (hepsi form) ·
+`esc.js` · `mut.js` · `listen.js` · `grip-qa.js` temiz · üç form ekranı canlıda (HTTP 200).
 
 ---
 
@@ -87,7 +88,28 @@ kapatıcısını düğüme asar (`__gvClose`).
 düşürüldü: duyurunun ayrı ekranı gerekmiyordu, `app-panel-duyurular.html`'e `?id=` derin
 bağlantısı eklendi ve `app-ayar-log.html` hedefi ona çevrildi.
 
-**Üretilen form ekranları:** bkz. bölüm 5 kuyruk — `plan.md` Wave 12b'de işaretli olanlar.
+**Üretilen üç form ekranı** (`app-lead-form` · `app-musteri-form` · `app-satinalma-form`):
+üçü de iki modlu (`?id=` düzenleme), yetki kapılı, `GV.refresh` ile biten, `qa.js` + `esc.js` +
+`mut.js` + `listen.js` temiz. `BUILT`'e kaydedildi, kuyruk **36 → 33**.
+
+**Ajan raporlarından çıkan ve ÖLÇÜLEREK doğrulanan üç veri bulgusu:**
+
+**1. `kaynak` sözlüğe bağlı değildi — sessiz veri kaybı (assumptions V-34).**
+İki ajan bağımsız bildirdi: 9 kayıt `kaynak:'Referans'` taşıyordu ama `'Referans'`
+`DB.refTypes`'ta **yoktu**. `app-lead.html` ve `app-musteri.html` kaynak filtreleri
+`options:DB.refTypes` kullandığı için **en kalabalık grubu hiç eşleştiremiyordu**.
+Sözlüğe 18. tür eklenmedi (PROMPT.md §9 17 tür der); dokuzunun da `referans` bağı zaten
+yazılıydı, `kaynak` yönlendirenin `tur`'una hizalandı. `'Referans'` bir tür değil,
+**bağın kendisiydi**. `canon.js` **eksen 17** bunu artık her turda doğruluyor.
+
+**2. `onayAdim` "çelişkisi" çelişki değildi — yazılı olmayan eksendi.**
+Ajan "SAT-2026-015'te onayAdim=1 ama onaylanan adım 0" diye bildirdi. Ölçüldü:
+`onayAdim` = **bulunulan adım sırası**, onaylanan adım sayısı DEĞİL. 6 talebin 6'sı bu
+eksende tutarlı. Eksen `ops.js` başlığına yazıldı, `canon.js` **eksen 16** doğruluyor.
+**Ders:** ajan raporu gerçek bir boşluğu gösterdi (eksen yazılı değildi) ama vardığı sonuç
+yanlıştı — ikisi de ancak ölçünce ayrıldı.
+
+**3. `MUS-2023-012.vergiNo = '6community'`** — bozuk dize, form doğrulaması yakaladı (V-35).
 
 ---
 
@@ -201,7 +223,9 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 Bu oturum sonunda **form ekranları** dışında kuyrukta hedef kalmadı.
 
 ### Kuyruk (öncelik sırasıyla)
-1. **Form ekranları — kuyruğun tamamı.** `plan.md` **Wave 12b**'de ekran ekran madde hâlinde,
+0. **İLK İŞ: `gate.js` tam süpürmesi.** Üç form ekranı `BUILT`'e eklendikten sonra tam
+   tarama koşulmadı (~3 dk sürer, arka planda koş).
+1. **Form ekranları — kuyruğun tamamı, 33 hedef.** `plan.md` **Wave 12b**'de ekran ekran madde hâlinde,
    kaynak liste ekranlarıyla birlikte yazılı. Sözleşme `tasks/form-brief.md`.
    Aynı anda en fazla 3 ajan; ortak katman, `BUILT` kaydı ve commit orkestratörde.
 2. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının
@@ -221,6 +245,9 @@ Bu oturum sonunda **form ekranları** dışında kuyrukta hedef kalmadı.
 | **VB-04** | `hakedis` alan adı rename'i (etiketler temizlendi, alanlar duruyor) |
 | **VB-06** | Fatura ve tahsilat mutasyonları birbirini kapatmıyor |
 | **VB-09** | `MOD-009` "Saha ekip yönetimi" — yasak inşaat terimi, VB-04 ile aynı turda |
+| **VB-10** | Onay akışı yapılandırması hiçbir `DB.*` koleksiyonunda yok — `app-ayar-onay.html` ile form ekranı aynı eşik tablosunu **iki yerde** tutuyor |
+| **VB-11** | `butceKodu` bir koleksiyona bağlı değil (`DB.budgets` yok) — yeni bütçe kodu forma girilemiyor |
+| **UID-20** | Form ekranlarına **düzenleme modundan bağlantı yok**; iki modu da destekleyen form için ikinci mod erişilemez. Tüm formlar bitince tek turda bağlanacak |
 
 ---
 
