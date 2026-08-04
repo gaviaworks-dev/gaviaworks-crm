@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Komisyon Kazancı Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satis" data-screen="komisyon">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.emp, DB.empName, DB.permMatrix
+     crm.js  → DB.commissions, DB.referrers, DB.customers
+     work.js → DB.activities, DB.approvals
+     misc.js → DB.contracts (dayanak ciro adayları — bağ DEĞİL, ipucu) -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     TERMİNOLOJİ NOTU (VB-04)
+       DB.commissions[].hakedisTarihi ve DB.referrers[].hakedis ALAN ADLARI
+       veri dosyasında inşaat terimi taşıyor ve bu ekranda DEĞİŞTİRİLMEZ.
+       Ekranda gösterilen etiketler: hakedisTarihi → "Kazanç tarihi",
+       referrers.hakedis → "Toplam komisyon kazancı", commissions.ciro →
+       "Dayanak ciro".
+     ================================================================= */
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.commissions.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Satış ve CRM', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen komisyon kazancı sistemde yok.',
+      actions:[{ label:'Komisyon kazançlarına dön', cls:'btn-line', href:'app-komisyon.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Komisyon kazancı bulunamadı',
+      desc:'“' + esc(id) + '” kodlu komisyon kaydı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-komisyon.html">Komisyon kazançlarına dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Komisyon Kazancı');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Komisyon Kazancı') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+       Bu ekranın TAMAMI finans eksenindedir: komisyon tutarı, dayanak ciro
+       ve ödeme durumu finansal veridir. Bu yüzden alan bazlı gizleme değil,
+       sayfa seviyesinde 403 uygulanır — finans yetkisi olmayan rol formu
+       hiç görmez.
+     ================================================================= */
+  function reddet(baslik, aciklama){
+    GV.pageHead({
+      eyebrow:'Satış ve CRM',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Komisyon Kazancı',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Komisyon kazançlarına dön', cls:'btn-line', href:'app-komisyon.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' +
+      GV.errorState({ title:baslik, desc:aciklama }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek
+       bir yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts = mount.querySelector('.gv-state-acts');
+    if(acts){
+      acts.innerHTML = '<a class="btn btn-line" href="app-komisyon.html">Komisyon kazançlarına dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-komisyon-detay.html?id=' + esc(kayit.kod) + '">Kazancı görüntüle</a>' : '');
+    }
+  }
+
+  if(!GV.perm.can('finans')){
+    reddet('Bu ekran için finansal veri yetkisi gerekiyor',
+      'Komisyon kazancı kaydı dayanak ciro, komisyon tutarı ve ödeme bilgisi taşır. ' +
+      'Rolünüzde (' + GV.session.rolAd + ') finansal veri yetkisi tanımlı olmadığı için form kurulmadı. ' +
+      'Komisyon listesini tutarlar maskeli olarak görüntüleyebilirsiniz.');
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    reddet('Bu işlem için yetkiniz yok',
+      (duzenle ? 'Komisyon kaydı düzenleme' : 'Komisyon kaydı ekleme') +
+      ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+      'Kayıtları görüntüleyebilir ama değiştiremezsiniz.');
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function ref(kod){ return kod ? DB.referrers.filter(function(r){ return r.kod === kod; })[0] || null : null; }
+  function mus(kod){ return kod ? DB.customers.filter(function(c){ return c.kod === kod; })[0] || null : null; }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozet(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(p[0]) + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Numaralandırma yıllar arası SÜREKLİDİR (KOM-2025-006 → KOM-2026-007). */
+  function yeniKod(){
+    var max = 0;
+    DB.commissions.forEach(function(x){
+      var m = /^KOM-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'KOM-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* =================================================================
+     TÜRETME — yönlendirenin üç para ekseni komisyon kayıtlarından gelir
+       hakedis = Σ tutar · odenen = Σ (durum 'Ödendi') · bekleyen = fark
+       ARŞİVLİ KAYIT DAHİLDİR (arşiv yalnız listede gizler, tutarı silmez).
+       Ölçüldü: 8 yönlendirenin 8'inde kayıtlı değerlerle birebir tutuyor.
+     ================================================================= */
+  function turet(refKod, haricKod, ek){
+    var l = DB.commissions.filter(function(c){
+      return c.referans === refKod && (!haricKod || c.kod !== haricKod);
+    });
+    if(ek) l = l.concat([ek]);
+    var h = l.reduce(function(s,x){ return s + sayi(x.tutar); }, 0);
+    var o = l.filter(function(x){ return x.durum === 'Ödendi'; })
+             .reduce(function(s,x){ return s + sayi(x.tutar); }, 0);
+    return { adet:l.length, hakedis:h, odenen:o, bekleyen:h - o };
+  }
+
+  /* Yönlendiren kartını KOLEKSİYONDAN yeniden hesaplar — elle değer yazılmaz.
+     Komisyon eklendiğinde / değiştiğinde / yönlendireni değiştiğinde çağrılır. */
+  function refSenkron(refKod, sebep){
+    var r = ref(refKod);
+    if(!r) return null;
+    var t    = turet(refKod, null, null);
+    var eski = { hakedis:sayi(r.hakedis), odenen:sayi(r.odenen), bekleyen:sayi(r.bekleyen) };
+    var degisti = eski.hakedis !== t.hakedis || eski.odenen !== t.odenen || eski.bekleyen !== t.bekleyen;
+    r.hakedis  = t.hakedis;
+    r.odenen   = t.odenen;
+    r.bekleyen = t.bekleyen;
+    if(degisti){
+      DB.activities.unshift({
+        kayit:r.kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Komisyon kazancı yeniden hesaplandı — ' + sebep,
+        eski:'Toplam ' + F.money(eski.hakedis) + ' · Ödenen ' + F.money(eski.odenen) + ' · Bekleyen ' + F.money(eski.bekleyen),
+        yeni:'Toplam ' + F.money(t.hakedis) + ' · Ödenen ' + F.money(t.odenen) + ' · Bekleyen ' + F.money(t.bekleyen),
+        tone:'accent', icon:'i-wallet'
+      });
+    }
+    return { ref:r, degisti:degisti, eski:eski, yeni:t };
+  }
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ
+     ================================================================= */
+  var REFERANSLAR = DB.referrers.map(function(r){
+    var ek = [];
+    if(r.komisyonModeli === 'Yok') ek.push('komisyon modeli yok');
+    else if(r.komisyonModeli === 'Ciro yüzdesi') ek.push('%' + r.komisyonOrani);
+    else if(r.komisyonModeli === 'Sabit bedel') ek.push(F.money(r.sabitBedel));
+    if(r.aktif === false) ek.push('pasif');
+    return { value:r.kod, label:r.ad + ' · ' + r.tur + (ek.length ? ' (' + ek.join(' · ') + ')' : '') };
+  });
+
+  var MUSTERILER = DB.customers.map(function(c){
+    return { value:c.kod, label:c.kisa + ' · ' + c.kod + (c.aktif === false ? ' (pasif)' : '') };
+  });
+
+  /* Durum ve onay sözlükleri liste ekranının filtre kümesiyle birebir aynıdır. */
+  var DURUMLAR = ['Bekliyor','Onay bekliyor','Onaylandı','Ödendi'];
+  var ONAYLAR  = [
+    { value:'—',          label:'Onay akışı başlamadı' },
+    { value:'Bekliyor',   label:'Bekliyor' },
+    { value:'Onaylandı',  label:'Onaylandı' },
+    { value:'Reddedildi', label:'Reddedildi' }
+  ];
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {
+      referans:kayit.referans || '', musteri:kayit.musteri || '',
+      ciro:sayi(kayit.ciro), oran:sayi(kayit.oran), tutar:sayi(kayit.tutar),
+      hakedisTarihi:kayit.hakedisTarihi || '', durum:kayit.durum || 'Bekliyor',
+      onay:kayit.onay || '—', odemeTarihi:kayit.odemeTarihi || '',
+      aktif:kayit.aktif !== false, arsiv:kayit.arsiv === true
+    };
+  }else{
+    formRec = {
+      referans:qs.get('referans') || '', musteri:qs.get('musteri') || '',
+      ciro:0, oran:0, tutar:0,
+      hakedisTarihi:'', durum:'Bekliyor', onay:'—', odemeTarihi:'',
+      aktif:true, arsiv:false
+    };
+    /* Adresten gelen yönlendiren gerçekten var mı — uydurma ön dolgu yapılmaz. */
+    if(formRec.referans && !ref(formRec.referans)) formRec.referans = '';
+    if(formRec.musteri && !mus(formRec.musteri))   formRec.musteri = '';
+  }
+
+  var eskiRefKod = duzenle ? kayit.referans : null;
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+  var onayKaydi = duzenle
+    ? DB.approvals.filter(function(a){ return a.kayit === kayit.kod; })[0] || null
+    : null;
+
+  var ust = '';
+
+  if(duzenle){
+    var r0 = ref(kayit.referans);
+    var m0 = mus(kayit.musteri);
+    var t0 = turet(kayit.referans, null, null);
+
+    /* ---- İlişkili kayıt uyarısı: yönlendiren bağı (veride YAZILI tekil bağ) ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      (r0
+        ? GV.notice({
+            tone:'warn', title:'Bu kazanç bir yönlendiren kartını besliyor',
+            text:kayit.kod + ' kaydı ' + r0.ad + ' (' + r0.kod + ') yönlendirenine bağlı. Bu kartın ' +
+                 'toplam, ödenen ve bekleyen komisyon alanları komisyon kayıtlarından TÜRETİLİR: ' +
+                 'tutarı, durumu ya da yönlendireni değiştirirseniz kart kaydetme anında yeniden ' +
+                 'hesaplanır. Yönlendirenin şu anki ' + t0.adet + ' kaydı toplam ' + F.money(t0.hakedis) +
+                 ' (KDV hariç) kazanç üretiyor.',
+            actions:[
+              { label:'Yönlendiren kartı', href:'app-referans-detay.html?id=' + r0.kod },
+              { label:'Bu yönlendirenin kazançları', href:'app-komisyon.html?f_referans=' + r0.kod }
+            ] })
+        : GV.notice({
+            tone:'danger', title:'Kayıttaki yönlendiren bulunamadı',
+            text:'Bu kazanç “' + esc(kayit.referans || '—') + '” koduna bağlı ama böyle bir yönlendiren ' +
+                 'kaydı yok. Kaydetmeden önce listeden geçerli bir yönlendiren seçmelisiniz.' })) +
+      '</div></section>';
+
+    /* ---- Müşteri kaynağı çapraz kontrolü — canonical eksen ---- */
+    if(m0 && m0.referans && m0.referans !== kayit.referans){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Müşteri kartındaki kaynak yönlendiren farklı',
+        text:m0.kisa + ' müşterisinin kartında kaynak yönlendiren ' + esc(m0.referans) +
+             ', bu kazançta ise ' + esc(kayit.referans) + ' yazılı. İki eksenden biri yanlıştır; ' +
+             'komisyonu ödemeden önce müşteri kartındaki kaynağı doğrulayın.',
+        actions:[{ label:'Müşteri kartı', href:'app-musteri-detay.html?id=' + m0.kod }] }) + '</div></section>';
+    }
+
+    /* ---- Onay kuyruğu kaydı ---- */
+    if(onayKaydi){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'info', title:'Bu kazancın onay kuyruğunda kaydı var',
+        text:onayKaydi.kod + ' · ' + onayKaydi.baslik + ' · durum “' + onayKaydi.durum + '”. ' +
+             'Formdaki onay durumunu değiştirirseniz bu onay kaydı da aynı değere getirilir.' }) + '</div></section>';
+    }
+
+    /* ---- Bağlam kartı ---- */
+    var sonAkt = acts[0];
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Kayıt Özeti</h2>' +
+        '<div class="gc-head-acts"><a class="btn btn-line btn-sm" href="app-komisyon-detay.html?id=' + esc(kayit.kod) + '">' +
+          ico('i-external','ic-sm') + ' Kazanç kartını aç</a></div></div>' +
+      '<div class="gc-body">' + dl([
+        ['Kayıt no', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Kazanç durumu', GV.badge(kayit.durum) +
+          (kayit.arsiv ? ' <span class="tag">Arşiv</span>' : '') +
+          (kayit.aktif === false ? ' <span class="tag">Pasif kayıt</span>' : '')],
+        ['Onay durumu', kayit.onay && kayit.onay !== '—'
+          ? GV.badge(kayit.onay) : '<span class="u-faint">Onay akışı başlamadı</span>'],
+        ['Yönlendiren', r0
+          ? '<a href="app-referans-detay.html?id=' + esc(r0.kod) + '">' + esc(r0.ad) + '</a>' +
+            sub(r0.kod + ' · ' + r0.tur + ' · ' + r0.komisyonModeli)
+          : esc(kayit.kisi || '—') + sub('Yönlendiren kaydı bulunamadı')],
+        ['Kazandırdığı müşteri', m0
+          ? '<a href="app-musteri-detay.html?id=' + esc(m0.kod) + '">' + esc(m0.unvan) + '</a>' + sub(m0.kod + ' · ' + m0.sektor)
+          : esc(kayit.firma || '—') + sub('Müşteri kaydı bulunamadı')],
+        ['Komisyon kazancı (KDV hariç)', '<span class="cell-money">' + F.money(kayit.tutar) + '</span>'],
+        ['Kazanç tarihi', kayit.hakedisTarihi
+          ? F.date(kayit.hakedisTarihi) + sub(Math.abs(F.days(kayit.hakedisTarihi)) + ' gün önce')
+          : null],
+        ['Ödeme tarihi', kayit.odemeTarihi ? F.date(kayit.odemeTarihi) : null],
+        ['Son değiştiren', sonAkt ? esc(sonAkt.kisi) + sub(F.dt(sonAkt.tarih) + ' · ' + sonAkt.metin) : null]
+      ]) + '</div></section>';
+
+    if(kayit.arsiv){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-archive', title:'Arşivlenmiş komisyon kaydı',
+        text:'Bu kazanç arşivlenmiş; komisyon listesinde varsayılan olarak gizlidir. Arşiv yalnız listede ' +
+             'gizler, tutarı silmez — yönlendirenin toplam, ödenen ve bekleyen komisyonuna DAHİLDİR.' }) +
+        '</div></section>';
+    }
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni komisyon kazancı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki kazanç kodu (' + yeniKod() + ') atanır, aktivite geçmişine ' +
+             '“Kayıt oluşturuldu” satırı yazılır ve seçtiğiniz yönlendirenin toplam, ödenen ve bekleyen ' +
+             'komisyon alanları komisyon kayıtlarından yeniden hesaplanır. Kazanç kimin adına doğuyorsa ' +
+             'kişi ve firma adı seçtiğiniz yönlendiren ve müşteri kartından alınır, elle yazılmaz.',
+        actions:[
+          { label:'Komisyon kazançları', href:'app-komisyon.html' },
+          { label:'Yönlendiren kişiler', href:'app-referans.html' }
+        ] }) + '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-percent') + 'Komisyon Kazancı Bilgileri</h2>' +
+        '<div class="gc-sub">Zorunlu alanlar yıldızla işaretlidir. Tüm tutarlar KDV hariç nettir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-komisyon.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-wallet') + 'Hesap ve Kaydetmenin Etkisi</h2>' +
+        '<div class="gc-sub">Formdaki değerler değiştikçe güncellenir.</div></div>' +
+      '<div class="gc-body" id="etkiPanel"></div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+       DB.commissions alanları: kod · referans · kisi · musteri · firma ·
+       ciro · oran · tutar · hakedisTarihi · durum · odemeTarihi · onay ·
+       aktif · arsiv.
+       `kisi` ve `firma` FORM ALANI DEĞİLDİR: ikisi de seçilen yönlendiren
+       ve müşteri kartının kopyasıdır (6 kaydın 6'sında kisi = referrers.ad,
+       firma = customers.unvan). Elle yazılabilir bırakılsalardı aynı bilgi
+       iki eksende yaşardı (L-13) — kaydetme anında bağdan türetilirler.
+     ================================================================= */
+  function beklenenTutar(d){
+    var o = sayi(d.oran);
+    return o > 0 ? Math.round(sayi(d.ciro) * o / 100) : null;
+  }
+
+  var sections = [
+    { title:'Kazanç kimliği ve bağlar',
+      desc:'Kazancın hangi yönlendirenden doğduğu ve hangi müşteriyi kazandırdığı. İkisi de veride ' +
+           'yazılı tekil bağdır; kişi ve firma adı bu iki karttan türetilir.',
+      fields:[
+        { key:'referans', label:'Yönlendiren', type:'select', options:REFERANSLAR, required:true, cols:6,
+          placeholder:'Yönlendiren seçin',
+          hint:'Komisyon modeli, oranı ve sabit bedeli bu karttan okunur.',
+          validate:function(v){
+            if(!v) return '';
+            var r = ref(v);
+            if(!r) return 'Seçilen yönlendiren kaydı bulunamadı.';
+            if(r.komisyonModeli === 'Yok')
+              return r.ad + ' kartında komisyon modeli “Yok” — bu kaynağa komisyon kazancı açılamaz. ' +
+                     'Önce yönlendiren kartında bir komisyon modeli tanımlayın.';
+            return '';
+          } },
+        { key:'musteri', label:'Kazandırdığı müşteri', type:'select', options:MUSTERILER, required:true, cols:6,
+          placeholder:'Müşteri seçin',
+          hint:'Kayıttaki firma adı bu müşterinin unvanından yazılır.',
+          validate:function(v, d){
+            if(!v) return '';
+            var c = mus(v);
+            if(!c) return 'Seçilen müşteri kaydı bulunamadı.';
+            if(!duzenle && d.referans){
+              var cakisan = DB.commissions.filter(function(x){
+                return x.musteri === v && x.referans === d.referans;
+              });
+              if(cakisan.length)
+                return 'Bu müşteri için aynı yönlendirene ait kazanç zaten var (' +
+                       cakisan.map(function(x){ return x.kod; }).join(', ') + ').';
+            }
+            return '';
+          } }
+      ]},
+
+    { title:'Komisyon modeli ve tutar',
+      desc:'Ciro yüzdesi modelinde kazanç dayanak ciro × oran ile doğar; sabit bedel modelinde oran ' +
+           'uygulanmaz. Dayanak ciro ve kazanç tutarı KDV hariç nettir.',
+      fields:[
+        { key:'ciro', label:'Dayanak ciro (KDV hariç)', type:'money', min:0, cols:4,
+          hint:'Komisyonun üzerinden hesaplandığı net satış tutarı. Sabit bedelli kazançta bilgi amaçlıdır.',
+          validate:function(v, d){
+            if(sayi(d.oran) > 0 && sayi(v) <= 0)
+              return 'Oran uygulanan kazançta dayanak ciro sıfırdan büyük olmalıdır.';
+            return '';
+          } },
+        { key:'oran', label:'Komisyon oranı', type:'percent', cols:4,
+          hint:'Yalnız “Ciro yüzdesi” modelinde girilir; sabit bedelli kazançta boş bırakılır.',
+          validate:function(v, d){
+            var r = ref(d.referans);
+            if(!r) return '';
+            if(r.komisyonModeli === 'Sabit bedel' && sayi(v) > 0)
+              return r.ad + ' kartında komisyon modeli “Sabit bedel” — oran girilmez.';
+            if(r.komisyonModeli === 'Ciro yüzdesi' && sayi(v) <= 0)
+              return r.ad + ' kartında komisyon modeli “Ciro yüzdesi” — oran sıfırdan büyük olmalıdır.';
+            return '';
+          } },
+        { key:'tutar', label:'Komisyon kazancı (KDV hariç)', type:'money', min:0, required:true, cols:4,
+          hint:'Yönlendirene ödenecek net tutar. Yönlendirenin toplam kazancı bu alandan türetilir.',
+          validate:function(v, d){
+            if(sayi(v) <= 0) return 'Komisyon kazancı sıfırdan büyük olmalıdır.';
+            var bek = beklenenTutar(d);
+            if(bek != null && sayi(v) !== bek)
+              return 'Kazanç, dayanak ciro × oran ile uyuşmuyor; beklenen değer ' + F.money(bek) + '.';
+            return '';
+          } }
+      ]},
+
+    { title:'Süreç: kazanç, onay ve ödeme',
+      desc:'Kazanç önce doğar, sonra yönetici onayından geçer, en son ödenir. Durum ve onay alanları ' +
+           'birbirini doğrular; ölü kombinasyon kaydedilemez.',
+      fields:[
+        { key:'hakedisTarihi', label:'Kazanç tarihi', type:'date', cols:6,
+          hint:'Kazancın doğduğu tarih. Henüz doğmamış kazançta boş bırakılır.',
+          validate:function(v, d){
+            if(v && v > DB.today) return 'Kazanç tarihi ileri bir tarih olamaz.';
+            if(!v && d.durum && d.durum !== 'Bekliyor')
+              return 'Kazanç tarihi girilmeden durum “' + d.durum + '” olamaz.';
+            if(!v && d.onay && d.onay !== '—')
+              return 'Onay akışı ancak kazanç doğduktan sonra başlar; önce kazanç tarihini girin.';
+            return '';
+          } },
+        { key:'odemeTarihi', label:'Ödeme tarihi', type:'date', cols:6,
+          hint:'Yalnız ödenmiş kazançta doldurulur.',
+          validate:function(v, d){
+            if(!v) return d.durum === 'Ödendi' ? 'Ödendi durumunda ödeme tarihi zorunludur.' : '';
+            if(d.durum !== 'Ödendi') return 'Ödeme tarihi yalnız “Ödendi” durumunda girilir.';
+            if(v > DB.today) return 'Ödeme tarihi ileri bir tarih olamaz.';
+            if(d.hakedisTarihi && v < d.hakedisTarihi)
+              return 'Ödeme tarihi kazanç tarihinden önce olamaz.';
+            return '';
+          } },
+        { key:'onay', label:'Onay durumu', type:'select', options:ONAYLAR, required:true, cols:6,
+          hint:'Onay kuyruğundaki kaydın durumu da bu alanla birlikte güncellenir.',
+          validate:function(v, d){
+            if(v === 'Reddedildi' && d.durum === 'Ödendi')
+              return 'Reddedilen kazanç ödenmiş olamaz.';
+            return '';
+          } },
+        { key:'durum', label:'Kazanç durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+          hint:'“Ödendi” işaretlenen kazanç yönlendirenin ödenen komisyonuna girer.',
+          validate:function(v, d){
+            if(v === 'Ödendi' && d.onay !== 'Onaylandı')
+              return 'Ödenen kazanç önce onaylanmış olmalıdır.';
+            if(v === 'Onaylandı' && d.onay !== 'Onaylandı')
+              return 'Durum “Onaylandı” ise onay durumu da “Onaylandı” olmalıdır.';
+            if(v === 'Onay bekliyor' && d.onay !== 'Bekliyor')
+              return 'Durum “Onay bekliyor” ise onay durumu “Bekliyor” olmalıdır.';
+            if(v === 'Bekliyor' && d.onay !== '—')
+              return 'Onay akışı başlamış kazanç “Bekliyor” durumunda kalamaz.';
+            return '';
+          } }
+      ]},
+
+    { title:'Kayıt durumu',
+      desc:'Kaydın listelerde nasıl göründüğü. Arşiv yalnız listede gizler; tutar yönlendirenin ' +
+           'komisyon toplamına dahil kalmaya devam eder.',
+      fields:[
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
+          onLabel:'Kayıt aktif — listelerde ve toplamlarda görünür',
+          hint:'Pasif kayıt listelerin “Pasif” sekmesine düşer; tutarı yönlendirenin komisyon ' +
+               'toplamından silinmez.' },
+        { key:'arsiv', label:'Arşiv durumu', type:'switch', cols:6,
+          onLabel:'Arşivlendi — listede gizli, toplamlara dahil',
+          validate:function(v, d){
+            if(v && d.durum !== 'Ödendi')
+              return 'Yalnız ödenmiş kazanç arşivlenir.';
+            return '';
+          } }
+      ]}
+  ];
+
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'komisyon', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ETKİ PANELİ — yönlendiren kartının kaydetmeden SONRAKİ hâli
+       Panel mount İÇİNDEDİR; GV.refresh() taze kopyayla değiştirir (L-16).
+     ================================================================= */
+  var etkiPanel = document.getElementById('etkiPanel');
+
+  function etkiCiz(){
+    var d      = form.read();
+    var r      = ref(d.referans);
+    var c      = mus(d.musteri);
+    var tutar  = sayi(d.tutar);
+    var durum  = d.durum || 'Bekliyor';
+    var bek    = beklenenTutar(d);
+    var html   = '';
+
+    if(!r){
+      etkiPanel.innerHTML = GV.notice({ tone:'neutral', icon:'i-info',
+        title:'Önce yönlendiren seçin',
+        text:'Yönlendiren seçildiğinde bu kazancın kartı nasıl etkileyeceği — toplam, ödenen ve ' +
+             'bekleyen komisyonun kaydetmeden sonraki değeri — burada hesaplanır.' });
+      return;
+    }
+
+    /* ---- Model uyum uyarıları: bloklamayan, ölçülmüş sapmalar ---- */
+    if(r.komisyonModeli === 'Ciro yüzdesi' && sayi(d.oran) > 0 && sayi(d.oran) !== sayi(r.komisyonOrani)){
+      html += GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Oran yönlendiren kartındaki oranla aynı değil',
+        text:'Bu kazanç %' + sayi(d.oran) + ' ile hesaplanıyor; ' + r.ad + ' kartında yazılı oran %' +
+             sayi(r.komisyonOrani) + '. Kazanç kendi oranıyla doğabilir, ancak farkın gerekçesi ' +
+             'görüşme notlarına yazılmalıdır.' });
+    }
+    if(r.komisyonModeli === 'Sabit bedel' && tutar && sayi(r.sabitBedel) && tutar !== sayi(r.sabitBedel)){
+      html += GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Kazanç yönlendirenin sabit bedeliyle aynı değil',
+        text:'Girilen kazanç ' + F.money(tutar) + ', ' + r.ad + ' kartındaki sabit referans bedeli ' +
+             F.money(r.sabitBedel) + ' (ikisi de KDV hariç). Fark ' + F.money(Math.abs(tutar - sayi(r.sabitBedel))) + '.' });
+    }
+    if(c && c.referans && c.referans !== r.kod){
+      html += GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Müşterinin kaynak yönlendireni farklı',
+        text:c.kisa + ' kartında kaynak yönlendiren ' + c.referans + ' yazılı, bu kazançta ' + r.kod +
+             ' seçili. Komisyonu ödemeden önce müşteri kartındaki kaynağı doğrulayın.' });
+    }
+
+    /* ---- Hesap zinciri ---- */
+    html += ozet([
+      ['Yönlendirenin komisyon modeli', '<span class="tag">' + esc(r.komisyonModeli) + '</span>' +
+        (r.komisyonModeli === 'Ciro yüzdesi' ? ' <span class="cell-sub">%' + sayi(r.komisyonOrani) + '</span>' : '') +
+        (r.komisyonModeli === 'Sabit bedel' ? ' <span class="cell-sub">' + F.money(r.sabitBedel) + '</span>' : '')],
+      ['Dayanak ciro (KDV hariç)', sayi(d.ciro)
+        ? '<span class="u-num">' + F.money(sayi(d.ciro)) + '</span>'
+        : '<span class="u-faint">Ciroya bağlı değil</span>'],
+      ['Uygulanan oran', sayi(d.oran)
+        ? '<b class="u-num">%' + sayi(d.oran) + '</b>'
+        : '<span class="tag">Sabit bedel</span>'],
+      bek != null ? ['Hesaplanan kazanç (ciro × oran)', '<span class="u-num">' + F.money(bek) + '</span>'] : null,
+      ['Girilen komisyon kazancı (KDV hariç)', '<b class="cell-money">' + F.money(tutar) + '</b>'],
+      bek != null ? ['Hesap doğrulaması', bek === tutar
+        ? '<span class="badge is-ok no-dot">Zincir tutuyor</span>'
+        : '<span class="badge is-danger no-dot">Fark ' + F.money(bek - tutar) + '</span>'] : null
+    ]);
+
+    /* ---- Yönlendiren kartının kaydetmeden sonraki hâli ---- */
+    var oncesi = turet(r.kod, null, null);
+    var sonrasi = turet(r.kod, duzenle ? kayit.kod : null,
+      { kod:duzenle ? kayit.kod : '(yeni)', referans:r.kod, tutar:tutar, durum:durum });
+
+    function fark(a, b){
+      var d2 = b - a;
+      return '<span class="u-num">' + F.money(b) + '</span>' +
+        (d2 ? ' <span class="cell-sub">' + (d2 > 0 ? '+' : '') + F.money(d2) + '</span>' : '');
+    }
+
+    html += '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' +
+      esc(r.ad + ' kartı — kaydetmeden sonra') + '</h3>' +
+      '<p>' + esc('Üç alan da komisyon kayıtlarından yeniden hesaplanır; forma elle yazılmaz. ' +
+        'Arşivli kayıtlar toplamlara dahildir.') + '</p></div>' +
+      ozet([
+        ['Bağlı komisyon kaydı', '<span class="u-num">' + oncesi.adet + '</span>' +
+          (sonrasi.adet !== oncesi.adet ? ' <span class="cell-sub">→ ' + sonrasi.adet + '</span>' : '')],
+        ['Toplam komisyon kazancı (KDV hariç)', fark(oncesi.hakedis, sonrasi.hakedis)],
+        ['Ödenen komisyon (KDV hariç)', fark(oncesi.odenen, sonrasi.odenen)],
+        ['Bekleyen komisyon (KDV hariç)', fark(oncesi.bekleyen, sonrasi.bekleyen)],
+        ['Karttaki mevcut değer', 'Toplam <span class="u-num">' + F.money(r.hakedis) + '</span> · ödenen <span class="u-num">' +
+          F.money(r.odenen) + '</span> · bekleyen <span class="u-num">' + F.money(r.bekleyen) + '</span>']
+      ]) + '</div>';
+
+    /* ---- Yönlendiren değiştiyse ESKİ kart da yeniden hesaplanır ---- */
+    if(duzenle && eskiRefKod && eskiRefKod !== r.kod){
+      var eskiRef = ref(eskiRefKod);
+      var eskiSonra = turet(eskiRefKod, kayit.kod, null);
+      var eskiOnce  = turet(eskiRefKod, null, null);
+      html += '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' +
+        esc((eskiRef ? eskiRef.ad : eskiRefKod) + ' kartı — kazanç bu karttan çıkıyor') + '</h3></div>' +
+        ozet([
+          ['Toplam komisyon kazancı (KDV hariç)', fark(eskiOnce.hakedis, eskiSonra.hakedis)],
+          ['Ödenen komisyon (KDV hariç)', fark(eskiOnce.odenen, eskiSonra.odenen)],
+          ['Bekleyen komisyon (KDV hariç)', fark(eskiOnce.bekleyen, eskiSonra.bekleyen)]
+        ]) + '</div>';
+    }
+
+    /* ---- Dayanak ciro adayları: BAĞ DEĞİL, ipucudur (components.md §9d) ---- */
+    if(c){
+      var sozlesmeler = DB.contracts.filter(function(x){ return x.musteri === c.kod; })
+        .sort(function(a,b){ return String(b.imzaTarihi).localeCompare(String(a.imzaTarihi)); });
+      html += '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' +
+        esc('Dayanak ciro adayları — ' + c.kisa) + '</h3>' +
+        '<p>' + esc('Komisyon kaydı sözleşme kodu TUTMAZ; aşağıdakiler yalnız aynı müşterinin ' +
+          'sözleşmeleridir, veride yazılı bağ değildir.') + '</p></div>' +
+        (sozlesmeler.length
+          ? ozet(sozlesmeler.map(function(x){
+              return [x.kod + ' · ' + x.ad,
+                '<span class="u-num">' + F.money(x.tutar) + '</span> <span class="cell-sub">KDV hariç · ' +
+                (sayi(d.ciro) === sayi(x.tutar) ? 'girilen dayanak ciroyla aynı' : 'Aynı müşteri') + '</span>'];
+            }))
+          : GV.notice({ tone:'neutral', icon:'i-info', title:'Bu müşterinin sözleşme kaydı yok',
+              text:'Dayanak ciro sözleşmeden türetilmez; kazancın hesaplandığı net tutarı elle girin.' })) +
+        '</div>';
+    }
+
+    etkiPanel.innerHTML = html;
+  }
+
+  etkiCiz();
+  /* Mount İÇİNDEKİ düğüme bağlanır — GV.refresh() sonrası dinleyici birikmez (L-16). */
+  form.el.addEventListener('input', etkiCiz);
+  form.el.addEventListener('change', etkiCiz);
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    referans:'Yönlendiren', kisi:'Yönlendiren adı', musteri:'Kazandırdığı müşteri', firma:'Müşteri unvanı',
+    ciro:'Dayanak ciro', oran:'Komisyon oranı', tutar:'Komisyon kazancı',
+    hakedisTarihi:'Kazanç tarihi', durum:'Kazanç durumu', odemeTarihi:'Ödeme tarihi',
+    onay:'Onay durumu', aktif:'Kayıt durumu', arsiv:'Arşiv durumu'
+  };
+
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Pasif';
+    if(k === 'arsiv') return v ? 'Arşivlendi' : 'Arşivlenmedi';
+    if(k === 'oran') return '%' + v;
+    if(['ciro','tutar'].indexOf(k) !== -1) return F.money(v);
+    if(['hakedisTarihi','odemeTarihi'].indexOf(k) !== -1) return F.date(v);
+    if(k === 'referans'){ var r = ref(v); return r ? r.ad + ' (' + v + ')' : String(v); }
+    if(k === 'musteri'){ var c = mus(v); return c ? c.kisa + ' (' + v + ')' : String(v); }
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    ['ciro','oran','tutar'].forEach(function(k){ v[k] = sayi(v[k]); });
+    v.aktif = !!v.aktif;
+    v.arsiv = !!v.arsiv;
+    v.hakedisTarihi = v.hakedisTarihi || null;
+    v.odemeTarihi   = v.odemeTarihi || null;
+    v.onay          = v.onay || '—';
+
+    /* Bağdan TÜRETİLEN kopya alanlar — elle yazılmaz (L-13).
+       Ölçüldü: 6 kaydın 6'sında kisi = referrers.ad, firma = customers.unvan. */
+    var r = ref(v.referans);
+    var c = mus(v.musteri);
+    v.kisi  = r ? r.ad : (duzenle ? kayit.kisi : '');
+    v.firma = c ? c.unvan : (duzenle ? kayit.firma : '');
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var kod = duzenle ? kayit.kod : yeniKod();
+    var senkronRef = [];
+
+    if(duzenle){
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+
+      /* Onay kuyruğu kaydı formdaki onay durumuyla aynı eksende tutulur. */
+      if(onayKaydi && v.onay !== '—' && onayKaydi.durum !== v.onay){
+        var eskiOnayDurum = onayKaydi.durum;
+        onayKaydi.durum = v.onay;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Onay kaydı güncellendi — ' + onayKaydi.kod,
+          eski:eskiOnayDurum, yeni:v.onay, tone:'ok', icon:'i-stamp'
+        });
+      }
+
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }
+    }else{
+      DB.commissions.unshift(Object.assign({ kod:kod }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Komisyon kazancı oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+    }
+
+    /* -----------------------------------------------------------------
+       KRİTİK EKSEN: yönlendirenin hakedis / odenen / bekleyen alanları
+       komisyon KOLEKSİYONUNDAN yeniden hesaplanır. Elle değer yazılmaz;
+       yönlendiren değiştiyse ESKİ kart da yeniden hesaplanır.
+       ----------------------------------------------------------------- */
+    var s1 = refSenkron(v.referans, kod);
+    if(s1) senkronRef.push(s1);
+    if(duzenle && eskiRefKod && eskiRefKod !== v.referans){
+      var s2 = refSenkron(eskiRefKod, kod + ' bu yönlendirenden çıkarıldı');
+      if(s2) senkronRef.push(s2);
+    }
+
+    var senkronMetin = senkronRef.filter(function(s){ return s.degisti; }).map(function(s){
+      return s.ref.kod + ' toplam ' + F.money(s.yeni.hakedis);
+    });
+
+    GV.toast((duzenle ? kod + ' güncellendi' : kod + ' oluşturuldu') +
+      (senkronMetin.length ? ' · ' + senkronMetin.join(' · ') + ' olarak yeniden hesaplandı' : ''), 'ok');
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-komisyon.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Satış ve CRM',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Komisyon Kazancı',
+    sub:   duzenle ? 'Değişiklikler aktivite geçmişine yazılır; yönlendirenin komisyon toplamı ' +
+                     'kayıtlardan yeniden hesaplanır.'
+                   : 'Zorunlu alanlar yıldızla işaretlidir · ' + zorunlu.length + ' zorunlu alan.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-komisyon.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
