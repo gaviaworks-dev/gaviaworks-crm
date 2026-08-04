@@ -7,6 +7,10 @@ window.DB = window.DB || {};
 DB.leaveTypes = ['Yıllık izin','Mazeret izni','Hastalık izni','Ücretsiz izin','Saatlik izin','Uzaktan çalışma'];
 
 /* ---- İzin talepleri (PROMPT.md §14) ------------------------------------ */
+/* `cakisma` alanı **personel çakışmasını değil** proje takvimi çakışmasını işaretler.
+   Ölçüldü: IZN-2026-033'te `cakisma:true` ama sahibinin departmanında başka kimse yok;
+   ret gerekçesi "Marmara Faz 1 teslim haftasıyla çakışıyor". Departman içi personel
+   çakışması ekranda `baslangic`/`bitis` kesişiminden **hesaplanır**, bu alandan okunmaz. */
 DB.leaves = [
   { kod:'IZN-2026-038', personel:'EMP-006', tur:'Yıllık izin', baslangic:'2026-08-10', bitis:'2026-08-14', gun:5,
     vekil:'EMP-016', gerekce:'Yıllık izin planı', durum:'Onay bekliyor', onaylayan:'EMP-003',
@@ -191,7 +195,13 @@ DB.trainings = [
     durum:'Planlandı', sertifika:false, aktif:true }
 ];
 
-/* ---- Kapasite (haftalık, saat) ----------------------------------------- */
+/* ---- Kapasite (haftalık) -----------------------------------------------
+   BİRİM UYARISI: kartın çoğu alanı **saat** ekseninde, ama `izin` alanı **GÜN**dür.
+   Ölçüldü (5. oturum, 10/10 kayıt): `izin` = o personelin `DB.today`'den sonra biten,
+   reddedilmemiş izinlerinin `gun` toplamı (EMP-006 → 5 · EMP-007 → 5 · EMP-004 → 3 ·
+   EMP-016 → 1, kalanlar 0). Başlıktaki eski "saat" yorumu yanıltıcıydı.
+   Ekranda gösterilirken birimi etikete yazılır, saat alanlarıyla toplanmaz.
+   ------------------------------------------------------------------------- */
 DB.capacity = [
   { personel:'EMP-003', kapasite:40, planlanan:37, doluluk:92, izin:0 },
   { personel:'EMP-004', kapasite:40, planlanan:34, doluluk:86, izin:3 },
