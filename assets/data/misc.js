@@ -121,7 +121,29 @@ DB.meetings = [
   { kod:'TOP-2026-062', ad:'Trakya Otomotiv memnuniyet görüşmesi', tur:'Müşteri toplantısı', musteri:'MUS-2026-010',
     proje:'PRJ-2026-006', tarih:'2026-08-04T16:00', sure:60, yer:'Online — Meet',
     katilimci:['EMP-002','EMP-003','EMP-013'], disKatilimci:['Yusuf Balaban'],
-    gundem:['Memnuniyet geri bildirimi','Kapsam mutabakatı','Teslim planı'], durum:'Planlandı', aktif:true }
+    gundem:['Memnuniyet geri bildirimi','Kapsam mutabakatı','Teslim planı'], durum:'Planlandı', aktif:true },
+  { kod:'TOP-2026-061', ad:'Temmuz yönetim değerlendirmesi', tur:'Departman toplantısı', musteri:null,
+    proje:null, tarih:'2026-07-28T11:00', sure:120, yer:'Ofis — Toplantı odası',
+    katilimci:['EMP-001','EMP-002','EMP-003','EMP-012'], disKatilimci:[],
+    gundem:['Temmuz finansal durum','Gecikmiş tahsilatlar','Ağustos öncelikleri'],
+    durum:'Tamamlandı', aktif:true,
+    notlar:'Gecikmiş tahsilat tutarı kabul edilebilir eşiğin üzerinde; hatırlatma akışı sıkılaştırılacak.' },
+  { kod:'TOP-2026-060', ad:'Öz Gıda fire raporu değerlendirme', tur:'Müşteri toplantısı', musteri:'MUS-2026-009',
+    proje:'PRJ-2026-004', tarih:'2026-07-22T14:00', sure:60, yer:'Online — Meet',
+    katilimci:['EMP-003','EMP-009','EMP-013'], disKatilimci:['Fadime Çetin'],
+    gundem:['Fire raporu revizyonu','Kullanıcı eğitimi','Devreye alma sonrası destek'],
+    durum:'Tamamlandı', aktif:true,
+    notlar:'Fire raporunun kırılım mantığı müşterinin beklentisiyle örtüşmedi, revizyon kararlaştırıldı.' },
+  { kod:'TOP-2026-059', ad:'Haftalık geliştirme toplantısı', tur:'Departman toplantısı', musteri:null,
+    proje:null, tarih:'2026-07-15T09:30', sure:45, yer:'Ofis — Toplantı odası',
+    katilimci:['EMP-003','EMP-004','EMP-005','EMP-006','EMP-007','EMP-008'], disKatilimci:[],
+    gundem:['Sprint durumu','Teknik borç','Test kapsamı'], durum:'Tamamlandı', aktif:true,
+    notlar:'Test kapsamı hedefin altında kaldı; sprint sonuna kadar kapatılması kararlaştırıldı.' },
+  { kod:'TOP-2026-058', ad:'Anka Finans skorlama modeli gözden geçirme', tur:'Proje toplantısı', musteri:'MUS-2026-011',
+    proje:'PRJ-2026-002', tarih:'2026-07-08T13:30', sure:90, yer:'Online — Teams',
+    katilimci:['EMP-003','EMP-010','EMP-005'], disKatilimci:['Nihan Arslan'],
+    gundem:['Model doğruluk sonuçları','Veri hattı','Karar raporlama'], durum:'Tamamlandı', aktif:true,
+    notlar:'Model doğruluğu hedefe ulaştı; karar raporlama ekranı bir sonraki sprinte alındı.' }
 ];
 
 /* ---- Toplantı kararları ve aksiyonları ---------------------------------- */
@@ -131,7 +153,29 @@ DB.decisions = [
   { kod:'KRR-2026-102', toplanti:'TOP-2026-063', karar:'Faz 2 için ayrı teklif hazırlanacak',
     sorumlu:'EMP-002', termin:'2026-08-20', durum:'Bekliyor', gorev:null, aktif:true },
   { kod:'KRR-2026-103', toplanti:'TOP-2026-063', karar:'Rapor merkezi tasarımı öne alınacak',
-    sorumlu:'EMP-004', termin:'2026-08-16', durum:'Devam ediyor', gorev:'GRV-2026-106', aktif:true }
+    sorumlu:'EMP-004', termin:'2026-08-16', durum:'Devam ediyor', gorev:'GRV-2026-106', aktif:true },
+
+  { kod:'KRR-2026-098', toplanti:'TOP-2026-061', karar:'Gecikmiş tahsilatlarda ikinci hatırlatma otomatiğe bağlanacak',
+    sorumlu:'EMP-012', termin:'2026-08-08', durum:'Devam ediyor', gorev:null, aktif:true },
+  { kod:'KRR-2026-099', toplanti:'TOP-2026-061', karar:'Ağustos ayında yeni işe alım açılmayacak',
+    sorumlu:'EMP-001', termin:'2026-08-01', durum:'Tamamlandı', gorev:null, aktif:true },
+  { kod:'KRR-2026-100', toplanti:'TOP-2026-061', karar:'Bakım paketi yenilemeleri 60 gün önceden takip edilecek',
+    sorumlu:'EMP-002', termin:'2026-08-12', durum:'Devam ediyor', gorev:null, aktif:true },
+
+  { kod:'KRR-2026-096', toplanti:'TOP-2026-060', karar:'Fire raporu kırılımı ürün grubuna göre yeniden yazılacak',
+    sorumlu:'EMP-009', termin:'2026-08-07', durum:'Devam ediyor', gorev:'GRV-2026-104', aktif:true },
+  { kod:'KRR-2026-097', toplanti:'TOP-2026-060', karar:'Devreye alma sonrası iki oturumluk kullanıcı eğitimi verilecek',
+    sorumlu:'EMP-013', termin:'2026-08-14', durum:'Bekliyor', gorev:null, aktif:true },
+
+  { kod:'KRR-2026-094', toplanti:'TOP-2026-059', karar:'Test kapsamı sprint sonuna kadar %70 üzerine çıkarılacak',
+    sorumlu:'EMP-008', termin:'2026-08-09', durum:'Devam ediyor', gorev:'GRV-2026-108', aktif:true },
+  { kod:'KRR-2026-095', toplanti:'TOP-2026-059', karar:'Teknik borç kalemleri ayrı bir listede toplanacak',
+    sorumlu:'EMP-005', termin:'2026-07-25', durum:'Gecikti', gorev:null, aktif:true },
+
+  { kod:'KRR-2026-092', toplanti:'TOP-2026-058', karar:'Skorlama modeli mevcut eşikle üretime alınacak',
+    sorumlu:'EMP-010', termin:'2026-07-20', durum:'Tamamlandı', gorev:null, aktif:true },
+  { kod:'KRR-2026-093', toplanti:'TOP-2026-058', karar:'Karar raporlama ekranı bir sonraki sprinte alınacak',
+    sorumlu:'EMP-003', termin:'2026-08-18', durum:'Bekliyor', gorev:null, aktif:true }
 ];
 
 /* ---- Dokümanlar (PROMPT.md §19) ----------------------------------------- */
