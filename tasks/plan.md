@@ -121,10 +121,13 @@ departman/proje/kayıt/şirket bazlı erişim.
 ### Wave 6 — Personel & İK (§14)
 - [ ] Personel listesi + detay (23 alan) + form
 - [ ] İzin yönetimi (6 izin türü, bakiye, vekil, onay akışı, çakışma kontrolü, departman takvimi)
-- [ ] Zaman kaydı & timesheet (zamanlayıcı, manuel giriş, haftalık timesheet, yönetici onayı, fazla mesai)
-- [ ] Kapasite & doluluk
-- [ ] Performans yönetimi (14 eksen — otomatik karar vermez, karar desteği)
-- [ ] Eğitim & yetkinlik
+- [x] `app-zaman.html` — zaman kayıtları (manuel giriş, faturalanabilirlik)
+- [x] `app-zaman-onay.html` — haftalık timesheet onayı (kırılım drawer'ı, iade akışı, eksik/fazla mesai)
+- [x] `app-kapasite.html` — kapasite ve doluluk
+- [x] `app-performans.html` — performans yönetimi (karar desteği, otomatik karar yok)
+- [x] `app-egitim.html` — eğitim ve yetkinlik (katılımcı kırılımı matrisi, maliyet maskeleme)
+- [ ] Zaman kaydı zamanlayıcısı (start/stop)
+- [ ] Yetkinlik ekseni — `DB.trainings`'te yetkinlik/kazanım alanı yok (VB kaydı gerekli)
 
 ### Wave 7 — Demirbaş & Filo (§15, §16)
 - [ ] Demirbaş listesi (19 kategori) + detay (28 alan) + form
@@ -137,7 +140,7 @@ departman/proje/kayıt/şirket bazlı erişim.
 ### Wave 8 — Satın Alma & Tedarik (§17)
 - [ ] Satın alma talebi listesi + detay + form (14 alan)
 - [ ] Tutar/kategoriye göre çok aşamalı onay akışı (6 onay makamı)
-- [ ] Teklif toplama & karşılaştırma (9 kriter)
+- [x] `app-satinalma-teklif.html` — teklif toplama ve karşılaştırma (9 kriter, yan yana matris, tedarikçi seçimi)
 - [ ] Sipariş & teslimat (18 alan) + eksik teslim + iade
 - [ ] Demirbaşa / araca otomatik aktarım
 - [ ] Tedarikçi listesi + detay + puanlama
@@ -171,7 +174,7 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-fatura.html` — faturalar (5 sekme, 11 kolon, vade/gecikme takibi, ödendi işaretleme)
 - [x] `app-tahsilat.html` — tahsilatlar (5 sekme, gecikme günü, hatırlatma aksiyonu)
 - [x] `app-butce.html` — proje bütçe ve maliyet (bütçe/maliyet karşılaştırma grafiği, aşım takibi, 14 kolon)
-- [ ] `app-odemeplani.html` — ödeme planları (milestone bazlı taksit takibi)
+- [x] `app-odemeplani.html` — ödeme planları (milestone → sözleşme → fatura → tahsilat zinciri, faturası kesilmemiş taksit uyarısı)
 - [x] Referans komisyonları → `app-komisyon.html` (Wave 2'de tamamlandı)
 
 ### Wave 11 — Raporlama Merkezi (§20)
