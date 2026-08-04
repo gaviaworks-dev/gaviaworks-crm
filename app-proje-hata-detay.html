@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hata Kaydı Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="hata">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var me = GV.session.emp;
+  var yetkiEkle    = GV.perm.can('ekle');
+  var yetkiDuzenle = GV.perm.can('duzenle');
+
+  var id = new URLSearchParams(location.search).get('id') || (DB.bugs[0] || {}).kod;
+  var b  = DB.bugs.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!b){
+    mount.onclick = null;
+    GV.pageHead({ eyebrow:'Proje Yönetimi', title:'Hata Kaydı Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Hata listesi', icon:'i-bug', href:'app-proje-hata.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Hata kaydı bulunamadı',
+      desc:'“' + esc(id || '') + '” numaralı hata kaydı sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-hata.html">Hata listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(b.kod);
+  document.title = b.kod + ' — Hata Kaydı — GaviaWorks CRM';
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride YAZILI tekil bağdan türetilir
+     ================================================================= */
+  var proje   = b.proje ? DB.proj(b.proje) : null;
+  var modul   = b.modul ? DB.mod(b.modul) : null;
+  var musteri = proje && proje.musteri
+    ? (DB.customers.filter(function(c){ return c.kod === proje.musteri; })[0] || null) : null;
+
+  /* Hata ↔ görev bağı YALNIZ veride yazılı alandan okunur: hatanın `gorev` alanı
+     ya da (ileride eklenirse) görevin `hata` alanı. Başlık benzerliğiyle tahmin
+     edilmez (ders L-13). */
+  var gorev = b.gorev ? DB.task(b.gorev)
+            : (DB.tasks.filter(function(t){ return t.hata === b.kod; })[0] || null);
+
+  var acts      = DB.activities.filter(function(a){ return a.kayit === b.kod; });
+  var gorevActs = gorev ? DB.activities.filter(function(a){ return a.kayit === gorev.kod; }) : [];
+
+  /* =================================================================
+     DURUM VE SÜRE — tarih ekseni DB.today (new Date() ile bugün alınmaz)
+     ================================================================= */
+  var kapali = b.durum === 'Kapandı';
+  var agir   = b.siddet === 'Kritik' || b.siddet === 'Yüksek';
+
+  /* Kapanmış hatada süre = bulunma → çözüm; açık hatada = bulunmadan bugüne. */
+  function sureGun(x){
+    var d0 = F.days(x.bulunma);
+    if(d0 == null) return null;
+    return (x.cozum ? F.days(x.cozum) : 0) - d0;
+  }
+  var sure = sureGun(b);
+
+  /* DB.today'e gün ekler — referans yine sabit veri ekseni, sistem saati değil. */
+  function addDays(iso, n){
+    var d = new Date(String(iso).slice(0,10) + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0,10);
+  }
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  function sureMetin(){
+    if(sure == null) return '<span class="u-faint">—</span>';
+    if(kapali && b.cozum)
+      return '<b class="u-num u-ok">' + F.num(sure) + '</b> gün <span class="cell-sub">bulunmadan çözüme</span>';
+    var t = sure > 7 ? ' u-danger' : sure > 3 ? ' u-warn' : '';
+    return '<b class="u-num' + t + '">' + F.num(sure) + '</b> gün <span class="cell-sub">hâlâ açık</span>';
+  }
+
+  /* =================================================================
+     §9 KURALI — DB.bugs[].siddet, DB.priorities kümesidir
+     (Kritik / Yüksek / Orta / Düşük). DB.impacts ('Çok yüksek' …) DEĞİLDİR.
+     Hatadan görev üretilirken eşleme: 'Kritik' → etki 'Çok yüksek',
+     diğer üç değer iki eksende de aynı adı taşır.
+     ================================================================= */
+  function etkiKarsiligi(siddet){ return siddet === 'Kritik' ? 'Çok yüksek' : siddet; }
+  var TERMIN_GUN = { 'Kritik':1, 'Yüksek':3, 'Orta':7, 'Düşük':14 };
+
+  /* Yeni görev kodu — DB.tasks içindeki EN YÜKSEK GRV-yyyy-nnn + 1
+     (dizi uzunluğu kullanılmaz: silme/ekleme sonrası kod çakışır). */
+  function yeniGorevKodu(){
+    var max = 0;
+    DB.tasks.forEach(function(t){
+      var x = /^GRV-\d{4}-(\d+)$/.exec(t.kod || '');
+      if(x) max = Math.max(max, parseInt(x[1], 10));
+    });
+    return 'GRV-' + String(DB.today).slice(0,4) + '-' + (max + 1);
+  }
+
+  /* =================================================================
+     TÜRETİLEN BAĞLAR — hepsi "aday" olarak etiketlenir, bağ diye sunulmaz
+     ================================================================= */
+  /* Hata kaydında sprint alanı yok. Bağlı görevin sprinti YAZILI bağdır;
+     bulunma tarihine denk gelen proje sprinti ise TÜRETİLMİŞ bilgidir. */
+  var gorevSprint = (gorev && gorev.sprint)
+    ? (DB.sprints.filter(function(s){ return s.kod === gorev.sprint; })[0] || null) : null;
+  var tarihSprint = (proje && b.bulunma)
+    ? (DB.sprints.filter(function(s){
+        return s.proje === b.proje && s.baslangic <= b.bulunma && b.bulunma <= s.bitis;
+      })[0] || null)
+    : null;
+  var sprint = gorevSprint || tarihSprint;
+
+  /* Test koşumu ↔ hata bağı veride YOK. Aynı projenin koşumları aday listesidir.
+     `DB.tests` modül alanı taşımaz — bu yüzden modül değil proje ekseninde eşlenir. */
+  var projeTestleri = DB.tests.filter(function(t){ return t.proje === b.proje; });
+  function testYakin(t){
+    /* Aday güçlü sinyali: başarısız senaryosu olan ve hatanın bulunma tarihine
+       en fazla 3 gün mesafedeki koşum. Bağ değildir, sıralama ölçütüdür. */
+    if(!t.basarisiz || !t.tarih || !b.bulunma) return false;
+    return Math.abs(F.days(t.tarih) - F.days(b.bulunma)) <= 3;
+  }
+  var testAdaylari = projeTestleri.slice().sort(function(x, y){
+    var fx = testYakin(x) ? 0 : 1, fy = testYakin(y) ? 0 : 1;
+    if(fx !== fy) return fx - fy;
+    return String(y.tarih || '').localeCompare(String(x.tarih || ''));
+  });
+  var yakinTest = testAdaylari.filter(testYakin);
+
+  /* Destek talebi ↔ hata bağı veride YOK (bilinen boşluk VB-05).
+     Aynı projenin talepleri aday listesidir; "Hata" kategorisi öne alınır. */
+  var projeTalepleri = DB.tickets.filter(function(t){ return t.proje === b.proje; });
+  var talepAdaylari = projeTalepleri.slice().sort(function(x, y){
+    var fx = x.kategori === 'Hata' ? 0 : 1, fy = y.kategori === 'Hata' ? 0 : 1;
+    if(fx !== fy) return fx - fy;
+    return String(y.acilis || '').localeCompare(String(x.acilis || ''));
+  });
+  var hataTalepleri = talepAdaylari.filter(function(t){ return t.kategori === 'Hata'; });
+
+  /* Aynı modülün diğer hataları — modül alanı hatada YAZILI, bu bir bağdır. */
+  var modulHatalari = DB.bugs.filter(function(x){ return x.modul === b.modul && x.kod !== b.kod; });
+
+  /* =================================================================
+     YARDIMCILAR — app-sozlesme-detay.html / app-istalebi-detay.html kalıbı
+     `dt` escape EDİLMEZ (etiketler sabit yazı, eksen işareti render olmalı),
+     `dd` çağıran tarafta esc()'lenmiş gelir (ders L-14).
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  function kisiSatir(kod){
+    if(!kod) return null;
+    var e = DB.emp(kod);
+    if(!e) return GV.user(kod, { sm:true });
+    return '<a href="app-personel-detay.html?id=' + esc(e.kod) + '">' + GV.user(kod, { sm:true }) + '</a>' +
+      ' <span class="cell-sub">' + esc(e.pozisyon) + ' · ' + esc(e.depAd) + '</span>';
+  }
+  function projeSatir(){
+    if(!proje) return '<span class="u-faint">Projesiz hata kaydı</span>';
+    return '<a href="app-proje-detay.html?id=' + esc(proje.kod) + '">' + esc(proje.ad) + '</a>' +
+      ' <span class="cell-sub">' + esc(proje.kod) + ' · ' + esc(proje.tur) + ' · ' + esc(proje.durum) + '</span>';
+  }
+  function modulSatir(){
+    if(!modul) return '<span class="u-faint">Modüle bağlanmamış</span>';
+    return esc(modul.ad) + ' <span class="cell-sub">' + esc(modul.kod) + ' · ' + esc(modul.durum) +
+      ' · %' + F.num(modul.ilerleme) + ' · sorumlu ' + esc(DB.empName(modul.sorumlu)) + '</span>';
+  }
+  function sprintSatir(){
+    if(gorevSprint){
+      return esc(gorevSprint.ad) + ' <span class="cell-sub">' + esc(gorevSprint.kod) + ' · ' +
+        esc(gorevSprint.durum) + ' · bağlı görev ' + esc(gorev.kod) + ' üzerinden</span>';
+    }
+    if(tarihSprint){
+      return esc(tarihSprint.ad) + ' <span class="cell-sub">' + esc(tarihSprint.kod) + ' · ' +
+        esc(tarihSprint.durum) + ' · türetilmiş: bulunma tarihini kapsayan proje sprinti</span>';
+    }
+    return '<span class="u-faint">Sprint bağı yok</span>';
+  }
+
+  /* =================================================================
+     MUTASYONLAR — location.reload() KULLANILMAZ (ders L-15).
+     Mock veri bellekte durur; reload script'leri baştan koşar ve
+     değişikliği siler. Doğrusu: setTimeout(GV.refresh, 700).
+     ================================================================= */
+  function cozulduIsaretle(tarih, not){
+    var eskiDurum = b.durum, eskiCozum = b.cozum;
+    b.durum = 'Kapandı';
+    b.cozum = tarih;
+    DB.activities.unshift({
+      kayit:b.kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Hata çözüldü olarak kapatıldı' + (not ? ' — ' + not : ''),
+      eski:eskiDurum, yeni:'Kapandı', tone:'ok', icon:'i-check-circle' });
+    if(eskiCozum !== tarih){
+      DB.activities.unshift({
+        kayit:b.kod, tarih:simdi(), kisi:GV.session.ad, metin:'Çözüm tarihi yazıldı',
+        eski:eskiCozum ? F.date(eskiCozum) : 'Çözülmedi', yeni:F.date(tarih),
+        tone:'info', icon:'i-calendar' });
+    }
+    GV.toast(b.kod + ' kapandı · çözüm ' + F.date(tarih), 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+  }
+
+  function yenidenAc(yeniDurum, neden){
+    var eskiDurum = b.durum, eskiCozum = b.cozum;
+    b.durum = yeniDurum;
+    b.cozum = null;
+    DB.activities.unshift({
+      kayit:b.kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Hata yeniden açıldı — ' + neden,
+      eski:eskiDurum, yeni:yeniDurum, tone:'danger', icon:'i-refresh' });
+    if(eskiCozum){
+      DB.activities.unshift({
+        kayit:b.kod, tarih:simdi(), kisi:GV.session.ad, metin:'Çözüm tarihi geri alındı',
+        eski:F.date(eskiCozum), yeni:'Çözülmedi', tone:'warn', icon:'i-calendar' });
+    }
+    /* Bağlı görev kapanmışsa hata yeniden açılınca görev de akışa döner. */
+    if(gorev && ['Tamamlandı','Arşivlendi'].indexOf(gorev.durum) !== -1){
+      var eskiG = gorev.durum;
+      gorev.durum = 'Revize bekliyor';
+      gorev.revizeNot = 'Hata ' + b.kod + ' yeniden açıldı — ' + neden;
+      gorev.yenidenAcilma = (gorev.yenidenAcilma || 0) + 1;
+      DB.activities.unshift({
+        kayit:gorev.kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Bağlı hata yeniden açıldığı için görev revizeye alındı (' + b.kod + ')',
+        eski:eskiG, yeni:'Revize bekliyor', tone:'danger', icon:'i-refresh' });
+    }
+    GV.toast(b.kod + ' yeniden açıldı · durum “' + yeniDurum + '”', 'warn');
+    setTimeout(function(){ GV.refresh(); }, 700);
+  }
+
+  function goreveDonustur(opt){
+    var kod = yeniGorevKodu();
+    DB.tasks.unshift({
+      kod:kod, baslik:opt.baslik, tur:opt.tur,
+      proje:b.proje || null, modul:b.modul || null, sprint:opt.sprint || null,
+      musteri:proje ? proje.musteri : null, dep:null,
+      olusturan:me, veren:b.bulan, sorumlu:opt.sorumlu, yardimci:[],
+      izleyiciler:[b.bulan].filter(function(k){ return k && k !== opt.sorumlu; }),
+      kontrolEden:b.bulan, onaylayan:proje ? proje.pm : null,
+      oncelik:opt.oncelik, etki:opt.etki, aciliyet:opt.oncelik,
+      durum:'Atandı', baslangic:DB.today, termin:opt.termin, tamamlanma:null,
+      tahminiSure:null, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
+      aciklama:b.kod + ' hata kaydından oluşturuldu. Ortam: ' + (b.ortam || '—') +
+               ' · Tekrarlanabilirlik: ' + (b.tekrarlanabilir || '—') + '.',
+      amac:'Hata kaydının giderilmesi',
+      kabulKriteri:'Hata bildirilen ortamda tekrarlanamıyor, regresyon testi temiz',
+      beklenenCikti:'Düzeltme + test kaydı',
+      etiketler:['Hata', b.siddet],
+      hata:b.kod, aktif:true
+    });
+    b.gorev = kod;
+
+    DB.activities.unshift({
+      kayit:b.kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Hata göreve dönüştürüldü — ' + opt.baslik,
+      eski:'Göreve bağlanmadı', yeni:kod, tone:'accent', icon:'i-tasks' });
+    DB.activities.unshift({
+      kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Görev oluşturuldu (' + b.kod + ' hatasından)',
+      eski:null, yeni:null, tone:'neutral', icon:'i-plus' });
+
+    /* Görev açılınca hata artık üzerinde çalışılıyor sayılır. */
+    if(b.durum === 'Açık'){
+      DB.activities.unshift({
+        kayit:b.kod, tarih:simdi(), kisi:GV.session.ad, metin:'Görev açılışıyla hata akışa girdi',
+        eski:'Açık', yeni:'Devam ediyor', tone:'info', icon:'i-arrow-right' });
+      b.durum = 'Devam ediyor';
+    }
+    return kod;
+  }
+
+  /* =================================================================
+     MODALLAR — doğrulama GV.notice / .field.is-invalid deseniyle
+     ================================================================= */
+  function kisiOptions(sel){
+    var ekip = proje && proje.ekip ? proje.ekip : [];
+    function opt(e){
+      return '<option value="' + esc(e.kod) + '"' + (e.kod === sel ? ' selected' : '') + '>' +
+        esc(e.ad) + ' — ' + esc(e.pozisyon) + '</option>';
+    }
+    var ekipKisi = DB.employees.filter(function(e){ return ekip.indexOf(e.kod) !== -1 && e.aktif !== false; });
+    var digerler = DB.employees.filter(function(e){ return ekip.indexOf(e.kod) === -1 && e.aktif !== false; });
+    return (ekipKisi.length
+        ? '<optgroup label="' + esc(proje ? proje.ad + ' ekibi' : 'Proje ekibi') + '">' +
+          ekipKisi.map(opt).join('') + '</optgroup>'
+        : '') +
+      '<optgroup label="Diğer personel">' + digerler.map(opt).join('') + '</optgroup>';
+  }
+
+  function cozumModal(){
+    GV.modal({
+      title:'Hatayı çözüldü işaretle', text:b.kod + ' · ' + b.baslik, icon:'i-check-circle', size:'lg',
+      body:
+        '<div class="gv-grid gv-grid-2">' +
+          '<div class="field"><label for="czTarih">Çözüm tarihi<span class="req">*</span></label>' +
+            '<input type="date" id="czTarih" value="' + esc(DB.today) + '">' +
+            '<span class="f-hint">Hata ' + esc(F.date(b.bulunma)) + ' tarihinde bulundu. Çözüm tarihi bundan önce olamaz.</span>' +
+            '<span class="f-err">' + ico('i-alert','ic-sm') + 'Çözüm tarihi bulunma tarihinden önce olamaz.</span></div>' +
+          '<div class="field"><label for="czOrtam">Doğrulanan ortam</label>' +
+            '<input type="text" class="inp" id="czOrtam" value="' + esc(b.ortam || '') + '">' +
+            '<span class="f-hint">Düzeltmenin doğrulandığı ortam. Kayıttaki ortam bilgisi hazır geldi.</span></div>' +
+        '</div>' +
+        '<div class="field u-mt-4"><label for="czNot">Çözüm notu <span class="u-faint">(opsiyonel)</span></label>' +
+          '<textarea id="czNot" rows="2" placeholder="Kök neden, yapılan düzeltme, doğrulama biçimi…"></textarea></div>' +
+        GV.notice({ tone:'info', title:'Hata durum sözlüğünde ayrı bir “Çözüldü” değeri yok',
+          text:'Hata kayıtları Açık · Devam ediyor · Kapandı ekseninde tutulur. Çözüm kararı bu yüzden ' +
+               'durumu “Kapandı” yapar ve çözüm tarihi alanına yazılır; açık kalma süresi bu iki tarihten hesaplanır.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Çözüldü işaretle', cls:'btn-acc', icon:'i-check', onClick:function(close, el){
+            var t = el.querySelector('#czTarih');
+            var v = t.value;
+            if(!v || (b.bulunma && v < b.bulunma)){
+              t.closest('.field').classList.add('is-invalid');
+              GV.toast('Çözüm tarihi bulunma tarihinden önce olamaz', 'warn');
+              t.focus();
+              return false;
+            }
+            var not = el.querySelector('#czNot').value.trim();
+            var ortam = el.querySelector('#czOrtam').value.trim();
+            cozulduIsaretle(v, not + (ortam && ortam !== b.ortam ? (not ? ' · ' : '') + 'doğrulanan ortam: ' + ortam : ''));
+          } }
+      ]
+    });
+  }
+
+  function yenidenAcModal(){
+    GV.modal({
+      title:'Hatayı yeniden aç', text:b.kod + ' · ' + b.baslik, icon:'i-refresh', tone:'danger', size:'lg',
+      body:
+        '<div class="field"><label for="yaNeden">Yeniden açma gerekçesi<span class="req">*</span></label>' +
+          '<textarea id="yaNeden" rows="3" placeholder="Düzeltme doğrulanamadı · hata farklı ortamda tekrarladı · regresyon…"></textarea>' +
+          '<span class="f-hint">En az 10 karakter. Gerekçe aktivite geçmişine yazılır ve bağlı göreve taşınır.</span>' +
+          '<span class="f-err">' + ico('i-alert','ic-sm') + 'Gerekçe zorunludur — en az 10 karakter yazın.</span></div>' +
+        '<div class="field u-mt-4"><label for="yaDurum">Yeni durum</label><select id="yaDurum">' +
+          ['Açık','Devam ediyor'].map(function(d){
+            return '<option value="' + esc(d) + '">' + esc(d) + '</option>';
+          }).join('') + '</select>' +
+          '<span class="f-hint">Sorumlu hazırsa doğrudan “Devam ediyor” seçilebilir.</span></div>' +
+        GV.notice({ tone:'warn', title:'Çözüm tarihi silinir',
+          text:'Yeniden açılan hatanın çözüm tarihi boşaltılır; açık kalma süresi bulunma tarihinden bugüne ' +
+               'yeniden sayılır.' + (gorev && ['Tamamlandı','Arşivlendi'].indexOf(gorev.durum) !== -1
+                 ? ' Bağlı görev ' + gorev.kod + ' de “Revize bekliyor” durumuna alınır.' : '') }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Yeniden aç', cls:'btn-danger', icon:'i-refresh', onClick:function(close, el){
+            var t = el.querySelector('#yaNeden');
+            var v = t.value.trim();
+            if(v.length < 10){
+              t.closest('.field').classList.add('is-invalid');
+              GV.toast('Yeniden açma gerekçesi zorunlu — en az 10 karakter', 'warn');
+              t.focus();
+              return false;
+            }
+            yenidenAc(el.querySelector('#yaDurum').value, v);
+          } }
+      ]
+    });
+  }
+
+  function donusturModal(){
+    var varsayilanSorumlu = b.sorumlu || (proje ? proje.teknikSorumlu : null) || me;
+    var varsayilanEtki    = etkiKarsiligi(b.siddet);
+    var varsayilanTermin  = addDays(DB.today, TERMIN_GUN[b.siddet] || 7);
+    var projeSprintleri   = DB.sprints.filter(function(s){ return s.proje === b.proje; });
+    var varsayilanSprint  = (sprint && sprint.proje === b.proje) ? sprint.kod : '';
+
+    GV.modal({
+      title:'Hatadan görev oluştur', text:b.kod + ' · ' + b.baslik, icon:'i-tasks', size:'lg',
+      body:
+        '<div class="field"><label for="gvBaslik">Görev başlığı<span class="req">*</span></label>' +
+          '<input type="text" id="gvBaslik" class="inp" value="' + esc(b.baslik) + '">' +
+          '<span class="f-err">' + ico('i-alert','ic-sm') + 'Görev başlığı boş bırakılamaz.</span></div>' +
+        '<div class="gv-grid gv-grid-2 u-mt-4">' +
+          '<div class="field"><label for="gvTur">Görev türü</label><select id="gvTur">' +
+            DB.taskTypes.map(function(t){
+              return '<option value="' + esc(t) + '"' + (t === 'Hata' ? ' selected' : '') + '>' + esc(t) + '</option>';
+            }).join('') + '</select>' +
+            '<span class="f-hint">Hata kaydından doğan görevin türü varsayılan olarak “Hata”dır.</span></div>' +
+          '<div class="field"><label for="gvSorumlu">Sorumlu</label><select id="gvSorumlu">' +
+            kisiOptions(varsayilanSorumlu) + '</select>' +
+            '<span class="f-hint">Hatanın sorumlusu seçili geldi.</span></div>' +
+          '<div class="field"><label for="gvOncelik">Öncelik</label><select id="gvOncelik">' +
+            DB.priorities.map(function(p){
+              return '<option value="' + esc(p) + '"' + (p === b.oncelik ? ' selected' : '') + '>' + esc(p) + '</option>';
+            }).join('') + '</select></div>' +
+          '<div class="field"><label for="gvEtki">Etki <span class="u-faint">(görev ekseni)</span></label><select id="gvEtki">' +
+            DB.impacts.map(function(p){
+              return '<option value="' + esc(p) + '"' + (p === varsayilanEtki ? ' selected' : '') + '>' + esc(p) + '</option>';
+            }).join('') + '</select>' +
+            '<span class="f-hint">Şiddet “' + esc(b.siddet) + '” → etki “' + esc(varsayilanEtki) + '” olarak eşlendi.</span></div>' +
+          '<div class="field"><label for="gvSprint">Sprint</label><select id="gvSprint">' +
+            '<option value=""' + (varsayilanSprint ? '' : ' selected') + '>Sprintsiz</option>' +
+            projeSprintleri.map(function(s){
+              return '<option value="' + esc(s.kod) + '"' + (s.kod === varsayilanSprint ? ' selected' : '') + '>' +
+                esc(s.ad) + ' — ' + esc(s.durum) + '</option>';
+            }).join('') + '</select></div>' +
+          '<div class="field"><label for="gvTermin">Termin</label>' +
+            '<input type="date" id="gvTermin" value="' + esc(varsayilanTermin) + '">' +
+            '<span class="f-hint">Şiddet “' + esc(b.siddet) + '” için önerilen süre ' +
+              (TERMIN_GUN[b.siddet] || 7) + ' gün.</span></div>' +
+        '</div>' +
+        GV.notice({ tone:'info', title:'Şiddet ve etki iki ayrı eksendir',
+          text:'Hata şiddeti öncelik kümesini (Kritik · Yüksek · Orta · Düşük), görev etkisi ise etki kümesini ' +
+               '(Çok yüksek · Yüksek · Orta · Düşük) kullanır. Bu yüzden “Kritik” şiddet göreve “Çok yüksek” etki ' +
+               'olarak taşınır; diğer üç değer iki eksende de aynı adı taşıdığı için birebir aktarılır.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Görev oluştur', cls:'btn-acc', icon:'i-plus', onClick:function(close, el){
+            var i = el.querySelector('#gvBaslik');
+            var baslik = i.value.trim();
+            if(!baslik){
+              i.closest('.field').classList.add('is-invalid');
+              GV.toast('Görev başlığı boş bırakılamaz', 'warn');
+              i.focus();
+              return false;
+            }
+            var kod = goreveDonustur({
+              baslik:baslik,
+              tur:el.querySelector('#gvTur').value,
+              sorumlu:el.querySelector('#gvSorumlu').value,
+              oncelik:el.querySelector('#gvOncelik').value,
+              etki:el.querySelector('#gvEtki').value,
+              sprint:el.querySelector('#gvSprint').value || null,
+              termin:el.querySelector('#gvTermin').value || varsayilanTermin
+            });
+            close();
+            GV.result({ tone:'ok', title:'Görev oluşturuldu',
+              text:kod + ' açıldı ve ' + DB.empName(DB.task(kod).sorumlu) + ' kişisine atandı. ' +
+                   b.kod + ' bu göreve bağlandı.',
+              actions:[
+                { label:'Görevi aç', cls:'btn-acc',
+                  onClick:function(){ location.href = 'app-gorev-detay.html?id=' + kod; } },
+                { label:'Hata kaydında kal', cls:'btn-line',
+                  onClick:function(){ setTimeout(function(){ GV.refresh(); }, 300); } }
+              ] });
+          } }
+      ]
+    });
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  var phActions = [
+    { label:'Hata listesi', icon:'i-bug', href:'app-proje-hata.html' }
+  ];
+  if(proje) phActions.push({ label:'Proje', icon:'i-briefcase', href:'app-proje-detay.html?id=' + proje.kod });
+  phActions.push({ label:'Testler', icon:'i-flask', href:'app-proje-test.html?q=' + (b.proje || '') });
+  if(gorev){
+    phActions.push({ label:'Üretilen görevi aç', icon:'i-external', cls:'btn-acc',
+      href:'app-gorev-detay.html?id=' + gorev.kod });
+  }
+  GV.pageHead({
+    eyebrow:'Proje Yönetimi', title:'Hata Kaydı Detayı',
+    sub:b.kod + ' · ' + (proje ? proje.ad : 'Projesiz') + ' · ' + b.baslik,
+    actions:phActions
+  });
+
+  /* =================================================================
+     KAYIT BAŞLIĞI — kod + durum + şiddet + başlık
+     ================================================================= */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(b.kod) + '</span>' +
+        GV.badge(b.durum) +
+        GV.pri(b.siddet) +
+        (agir && !kapali ? '<span class="badge is-danger">Ağır şiddet · açık</span>' : '') +
+        (!b.gorev ? '<span class="badge is-warn no-dot">Göreve bağlanmadı</span>' : '') +
+        (!kapali && sure != null && sure > 7 ? '<span class="badge is-danger">' + sure + ' gündür açık</span>' : '') +
+        (b.aktif === false ? '<span class="tag">Arşiv</span>' : '') + '</div>' +
+      '<h1>' + esc(b.baslik) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        (proje ? '<span>' + ico('i-briefcase','ic-sm') +
+          '<a href="app-proje-detay.html?id=' + esc(proje.kod) + '">' + esc(proje.ad) + '</a></span>' : '') +
+        '<span>' + ico('i-layers','ic-sm') + esc(modul ? modul.ad : 'Modülsüz') + '</span>' +
+        '<span>' + ico('i-server','ic-sm') + esc(b.ortam || 'Ortam yazılmadı') + '</span>' +
+        '<span>' + ico('i-user','ic-sm') + 'Bildiren ' + esc(DB.empName(b.bulan)) + '</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + 'Atanan ' + esc(DB.empName(b.sorumlu)) + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + 'Bulunma ' + F.date(b.bulunma) + '</span>' +
+        (gorev ? '<span>' + ico('i-tasks','ic-sm') +
+          '<a href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">' + esc(gorev.kod) + '</a></span>' : '') +
+      '</div>' +
+    '</div></div>';
+
+  /* =================================================================
+     SEKMELER
+     ================================================================= */
+  var tabs = [
+    { key:'genel',    lbl:'Genel',                 ic:'i-info' },
+    { key:'uretim',   lbl:'Yeniden Üretim',        ic:'i-refresh' },
+    { key:'test',     lbl:'Kaynak Test',           ic:'i-flask',    cnt:testAdaylari.length },
+    { key:'gorev',    lbl:'Üretilen Görev',        ic:'i-tasks',    cnt:gorev ? 1 : 0 },
+    { key:'destek',   lbl:'Bağlı Destek Talebi',   ic:'i-support',  cnt:talepAdaylari.length },
+    { key:'gecis',    lbl:'Durum Geçişi',          ic:'i-git' },
+    { key:'aktivite', lbl:'Aktivite Geçmişi',      ic:'i-activity', cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL — DB.bugs alanlarının TAMAMI
+     ================================================================= */
+  var pGenel = '<div class="gc-body">' +
+    sec('Hata Kimliği', dl([
+      ['Hata kodu', '<span class="u-num">' + esc(b.kod) + '</span>'],
+      ['Başlık', '<span class="cell-wrap">' + esc(b.baslik) + '</span>'],
+      ['Durum', GV.badge(b.durum)],
+      ['Şiddet <span class="u-faint">(öncelik ekseni)</span>', GV.pri(b.siddet)],
+      ['Öncelik <span class="u-faint">(çözüm sırası)</span>', GV.pri(b.oncelik)],
+      ['Şiddet ile öncelik aynı mı?', b.siddet === b.oncelik
+        ? '<span class="badge is-ok no-dot">Evet — iki eksen örtüşüyor</span>'
+        : '<span class="badge is-warn no-dot">Hayır — şiddet ' + esc(b.siddet) +
+          ', öncelik ' + esc(b.oncelik) + '</span>'],
+      ['Kayıt durumu', b.aktif === false
+        ? '<span class="tag">Arşivlendi</span>'
+        : '<span class="badge is-ok no-dot">Aktif kayıt</span>']
+    ])) +
+
+    sec('Kapsam', dl([
+      ['Proje', projeSatir()],
+      ['Modül', modulSatir()],
+      ['Sprint <span class="u-faint">(hata kaydında alan yok)</span>', sprintSatir()],
+      ['Müşteri', musteri
+        ? '<a href="app-musteri-detay.html?id=' + esc(musteri.kod) + '">' + esc(musteri.unvan) + '</a>' +
+          ' <span class="cell-sub">' + esc(musteri.kod) + ' · projeden devralındı</span>'
+        : (proje ? esc(proje.musteriAd) : null)],
+      ['Proje sağlığı', proje ? GV.badge(proje.saglik) : null],
+      ['Proje yöneticisi', proje ? kisiSatir(proje.pm) : null],
+      ['Teknik sorumlu', proje && proje.teknikSorumlu ? kisiSatir(proje.teknikSorumlu) : null]
+    ])) +
+
+    sec('Sorumluluk', dl([
+      ['Bildiren', kisiSatir(b.bulan)],
+      ['Atanan', b.sorumlu ? kisiSatir(b.sorumlu) : '<span class="u-faint">Atanmadı</span>'],
+      ['Modül sorumlusu', modul && modul.sorumlu ? kisiSatir(modul.sorumlu) : null],
+      ['Bildiren ile atanan aynı kişi mi?', b.bulan === b.sorumlu
+        ? '<span class="badge is-warn no-dot">Evet — çapraz doğrulama yok</span>'
+        : '<span class="badge is-ok no-dot">Hayır — bulan ve düzelten ayrı</span>']
+    ])) +
+
+    sec('Tarihler ve Süre', dl([
+      ['Bulunma tarihi', GV.dateCell(b.bulunma, { done:true }) +
+        ' <span class="cell-sub">' + esc(F.dateLong(b.bulunma)) + '</span>'],
+      ['Çözüm tarihi', b.cozum
+        ? GV.dateCell(b.cozum, { done:true }) + ' <span class="cell-sub">' + esc(F.dateLong(b.cozum)) + '</span>'
+        : '<span class="u-faint">Çözülmedi</span>'],
+      ['Açık kalma süresi', sureMetin()],
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)]
+    ])) +
+
+    sec('Teknik Bağlam', dl([
+      ['Ortam', b.ortam ? '<span class="tag">' + esc(b.ortam) + '</span>' : null],
+      ['Tekrarlanabilirlik', b.tekrarlanabilir ? '<span class="tag">' + esc(b.tekrarlanabilir) + '</span>' : null],
+      ['Bağlı görev', gorev
+        ? '<a href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">' + esc(gorev.baslik) + '</a>' +
+          ' <span class="cell-sub">' + esc(gorev.kod) + ' · ' + esc(gorev.durum) + '</span>'
+        : '<span class="u-faint">Henüz göreve dönüştürülmedi</span>'],
+      ['Aynı modüldeki diğer hatalar', modulHatalari.length
+        ? '<b class="u-num">' + modulHatalari.length + '</b> kayıt <span class="cell-sub">' +
+          modulHatalari.filter(function(x){ return x.durum !== 'Kapandı'; }).length + ' tanesi açık</span>'
+        : '<span class="u-faint">Bu modülde başka hata kaydı yok</span>']
+    ])) +
+    '</div>';
+
+  /* =================================================================
+     2. YENİDEN ÜRETİM — adımlar / beklenen / gerçekleşen alanları veride YOK
+     ================================================================= */
+  var uretimEksik = !b.adimlar && !b.beklenen && !b.gerceklesen;
+
+  var pUretim = '<div class="gc-body">' +
+    sec('Ortam Bilgisi', dl([
+      ['Bildirilen ortam', b.ortam ? '<span class="tag">' + esc(b.ortam) + '</span>' : null],
+      ['Tekrarlanabilirlik', b.tekrarlanabilir ? '<span class="tag">' + esc(b.tekrarlanabilir) + '</span>' : null],
+      ['Tekrar sayısı <span class="u-faint">(veride alan yok)</span>',
+        b.tekrarSayisi != null ? '<b class="u-num">' + F.num(b.tekrarSayisi) + '</b>' : null],
+      ['Test ortamı <span class="u-faint">(proje kartından)</span>',
+        proje && proje.test && proje.test !== '—' ? '<span class="u-num">' + esc(proje.test) + '</span>' : null],
+      ['Canlı ortam <span class="u-faint">(proje kartından)</span>',
+        proje && proje.canli && proje.canli !== '—' ? '<span class="u-num">' + esc(proje.canli) + '</span>' : null],
+      ['Sunucu <span class="u-faint">(proje kartından)</span>', proje ? esc(proje.sunucu) : null],
+      ['Teknoloji <span class="u-faint">(proje kartından)</span>', proje && (proje.teknoloji || []).length
+        ? proje.teknoloji.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ')
+        : null],
+      ['Üçüncü taraf servisler <span class="u-faint">(proje kartından)</span>',
+        proje && (proje.ucuncuTaraf || []).length
+          ? proje.ucuncuTaraf.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ')
+          : null],
+      ['Kod deposu <span class="u-faint">(proje kartından)</span>',
+        proje && proje.repo ? '<span class="u-num">' + esc(proje.repo) + '</span>' : null]
+    ])) + '</div>' +
+
+    '<div class="gc-body' + (uretimEksik ? ' flush' : '') + '">' +
+    (uretimEksik
+      ? GV.empty({ icon:'i-clipboard', title:'Yeniden üretim adımları kayıtta tutulmuyor',
+          desc:'Hata kaydında “adımlar”, “beklenen davranış” ve “gerçekleşen davranış” diye ayrı alan yok. ' +
+               'Bu bilgi şu an yalnız başlık, ortam ve tekrarlanabilirlik alanlarından okunabiliyor; ' +
+               'düzeltme çalışmasının ayrıntısı bağlı görevin açıklamasında tutuluyor.',
+          action:gorev
+            ? '<a class="btn btn-acc" href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">Bağlı görevi aç</a>'
+            : '<a class="btn btn-line" href="app-proje-hata.html">Hata listesine dön</a>' })
+      : sec('Yeniden Üretim', dl([
+          ['Adımlar', b.adimlar ? '<span class="cell-wrap">' + esc(b.adimlar) + '</span>' : null],
+          ['Beklenen davranış', b.beklenen ? '<span class="cell-wrap">' + esc(b.beklenen) + '</span>' : null],
+          ['Gerçekleşen davranış', b.gerceklesen ? '<span class="cell-wrap">' + esc(b.gerceklesen) + '</span>' : null]
+        ]))) +
+    '</div>' +
+
+    (gorev
+      ? '<div class="gc-body">' + sec('Bağlı Görevdeki Teknik Açıklama', dl([
+          ['Görev açıklaması', gorev.aciklama ? '<span class="cell-wrap">' + esc(gorev.aciklama) + '</span>' : null],
+          ['Kabul kriteri', gorev.kabulKriteri ? '<span class="cell-wrap">' + esc(gorev.kabulKriteri) + '</span>' : null],
+          ['Beklenen çıktı', gorev.beklenenCikti ? '<span class="cell-wrap">' + esc(gorev.beklenenCikti) + '</span>' : null],
+          ['Engel nedeni', gorev.engelNedeni ? '<span class="cell-wrap">' + esc(gorev.engelNedeni) + '</span>' : null],
+          ['Revizyon notu', gorev.revizeNot ? '<span class="cell-wrap">' + esc(gorev.revizeNot) + '</span>' : null]
+        ])) + '</div>'
+      : '') +
+
+    '<div class="gc-body">' +
+    GV.notice({ tone:'neutral', icon:'i-info', title:'Yeniden üretim bilgisi eksik veri alanıdır',
+      text:'Hata kaydı yalnız ortam ve tekrarlanabilirlik alanlarını taşıyor. Ortam kolonundaki sunucu, ' +
+           'teknoloji ve test adresi bilgileri hatanın kendisinden değil, bağlı olduğu proje kartından okunur — ' +
+           'hataya özel değil, proje geneli bağlamdır.' }) +
+    '</div>';
+
+  /* =================================================================
+     3. KAYNAK TEST — hata ↔ test koşumu bağ alanı veride YOK
+     ================================================================= */
+  function testSatir(t){
+    var yakin = testYakin(t);
+    var oran = t.senaryo ? Math.round(t.basarili / t.senaryo * 100) : null;
+    return '<tr' + (yakin ? ' class="is-late"' : '') + '>' +
+      '<td class="cell-wrap"><a class="cell-main" href="app-proje-test.html?q=' + esc(t.kod) + '">' +
+        esc(t.ad) + '</a><span class="cell-code">' + esc(t.kod) + '</span></td>' +
+      '<td>' + GV.badge(t.tur) + '</td>' +
+      '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+      '<td>' + GV.dateCell(t.tarih, { done:t.durum === 'Tamamlandı' }) + '</td>' +
+      '<td class="num"><span class="u-num">' + F.num(t.senaryo) + '</span></td>' +
+      '<td class="num">' + (t.basarisiz
+        ? '<b class="u-num u-danger">' + F.num(t.basarisiz) + '</b>'
+        : '<span class="u-num u-ok">0</span>') + '</td>' +
+      '<td>' + (oran == null ? '<span class="u-faint">—</span>' : GV.progress(oran)) + '</td>' +
+      '<td>' + GV.badge(t.durum) + '</td>' +
+      '<td>' + (yakin
+        ? '<span class="badge is-warn no-dot">Güçlü aday</span>'
+        : '<span class="tag">Aday</span>') + '</td></tr>';
+  }
+
+  var pTest = '<div class="gc-body">' +
+    GV.notice({ tone:'warn', icon:'i-alert', title:'Hata ile test koşumu arasında bağ alanı yok',
+      text:'Ne hata kaydında bir “test” alanı ne de test koşumunda bir “hata” alanı tutuluyor. Aşağıdaki koşumlar ' +
+           'bağ değil, aynı projenin test kayıtlarından oluşan ADAY listesidir. Başarısız senaryosu olan ve hatanın ' +
+           'bulunma tarihine en fazla üç gün mesafedeki koşumlar “güçlü aday” diye işaretlendi; bu bir eşleşme iddiası ' +
+           'değil, sıralama ölçütüdür. Test koşumları modül alanı taşımadığı için eşleme proje ekseninde yapılır.' }) +
+    dl([
+      ['Bu projenin test koşumu', '<b class="u-num">' + projeTestleri.length + '</b>' +
+        ' <span class="cell-sub">' + esc(proje ? proje.ad : b.proje || '—') + '</span>'],
+      ['Başarısız senaryo içeren koşum', '<b class="u-num">' +
+        projeTestleri.filter(function(t){ return t.basarisiz > 0; }).length + '</b>'],
+      ['Tarihi hataya yakın koşum <span class="u-faint">(±3 gün)</span>', yakinTest.length
+        ? '<b class="u-num u-warn">' + yakinTest.length + '</b>'
+        : '<span class="u-faint">Yok</span>'],
+      ['Hatanın bulunma tarihi', GV.dateCell(b.bulunma, { done:true })]
+    ]) + '</div>' +
+
+    '<div class="gc-body flush">' +
+    (testAdaylari.length
+      ? tbl('<th>Test koşumu</th><th>Tür</th><th>Sorumlu</th><th>Tarih</th><th class="num">Senaryo</th>' +
+            '<th class="num">Başarısız</th><th>Başarı oranı</th><th>Durum</th><th>Bağ</th>',
+          testAdaylari.map(testSatir).join('')) +
+        sayac('<b>' + testAdaylari.length + '</b> aday test koşumu · ' + yakinTest.length +
+          ' güçlü aday · bağ alanı olmadığı için hiçbiri kesin kaynak değildir',
+          '<a class="btn btn-line btn-sm" href="app-proje-test.html?q=' + esc(b.proje || '') + '">' +
+            ico('i-flask','ic-sm') + ' Test koşumları</a>')
+      : GV.empty({ icon:'i-flask', title:'Bu projede test koşumu kaydı yok',
+          desc:'Hatanın bağlı olduğu projede kayıtlı test koşumu bulunmuyor; bu yüzden aday kaynak test de ' +
+               'gösterilemiyor. Hata büyük olasılıkla test dışı bir kanaldan (müşteri bildirimi, iç kullanım) geldi.',
+          action:'<a class="btn btn-acc" href="app-proje-test.html">Test ekranını aç</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     4. ÜRETİLEN GÖREV
+     ================================================================= */
+  /* Ölü buton yasağı: ekleme yetkisi yoksa ya da görev zaten varsa buton
+     devre dışı bırakılmaz — hiç basılmaz. */
+  var donusturAksiyon = (yetkiEkle && !gorev)
+    ? '<button type="button" class="btn btn-acc" id="btnDonustur">' + ico('i-tasks') + ' Göreve dönüştür</button>'
+    : '';
+
+  var pGorev = '<div class="gc-body flush">' +
+    (gorev
+      ? tbl('<th>Görev</th><th>Tür</th><th>Sorumlu</th><th>Öncelik</th><th>Etki</th><th>Termin</th>' +
+            '<th>İlerleme</th><th>Durum</th>',
+          '<tr>' +
+            '<td class="cell-wrap"><a class="cell-main" href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">' +
+              esc(gorev.baslik) + '</a><span class="cell-code">' + esc(gorev.kod) + '</span></td>' +
+            '<td><span class="tag">' + esc(gorev.tur) + '</span></td>' +
+            '<td>' + GV.user(gorev.sorumlu, { sm:true }) + '</td>' +
+            '<td>' + GV.pri(gorev.oncelik) + '</td>' +
+            '<td>' + GV.pri(gorev.etki) + '</td>' +
+            '<td>' + GV.dateCell(gorev.termin, { done:gorev.durum === 'Tamamlandı' }) + '</td>' +
+            '<td>' + GV.progress(gorev.ilerleme) + '</td>' +
+            '<td>' + GV.badge(gorev.durum) + '</td></tr>') +
+        sayac('Hatadan üretilen <b>1</b> görev · ' + esc(gorev.kod) + ' · ' + esc(gorev.durum),
+          '<a class="btn btn-line btn-sm" href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">' +
+            ico('i-external','ic-sm') + ' Görevi aç</a>')
+      : GV.empty({ icon:'i-tasks', title:'Hata henüz göreve dönüştürülmedi',
+          desc:'Bu hatadan doğan bir görev kaydı yok. Hata göreve dönüştürüldüğünde GRV kodlu bir görev açılır, ' +
+               'şiddet görev etkisine eşlenir ve hata o göreve bağlanır.',
+          action:donusturAksiyon || '<a class="btn btn-line" href="app-gorev.html">Görev havuzunu aç</a>' })) +
+    '</div>' +
+
+    (gorev
+      ? '<div class="gc-body">' + sec('Görev Künyesi', dl([
+          ['Görev kodu', '<a href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">' + esc(gorev.kod) + '</a>'],
+          ['Başlık', '<span class="cell-wrap">' + esc(gorev.baslik) + '</span>'],
+          ['Görev türü', '<span class="tag">' + esc(gorev.tur) + '</span>'],
+          ['Sorumlu', kisiSatir(gorev.sorumlu)],
+          ['İşi veren', kisiSatir(gorev.veren)],
+          ['Kontrol eden', kisiSatir(gorev.kontrolEden)],
+          ['Onaylayan', kisiSatir(gorev.onaylayan)],
+          ['Öncelik <span class="u-faint">(öncelik ekseni)</span>', GV.pri(gorev.oncelik)],
+          ['Etki <span class="u-faint">(etki ekseni)</span>', GV.pri(gorev.etki)],
+          ['Aciliyet', GV.pri(gorev.aciliyet)],
+          ['Durum', GV.badge(gorev.durum)],
+          ['Sprint', gorevSprint
+            ? esc(gorevSprint.ad) + ' <span class="cell-sub">' + esc(gorevSprint.kod) + '</span>'
+            : null],
+          ['Başlangıç → termin', F.date(gorev.baslangic) + ' → ' + F.date(gorev.termin)],
+          ['Tamamlanma', gorev.tamamlanma ? F.date(gorev.tamamlanma) : null],
+          ['Tahmini süre', gorev.tahminiSure != null ? F.hours(gorev.tahminiSure) : null],
+          ['Harcanan süre', gorev.gercekSure != null ? F.hours(gorev.gercekSure) : null],
+          ['İlerleme', GV.progress(gorev.ilerleme)],
+          ['Revizyon / yeniden açılma',
+            '<b class="u-num">' + F.num(gorev.revizyon || 0) + '</b> / <b class="u-num">' +
+            F.num(gorev.yenidenAcilma || 0) + '</b>'],
+          ['Etiketler', (gorev.etiketler || []).length
+            ? gorev.etiketler.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ')
+            : null]
+        ])) + '</div>'
+      : '') +
+
+    ((gorev && b.siddet)
+      ? '<div class="gc-body">' + sec('Şiddet → Etki Eşlemesi', dl([
+          ['Hata şiddeti <span class="u-faint">(öncelik kümesi)</span>', GV.pri(b.siddet)],
+          ['Beklenen görev etkisi <span class="u-faint">(etki kümesi)</span>', GV.pri(etkiKarsiligi(b.siddet))],
+          ['Görevdeki etki değeri', GV.pri(gorev.etki)],
+          ['Eşleme tutuyor mu?', gorev.etki === etkiKarsiligi(b.siddet)
+            ? '<span class="badge is-ok no-dot">Evet — kural gereği eşleşiyor</span>'
+            : '<span class="badge is-warn no-dot">Hayır — görevde “' + esc(gorev.etki) +
+              '” yazılı, kural “' + esc(etkiKarsiligi(b.siddet)) + '” bekliyor</span>']
+        ])) + '</div>'
+      : '') +
+
+    (!gorev && donusturAksiyon
+      ? '<div class="gc-body">' + GV.notice({ tone:'info', icon:'i-tasks', title:'Hata göreve dönüştürülebilir',
+          text:'Görev kodu, mevcut görevlerin en yüksek GRV numarasının bir fazlası olarak üretilir. Proje, modül, ' +
+               'ortam ve tekrarlanabilirlik bilgisi göreve taşınır; şiddet “' + b.siddet + '” görev etkisine “' +
+               etkiKarsiligi(b.siddet) + '” olarak eşlenir ve hata açılan göreve bağlanır. ' +
+               '“Göreve dönüştür” aksiyonu yukarıdaki boş durum kutusundadır.' }) + '</div>'
+      : '') +
+
+    (!gorev && !donusturAksiyon
+      ? '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-lock', title:'Görev oluşturma yetkisi yok',
+          text:'Rolünüzde kayıt ekleme yetkisi bulunmadığı için “Göreve dönüştür” aksiyonu basılmadı. ' +
+               'Hatayı göreve dönüştürme işini proje yöneticisi veya takım lideri yürütür.' }) + '</div>'
+      : '');
+
+  /* =================================================================
+     5. BAĞLI DESTEK TALEBİ — bağ alanı veride YOK (bilinen boşluk VB-05)
+     ================================================================= */
+  function talepSatir(t){
+    return '<tr>' +
+      '<td class="cell-wrap"><a class="cell-main" href="app-destek-detay.html?id=' + esc(t.kod) + '">' +
+        esc(t.baslik) + '</a><span class="cell-code">' + esc(t.kod) + '</span></td>' +
+      '<td><span class="tag">' + esc(t.kategori) + '</span></td>' +
+      '<td class="cell-wrap">' + esc(t.musteriAd) + '</td>' +
+      '<td>' + GV.pri(t.oncelik) + '</td>' +
+      '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+      '<td><span class="cell-date">' + F.dt(t.acilis) + '</span></td>' +
+      '<td>' + GV.badge(t.slaDurum) + '</td>' +
+      '<td>' + GV.badge(t.durum) + '</td>' +
+      '<td>' + (t.kategori === 'Hata'
+        ? '<span class="badge is-warn no-dot">Aday</span>'
+        : '<span class="tag">Aynı proje</span>') + '</td></tr>';
+  }
+
+  var pDestek = '<div class="gc-body">' +
+    GV.notice({ tone:'warn', icon:'i-alert', title:'Bu liste bağ değildir — aday listesidir (VB-05)',
+      text:'Destek talebi ile hata kaydı arasında veride bağ alanı yok: ne DB.tickets bir “hata” alanı taşıyor ' +
+           'ne de DB.bugs bir “talep” alanı. Aşağıdakiler yalnızca aynı projeye açılmış destek talepleridir; ' +
+           '“Hata” kategorisindekiler öne alındı. Hiçbiri bu hata kaydının kaynağı olarak iddia edilmiyor, ' +
+           'başlık benzerliğiyle de eşleştirilmiyor.' }) +
+    dl([
+      ['Bu projeye açılmış destek talebi', '<b class="u-num">' + projeTalepleri.length + '</b>' +
+        ' <span class="cell-sub">' + esc(proje ? proje.ad : b.proje || '—') + '</span>'],
+      ['“Hata” kategorisindeki talep', hataTalepleri.length
+        ? '<b class="u-num u-warn">' + hataTalepleri.length + '</b>'
+        : '<span class="u-faint">Yok</span>'],
+      ['Açık talep', '<b class="u-num">' +
+        projeTalepleri.filter(function(t){ return ['Kapandı','Çözüldü'].indexOf(t.durum) === -1; }).length + '</b>'],
+      ['SLA riski olan talep', '<b class="u-num">' +
+        projeTalepleri.filter(function(t){ return t.slaDurum === 'Risk altında' || t.slaDurum === 'İhlal edildi'; }).length +
+        '</b>'],
+      ['Bağ alanı <span class="u-faint">(veri borcu)</span>',
+        '<span class="badge is-danger no-dot">VB-05 — hata ↔ destek talebi bağı tanımlı değil</span>']
+    ]) + '</div>' +
+
+    '<div class="gc-body flush">' +
+    (talepAdaylari.length
+      ? tbl('<th>Destek talebi</th><th>Kategori</th><th>Müşteri</th><th>Öncelik</th><th>Sorumlu</th>' +
+            '<th>Açılış</th><th>SLA</th><th>Durum</th><th>Bağ</th>',
+          talepAdaylari.map(talepSatir).join('')) +
+        sayac('<b>' + talepAdaylari.length + '</b> aday destek talebi · aynı proje ekseninde listelendi · bağ alanı yok',
+          '<a class="btn btn-line btn-sm" href="app-destek.html">' + ico('i-support','ic-sm') + ' Destek listesi</a>')
+      : GV.empty({ icon:'i-support', title:'Bu projede destek talebi yok',
+          desc:'Hatanın bağlı olduğu projeye açılmış bir destek talebi bulunmuyor. Hata müşteri kanalından değil, ' +
+               'iç test veya geliştirme sırasında bulunmuş görünüyor.',
+          action:'<a class="btn btn-acc" href="app-destek.html">Destek talebi listesini aç</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     6. DURUM GEÇİŞİ — hatanın yaşam döngüsü + aksiyonlar
+     ================================================================= */
+  var HATA_DURUMLARI = ['Açık','Devam ediyor','Kapandı'];
+  var suAn = HATA_DURUMLARI.indexOf(b.durum);
+
+  var serit = '<div class="gv-chain">' + HATA_DURUMLARI.map(function(d, i){
+    var st = i < suAn ? 'ok' : i === suAn ? (kapali ? 'ok' : 'wait') : 'idle';
+    var icn = st === 'ok' ? 'i-check-circle' : st === 'wait' ? 'i-clock' : 'i-dot';
+    var not = d === 'Açık' ? 'Kayıt açıldı, sorumlu bekliyor'
+            : d === 'Devam ediyor' ? 'Düzeltme çalışması sürüyor'
+            : 'Çözüm doğrulandı, kayıt kapandı';
+    var tarih = d === 'Açık' ? b.bulunma : (d === 'Kapandı' ? b.cozum : null);
+    return '<div class="gv-chain-step is-' + st + '">' +
+      '<div class="gv-chain-top"><span class="gv-chain-ico">' + ico(icn,'ic-sm') + '</span>' +
+      '<span class="gv-chain-role">' + esc(d) + '</span></div>' +
+      '<div class="gv-chain-who">' + esc(i === suAn ? 'Şu anki durum' : (i < suAn ? 'Geçildi' : 'Sıradaki')) + '</div>' +
+      '<div class="gv-chain-when">' + (tarih ? F.date(tarih) : esc(i === suAn ? 'Bugün' : '—')) + '</div>' +
+      '<div class="gv-chain-note">' + esc(not) + '</div></div>';
+  }).join('') + '</div>';
+
+  var zincir = [
+    { rol:'Hata bildirildi', kisi:DB.empName(b.bulan), durum:'Onaylandı', tarih:b.bulunma,
+      not:(b.ortam || 'Ortam yazılmadı') + ' · ' + (b.tekrarlanabilir || 'Tekrarlanabilirlik yazılmadı') },
+    { rol:'Sorumluya atandı', kisi:b.sorumlu ? DB.empName(b.sorumlu) : null,
+      durum:b.sorumlu ? 'Onaylandı' : 'Bekliyor',
+      not:b.sorumlu ? ((DB.emp(b.sorumlu) || {}).pozisyon || '') : 'Sorumlu atanmadı' },
+    { rol:'Düzeltme çalışması', kisi:gorev ? gorev.kod + ' · ' + DB.empName(gorev.sorumlu) : null,
+      durum:kapali ? 'Onaylandı' : (b.durum === 'Devam ediyor' ? 'Bekliyor' : 'Başlanmadı'),
+      not:gorev ? 'Görev durumu: ' + gorev.durum : 'Görev kaydı açılmadı — düzeltme hata kaydı üzerinden yürüyor' },
+    { rol:'Çözüm ve kapanış', kisi:kapali ? DB.empName(b.sorumlu) : null,
+      durum:kapali ? 'Onaylandı' : 'Bekliyor', tarih:b.cozum || null,
+      not:kapali ? (sure != null ? sure + ' günde çözüldü' : 'Kapandı') : 'Hata hâlâ açık' }
+  ];
+
+  /* Ölü buton yasağı: düzenleme yetkisi ve durum koşulu sağlanmıyorsa hiç basılmaz. */
+  var gecisAksiyon = '';
+  if(yetkiDuzenle && !kapali){
+    gecisAksiyon += '<button type="button" class="btn btn-acc" id="btnCozuldu">' +
+      ico('i-check-circle') + ' Çözüldü işaretle</button>';
+  }
+  if(yetkiDuzenle && kapali){
+    gecisAksiyon += '<button type="button" class="btn btn-danger" id="btnYenidenAc">' +
+      ico('i-refresh') + ' Yeniden aç</button>';
+  }
+
+  var gecisNot;
+  if(kapali){
+    gecisNot = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Hata kapandı',
+      text:b.kod + ' ' + F.date(b.bulunma) + ' tarihinde bulundu, ' + F.date(b.cozum) + ' tarihinde kapatıldı' +
+           (sure != null ? ' — açık kaldığı süre ' + sure + ' gün.' : '.') +
+           (yetkiDuzenle ? ' Düzeltme doğrulanamazsa kayıt yeniden açılabilir.' : '') });
+  } else if(b.durum === 'Devam ediyor'){
+    gecisNot = GV.notice({ tone:'warn', icon:'i-clock', title:'Düzeltme çalışması sürüyor',
+      text:'Hata ' + (sure != null ? sure + ' gündür' : '') + ' açık; ' +
+           (b.sorumlu ? DB.empName(b.sorumlu) : 'atanacak sorumlu') + ' üzerinde “Devam ediyor” durumunda.' +
+           (gorev ? ' Düzeltme ' + gorev.kod + ' görevinden yürüyor.' : ' Henüz bir görev kaydı açılmadı.') });
+  } else {
+    gecisNot = GV.notice({ tone:'info', icon:'i-alert-circle', title:'Hata açık, çalışma başlamadı',
+      text:'Kayıt ' + F.date(b.bulunma) + ' tarihinde açıldı ve ' + (sure != null ? sure + ' gündür' : '') +
+           ' “Açık” durumunda. Çalışma başladığında durum “Devam ediyor” olur; en temiz yol hatayı göreve ' +
+           'dönüştürüp ilerlemeyi görev üzerinden izlemektir.' });
+  }
+
+  var pGecis = '<div class="gc-body">' + gecisNot +
+    '<div class="u-mt-8">' + serit + '</div>' +
+    (gecisAksiyon ? '<div class="u-row u-wrap u-mt-8">' + gecisAksiyon + '</div>' : '') +
+    '</div>' +
+
+    '<div class="gc-body">' + sec('Yaşam Döngüsü', GV.chain(zincir)) + '</div>' +
+
+    '<div class="gc-body">' + sec('Geçiş Kuralları', dl([
+      ['Mevcut durum', GV.badge(b.durum)],
+      ['Olası sonraki durumlar', kapali
+        ? '<span class="tag">Açık</span> <span class="tag">Devam ediyor</span> ' +
+          '<span class="cell-sub">yeniden açma ile</span>'
+        : (b.durum === 'Açık'
+            ? '<span class="tag">Devam ediyor</span> <span class="tag">Kapandı</span>'
+            : '<span class="tag">Kapandı</span>')],
+      ['Kapatma koşulu', 'Çözüm tarihi zorunlu — bulunma tarihinden önce olamaz'],
+      ['Yeniden açma koşulu', 'Gerekçe zorunlu (en az 10 karakter); çözüm tarihi boşaltılır' +
+        (gorev ? ', bağlı görev revizeye alınır' : '')],
+      ['Aksiyon yetkisi', yetkiDuzenle
+        ? '<span class="badge is-ok no-dot">Düzenleme yetkiniz var</span>'
+        : '<span class="badge is-neutral no-dot">Düzenleme yetkiniz yok — aksiyon basılmadı</span>'],
+      ['Durum sözlüğü <span class="u-faint">(hata ekseni)</span>',
+        HATA_DURUMLARI.map(function(d){ return GV.badge(d); }).join(' ')]
+    ])) + '</div>' +
+
+    (!yetkiDuzenle
+      ? '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-lock', title:'Durum değiştirme yetkisi yok',
+          text:'Rolünüzde düzenleme yetkisi bulunmadığı için “Çözüldü işaretle” ve “Yeniden aç” aksiyonları ' +
+               'hiç basılmadı. Hata durumunu proje yöneticisi, takım lideri veya kaydın sorumlusu değiştirir.' }) + '</div>'
+      : '');
+
+  /* =================================================================
+     7. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body' + (acts.length ? '' : ' flush') + '">' +
+    (acts.length
+      ? GV.activity(acts)
+      : GV.empty({ icon:'i-activity', title:'Bu hata kaydında hareket yok',
+          desc:'Durum değişikliği, çözüm kararı, yeniden açma ve göreve dönüştürme hareketleri burada listelenir. ' +
+               'Bu kayıt üzerinde henüz izlenen bir değişiklik yapılmadı.',
+          action:'<a class="btn btn-acc" href="app-proje-hata.html">Hata listesine dön</a>' })) +
+    '</div>' +
+
+    (gorevActs.length
+      ? '<div class="gc-body">' + sec('Bağlı Görevin Hareketleri',
+          GV.notice({ tone:'neutral', icon:'i-info', title:'Bu hareketler ' + gorev.kod + ' görevine yazılıdır',
+            text:'Aşağıdaki kayıtlar hata kaydının değil, hatadan doğan görevin aktivite geçmişidir. ' +
+                 'Düzeltmenin ilerlemesi bu görev üzerinden izlenir.' }) +
+          '<div class="u-mt-8">' + GV.activity(gorevActs) + '</div>') + '</div>'
+      : '');
+
+  var panels = {
+    genel:pGenel, uretim:pUretim, test:pTest, gorev:pGorev,
+    destek:pDestek, gecis:pGecis, aktivite:pAktivite
+  };
+
+  /* =================================================================
+     SAĞ ÖZET PANELİ
+     ================================================================= */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-bug') + 'Özet</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Proje', proje
+        ? '<a href="app-proje-detay.html?id=' + esc(proje.kod) + '">' + esc(proje.ad) + '</a>' +
+          '<span class="cell-sub">' + esc(proje.kod) + '</span>'
+        : '<span class="u-faint">Projesiz</span>'],
+      ['Modül', modul
+        ? esc(modul.ad) + '<span class="cell-sub">' + esc(modul.kod) + '</span>'
+        : '<span class="u-faint">Modülsüz</span>'],
+      ['Sprint', sprint
+        ? esc(sprint.ad) + '<span class="cell-sub">' + esc(sprint.kod) +
+          (gorevSprint ? ' · görevden' : ' · türetilmiş') + '</span>'
+        : '<span class="u-faint">Sprint bağı yok</span>'],
+      ['Bildiren', GV.user(b.bulan, { sm:true })],
+      ['Atanan', b.sorumlu ? GV.user(b.sorumlu, { sm:true }) : '<span class="u-faint">Atanmadı</span>'],
+      ['Şiddet', GV.pri(b.siddet)],
+      ['Öncelik', GV.pri(b.oncelik)],
+      ['Durum', GV.badge(b.durum)],
+      ['Bulunma tarihi', '<span class="cell-date">' + F.date(b.bulunma) + '</span>'],
+      ['Çözüm tarihi', b.cozum
+        ? '<span class="cell-date">' + F.date(b.cozum) + '</span>'
+        : '<span class="u-faint">Çözülmedi</span>'],
+      ['Açık kalma süresi', sureMetin()]
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-server') + 'Teknik Bağlam</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Ortam', b.ortam ? '<span class="tag">' + esc(b.ortam) + '</span>' : '<span class="u-faint">—</span>'],
+      ['Tekrarlanabilirlik', b.tekrarlanabilir
+        ? '<span class="tag">' + esc(b.tekrarlanabilir) + '</span>' : '<span class="u-faint">—</span>'],
+      ['Üretilen görev', gorev
+        ? '<a href="app-gorev-detay.html?id=' + esc(gorev.kod) + '">' + esc(gorev.kod) + '</a>' +
+          '<span class="cell-sub">' + esc(gorev.durum) + '</span>'
+        : '<span class="badge is-warn no-dot">Bağlanmadı</span>'],
+      ['Aday kaynak test', testAdaylari.length
+        ? '<b class="u-num">' + testAdaylari.length + '</b>' : '<span class="u-faint">Yok</span>'],
+      ['Aday destek talebi', talepAdaylari.length
+        ? '<b class="u-num">' + talepAdaylari.length + '</b>' : '<span class="u-faint">Yok</span>'],
+      ['Aynı modüldeki hata', modulHatalari.length
+        ? '<b class="u-num">' + modulHatalari.length + '</b>' : '<span class="badge is-ok no-dot">Yok</span>']
+    ]) + '</div>' +
+    sayac('<a class="btn btn-line btn-sm" href="app-proje-hata.html">' + ico('i-bug','ic-sm') +
+      ' Tüm hata kayıtları</a>') +
+    '</section>' +
+
+    (proje
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-briefcase') + 'Proje</h2></div>' +
+        '<div class="gc-body"><a class="cell-main" href="app-proje-detay.html?id=' + esc(proje.kod) + '">' +
+          esc(proje.ad) + '</a>' +
+        '<div class="cell-sub u-mb-4">' + esc(proje.musteriAd) + '</div>' + GV.progress(proje.ilerleme) +
+        '<div class="u-mt-4">' + ozetListe([
+          ['Durum', GV.badge(proje.durum)],
+          ['Sağlık', GV.badge(proje.saglik)],
+          ['Proje yöneticisi', GV.user(proje.pm, { sm:true })],
+          ['Teknik sorumlu', proje.teknikSorumlu ? GV.user(proje.teknikSorumlu, { sm:true }) : '<span class="u-faint">—</span>'],
+          ['Planlanan bitiş', '<span class="cell-date">' + F.date(proje.planlananBitis) + '</span>'],
+          ['Projedeki açık hata', '<b class="u-num">' +
+            DB.bugs.filter(function(x){ return x.proje === proje.kod && x.durum !== 'Kapandı'; }).length + '</b>']
+        ]) + '</div></div></section>'
+      : '') +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' +
+    (acts.length ? GV.activity(acts.slice(0, 3))
+      : (gorevActs.length
+          ? '<p class="u-sm u-faint u-mb-8">Hata kaydında hareket yok — bağlı görevin son hareketleri:</p>' +
+            GV.activity(gorevActs.slice(0, 3))
+          : '<p class="u-sm u-faint">Bu hata kaydında henüz kayıtlı hareket yok.</p>')) +
+    '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* =================================================================
+     AKSİYONLAR — yetki ve durum koşulu sağlanmayan buton HİÇ basılmaz.
+     Dinleyici `mount.onclick` ATAMASI ile bağlanır: atama idempotenttir,
+     GV.refresh() sonrası dinleyici birikmez (ders L-16).
+     ================================================================= */
+  mount.onclick = function(e){
+    if(e.target.closest('#btnDonustur'))  return donusturModal();
+    if(e.target.closest('#btnCozuldu'))   return cozumModal();
+    if(e.target.closest('#btnYenidenAc')) return yenidenAcModal();
+  };
+});
+</script>
+</body>
+</html>

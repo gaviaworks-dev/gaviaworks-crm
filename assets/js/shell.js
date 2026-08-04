@@ -588,6 +588,7 @@
     'app-proje-sprint.html',
     'app-proje-test.html',
     'app-proje-hata.html',
+    'app-proje-hata-detay.html',
     'app-proje-degisiklik.html',
     'app-proje-teslim.html',
     'app-proje-detay.html',
