@@ -143,7 +143,15 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [ ] Tedarikçi listesi + detay + puanlama
 
 ### Wave 9 — Destek & Sohbet (§18, §13)
-- [ ] Destek talepleri listesi + detay + form (18 alan, SLA, memnuniyet)
+- [x] `app-destek.html` — destek talepleri listesi (18 alan, SLA, memnuniyet)
+- [x] `app-destek-sla.html` — SLA takibi (politika matrisi drawer'ı, ilk yanıt/çözüm ekseni,
+      eskalasyon akışı, sorumlu ataması)
+- [x] `app-destek-paket.html` — bakım paketleri (kota tüketimi, yenileme takibi, sözleşme
+      bağlantısı, finans maskeleme)
+- [x] `app-destek-memnuniyet.html` — memnuniyet anketleri (puan dağılımı, NPS, yanıt oranı,
+      düşük puan takibi)
+- [x] Ortak katman: `DB.slaPolicies` · `DB.surveys` · `GV.badge` destek durumları
+- [ ] Destek talebi detay + form ekranı
 - [ ] Destek → görev / hata / geliştirme / değişiklik / ek teklif dönüşümü
 - [x] `app-sohbet.html` — sohbet modülü (11 kanal türü, kanal/mesaj arama, tepki, dosya paylaşımı, kanal bilgisi drawer'ı)
 - [x] Sohbetten görev oluşturma (16 alanlı devir → `DB.tasks` + aktivite kaydı + kanala durum mesajı)
