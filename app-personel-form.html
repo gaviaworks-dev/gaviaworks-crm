@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yeni Personel — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="personel">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.departments, DB.roles, DB.today,
+               DB.emp, DB.empName, DB.dep, DB.depName, DB.roleName
+     work.js → DB.tasks, DB.activities
+     hr.js   → DB.leaves, DB.capacity, DB.performance, DB.trainings
+     ops.js  → DB.assignments, DB.vehicles -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var EYEBROW = 'İnsan Kaynakları';          /* shell.js SECTIONS.personel.eyebrow ile aynı */
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.employees.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurulmaz, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:EYEBROW, title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen personel kaydı sistemde yok.',
+      actions:[{ label:'Personel listesi', cls:'btn-line', href:'app-personel.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Personel bulunamadı',
+      desc:'“' + esc(id) + '” numaralı personel kaydı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-personel.html">Personel listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Personel');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Personel') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+
+     İki eksen birlikte aranır:
+       · aksiyon ekseni  → 'ekle' / 'duzenle'
+       · veri ekseni     → 'personel' (PROMPT.md §5 “personel verisi” yetkisi)
+     Personel kartı özlük verisidir; bölüm menüsünü görebilen ama personel
+     verisi yetkisi 'yok' olan rol (İdari İşler Sorumlusu) listeyi okuyabilir,
+     kayıt açıp değiştiremez.
+     ================================================================= */
+  var canAksiyon = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canVeri    = GV.perm.can('personel');
+  if(!canAksiyon || !canVeri){
+    GV.pageHead({
+      eyebrow:EYEBROW,
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Personel',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Personel listesi', cls:'btn-line', href:'app-personel.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(!canAksiyon
+             ? (duzenle ? 'Kayıt düzenleme' : 'Kayıt ekleme') + ' yetkisi rolünüzde (' +
+               GV.session.rolAd + ') tanımlı değil. '
+             : 'Personel verisi üzerinde yazma yetkisi rolünüzde (' + GV.session.rolAd +
+               ') tanımlı değil. ') +
+           'Personel kartlarını görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek
+       bir yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-personel.html">Personel listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-personel-detay.html?id=' + esc(kayit.kod) +
+                   '">Personel kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* Ücret alan bazlı yetkidir (KVKK — tasks/assumptions.md V-12).
+     Yetkisi olmayan role ücret alanları HİÇ basılmaz; devre dışı kontrol bırakılmaz
+     ve kaydederken kayıttaki mevcut değere dokunulmaz. */
+  var canMaas = GV.perm.can('maas');
+
+  /* =================================================================
+     SÖZLÜKLER
+       · Çalışma türü / sözleşme türü: app-personel.html filtrelerindeki kümeler
+         (veri katmanında bu iki eksen için ayrı sözlük koleksiyonu yok).
+       · Sistem rolü: DB.roles (27 rol).
+       · Kan grubu: standart 8 değer; veride 'A Rh+' biçimi kullanılıyor.
+     ================================================================= */
+  var CALISMA   = ['Tam zamanlı','Yarı zamanlı','Proje bazlı'];
+  var SOZLESME  = ['Belirsiz süreli','Belirli süreli','Hizmet sözleşmesi','Staj sözleşmesi'];
+  var KAN       = ['A Rh+','A Rh-','B Rh+','B Rh-','AB Rh+','AB Rh-','0 Rh+','0 Rh-'];
+  var GOREV_KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+
+  if(duzenle){
+    if(kayit.calismaTuru && CALISMA.indexOf(kayit.calismaTuru) === -1) CALISMA.push(kayit.calismaTuru);
+    if(kayit.sozlesme && SOZLESME.indexOf(kayit.sozlesme) === -1) SOZLESME.push(kayit.sozlesme);
+    if(kayit.kanGrubu && kayit.kanGrubu !== '—' && KAN.indexOf(kayit.kanGrubu) === -1) KAN.push(kayit.kanGrubu);
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  function basHarf(ad){
+    var p = String(ad || '').trim().split(/\s+/);
+    var a = (p[0] || '').charAt(0), b = (p[p.length - 1] || '').charAt(0);
+    return (a + b).toLocaleUpperCase('tr');
+  }
+  function kadroSayisi(depKod){
+    return DB.employees.filter(function(e){ return e.dep === depKod; }).length;
+  }
+  function kapKaydi(kod){
+    return DB.capacity.filter(function(c){ return c.personel === kod; })[0] || null;
+  }
+
+  var toplamPersonel = DB.employees.length;
+  var aktifPersonel  = DB.employees.filter(function(e){ return e.aktif !== false; }).length;
+  var kapasiteli     = DB.employees.filter(function(e){ return !!kapKaydi(e.kod); }).length;
+  var iniUyum        = DB.employees.filter(function(e){ return e.ini === basHarf(e.ad); }).length;
+  var rolUyum        = DB.employees.filter(function(e){ return (e.roller || []).indexOf(e.rol) !== -1; }).length;
+  var depAdUyum      = DB.employees.filter(function(e){ return e.depAd === DB.depName(e.dep); }).length;
+  var sayacUyum      = DB.departments.filter(function(d){
+    return typeof d.personel !== 'number' || d.personel === kadroSayisi(d.kod); }).length;
+  var ucretTek       = DB.employees.filter(function(e){
+    var a = Number(e.maas) > 0, b = Number(e.saatlikUcret) > 0; return (a && !b) || (!a && b); }).length;
+  var girisGelecek   = DB.employees.filter(function(e){ return e.girisTarihi > DB.today; }).length;
+  var yonKendiDep    = DB.departments.filter(function(d){
+    var y = DB.emp(d.yonetici); return y && y.dep === d.kod; }).length;
+  var saatlikSayisi  = DB.employees.filter(function(e){ return Number(e.saatlikUcret) > 0; }).length;
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden
+     ================================================================= */
+  function depSecenek(){
+    return DB.departments
+      .filter(function(d){ return d.aktif !== false || (duzenle && d.kod === kayit.dep); })
+      .map(function(d){
+        var n = kadroSayisi(d.kod);
+        return { value:d.kod, label:d.ad + ' · ' + d.kod + ' · yönetici ' + DB.empName(d.yonetici) +
+          ' · kadro ' + n + (d.aktif === false ? ' · pasif departman' : '') };
+      });
+  }
+
+  function yoneticiSecenek(){
+    return DB.employees
+      .filter(function(e){
+        if(duzenle && e.kod === kayit.kod) return false;                 /* kendisi yöneticisi olamaz */
+        return e.aktif !== false || (duzenle && e.kod === kayit.yonetici);
+      })
+      .map(function(e){
+        return { value:e.kod, label:e.ad + ' · ' + e.pozisyon + ' · ' + e.depAd +
+          (e.aktif === false ? ' · pasif kayıt' : '') };
+      });
+  }
+
+  function rolSecenek(){
+    return DB.roles.map(function(r){
+      return { value:r.key, label:r.ad + ' · ' + r.key + ' · kademe ' + r.kademe };
+    });
+  }
+
+  /* Yönetici zinciri döngüsü: A → B → … → A olmamalı. */
+  function zincirDongusu(kod, yoneticiKod){
+    var gorulen = {}, cur = yoneticiKod;
+    while(cur){
+      if(cur === kod) return true;
+      if(gorulen[cur]) return false;
+      gorulen[cur] = 1;
+      var e = DB.emp(cur);
+      cur = e ? e.yonetici : null;
+    }
+    return false;
+  }
+
+  /* =================================================================
+     LİSTE ALANLARI — GV.form'da tags/multiselect tipi YOK (components.md §4).
+     Yetkinlik / teknoloji / sertifika virgülle ayrılmış metin olarak alınır,
+     kaydederken diziye çevrilir. Sistem rolleri sözlükten geldiği için
+     select + çip listesi olarak kurulur.
+     ================================================================= */
+  function listeyeCevir(s){
+    var gorulen = {}, out = [];
+    String(s == null ? '' : s).split(',').forEach(function(x){
+      var t = x.trim();
+      if(!t || gorulen[t.toLocaleLowerCase('tr')]) return;
+      gorulen[t.toLocaleLowerCase('tr')] = 1;
+      out.push(t);
+    });
+    return out;
+  }
+  function metneCevir(a){ return (a || []).join(', '); }
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.yetkinlik  = metneCevir(kayit.yetkinlik);
+    formRec.teknoloji  = metneCevir(kayit.teknoloji);
+    formRec.sertifika  = metneCevir(kayit.sertifika);
+    formRec.yonetici   = kayit.yonetici || '';
+    formRec.kanGrubu   = (kayit.kanGrubu && kayit.kanGrubu !== '—') ? kayit.kanGrubu : '';
+    formRec.acilKisi   = (kayit.acilKisi && kayit.acilKisi !== '—') ? kayit.acilKisi : '';
+    formRec.maas       = Number(kayit.maas) || 0;
+    formRec.saatlikUcret = Number(kayit.saatlikUcret) || 0;
+    formRec.aktif      = kayit.aktif !== false;
+  }else{
+    formRec = {
+      ad:'', ini:'', dogum:'', kanGrubu:'', egitim:'', lokasyon:'',
+      pozisyon:'', dep:'', yonetici:'', rol:'',
+      calismaTuru:'', sozlesme:'', girisTarihi:DB.today, izinBakiye:0,
+      maas:0, saatlikUcret:0,
+      eposta:'', tel:'', acilKisi:'',
+      yetkinlik:'', teknoloji:'', sertifika:'', aktif:true
+    };
+  }
+  formRec.rolEkle = '';                       /* yardımcı alan — veriye yazılmaz */
+
+  /* Çoklu rol durumu: birincil rol her zaman listenin içindedir (ölçüm: 16/16). */
+  var rollerState = (duzenle ? (kayit.roller || []).slice() : []);
+
+  /* =================================================================
+     BAĞLAM — düzenleme modunda kaydın ilişkileri
+     ================================================================= */
+  var gorevler = [], acikGorev = [], gecikenGorev = [], izinler = [], bekleyenIzin = [],
+      zimmetler = [], aktifZimmet = [], araclar = [], yonettigi = [], astlar = [],
+      perfKayit = [], egitimKayit = [], kap = null, acts = [];
+
+  if(duzenle){
+    gorevler = DB.tasks.filter(function(t){
+      return t.sorumlu === kayit.kod || (t.yardimci || []).indexOf(kayit.kod) !== -1; });
+    acikGorev = gorevler.filter(function(t){ return GOREV_KAPALI.indexOf(t.durum) === -1; });
+    gecikenGorev = acikGorev.filter(function(t){ return t.termin && F.days(t.termin) < 0; });
+
+    izinler = DB.leaves.filter(function(l){ return l.personel === kayit.kod; });
+    bekleyenIzin = izinler.filter(function(l){ return l.durum === 'Onay bekliyor'; });
+
+    zimmetler = DB.assignments.filter(function(z){ return z.personel === kayit.kod; });
+    aktifZimmet = zimmetler.filter(function(z){ return z.durum === 'Aktif'; });
+    araclar = DB.vehicles.filter(function(v){
+      return v.anaSurucu === kayit.kod || v.yedekSurucu === kayit.kod; });
+
+    yonettigi = DB.departments.filter(function(d){ return d.yonetici === kayit.kod; });
+    astlar = DB.employees.filter(function(x){ return x.yonetici === kayit.kod; });
+
+    perfKayit = DB.performance.filter(function(p){ return p.personel === kayit.kod; });
+    egitimKayit = DB.trainings.filter(function(t){ return (t.katilimci || []).indexOf(kayit.kod) !== -1; });
+
+    kap = kapKaydi(kayit.kod);
+    acts = DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+      .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); });
+  }
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     `dt` escape EDİLMEZ (sabit etiket işaretlemesi), `dd` çağıran tarafta
+     esc()'lenmiş gelir (ders L-14).
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return ' <span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagList(list){
+    return (list && list.length)
+      ? list.map(function(x){ return '<span class="tag">' + esc(x) + '</span>'; }).join(' ')
+      : null;
+  }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  var ust = '';
+
+  /* ---- Ücret yetkisi yoksa: alanların neden basılmadığı yazılır ---- */
+  if(!canMaas){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'neutral', icon:'i-lock', title:'Ücret alanları forma basılmadı',
+      text:'Rolünüzde (' + GV.session.rolAd + ') ücret görüntüleme yetkisi yok; “Ücret” bölümü ' +
+           'devre dışı bırakılmadı, hiç kurulmadı. ' +
+           (duzenle
+             ? 'Kaydettiğinizde bu personelin mevcut ücret değerlerine dokunulmaz.'
+             : 'Yeni kayıt ücretsiz (0) doğar; ücreti İK ya da muhasebe rolü sonradan girer.') +
+           ' Ölçüm: ' + toplamPersonel + ' personelin ' + saatlikSayisi + ' tanesi saatlik ücretle, ' +
+           (toplamPersonel - saatlikSayisi) + ' tanesi aylık maaşla çalışıyor.' }) + '</div></section>';
+  }
+
+  /* ---- Kapsam notu: §14 kartındaki, personel kaydında alanı olmayan kalemler ---- */
+  ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+    tone:'info', title:'Bu formun kapsamı — personel kaydının kendisi',
+    text:'Zimmet, araç tahsisi, performans dönemi, eğitim katılımı, izin talebi ve haftalık ' +
+         'kapasite kendi koleksiyonlarında tutulur; personel kartından okunur ama bu formdan ' +
+         'yazılmaz. Fotoğraf alanı veri katmanında yok — avatar, ad soyadın baş harflerinden ' +
+         'üretilir ve “Baş harfler” alanı bu değeri taşır. Doküman koleksiyonunda personel bağı ' +
+         'olmadığı için “belgeler” kalemi de forma konulmadı.',
+    actions:[{ label:'Kapasite planı', href:'app-kapasite.html' },
+             { label:'Zimmetler', href:'app-zimmet.html' },
+             { label:'Performans', href:'app-performans.html' },
+             { label:'Eğitimler', href:'app-egitim.html' }] }) + '</div></section>';
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı ---- */
+    var bagParcalar = [];
+    if(acikGorev.length) bagParcalar.push(acikGorev.length + ' açık görev' +
+      (gecikenGorev.length ? ' (' + gecikenGorev.length + ' tanesi gecikmiş)' : ''));
+    if(bekleyenIzin.length) bagParcalar.push(bekleyenIzin.length + ' onay bekleyen izin talebi');
+    if(aktifZimmet.length) bagParcalar.push(aktifZimmet.length + ' aktif zimmet');
+    if(araclar.length) bagParcalar.push(araclar.length + ' tahsisli araç');
+    if(astlar.length) bagParcalar.push(astlar.length + ' bağlı personel');
+    if(yonettigi.length) bagParcalar.push(yonettigi.length + ' yönettiği departman');
+
+    var bagAksiyon = [{ label:'Personel kartını aç', cls:'btn-line',
+                        href:'app-personel-detay.html?id=' + kayit.kod }];
+    if(gorevler.length) bagAksiyon.push({ label:'Görevleri', cls:'btn-line',
+      href:'app-gorev.html?t=tumu&f_sorumlu=' + kayit.kod });
+    if(izinler.length) bagAksiyon.push({ label:'İzinleri', cls:'btn-line',
+      href:'app-izin.html?f_personel=' + kayit.kod });
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:bagParcalar.length ? 'warn' : 'info',
+      title:bagParcalar.length ? 'Bu kayda bağlı başka kayıtlar var' : 'Bu kayda bağlı açık iş yok',
+      text:(bagParcalar.length
+             ? kayit.ad + ' üzerinde ' + bagParcalar.join(', ') + ' var. Departman, yönetici ya da ' +
+               'kayıt durumu değişirse bu kayıtlar etkilenir; hiçbiri bu formdan silinmez.'
+             : kayit.ad + ' üzerinde açık görev, bekleyen izin talebi, aktif zimmet ya da bağlı ' +
+               'personel bulunmuyor.') +
+           ' Departman kadro sayacı (' + DB.depName(kayit.dep) + ') kaydettiğinizde yeniden sayılır.',
+      actions:bagAksiyon }) + '</div></section>';
+
+    /* ---- Kayıt özeti ---- */
+    var son = acts[0];
+    var kidemGun = kayit.girisTarihi ? -F.days(kayit.girisTarihi) : null;
+    var kidemYil = kidemGun != null ? Math.floor(kidemGun / 365) : null;
+    var kidemAy  = kidemGun != null ? Math.floor((kidemGun % 365) / 30.44) : null;
+    var doluluk  = kap ? kap.doluluk : kayit.doluluk;
+
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Personel numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Ad soyad', '<span class="gv-user"><span class="gv-user-ava is-sm">' + esc(kayit.ini) +
+          '</span><span class="gv-user-name">' + esc(kayit.ad) + '</span></span>'],
+        ['Unvan / pozisyon', esc(kayit.pozisyon)],
+        ['Departman', esc(DB.depName(kayit.dep)) + sub(kayit.dep + ' · kadro ' + kadroSayisi(kayit.dep))],
+        ['Sistem rolü', '<span class="tag">' + esc(DB.roleName(kayit.rol)) + '</span>' +
+          ((kayit.roller || []).length > 1
+            ? ' ' + tagList((kayit.roller || []).filter(function(r){ return r !== kayit.rol; })
+                .map(DB.roleName))
+            : '')],
+        ['Yöneticisi', kayit.yonetici
+          ? '<a href="app-personel-detay.html?id=' + esc(kayit.yonetici) + '">' +
+            esc(DB.empName(kayit.yonetici)) + '</a>'
+          : null],
+        ['Kayıt durumu', GV.badge(kayit.aktif === false ? 'Pasif' : 'Aktif')],
+        ['Çalışma / sözleşme', '<span class="tag">' + esc(kayit.calismaTuru) + '</span> ' +
+          '<span class="tag">' + esc(kayit.sozlesme) + '</span>'],
+        ['İşe giriş', GV.dateCell(kayit.girisTarihi, { done:true }) + sub(F.dateLong(kayit.girisTarihi))],
+        ['Kıdem', kidemGun != null
+          ? '<b>' + (kidemYil ? kidemYil + ' yıl ' : '') + kidemAy + ' ay</b>' + sub(F.num(kidemGun) + ' gün')
+          : null],
+        ['İzin bakiyesi', '<b class="u-num">' + F.num(kayit.izinBakiye) + '</b> gün'],
+        ['Haftalık doluluk', GV.progress(doluluk, { tone:doluluk >= 95 ? 'danger' : doluluk >= 85 ? 'warn' : '' }) +
+          sub(kap ? 'kapasite planından' : 'kapasite kaydı yok — personel kartındaki değer')],
+        ['Açık görev', '<b class="u-num">' + acikGorev.length + '</b>' +
+          (gecikenGorev.length ? ' <span class="u-danger">(' + gecikenGorev.length + ' geciken)</span>' : '')],
+        ['Performans dönemi', perfKayit.length ? '<b>' + perfKayit.length + '</b>' : null],
+        ['Katıldığı eğitim', egitimKayit.length ? '<b>' + egitimKayit.length + '</b>' : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-personel-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Personel kartını aç</a>');
+
+  }else{
+    /* ---- Yeni kayıt modunda ne olacağı ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni personel kaydı açılıyor',
+        text:'Kaydettiğinizde sıradaki personel numarası atanır (şu an en yüksek numara ' +
+             DB.employees.length + ' kayıtta), departman adı seçilen departmandan yazılır, ' +
+             'seçilen departmanın kadro sayacı yeniden sayılır, aktivite geçmişine “Personel ' +
+             'kaydı oluşturuldu” satırı düşülür ve personel listesine dönülür. Haftalık doluluk ' +
+             '0 başlar: kapasite planına eklenene kadar yük hesabı yapılmaz — ölçüm, ' +
+             toplamPersonel + ' personelin ' + kapasiteli + ' tanesinin kapasite kaydı var.',
+        actions:[{ label:'Personel listesi', href:'app-personel.html' },
+                 { label:'Kapasite planı', href:'app-kapasite.html' }] }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-users') + 'Personel Künyesi</h2>' +
+        '<div class="gc-sub">Kimlik, organizasyon, çalışma koşulları, iletişim ve yetkinlik · ' +
+          'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-personel.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Kimlik',
+    desc:'Personelin kişisel künyesi. Personel numarası kaydederken sistem tarafından atanır, ' +
+         'elle girilmez. Avatar için ayrı bir fotoğraf alanı yok; baş harfler bu görevi görür.',
+    fields:[
+      { key:'ad', label:'Ad soyad', type:'text', required:true, cols:6,
+        placeholder:'Örn. Deniz Korkmaz',
+        hint:'Ad ve soyad birlikte yazılır; baş harfler bu alandan üretilir.',
+        validate:function(v){
+          var s = String(v || '').trim();
+          if(s && s.split(/\s+/).length < 2) return 'Ad ve soyad birlikte yazılır (en az iki sözcük).';
+          return '';
+        } },
+      { key:'ini', label:'Baş harfler', type:'text', required:true, cols:3,
+        placeholder:'DK',
+        hint:'Avatar rozetinde görünen iki harf; ad soyad değişince kendiliğinden güncellenir. ' +
+             'Ölçüm: ' + toplamPersonel + ' kaydın ' + iniUyum + ' tanesinde baş harfler ad soyadla birebir.',
+        validate:function(v, d){
+          var s = String(v || '').trim();
+          if(!s) return '';
+          if(s !== s.toLocaleUpperCase('tr')) return 'Baş harfler büyük harf yazılır.';
+          if(s.length > 3) return 'Baş harfler en fazla 3 karakter olabilir.';
+          return (d.ad && s !== basHarf(d.ad))
+            ? 'Baş harfler ad soyadın baş harfleriyle aynı olmalı (' + basHarf(d.ad) + ').' : '';
+        } },
+      { key:'dogum', label:'Doğum tarihi', type:'date', required:true, cols:3,
+        hint:'Özlük dosyası alanı; ekranlarda yaş hesabı yapılmaz.',
+        validate:function(v){
+          if(!v) return '';
+          if(v > DB.today) return 'Doğum tarihi ileri bir tarih olamaz.';
+          var gun = -F.days(v);
+          if(gun < 6570) return 'Personel en az 18 yaşında olmalıdır.';
+          return '';
+        } },
+      { key:'kanGrubu', label:'Kan grubu', type:'select', options:KAN, cols:3,
+        placeholder:'Belirtilmedi',
+        hint:'Acil durum bilgisi; zorunlu değildir, boş bırakılan kayıt “—” değil boş tutulur.' },
+      { key:'egitim', label:'Öğrenim', type:'text', required:true, cols:9,
+        placeholder:'Örn. Bilgisayar Mühendisliği — Hacettepe',
+        hint:'Bölüm ve okul “— ” ile ayrılarak tek satırda yazılır (veri katmanındaki biçim).' },
+      { key:'lokasyon', label:'Çalışma lokasyonu', type:'text', required:true, cols:6,
+        placeholder:'Örn. Ankara · Uzaktan · İzmir',
+        hint:'Uzaktan çalışanlarda “Uzaktan · şehir” biçimi kullanılır.' }
+    ]});
+
+  sections.push({ title:'Organizasyon',
+    desc:'Personelin unvanı, bağlı olduğu departman, yöneticisi ve sistemdeki rolleri. ' +
+         'Departman yöneticisinin o departmanın kadrosunda olması zorunlu değildir — ölçüm: ' +
+         DB.departments.length + ' departmanın ' + yonKendiDep + ' tanesinde yönetici kendi ' +
+         'departmanının kadrosunda.',
+    fields:[
+      { key:'pozisyon', label:'Unvan / pozisyon', type:'text', required:true, cols:6,
+        placeholder:'Örn. Kıdemli Back-end Geliştirici',
+        hint:'Serbest metindir; sistem rolünden bağımsızdır.' },
+      { key:'dep', label:'Departman', type:'select', options:depSecenek(), required:true, cols:6,
+        placeholder:'Departman seçin',
+        hint:'Departman adı (depAd) bu seçimden yazılır, elle girilmez — ölçüm: ' +
+             toplamPersonel + ' kaydın ' + depAdUyum + ' tanesinde ikisi birebir. Pasif ' +
+             'departmanlar listelenmez.',
+        validate:function(v){
+          if(!v) return '';
+          return DB.dep(v) ? '' : 'Seçilen departman kaydı bulunamadı.';
+        } },
+      { key:'yonetici', label:'Yöneticisi', type:'select', options:yoneticiSecenek(), cols:6,
+        placeholder:'Yöneticisi yok (en üst kademe)',
+        hint:'Boş bırakılırsa personel organizasyon şemasının tepesinde durur. Kendi kendisinin ' +
+             'yöneticisi olamaz ve zincir kendine dönemez.',
+        validate:function(v){
+          if(!v) return '';
+          if(!DB.emp(v)) return 'Seçilen çalışan kaydı bulunamadı.';
+          if(duzenle && v === kayit.kod) return 'Personel kendi yöneticisi olamaz.';
+          if(duzenle && zincirDongusu(kayit.kod, v)){
+            return DB.empName(v) + ' zaten bu personele bağlı; yönetici zinciri kendine dönemez.';
+          }
+          return '';
+        } },
+      { key:'rol', label:'Birincil sistem rolü', type:'select', options:rolSecenek(), required:true, cols:6,
+        placeholder:'Rol seçin',
+        hint:'Yetki matrisi bu rolden okunur (' + DB.roles.length + ' rol). Birincil rol, ' +
+             'tanımlı roller listesine kendiliğinden eklenir — ölçüm: ' + toplamPersonel +
+             ' kaydın ' + rolUyum + ' tanesinde birincil rol listenin içinde.',
+        validate:function(v){
+          if(!v) return '';
+          return DB.roles.filter(function(r){ return r.key === v; })[0] ? '' : 'Seçilen rol sözlükte yok.';
+        } },
+      { key:'rolEkle', label:'Tanımlı diğer roller', type:'select', options:[], cols:12,
+        placeholder:'Rol seçin — seçilen rol aşağıdaki listeye eklenir',
+        hint:'Personel birden fazla rolle çalışabilir (örn. proje yöneticisi + iş analisti). ' +
+             'Seçilen roller çip olarak listelenir; birincil rol listeden çıkarılamaz. ' +
+             'Bu alanın kendisi veriye yazılmaz, ürettiği liste yazılır.' }
+    ]});
+
+  sections.push({ title:'Çalışma ve özlük',
+    desc:'Çalışma biçimi, sözleşme türü, işe giriş ve izin bakiyesi. Haftalık doluluk bu formda ' +
+         'yer almaz: kapasite planından okunur, elle yazılırsa iki eksen ayrışır.',
+    fields:[
+      { key:'calismaTuru', label:'Çalışma türü', type:'select', options:CALISMA, required:true, cols:4,
+        placeholder:'Çalışma türü seçin',
+        hint:'Küme: ' + CALISMA.join(' · ') + '.' },
+      { key:'sozlesme', label:'Sözleşme türü', type:'select', options:SOZLESME, required:true, cols:4,
+        placeholder:'Sözleşme türü seçin',
+        hint:'Küme: ' + SOZLESME.join(' · ') + '. Hizmet sözleşmesi dış kaynak/freelancer, ' +
+             'staj sözleşmesi stajyer rolüyle birlikte kullanılır.' },
+      { key:'girisTarihi', label:'İşe giriş tarihi', type:'date', required:true, cols:4,
+        hint:'Kıdem bu tarihten hesaplanır. Ölçüm: ' + toplamPersonel + ' kaydın ' +
+             (toplamPersonel - girisGelecek) + ' tanesinde giriş tarihi bugünden (' +
+             F.date(DB.today) + ') geride.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(v > DB.today) return 'İşe giriş tarihi ileri bir tarih olamaz — kıdem eksiye düşer.';
+          if(d.dogum && v < d.dogum) return 'İşe giriş tarihi doğum tarihinden önce olamaz.';
+          return '';
+        } },
+      { key:'izinBakiye', label:'İzin bakiyesi (gün)', type:'number', required:true, cols:4,
+        min:0, max:60,
+        hint:'Kalan yıllık izin günü. Kullanılan izinler izin taleplerinden düşülür; bu alan ' +
+             'yalnız açılış bakiyesini ve düzeltmeleri taşır.',
+        validate:function(v, d){
+          var n = Number(v);
+          if(v === '' || isNaN(n)) return '';
+          if(n % 1 !== 0) return 'İzin bakiyesi tam gün olarak girilir.';
+          if(n > 0 && d.sozlesme === 'Staj sözleşmesi'){
+            return 'Staj sözleşmesinde yıllık izin bakiyesi tutulmaz — 0 girin.';
+          }
+          return '';
+        } }
+    ]});
+
+  /* Ücret — alan bazlı yetki: 'maas' yetkisi yoksa bu bölüm HİÇ basılmaz.
+     Basılmadığında kaydet akışı da bu iki alana dokunmaz. */
+  if(canMaas){
+    sections.push({ title:'Ücret',
+      desc:'Aylık maaş ve saatlik ücret aynı anda dolmaz: kadrolu personelde aylık maaş, ' +
+           'proje bazlı çalışanda saatlik ücret yazılır. Ölçüm: ' + toplamPersonel +
+           ' kaydın ' + ucretTek + ' tanesinde ikisinden yalnız biri dolu.',
+      fields:[
+        { key:'maas', label:'Aylık maaş (brüt)', type:'money', cols:6,
+          hint:'Brüt aylık ücret; işveren SGK payı dahil değildir. Saatlik ücretle çalışan ' +
+               'personelde 0 bırakılır.',
+          validate:function(v, d){
+            var m = Number(v || 0), s = Number(d.saatlikUcret || 0);
+            if(m > 0 && s > 0) return 'Aylık maaş ve saatlik ücret aynı anda dolamaz — biri 0 olmalı.';
+            if(!m && !s) return 'Aylık maaş ya da saatlik ücretten biri girilmelidir.';
+            return '';
+          } },
+        { key:'saatlikUcret', label:'Saatlik ücret (brüt)', type:'money', cols:6,
+          hint:'Yalnız proje bazlı / hizmet sözleşmeli personelde kullanılır. Ölçüm: ' +
+               toplamPersonel + ' kaydın ' + saatlikSayisi + ' tanesi saatlik ücretle çalışıyor.',
+          validate:function(v, d){
+            var s = Number(v || 0), m = Number(d.maas || 0);
+            if(s > 0 && m > 0) return 'Saatlik ücret girilen personelde aylık maaş 0 olmalıdır.';
+            if(s > 0 && d.calismaTuru === 'Tam zamanlı'){
+              return 'Tam zamanlı personel saatlik ücretle çalışmaz — çalışma türünü değiştirin.';
+            }
+            return '';
+          } }
+      ]});
+  }
+
+  sections.push({ title:'İletişim',
+    desc:'Kurumsal iletişim bilgileri ve acil durumda aranacak kişi. E-posta ve telefon ' +
+         'sistemde tekildir.',
+    fields:[
+      { key:'eposta', label:'E-posta', type:'email', required:true, cols:6,
+        placeholder:'ad@gaviaworks.com',
+        hint:'Kadrolu personel gaviaworks.com, dış kaynak dis.gaviaworks.com uzantısı kullanır.',
+        validate:function(v){
+          if(!v) return '';
+          var ayni = DB.employees.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) &&
+                   String(x.eposta || '').toLocaleLowerCase('tr') === String(v).trim().toLocaleLowerCase('tr'); })[0];
+          return ayni ? 'Bu e-posta adresi ' + ayni.kod + ' · ' + ayni.ad + ' kaydında kullanılıyor.' : '';
+        } },
+      { key:'tel', label:'Telefon', type:'tel', required:true, cols:6,
+        placeholder:'+90 532 000 00 00',
+        hint:'En az 10 hane. Veri katmanında “+90 5xx xxx xx xx” biçimi kullanılır.',
+        validate:function(v){
+          if(!v) return '';
+          function sade(x){ return String(x || '').replace(/\D/g, ''); }
+          var ayni = DB.employees.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) && sade(x.tel) === sade(v); })[0];
+          return ayni ? 'Bu telefon numarası ' + ayni.kod + ' · ' + ayni.ad + ' kaydında kullanılıyor.' : '';
+        } },
+      { key:'acilKisi', label:'Acil durumda aranacak kişi', type:'text', cols:12,
+        placeholder:'Ad Soyad · +90 532 000 00 00',
+        hint:'Ad ve telefon “ · ” ile ayrılır. Zorunlu değildir; boş bırakılırsa kayıt boş tutulur.',
+        validate:function(v){
+          var s = String(v || '').trim();
+          if(!s) return '';
+          if(s === '—') return 'Boş bırakmak için alanı temizleyin; “—” değeri yazılmaz.';
+          return s.indexOf('·') === -1
+            ? 'Ad ve telefon “ · ” ile ayrılarak yazılır (örn. Elif Yalçın · +90 532 000 10 03).' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Yetkinlik ve uzmanlık',
+    desc:'Üç liste de virgülle ayrılarak girilir. Personel listesindeki hızlı arama yetkinlik ve ' +
+         'teknoloji alanlarını da tarar, bu yüzden değerler kısa ve tekil yazılır.',
+    fields:[
+      { key:'yetkinlik', label:'Yetkinlikler', type:'text', required:true, cols:12,
+        placeholder:'API Tasarımı, Mimari, Performans',
+        hint:'Virgülle ayrılır; tekrar eden değerler kaydederken elenir. En az bir yetkinlik zorunludur.',
+        validate:function(v){
+          var l = listeyeCevir(v);
+          if(!l.length) return '';
+          return l.some(function(x){ return x.length > 40; })
+            ? 'Her yetkinlik en fazla 40 karakter olmalı — cümle değil etiket yazılır.' : '';
+        } },
+      { key:'teknoloji', label:'Teknolojiler', type:'text', cols:6,
+        placeholder:'Node.js, PostgreSQL, Redis',
+        hint:'Kullandığı araç ve teknolojiler; virgülle ayrılır. Boş bırakılabilir.' },
+      { key:'sertifika', label:'Sertifikalar', type:'text', cols:6,
+        placeholder:'PSM I, PMI-ACP',
+        hint:'Geçerli sertifikalar; virgülle ayrılır. Eğitim kayıtlarından ayrı bir alandır.' }
+    ]});
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Pasife alınan personel listelerin varsayılan görünümünden düşer; görev, izin, zimmet ' +
+         've performans kayıtları silinmez.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — personel listelerinde ve sayaçlarda görünür',
+        hint:'Ölçüm: ' + toplamPersonel + ' kaydın ' + aktifPersonel + ' tanesi aktif. ' +
+             'Departman yöneticisi olan ya da kendisine bağlı personeli bulunan kayıt pasife alınamaz.',
+        validate:function(v){
+          if(v || !duzenle) return '';
+          if(yonettigi.length){
+            return 'Bu personel ' + yonettigi.length + ' departmanın yöneticisi (' +
+                   yonettigi.map(function(d){ return d.kisa; }).join(', ') +
+                   '); pasife almadan önce yöneticilik devredilmelidir.';
+          }
+          if(astlar.length){
+            return astlar.length + ' personel bu kişiye bağlı; pasife almadan önce bağlı ' +
+                   'personelin yöneticisi değiştirilmelidir.';
+          }
+          return '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'personel', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     ÇOKLU ROL — select + çip listesi
+     GV.form'da multiselect/tags tipi yok (components.md §4); eksik bileşen
+     raporlanır. Çip kabı yalnızca var olan sınıflarla kurulur: .f-radios
+     (form içi sarmalayıcı) + .achip (kaldırılabilir çip). Sayfaya özel CSS yok.
+     Kap, mount İÇİNDEDİR — GV.refresh() mount'u taze kopyayla değiştirdiği için
+     buradaki dinleyiciler birikmez (ders L-16).
+     ================================================================= */
+  var rolSelect = form.el.querySelector('[name="rolEkle"]');
+  var rolWrap   = form.el.querySelector('[data-field="rolEkle"]');
+  var cipKutu   = null;
+
+  if(rolWrap){
+    cipKutu = document.createElement('div');
+    cipKutu.className = 'f-radios u-mt-4';
+    rolWrap.insertBefore(cipKutu, rolWrap.querySelector('.f-err'));
+  }
+
+  function birincilRol(){
+    var el = form.el.querySelector('[name="rol"]');
+    return el ? el.value : '';
+  }
+
+  /* Birincil rol her zaman listenin başındadır ve listeden çıkarılamaz. */
+  function rolleriDuzelt(){
+    var bir = birincilRol();
+    rollerState = rollerState.filter(function(r){
+      return r !== bir && DB.roles.some(function(x){ return x.key === r; });
+    });
+    if(bir) rollerState.unshift(bir);
+  }
+
+  function rolleriCiz(){
+    rolleriDuzelt();
+    var bir = birincilRol();
+
+    if(cipKutu){
+      cipKutu.innerHTML = rollerState.length
+        ? rollerState.map(function(r){
+            var birincilMi = r === bir;
+            return '<span class="achip"><b>' + (birincilMi ? 'Birincil:' : 'Ek rol:') + '</b> ' +
+              esc(DB.roleName(r)) +
+              (birincilMi ? '' :
+                '<button type="button" data-rmrol="' + esc(r) + '" aria-label="' +
+                esc(DB.roleName(r) + ' rolünü kaldır') + '">' + ico('i-x','ic-sm') + '</button>') +
+              '</span>';
+          }).join('')
+        : '<span class="u-sm u-faint">Rol seçilmedi — birincil rolü seçtiğinizde listeye eklenir.</span>';
+    }
+
+    if(rolSelect){
+      var kalan = DB.roles.filter(function(r){ return rollerState.indexOf(r.key) === -1; });
+      rolSelect.innerHTML = '<option value="">' +
+        (kalan.length ? 'Rol seçin — seçilen rol aşağıdaki listeye eklenir'
+                      : 'Tanımlı tüm roller eklendi') + '</option>' +
+        kalan.map(function(r){
+          return '<option value="' + esc(r.key) + '">' + esc(r.ad + ' · ' + r.key + ' · kademe ' + r.kademe) +
+            '</option>';
+        }).join('');
+      rolSelect.value = '';
+    }
+  }
+
+  rolleriCiz();
+
+  form.el.addEventListener('change', function(e){
+    if(!e.target || !e.target.name) return;
+    if(e.target.name === 'rol'){
+      rolleriCiz();
+      return;
+    }
+    if(e.target.name === 'rolEkle'){
+      var k = e.target.value;
+      if(k && rollerState.indexOf(k) === -1){
+        rollerState.push(k);
+        form.setDirty(true);
+        GV.toast(DB.roleName(k) + ' rolü eklendi', 'ok');
+      }
+      rolleriCiz();
+    }
+  });
+
+  form.el.addEventListener('click', function(e){
+    var btn = e.target.closest ? e.target.closest('[data-rmrol]') : null;
+    if(!btn) return;
+    e.preventDefault();
+    var k = btn.getAttribute('data-rmrol');
+    rollerState = rollerState.filter(function(r){ return r !== k; });
+    form.setDirty(true);
+    rolleriCiz();
+    GV.toast(DB.roleName(k) + ' rolü kaldırıldı', 'info');
+  });
+
+  /* Ad soyad değişince baş harfler kendiliğinden güncellenir; kullanıcı baş
+     harfleri elle değiştirdiyse üstüne yazılmaz. */
+  var iniEl = form.el.querySelector('[name="ini"]');
+  var adEl  = form.el.querySelector('[name="ad"]');
+  var iniElle = duzenle && kayit.ini !== basHarf(kayit.ad);
+  if(iniEl) iniEl.addEventListener('input', function(){ iniElle = true; });
+  if(adEl && iniEl){
+    adEl.addEventListener('input', function(){
+      if(iniElle && iniEl.value) return;
+      iniEl.value = basHarf(adEl.value);
+    });
+  }
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    ad:'Ad soyad', ini:'Baş harfler', dogum:'Doğum tarihi', kanGrubu:'Kan grubu',
+    egitim:'Öğrenim', lokasyon:'Çalışma lokasyonu', pozisyon:'Unvan / pozisyon',
+    dep:'Departman', depAd:'Departman adı', yonetici:'Yöneticisi',
+    rol:'Birincil sistem rolü', roller:'Tanımlı roller',
+    calismaTuru:'Çalışma türü', sozlesme:'Sözleşme türü', girisTarihi:'İşe giriş tarihi',
+    izinBakiye:'İzin bakiyesi', maas:'Aylık maaş', saatlikUcret:'Saatlik ücret',
+    eposta:'E-posta', tel:'Telefon', acilKisi:'Acil durumda aranacak kişi',
+    yetkinlik:'Yetkinlikler', teknoloji:'Teknolojiler', sertifika:'Sertifikalar',
+    doluluk:'Haftalık doluluk', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Personel kodunda yıl bölümü yoktur: EMP-001 … EMP-016. */
+  function yeniKod(){
+    var max = 0;
+    DB.employees.forEach(function(x){
+      var m = /^EMP-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'EMP-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false, boş metin ve boş dizi aynı kovaya düşer. */
+  function norm(x){
+    if(Array.isArray(x)) return x.join(', ');
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(Array.isArray(v)) return v.length ? (k === 'roller' ? v.map(DB.roleName).join(', ') : v.join(', ')) : '—';
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Pasif';
+    if(k === 'rol') return DB.roleName(v);
+    if(k === 'dep') return DB.depName(v);
+    if(k === 'yonetici') return DB.empName(v);
+    if(k === 'maas' || k === 'saatlikUcret') return F.money(v);
+    if(k === 'dogum' || k === 'girisTarihi') return F.date(v);
+    if(k === 'izinBakiye') return F.num(v) + ' gün';
+    if(k === 'doluluk') return '%' + v;
+    return String(v);
+  }
+
+  /* Boş seçim veride null olarak tutulur — '' ya da '—' sentinel'i kullanılmaz. */
+  var BOSALTILIR = ['yonetici','kanGrubu','acilKisi'];
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+    delete v.rolEkle;                                   /* yardımcı alan veriye yazılmaz */
+
+    ['ad','ini','egitim','lokasyon','pozisyon','eposta','tel','acilKisi'].forEach(function(k){
+      if(v[k] != null) v[k] = String(v[k]).trim();
+    });
+    v.aktif = !!v.aktif;
+    v.izinBakiye = Number(v.izinBakiye || 0);
+
+    /* Ücret yalnız yetkiliyse okunur; yetkisizde alan hiç basılmadığı için
+       anahtar da üretilmez ve mevcut değer korunur. */
+    if(canMaas){
+      v.maas = Number(v.maas || 0);
+      var saat = Number(v.saatlikUcret || 0);
+      /* `saatlikUcret` yalnız saatlik çalışanın kaydında bulunur (16 kaydın 1'inde);
+         sıfır değerle boş anahtar açılmaz, ama daha önce dolu olan kayıtta sıfır yazılır. */
+      if(saat) v.saatlikUcret = saat;
+      else if(duzenle && kayit.saatlikUcret != null) v.saatlikUcret = 0;
+      else delete v.saatlikUcret;
+    }else{
+      delete v.maas;
+      delete v.saatlikUcret;
+    }
+
+    /* Listeler diziye çevrilir */
+    v.yetkinlik = listeyeCevir(v.yetkinlik);
+    v.teknoloji = listeyeCevir(v.teknoloji);
+    v.sertifika = listeyeCevir(v.sertifika);
+    if(!v.yetkinlik.length){
+      GV.toast('En az bir yetkinlik girilmelidir', 'danger');
+      var yEl = form.el.querySelector('[name="yetkinlik"]');
+      if(yEl) yEl.focus();
+      return null;
+    }
+
+    /* Roller çip listesinden gelir; birincil rol her zaman içindedir. */
+    rolleriDuzelt();
+    v.roller = rollerState.slice();
+
+    /* Departman adı seçilen departmandan türetilir, elle girilmez. */
+    v.depAd = DB.depName(v.dep);
+
+    BOSALTILIR.forEach(function(k){
+      if(!(k in v)) return;
+      v[k] = String(v[k] == null ? '' : v[k]).trim() || null;
+    });
+    return v;
+  }
+
+  /* Departman kadro sayacı (DB.departments[].personel) veride yazılı bir sayaçtır
+     ve app-ayar-departman.html onu kadro ile karşılaştırıp çelişki sayar.
+     Etkilenen departmanlarda kayıttan sonra yeniden sayılır. */
+  function sayaciTazele(kodlar){
+    kodlar.filter(Boolean).forEach(function(dk){
+      var d = DB.dep(dk);
+      if(d && typeof d.personel === 'number') d.personel = kadroSayisi(dk);
+    });
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      var eskiDep = kayit.dep;
+      var degisen = 0;
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+
+      if(eskiDep !== kayit.dep) sayaciTazele([eskiDep, kayit.dep]);
+
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      /* Forma basılmayan alanlar varsayılanlarıyla yazılır — kayıt eksik alanla doğmaz.
+         doluluk 0 başlar: haftalık kapasite planına eklenene kadar yük hesabı yoktur. */
+      var yeni = Object.assign({
+        kod:kod, maas:0, doluluk:0, aktif:true
+      }, v);
+      yeni.kod = kod;
+      DB.employees.unshift(yeni);
+      sayaciTazele([yeni.dep]);
+
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Personel kaydı oluşturuldu — ' + yeni.pozisyon + ' · ' + DB.depName(yeni.dep),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-personel.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:EYEBROW,
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Personel',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-personel.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
