@@ -594,6 +594,7 @@
     'app-musteri-detay.html',
     'app-lead-detay.html',
     'app-teklif.html',
+    'app-teklif-detay.html',
     'app-personel.html',
     'app-pipeline.html',
     'app-referans.html',
