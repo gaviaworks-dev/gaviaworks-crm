@@ -632,6 +632,7 @@
     'app-satinalma.html',
     'app-satinalma-detay.html',
     'app-tedarikci.html',
+    'app-tedarikci-detay.html',
     'app-siparis.html',
     'app-sozlesme.html',
     'app-sozlesme-detay.html',
