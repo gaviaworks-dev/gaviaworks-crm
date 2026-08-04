@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Test Koşumu Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="test">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.emp, DB.empName
+     work.js → DB.tests, DB.projects, DB.projectModules, DB.sprints,
+               DB.bugs, DB.deliveries, DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.tests.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Projeler', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen test koşumu sistemde yok.',
+      actions:[{ label:'Testlere dön', cls:'btn-line', href:'app-proje-test.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-flask', title:'Test koşumu bulunamadı',
+      desc:'“' + esc(id) + '” numaralı test koşumu bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-test.html">Test listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Test Koşumu');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Test Koşumu') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Projeler',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Test Koşumu',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Testlere dön', cls:'btn-line', href:'app-proje-test.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Test koşumu düzenleme' : 'Test koşumu ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Koşumları görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-proje-test.html">Test listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-proje-test-detay.html?id=' + kayit.kod +
+                   '">Koşum kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     BAĞLAR — hepsi veride YAZILI alanlardan okunur (ders L-13, components.md §9d)
+       test.proje     → DB.projects
+       test.moduller  → DB.projectModules   (DİZİ — bir koşum çok modül tarar)
+       test.sprint    → DB.sprints          (tekil, null olabilir)
+       bug.test       → DB.bugs             (koşumun açtığı hatalar; ayna alan yok)
+       delivery.test  → DB.deliveries       (koşumun kabule bağladığı teslim)
+       activity.kayit → TST-xxx
+     ================================================================= */
+  var bagliHatalar   = duzenle ? DB.bugs.filter(function(b){ return b.test === kayit.kod; }) : [];
+  var bagliTeslimler = duzenle ? DB.deliveries.filter(function(d){ return d.test === kayit.kod; }) : [];
+  var acts = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Adres parametresiyle ön doldurma: ?proje=PRJ-xxx */
+  var qsProje = qs.get('proje');
+  var onProje = qsProje ? DB.proj(qsProje) : null;
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden; sözlük yoksa mevcut kayıtlardan türetilir
+     ================================================================= */
+  /* Koşum durumu sözlüğü veride koleksiyon olarak yok. Küme app-proje-test.html'in
+     durum filtresiyle birebir aynı üç değerdir (aynı ekseni iki yerde ayrıştırmamak için). */
+  var DURUMLAR = ['Planlandı','Devam ediyor','Tamamlandı'];
+
+  /* Test türü sözlüğü de veride YOK — küme mevcut koşumlardan türetilir, tür uydurulmaz. */
+  var TURLER = [];
+  DB.tests.forEach(function(t){ if(t.tur && TURLER.indexOf(t.tur) === -1) TURLER.push(t.tur); });
+  if(duzenle && kayit.tur && TURLER.indexOf(kayit.tur) === -1) TURLER.push(kayit.tur);
+
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){
+      var mod = DB.projectModules.filter(function(m){ return m.proje === p.kod; }).length;
+      return { value:p.kod, label:p.ad + ' · ' + p.kod + ' · ' + mod + ' modül' };
+    });
+
+  var CALISANLAR = DB.employees
+    .filter(function(e){ return e.aktif !== false || (duzenle && e.kod === kayit.sorumlu); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon + ' · ' + e.depAd }; });
+
+  function modulSecenek(projeKod){
+    return projeKod ? DB.projectModules.filter(function(m){ return m.proje === projeKod; }) : [];
+  }
+  function sprintSecenek(projeKod){
+    return projeKod ? DB.sprints.filter(function(s){ return s.proje === projeKod; }) : [];
+  }
+  /* Sprint aralığı kapsıyor mu — tarih ISO metin olduğu için doğrudan karşılaştırılır. */
+  function kapsar(s, tarih){ return !!tarih && s.baslangic <= tarih && tarih <= s.bitis; }
+  function kapsayanSprint(projeKod, tarih){
+    return sprintSecenek(projeKod).filter(function(s){ return kapsar(s, tarih); })[0] || null;
+  }
+  function sprintSecenekleri(projeKod, tarih){
+    return sprintSecenek(projeKod).map(function(s){
+      return { value:s.kod, label:s.ad + ' · ' + F.date(s.baslangic) + ' → ' + F.date(s.bitis) +
+        (kapsar(s, tarih) ? ' · koşum tarihini kapsıyor' : '') };
+    });
+  }
+  function sprintPlaceholder(projeKod, n){
+    if(!projeKod) return 'Önce proje seçin';
+    return n ? 'Sprint dışı — hiçbir aralığa düşmüyor' : 'Bu projede sprint kaydı yok';
+  }
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  /* Sayım ekseni: kaç koşumda başarılı + başarısız = toplam senaryo? */
+  var sayimTutan = DB.tests.filter(function(t){
+    return (t.basarili || 0) + (t.basarisiz || 0) === (t.senaryo || 0); }).length;
+  /* Sprint ekseni: kaç koşumun sprinti, koşum tarihini kapsayan sprintle aynı? */
+  var sprintTutan = 0, sprintsiz = 0;
+  DB.tests.forEach(function(t){
+    var k = kapsayanSprint(t.proje, t.tarih);
+    if(!t.sprint && !k) sprintsiz++;
+    if(t.sprint && k && t.sprint === k.kod) sprintTutan++;
+  });
+  /* Modül ekseni: kaç koşumun modül kapsamı yazılı? */
+  var modulYazili = DB.tests.filter(function(t){ return (t.moduller || []).length > 0; }).length;
+  /* QA ekseni: koşumları kim yürütüyor? */
+  var qaKosum = DB.tests.filter(function(t){
+    var e = DB.emp(t.sorumlu); return !!e && e.roller.indexOf('qa') !== -1; }).length;
+
+  var projeModulleri = duzenle ? modulSecenek(kayit.proje) : (onProje ? modulSecenek(onProje.kod) : []);
+  var projeSprintleri = duzenle ? sprintSecenek(kayit.proje) : (onProje ? sprintSecenek(onProje.kod) : []);
+
+  /* =================================================================
+     FORM KAYDI — dizi alanı (moduller) onay kutusu grubuna açılır.
+     GV.form'da `multiselect` tipi YOKTUR (components.md §4).
+     ================================================================= */
+  var MODUL_ON = 'mod_';
+  var formRec = {};
+  if(duzenle){
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.sprint = kayit.sprint || '';
+    formRec.aktif  = kayit.aktif !== false;
+    if(TURLER.indexOf(kayit.tur) === -1) formRec.tur = '';
+    projeModulleri.forEach(function(m){
+      formRec[MODUL_ON + m.kod] = (kayit.moduller || []).indexOf(m.kod) !== -1; });
+  }else{
+    formRec = {
+      ad:'', proje:(onProje ? onProje.kod : ''), tur:'', sorumlu:'',
+      durum:'Planlandı', tarih:DB.today,
+      senaryo:0, basarili:0, basarisiz:0, sprint:'', aktif:true
+    };
+    projeModulleri.forEach(function(m){ formRec[MODUL_ON + m.kod] = false; });
+  }
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  var ust = '';
+
+  if(duzenle){
+    var proje  = DB.proj(kayit.proje);
+    var sprintK = kayit.sprint
+      ? DB.sprints.filter(function(s){ return s.kod === kayit.sprint; })[0] || null : null;
+    var kosuldu = (kayit.senaryo || 0) > 0;
+    var oran    = kosuldu ? Math.round(kayit.basarili / kayit.senaryo * 100) : null;
+    var toplam  = (kayit.basarili || 0) + (kayit.basarisiz || 0);
+    var son     = acts[0];
+
+    /* ---- Katalog dışı tür uyarısı ---- */
+    if(TURLER.indexOf(kayit.tur) === -1){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'danger', title:'Kayıttaki test türü küme dışında',
+        text:'Bu koşumda “' + kayit.tur + '” türü yazılı ama tür kümesinde (' + TURLER.length +
+             ' değer) böyle bir değer yok. Tür alanı boş açıldı; kaydetmeden önce geçerli bir tür seçmelisiniz.'
+        }) + '</div></section>';
+    }
+
+    /* ---- İlişkili kayıt uyarısı — bağlar KARŞI kayıtta yazılı (yön kuralı §9d) ---- */
+    var bagAksiyon = [{ label:'Koşum kartını aç', href:'app-proje-test-detay.html?id=' + kayit.kod, cls:'btn-line' }];
+    if(proje) bagAksiyon.push({ label:'Projeyi aç', href:'app-proje-detay.html?id=' + proje.kod, cls:'btn-line' });
+    if(bagliHatalar.length) bagAksiyon.push({ label:'Projenin hataları', href:'app-proje-hata.html?q=' + kayit.proje, cls:'btn-line' });
+
+    var bagliSayi = bagliHatalar.length + bagliTeslimler.length;
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({
+        tone:bagliSayi ? 'warn' : 'info',
+        title:bagliSayi ? 'Bu koşuma bağlı ' + bagliSayi + ' kayıt var' : 'Bu koşuma bağlı kayıt yok',
+        text:(bagliHatalar.length
+              ? bagliHatalar.length + ' hata kaydının “test” alanı bu koşumu gösteriyor (' +
+                bagliHatalar.map(function(b){ return b.kod; }).join(', ') + '). Bağlı hata sayısı, ' +
+                'koşumun başarısız senaryo sayısını aşamaz — başarısız senaryo alanı ' + bagliHatalar.length +
+                ' değerinin altına indirilemez. '
+              : 'Hiçbir hata kaydının “test” alanı bu koşumu göstermiyor. ') +
+             (bagliTeslimler.length
+              ? bagliTeslimler.map(function(d){ return d.kod; }).join(', ') +
+                ' teslimi bu koşuma kabul testi olarak bağlı; bağ teslim kaydının “test” alanında yazılıdır, ' +
+                'koşumda ayna alan açılmaz. Bu bağ dururken koşum arşive alınamaz.'
+              : 'Hiçbir teslimin “test” alanı bu koşumu göstermiyor.'),
+        actions:bagAksiyon }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı ---- */
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Koşum numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Test adı', esc(kayit.ad)],
+        ['Proje', proje
+          ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+            sub(proje.kod + ' · ' + proje.durum + ' · sağlık: ' + proje.saglik)
+          : (kayit.proje ? '<span class="u-num">' + esc(kayit.proje) + '</span>' + sub('Proje kaydı bulunamadı') : null)],
+        ['Test türü', GV.badge(kayit.tur)],
+        ['Durum', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Koşan kişi', GV.user(kayit.sorumlu, { sm:true })],
+        ['Koşum tarihi', GV.dateCell(kayit.tarih, { done:kayit.durum === 'Tamamlandı' }) +
+          sub(F.rel(kayit.tarih))],
+        ['Senaryo', kosuldu
+          ? '<span class="u-num">' + F.num(kayit.senaryo) + '</span>' +
+            sub(kayit.basarili + ' başarılı · ' + kayit.basarisiz + ' başarısız')
+          : '<span class="u-faint">Henüz koşulmadı</span>'],
+        ['Başarı oranı', oran == null ? null : GV.progress(oran, { tone:oran === 100 ? 'ok' : oran >= 90 ? '' : oran >= 70 ? 'warn' : 'danger' })],
+        ['Sayım tutarlılığı', toplam === (kayit.senaryo || 0)
+          ? '<span class="badge is-ok no-dot">Başarılı + başarısız = toplam senaryo</span>'
+          : '<span class="badge is-danger no-dot">' + F.num(toplam) + ' ≠ ' + F.num(kayit.senaryo || 0) + '</span>'],
+        ['Kapsanan modül', (kayit.moduller || []).length
+          ? esc(kayit.moduller.map(function(k){ return DB.modName(k); }).join(' · '))
+          : '<span class="u-faint">Kapsam yazılı değil — proje ekseninde okunur</span>'],
+        ['Sprint', sprintK
+          ? esc(sprintK.ad) + sub(sprintK.kod + ' · ' + F.date(sprintK.baslangic) + ' → ' + F.date(sprintK.bitis))
+          : '<span class="u-faint">Sprint dışı koşum</span>'],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-proje-test-detay.html?id=' + kayit.kod + '">' +
+        ico('i-external','ic-sm') + ' Koşum kartını aç</a>');
+
+    /* ---- Senaryo bazlı döküm veride yok — formda da açılmaz ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'neutral', icon:'i-lock', title:'Senaryo bazlı döküm bu formda tutulmaz',
+      text:'Test kaydı yalnız toplam senaryo, başarılı ve başarısız sayılarını taşıyor; hangi senaryonun ' +
+           'düştüğü, adımları ve beklenen çıktısı veride yok. Bu yüzden formda senaryo satırı açılmaz, ' +
+           'üç sayı elle yazılır. Başarısız senaryolar hata kaydına dönüştürülünce bağ hata kaydının ' +
+           '“test” alanına yazılır.',
+      actions:[{ label:'Hata listesi', href:'app-proje-hata.html' + (kayit.proje ? '?q=' + kayit.proje : '') }] }) +
+      '</div></section>';
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni test koşumu kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki koşum numarası atanır, aktivite geçmişine “Test koşumu oluşturuldu” ' +
+           'satırı düşülür ve test listesine dönülür. Hata kaydı bu formda açılmaz: bağ hata kaydının ' +
+           '“test” alanında yazılır (components.md §9d yön kuralı), koşumda ayna alan tutulmaz. Aynı kural ' +
+           'teslim bağı için de geçerlidir — teslim kaydının “test” alanı doldurulur.',
+      actions:[{ label:'Testler', href:'app-proje-test.html' }] });
+
+    var projeNot = '';
+    if(qsProje && !onProje){
+      projeNot = GV.notice({ tone:'warn', title:'Adresteki proje bulunamadı',
+        text:'“' + qsProje + '” numaralı proje kaydı sistemde yok, bu yüzden proje alanı ön seçili gelmedi. ' +
+             'Listeden geçerli bir proje seçebilirsiniz; modül ve sprint seçenekleri o projeye göre yenilenir.',
+        actions:[{ label:'Projeler', href:'app-proje.html' }] });
+    }else if(onProje){
+      var onKosum = DB.tests.filter(function(t){ return t.proje === onProje.kod; }).length;
+      projeNot = GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
+        text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili açıldı. ' +
+             'Bu projenin ' + projeModulleri.length + ' modülü, ' + projeSprintleri.length + ' sprinti ve ' +
+             onKosum + ' test koşumu var. Kapsam ve sprint seçenekleri yalnız bu projeden gelir — ' +
+             'başka projenin modülü bir koşuma bağlanamaz.',
+        actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + onProje.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + projeNot + '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-flask') + 'Test Koşumu Künyesi</h2>' +
+        '<div class="gc-sub">DB.tests alanlarının tamamı · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-proje-test.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR — kapsam bölümü SEÇİLİ PROJEYE göre kurulur.
+     Proje değişince form yeniden kurulur; başka projenin modülü hiç
+     basılmaz, böylece "bağ verilen modül aynı projede" kuralı (canon
+     eksen 15) arayüzde de kırılamaz. Doğrulama yine de yazılıdır.
+     ================================================================= */
+  function bolumler(projeKod, tarih){
+    var mods    = modulSecenek(projeKod);
+    var sprints = sprintSecenekleri(projeKod, tarih);
+    var kapsayan = kapsayanSprint(projeKod, tarih);
+
+    var sections = [
+      { title:'Koşum kimliği',
+        desc:'Koşumun adı, projesi, türü ve sorumlusu. Koşum numarası kaydederken sistem tarafından ' +
+             'atanır, elle girilmez.',
+        fields:[
+          { key:'ad', label:'Test adı', type:'text', required:true, cols:12,
+            placeholder:'Örn. Mobil regresyon — Sprint 18',
+            validate:function(v, d){
+              var ayni = DB.tests.filter(function(t){
+                return (!duzenle || t.kod !== kayit.kod) && t.proje === d.proje &&
+                       String(t.ad).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+              return ayni ? 'Aynı projede aynı adla başka bir koşum var (' + ayni.kod + '). Ad ayırt edici olmalıdır.' : '';
+            } },
+          { key:'proje', label:'Proje', type:'select', options:PROJELER, required:true, cols:6,
+            placeholder:'Proje seçin',
+            hint:'Proje değişince kapsam (modül) ve sprint seçenekleri o projenin kayıtlarıyla yenilenir.' },
+          { key:'tur', label:'Test türü', type:'select', options:TURLER, required:true, cols:6,
+            placeholder:'Tür seçin',
+            hint:'Veride tür sözlüğü yok; küme mevcut koşumlardan türetildi (' + TURLER.join(', ') + ').',
+            validate:function(v){
+              return (v && TURLER.indexOf(v) === -1)
+                ? 'Test türü kümedeki ' + TURLER.length + ' değerden biri olmalıdır.' : '';
+            } },
+          { key:'sorumlu', label:'Koşan kişi', type:'select', options:CALISANLAR, required:true, cols:6,
+            placeholder:'Çalışan seçin',
+            hint:'Ölçüm: ' + DB.tests.length + ' koşumun ' + qaKosum + ' tanesini Test ve Kalite (QA) rolündeki ' +
+                 'bir çalışan yürütmüş; küme yine de tüm çalışanlara açıktır.' },
+          { key:'durum', label:'Koşum durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+            hint:'Veride durum sözlüğü koleksiyonu yok; küme test listesinin durum filtresiyle aynı üç değerdir.' }
+        ]},
+
+      { title:'Takvim ve sprint',
+        desc:'Koşumun tarihi ve düştüğü sprint. Sprint bağı veride yazılıdır — koşum tarihi hiçbir sprint ' +
+             'aralığına girmiyorsa en yakın sprinte YUVARLANMAZ, alan boş bırakılır (components.md §9).',
+        fields:[
+          { key:'tarih', label:'Koşum tarihi', type:'date', required:true, cols:6,
+            hint:'Sistem tarihi ' + F.date(DB.today) + '. Yalnız planlanan koşum ileri tarihli olabilir.',
+            validate:function(v, d){
+              if(!v) return '';
+              if(v > DB.today && d.durum !== 'Planlandı')
+                return 'Yalnız “Planlandı” durumundaki koşum ileri tarihli olabilir; koşulmuş bir test ' +
+                       'bugünden (' + F.date(DB.today) + ') sonra tarihlenemez.';
+              return '';
+            } },
+          { key:'sprint', label:'Sprint', type:'select', options:sprints, cols:6,
+            placeholder:sprintPlaceholder(projeKod, sprints.length),
+            hint:(projeKod
+                   ? 'Bu projede ' + sprints.length + ' sprint var' +
+                     (kapsayan ? '; koşum tarihi ' + kapsayan.kod + ' aralığına düşüyor.' : '; koşum tarihi hiçbir aralığa düşmüyor.')
+                   : 'Önce proje seçin — sprint kümesi projeden gelir.') +
+                 ' Ölçüm: ' + DB.tests.length + ' koşumun ' + sprintTutan + ' tanesinde sprint tarihi kapsayan sprinttir, ' +
+                 sprintsiz + ' tanesi hiçbir aralığa düşmediği için boştur.',
+            validate:function(v, d){
+              if(v){
+                var s = DB.sprints.filter(function(x){ return x.kod === v; })[0];
+                if(!s) return 'Seçilen sprint kaydı bulunamadı.';
+                if(s.proje !== d.proje)
+                  return 'Sprint başka bir projeye ait (' + s.proje + '); koşum ile sprint aynı projede olmalıdır.';
+                if(!kapsar(s, d.tarih))
+                  return s.kod + ' aralığı ' + F.date(s.baslangic) + ' → ' + F.date(s.bitis) +
+                         '; koşum tarihi bu aralığa düşmüyor. Koşum en yakın sprinte yuvarlanmaz — ' +
+                         'ya tarihi düzeltin ya da alanı boş bırakın.';
+                return '';
+              }
+              var k = kapsayanSprint(d.proje, d.tarih);
+              return k
+                ? 'Koşum tarihi ' + k.kod + ' sprintinin aralığına (' + F.date(k.baslangic) + ' → ' +
+                  F.date(k.bitis) + ') düşüyor; sprint alanı boş bırakılamaz.'
+                : '';
+            } }
+        ]},
+
+      { title:'Kapsam — taranan modüller',
+        desc:mods.length
+          ? 'Koşumun kapsadığı modüller. `moduller` bir DİZİDİR: bir koşum birden çok modülü tarayabilir. ' +
+            'Listede yalnız seçili projenin ' + mods.length + ' modülü var — başka projenin modülü bir koşuma ' +
+            'bağlanamaz. Ölçüm: ' + DB.tests.length + ' koşumun ' + modulYazili + ' tanesinde kapsam yazılı.'
+          : (projeKod
+              ? 'Seçili projenin modül kırılımı veride yok; kapsam proje ekseninde okunur ve “moduller” boş ' +
+                'dizi olarak kaydedilir. Modüller tanımlandığında burada onay kutusu olarak listelenir.'
+              : 'Önce proje seçin — modül kümesi projeden gelir.'),
+        fields:mods.map(function(m, i){
+          return { key:MODUL_ON + m.kod, type:'checkbox', cols:6,
+            label:m.ad,
+            checkLabel:m.ad + ' · ' + m.kod + ' · ' + m.durum + ' · %' + m.ilerleme,
+            validate:i === 0 ? function(v, d){
+              var secili = mods.filter(function(x){ return !!d[MODUL_ON + x.kod]; }).length;
+              return secili ? '' : 'Bu projenin ' + mods.length + ' modülü tanımlı; koşumun kapsadığı en az ' +
+                'bir modül işaretlenmelidir. Kapsam boş dizi yalnız modül kırılımı olmayan projelerde kalır.';
+            } : null };
+        }) },
+
+      { title:'Senaryo sonuçları',
+        desc:'Koşumun sayısal sonucu. Veride senaryo bazlı döküm tutulmaz; yalnız bu üç sayı yazılır. ' +
+             'Ölçüm: ' + DB.tests.length + ' koşumun ' + sayimTutan + ' tanesinde başarılı + başarısız = toplam senaryo.',
+        fields:[
+          { key:'senaryo', label:'Toplam senaryo', type:'number', required:true, min:0, cols:4,
+            hint:'Planlanan koşumda 0 kalabilir; tamamlanan koşumda en az 1 olmalıdır.',
+            validate:function(v, d){
+              if(d.durum === 'Tamamlandı' && sayi(v) < 1)
+                return 'Tamamlanmış koşumda toplam senaryo en az 1 olmalıdır.';
+              return '';
+            } },
+          { key:'basarili', label:'Başarılı senaryo', type:'number', required:true, min:0, cols:4,
+            hint:'Beklenen davranışı veren senaryo sayısı.',
+            validate:function(v, d){
+              if(d.durum === 'Planlandı' && (sayi(v) > 0 || sayi(d.basarisiz) > 0))
+                return 'Planlanan koşumda sonuç yazılamaz; başarılı ve başarısız sayıları 0 olmalıdır.';
+              return '';
+            } },
+          { key:'basarisiz', label:'Başarısız senaryo', type:'number', required:true, min:0, cols:4,
+            hint:duzenle && bagliHatalar.length
+              ? 'Bu koşuma ' + bagliHatalar.length + ' hata kaydı bağlı; bağlı hata sayısı başarısız senaryo ' +
+                'sayısını aşamaz (canon eksen 15).'
+              : 'Her düşen senaryo ayrı hata kaydı doğurmak zorunda değildir; kural yalnız şudur: ' +
+                'bağlı hata sayısı ≤ başarısız senaryo.',
+            validate:function(v, d){
+              var b = sayi(d.basarili), z = sayi(v), s = sayi(d.senaryo);
+              if(b + z > s)
+                return 'Başarılı + başarısız toplamı (' + (b + z) + ') toplam senaryo sayısını (' + s + ') aşamaz.';
+              if(d.durum === 'Tamamlandı' && b + z !== s)
+                return 'Tamamlanmış koşumda başarılı + başarısız toplamı (' + (b + z) +
+                       ') toplam senaryo sayısına (' + s + ') eşit olmalıdır.';
+              if(duzenle && z < bagliHatalar.length)
+                return 'Bu koşuma ' + bagliHatalar.length + ' hata kaydı bağlı (' +
+                       bagliHatalar.map(function(x){ return x.kod; }).join(', ') +
+                       '); başarısız senaryo sayısı bunun altına inemez.';
+              return '';
+            } }
+        ]},
+
+      { title:'Kayıt durumu',
+        desc:'Kaydın listelerde görünüp görünmeyeceği. Liste bileşeni “pasif” bayrağını arşiv sayar.',
+        fields:[
+          { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+            onLabel:'Kayıt aktif — listelerde ve seçim kutularında görünür',
+            hint:'Kapatılırsa koşum arşive düşer; bağlı hata ve teslim kayıtları silinmez.',
+            validate:function(v){
+              return (!v && bagliTeslimler.length)
+                ? bagliTeslimler.map(function(d){ return d.kod; }).join(', ') +
+                  ' teslimi bu koşuma kabul testi olarak bağlı; bağ dururken koşum arşive alınamaz.' : '';
+            } }
+        ]}
+    ];
+
+    /* Doğrulaması olmayan modül kutularından boş `validate` anahtarı temizlenir. */
+    sections.forEach(function(s){
+      (s.fields || []).forEach(function(f){ if(f.validate == null) delete f.validate; });
+    });
+    return sections;
+  }
+
+  /* =================================================================
+     FORMU KUR — proje değişince yeniden kurulur (kapsam kutuları değişir)
+     ================================================================= */
+  var formMount = document.getElementById('formMount');
+  var form = null;
+
+  function kur(rec){
+    form = GV.form({ mount:formMount, id:'test', record:rec, sections:bolumler(rec.proje, rec.tarih) });
+  }
+  kur(formRec);
+
+  /* Mount İÇİNDEKİ düğümler GV.form her kurulduğunda değişir; bu yüzden dinleyici
+     kalıcı olan formMount düğümüne ATAMA ile bağlanır (idempotent — ders L-16). */
+  formMount.onchange = function(e){
+    var el = e.target;
+    if(!el || !el.name) return;
+
+    if(el.name === 'proje'){
+      var eski = form.read();
+      var yeniProje = el.value;
+      var rec = {};
+      Object.keys(eski).forEach(function(k){
+        if(k.indexOf(MODUL_ON) === 0) return;          /* modül kutuları projeye göre yeniden kurulur */
+        rec[k] = eski[k];
+      });
+      rec.proje = yeniProje;
+      /* Sprint başka projeye aitse düşer — tahminle taşınmaz. */
+      var s = rec.sprint ? DB.sprints.filter(function(x){ return x.kod === rec.sprint; })[0] : null;
+      if(!s || s.proje !== yeniProje) rec.sprint = '';
+      /* Düzenlenen kaydın modülleri yeni projeye ait değilse hiç işaretlenmez. */
+      modulSecenek(yeniProje).forEach(function(m){
+        rec[MODUL_ON + m.kod] = duzenle && yeniProje === kayit.proje
+          ? (kayit.moduller || []).indexOf(m.kod) !== -1 : false;
+      });
+      kur(rec);
+      form.setDirty(true);
+      var yeniSec = formMount.querySelector('[name="proje"]');
+      if(yeniSec) yeniSec.focus();
+      GV.toast(yeniProje
+        ? DB.projName(yeniProje) + ' seçildi · kapsam ve sprint seçenekleri yenilendi'
+        : 'Proje seçimi kaldırıldı · kapsam ve sprint seçenekleri boşaldı', 'info');
+      return;
+    }
+
+    /* Tarih değişince sprint seçeneklerinin “kapsıyor” işareti tazelenir;
+       form yeniden kurulmaz, yalnız seçenek listesi yeniden yazılır. */
+    if(el.name === 'tarih'){
+      var sEl = formMount.querySelector('[name="sprint"]');
+      if(!sEl) return;
+      var pEl = formMount.querySelector('[name="proje"]');
+      var secili = sEl.value;
+      var pKod = pEl ? pEl.value : '';
+      var liste = sprintSecenekleri(pKod, el.value);
+      sEl.innerHTML = '<option value="">' + esc(sprintPlaceholder(pKod, liste.length)) + '</option>' +
+        liste.map(function(o){
+          return '<option value="' + esc(o.value) + '"' + (o.value === secili ? ' selected' : '') + '>' +
+                 esc(o.label) + '</option>';
+        }).join('');
+      sEl.value = liste.filter(function(o){ return o.value === secili; }).length ? secili : '';
+    }
+  };
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    ad:'Test adı', proje:'Proje', tur:'Test türü', sorumlu:'Koşan kişi', durum:'Koşum durumu',
+    tarih:'Koşum tarihi', sprint:'Sprint', moduller:'Kapsanan modüller',
+    senaryo:'Toplam senaryo', basarili:'Başarılı senaryo', basarisiz:'Başarısız senaryo',
+    aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.tests.forEach(function(x){
+      var m = /^TST-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'TST-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer. */
+  function norm(x){
+    if(Array.isArray(x)) return x.join(' | ');
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(k === 'moduller') return (v || []).length ? (v || []).map(DB.modName).join(', ') : '—';
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşivlendi';
+    if(k === 'sorumlu') return DB.empName(v);
+    if(k === 'proje') return DB.projName(v) + ' (' + v + ')';
+    if(k === 'tarih') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){
+      if(k.indexOf(MODUL_ON) === 0) return;            /* modül kutuları ayrı toplanır */
+      v[k] = raw[k];
+    });
+
+    /* Kapsam dizisi YALNIZ seçili projenin modüllerinden kurulur (canon eksen 15). */
+    v.moduller = modulSecenek(v.proje)
+      .filter(function(m){ return !!raw[MODUL_ON + m.kod]; })
+      .map(function(m){ return m.kod; });
+
+    v.ad        = String(v.ad || '').trim();
+    v.senaryo   = sayi(v.senaryo);
+    v.basarili  = sayi(v.basarili);
+    v.basarisiz = sayi(v.basarisiz);
+    v.sprint    = String(v.sprint || '').trim() || null;   /* boş = sprint dışı, uydurulmaz */
+    v.aktif     = !!v.aktif;
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      DB.tests.unshift({
+        kod:kod, proje:v.proje, ad:v.ad, tur:v.tur, senaryo:v.senaryo,
+        basarili:v.basarili, basarisiz:v.basarisiz, sorumlu:v.sorumlu, tarih:v.tarih,
+        durum:v.durum, moduller:v.moduller, sprint:v.sprint, aktif:v.aktif
+      });
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Test koşumu oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ veride YAZILI olduğu için projenin geçmişine de bir satır düşülür (ders L-13). */
+      if(v.proje){
+        DB.activities.unshift({
+          kayit:v.proje, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Test koşumu ' + kod + ' açıldı', eski:null, yeni:v.ad, tone:'accent', icon:'i-flask'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-proje-test.html'; }, 700);
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  /* Alan sayısı sabit yazılmaz, kurulan bölümlerden sayılır. Kapsam onay kutusu grubu
+     mantıksal olarak TEK alandır (modül sayısı projeye göre değişir), öyle sayılır. */
+  var kurulanBolumler = bolumler(formRec.proje, formRec.tarih);
+  var alanSayisi = kurulanBolumler.reduce(function(n, s){
+    return n + (s.title.indexOf('Kapsam') === 0 ? 1 : (s.fields || []).length); }, 0);
+  var zorunlu = [];
+  kurulanBolumler.forEach(function(s){
+    (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  GV.pageHead({
+    eyebrow:'Projeler',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Test Koşumu',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-proje-test.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
