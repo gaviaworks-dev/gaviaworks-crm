@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Görev Ver — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="gorev" data-screen="bana">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.departments, DB.emp, DB.empName, DB.depName, DB.today
+     crm.js  → DB.customers
+     ops.js  → DB.tickets            (destek → görev bağı, components.md §9d)
+     work.js → DB.tasks, DB.subtasks, DB.taskDeps, DB.taskStatuses, DB.taskTypes,
+               DB.priorities, DB.impacts, DB.taskTransitions, DB.projects,
+               DB.projectModules, DB.sprints, DB.bugs, DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function tam(v){ return Math.round(sayi(v)); }
+  function metinDizi(t){
+    return String(t == null ? '' : t).split(',').map(function(s){ return s.trim(); })
+      .filter(function(s){ return s.length > 0; });
+  }
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.tasks.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'İş Takibi', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen görev sistemde yok.',
+      actions:[{ label:'Görevlere dön', cls:'btn-line', href:'app-gorev.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Görev bulunamadı',
+      desc:'“' + esc(id) + '” numaralı görev bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-gorev.html">Görevlere dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Görev');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Görev') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'İş Takibi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Görev',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Görevlere dön', cls:'btn-line', href:'app-gorev.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Görev düzenleme' : 'Görev oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Görevleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-gorev.html">Görevlere dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-gorev-detay.html?id=' + kayit.kod + '">Görevi görüntüle</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     BAĞLAR — hepsi veride YAZILI tekil bağdan okunur (ders L-13)
+       hata → görev : DB.bugs[].gorev   (görevde ayna alan YOK, components.md §9d)
+       destek → görev: DB.tasks[].destek
+     ================================================================= */
+  var hataBagi = duzenle
+    ? DB.bugs.filter(function(b){ return b.gorev === kayit.kod; })[0] || null
+    : null;
+
+  /* Hatadan doğan görevde şiddet → etki eşlemesi (components.md §9):
+     şiddet 'Kritik' → etki 'Çok yüksek', diğer üçü birebir. */
+  function etkiEsle(siddet){ return siddet === 'Kritik' ? 'Çok yüksek' : siddet; }
+
+  /* Adres parametreleri: ?proje= · ?sprint= · ?hata= */
+  var qsProje  = qs.get('proje');
+  var qsSprint = qs.get('sprint');
+  var qsHata   = qs.get('hata');
+  var onProje  = qsProje  ? DB.projects.filter(function(p){ return p.kod === qsProje;  })[0] || null : null;
+  var onSprint = qsSprint ? DB.sprints.filter(function(s){ return s.kod === qsSprint; })[0] || null : null;
+  var onHata   = qsHata   ? DB.bugs.filter(function(b){ return b.kod === qsHata;    })[0] || null : null;
+  /* Adresteki hata zaten başka bir göreve bağlıysa bağ İKİNCİ kez kurulmaz. */
+  var onHataDolu = !!(onHata && onHata.gorev);
+  var yeniHata   = (!duzenle && onHata && !onHataDolu) ? onHata : null;
+
+  /* Sprint ile proje çelişirse açık verilen proje kazanır, sprint düşürülür. */
+  var sprintCelisti = !!(onProje && onSprint && onSprint.proje !== onProje.kod);
+  if(sprintCelisti) onSprint = null;
+
+  /* Etki eşlemesinin uygulandığı hata kaydı (iki modda da aynı kural). */
+  var hata = duzenle ? hataBagi : yeniHata;
+
+  var destekTalebi = duzenle && kayit.destek
+    ? DB.tickets.filter(function(t){ return t.kod === kayit.destek; })[0] || null : null;
+
+  var acts = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — durum/tür/öncelik/etki SÖZLÜKTEN gelir
+     ================================================================= */
+  var DURUMLAR = DB.taskStatuses;      /* 19 */
+  var TURLER   = DB.taskTypes;         /* 18 */
+  var ONCELIK  = DB.priorities;        /* 4  */
+  var ETKILER  = DB.impacts;           /* 4  */
+
+  /* Aciliyet için veride sözlük YOK — küme koleksiyondaki kullanılan değerlerden
+     türetilir, uydurma değer eklenmez (kalıp: app-onanaliz-form.html sureBirim). */
+  var ACILIYET = [];
+  DB.tasks.forEach(function(t){
+    if(t.aciliyet && ACILIYET.indexOf(t.aciliyet) === -1) ACILIYET.push(t.aciliyet);
+  });
+  if(duzenle && kayit.aciliyet && ACILIYET.indexOf(kayit.aciliyet) === -1) ACILIYET.push(kayit.aciliyet);
+
+  /* Tekrar sıklığı sözlüğü de veride yok — aynı yordamla türetilir. */
+  var TEKRARLAR = [];
+  DB.tasks.forEach(function(t){
+    if(t.tekrar && TEKRARLAR.indexOf(t.tekrar) === -1) TEKRARLAR.push(t.tekrar);
+  });
+  if(duzenle && kayit.tekrar && TEKRARLAR.indexOf(kayit.tekrar) === -1) TEKRARLAR.push(kayit.tekrar);
+
+  /* Bağımlılık ilişki türü sözlüğü de yok; '—' sentinel'i kümeye ALINMAZ. */
+  var BAGIM_TUR = [];
+  DB.taskDeps.forEach(function(d){
+    if(d.tur && d.tur !== '—' && BAGIM_TUR.indexOf(d.tur) === -1) BAGIM_TUR.push(d.tur);
+  });
+
+  var KISILER = DB.employees
+    .filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+
+  var DEPARTMANLAR = DB.departments
+    .filter(function(d){ return d.aktif || (duzenle && d.kod === kayit.dep); })
+    .map(function(d){ return { value:d.kod, label:d.ad + (d.aktif ? '' : ' (pasif)') }; });
+
+  var MUSTERILER = DB.customers
+    .filter(function(c){ return c.aktif !== false || (duzenle && c.kod === kayit.musteri); })
+    .map(function(c){ return { value:c.kod, label:c.kisa + ' · ' + c.kod }; });
+
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){ return { value:p.kod, label:p.ad + ' · ' + p.durum }; });
+
+  var TALEPLER = DB.tickets
+    .filter(function(t){ return t.aktif !== false || (duzenle && t.kod === kayit.destek); })
+    .map(function(t){ return { value:t.kod, label:t.kod + ' · ' + t.baslik }; });
+
+  function modulSecenek(proje){
+    return DB.projectModules.filter(function(m){ return m.proje === proje; })
+      .map(function(m){ return { value:m.kod, label:m.ad + ' · ' + m.durum }; });
+  }
+  function sprintSecenek(proje){
+    return DB.sprints.filter(function(s){ return s.proje === proje; })
+      .map(function(s){ return { value:s.kod, label:s.ad + ' · ' + s.durum }; });
+  }
+
+  /* =================================================================
+     ALT GÖREVLER VE BAĞIMLILIKLAR — GV.form alanı DEĞİLDİR.
+     Kalıp: app-teklif-form.html kalem tablosu. Tamponda tutulur,
+     kaydederken gerçekten DB.subtasks / DB.taskDeps'e yazılır.
+     ================================================================= */
+  var altlar = duzenle
+    ? DB.subtasks.filter(function(s){ return s.ustGorev === kayit.kod; })
+        .map(function(s){ return { kod:s.kod, baslik:s.baslik, tamam:!!s.tamam, sorumlu:s.sorumlu }; })
+    : [];
+
+  var hamBagimlilik = duzenle
+    ? DB.taskDeps.filter(function(d){ return d.gorev === kayit.kod || d.bagimli === kayit.kod; })
+    : [];
+  var bosBagimlilik = 0;
+  var bagimliliklar = [];
+  hamBagimlilik.forEach(function(d){
+    var giden = d.gorev === kayit.kod;
+    var digeri = giden ? d.bagimli : d.gorev;
+    var hedef = digeri ? DB.tasks.filter(function(t){ return t.kod === digeri; })[0] : null;
+    if(!hedef){ bosBagimlilik++; return; }        /* hedefsiz kayıt tamponlanmaz */
+    bagimliliklar.push({ yon:giden ? 'giden' : 'gelen', digeri:digeri, tur:d.tur });
+  });
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var EKIP = DB.employees.filter(function(e){ return e.aktif; });
+  var formRec = {};
+
+  if(duzenle){
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.etiketler = (kayit.etiketler || []).join(', ');
+    EKIP.forEach(function(e){
+      formRec['yrd_' + e.kod] = (kayit.yardimci || []).indexOf(e.kod) !== -1;
+      formRec['izl_' + e.kod] = (kayit.izleyiciler || []).indexOf(e.kod) !== -1;
+    });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    var baslangicProje = onProje ? onProje.kod : (onSprint ? onSprint.proje : '');
+    var projeKaydi = baslangicProje
+      ? DB.projects.filter(function(p){ return p.kod === baslangicProje; })[0] || null : null;
+    var hataProje = yeniHata
+      ? DB.projects.filter(function(p){ return p.kod === yeniHata.proje; })[0] || null : null;
+    if(yeniHata && !projeKaydi){ projeKaydi = hataProje; baslangicProje = hataProje ? hataProje.kod : ''; }
+
+    /* Hatadan gelen modül/sprint yalnız aynı projedeyse ön seçilir — çapraz proje bağı yazılmaz. */
+    var hataModul = (yeniHata && yeniHata.modul && baslangicProje === yeniHata.proje) ? yeniHata.modul : '';
+    var hataSprint = (yeniHata && yeniHata.sprint && baslangicProje === yeniHata.proje) ? yeniHata.sprint : '';
+
+    formRec = {
+      baslik: yeniHata ? yeniHata.baslik : '',
+      tur:    yeniHata ? 'Hata' : '',
+      etiketler:'', aciklama:'', amac:'',
+      musteri: projeKaydi ? projeKaydi.musteri : '',
+      proje:   baslangicProje || '',
+      modul:   hataModul,
+      sprint:  onSprint ? onSprint.kod : hataSprint,
+      dep:     GV.session.dep || '',
+      /* Hatanın destek bağı göreve KOPYALANMAZ: talep → hata → görev zinciri
+         türetilmiş bir bağdır, veride yazılı değildir (ders L-13). */
+      destek:  '',
+      veren:   GV.session.emp, sorumlu:'', kontrolEden:'', onaylayan:'',
+      oncelik: yeniHata ? yeniHata.oncelik : 'Orta',
+      etki:    yeniHata ? etkiEsle(yeniHata.siddet) : 'Orta',
+      aciliyet:'Orta',
+      baslangic:'', termin:'', tamamlanma:'',
+      tahminiSure:'', gercekSure:0, faturalanabilir:0, ilerleme:0,
+      revizyon:0, yenidenAcilma:0,
+      kabulKriteri:'', beklenenCikti:'', teslimEdilenCikti:'',
+      engelNedeni:'', gecikmeNedeni:'', revizeNot:'', tekrar:'',
+      durum:'Havuzda', aktif:true
+    };
+    EKIP.forEach(function(e){ formRec['yrd_' + e.kod] = false; formRec['izl_' + e.kod] = false; });
+  }
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+
+  var ust = '';
+
+  if(duzenle){
+    /* ---- Hata bağı: veride YAZILI tekil bağ + şiddet → etki eşlemesi ---- */
+    if(hataBagi){
+      var beklenenEtki = etkiEsle(hataBagi.siddet);
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone: kayit.etki === beklenenEtki ? 'ok' : 'warn',
+        title:'Bu görev bir hata kaydından doğdu',
+        text:hataBagi.kod + ' (' + hataBagi.baslik + ') hatasının düzeltme görevidir. Bağ ' + hataBagi.kod +
+             ' kaydının “gorev” alanında yazılı; görev kartında ayna alan tutulmaz. Hatanın şiddeti “' +
+             hataBagi.siddet + '” olduğu için görevin etki seviyesi “' + beklenenEtki + '” olmalıdır' +
+             (kayit.etki === beklenenEtki
+               ? ' ve kayıt bu kurala uyuyor.'
+               : '; kayıtta “' + kayit.etki + '” yazılı. Etki alanı eşlemeye göre düzeltilmeden kaydedilemez.') +
+             ' Etki alanı bu yüzden kilitli bir kural altındadır.',
+        actions:[{ label:'Hatayı aç', href:'app-proje-hata-detay.html?id=' + hataBagi.kod, cls:'btn-line' }]
+      }) + '</div></section>';
+    }else if(kayit.tur === 'Hata'){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', title:'Görev türü “Hata” ama bağlı bir hata kaydı yok',
+        text:'Hata ↔ görev bağı yalnız hata kaydının “gorev” alanında tutulur (components.md §9d); ' +
+             'görev formundan yazılamaz. Bu görevi bir hataya bağlamak için hata kartındaki ' +
+             'göreve dönüştürme akışı kullanılır. Bağ kurulunca etki seviyesi hatanın şiddetinden gelir.',
+        actions:[{ label:'Hata listesi', href:'app-proje-hata.html', cls:'btn-line' }]
+      }) + '</div></section>';
+    }
+
+    /* ---- İlişkili kayıtlar ---- */
+    var iliskiSatir = [];
+    if(altlar.length) iliskiSatir.push(altlar.length + ' alt görev / kontrol maddesi');
+    if(bagimliliklar.length) iliskiSatir.push(bagimliliklar.length + ' bağımlılık kaydı');
+    if(destekTalebi) iliskiSatir.push(destekTalebi.kod + ' destek talebi');
+
+    var iliskiAksiyon = [{ label:'Görev kartını aç', href:'app-gorev-detay.html?id=' + kayit.kod, cls:'btn-line' }];
+    if(destekTalebi) iliskiAksiyon.push({ label:'Destek talebini aç', href:'app-destek-detay.html?id=' + destekTalebi.kod, cls:'btn-line' });
+
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({
+        tone:iliskiSatir.length ? 'warn' : 'info',
+        title:iliskiSatir.length ? 'Bu göreve bağlı başka kayıtlar var' : 'Bu göreve bağlı başka kayıt yok',
+        text:(iliskiSatir.length
+                ? iliskiSatir.join(' · ') + '. Alt görevler ve bağımlılıklar bu formdan yönetilir; ' +
+                  'kaydettiğinizde alt görev ve bağımlılık kayıtları formdaki liste ile birebir eşitlenir.'
+                : 'Görev şu an alt görev, bağımlılık ve destek bağı taşımıyor. Aşağıdaki listelerden ekleyebilirsiniz.'),
+        actions:iliskiAksiyon }) +
+      (bosBagimlilik
+        ? GV.notice({ tone:'danger', title:'Hedefi olmayan bağımlılık kaydı bulundu',
+            text:'Bu görevin ' + bosBagimlilik + ' bağımlılık kaydında karşı görev boş (bagimli: null) ve ' +
+                 'ilişki türü “—” sentinel’i. Kaydı bu formdan onaramazsınız; kaydettiğinizde bu satır ' +
+                 'bağımlılık listesinden düşer. Veri düzeltmesi olarak orkestratöre bildirilmelidir.' })
+        : '') +
+      '</div></section>';
+
+    /* ---- Bağlam kartı ---- */
+    var son = acts[0];
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Kayıt Özeti</h2>' +
+        '<div class="gc-head-acts"><a class="btn btn-line btn-sm" href="app-gorev-detay.html?id=' + kayit.kod + '">' +
+          ico('i-external','ic-sm') + ' Görev kartını aç</a></div></div>' +
+      '<div class="gc-body">' + dl([
+        ['Görev numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Başlık', esc(kayit.baslik)],
+        ['Durum', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Görev türü', '<span class="tag">' + esc(kayit.tur) + '</span>'],
+        ['Öncelik / etki', GV.pri(kayit.oncelik) + ' <span class="tag">' + esc(kayit.etki) + '</span>'],
+        ['Proje', kayit.proje
+          ? '<a href="app-proje-detay.html?id=' + kayit.proje + '">' + esc(DB.projName(kayit.proje)) + '</a>'
+          : null],
+        ['Müşteri', kayit.musteri
+          ? '<a href="app-musteri-detay.html?id=' + kayit.musteri + '">' +
+            esc((DB.customers.filter(function(c){ return c.kod === kayit.musteri; })[0] || {}).kisa || kayit.musteri) + '</a>'
+          : null],
+        ['Departman', esc(DB.depName(kayit.dep))],
+        ['Görevi oluşturan', GV.user(kayit.olusturan, { sm:true }) + sub('Oluşturan alanı formda değiştirilemez')],
+        ['Ana sorumlu', kayit.sorumlu ? GV.user(kayit.sorumlu, { sm:true }) : null],
+        ['Termin', GV.dateCell(kayit.termin, { done:kayit.durum === 'Tamamlandı' }) + sub(F.rel(kayit.termin))],
+        ['İlerleme', GV.progress(kayit.ilerleme)],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div></section>';
+
+    if(!canFinans){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-lock', title:'Faturalandırılabilir süre alanı bu formda yok',
+        text:'Rolünüzde finansal yetki (' + GV.session.rolAd + ') tanımlı olmadığı için faturalandırılabilir ' +
+             'süre alanı forma hiç basılmadı. Bu kaydın mevcut değeri (' + F.hours(kayit.faturalanabilir) +
+             ') kaydettiğinizde olduğu gibi korunur.' }) + '</div></section>';
+    }
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametrelerinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni görev kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki görev numarası atanır, görevi oluşturan olarak siz (' + GV.session.ad +
+           ') yazılır, aktivite geçmişine “Görev oluşturuldu” satırı düşer, girdiğiniz alt görev ve ' +
+           'bağımlılık kayıtları oluşturulur ve görev listesine dönülür.',
+      actions:[{ label:'Görevler', href:'app-gorev.html' }] });
+
+    var parNot = '';
+    if(qsProje && !onProje){
+      parNot += GV.notice({ tone:'warn', title:'Adresteki proje bulunamadı',
+        text:'“' + qsProje + '” numaralı proje sistemde yok, bu yüzden proje alanı ön seçili gelmedi.',
+        actions:[{ label:'Projeler', href:'app-proje.html' }] });
+    }
+    if(qsSprint && !onSprint && !sprintCelisti){
+      parNot += GV.notice({ tone:'warn', title:'Adresteki sprint bulunamadı',
+        text:'“' + qsSprint + '” numaralı sprint sistemde yok, bu yüzden sprint alanı ön seçili gelmedi.',
+        actions:[{ label:'Sprintler', href:'app-proje-sprint.html' }] });
+    }
+    if(sprintCelisti){
+      parNot += GV.notice({ tone:'danger', title:'Adresteki sprint ile proje çelişiyor',
+        text:'“' + qsSprint + '” sprinti “' + qsProje + '” projesine ait değil. Tahmini bir bağ yazılmaz: ' +
+             'proje ön seçili geldi, sprint boş bırakıldı. Sprint listesinden projeye ait bir sprint seçebilirsiniz.' });
+    }
+    if(onProje || onSprint){
+      var p0 = onProje || DB.projects.filter(function(p){ return p.kod === onSprint.proje; })[0];
+      parNot += GV.notice({ tone:'ok', title:'Proje bağlamı adresten geldi',
+        text:(p0 ? p0.ad : '') + ' projesi ön seçili geldi; müşteri alanı projenin müşterisiyle dolduruldu' +
+             (onSprint ? ', sprint “' + onSprint.ad + '” olarak seçildi' : '') +
+             '. Modül ve sprint listeleri seçili projeye göre daraltılır.',
+        actions:[{ label:'Projeyi aç', href:'app-proje-detay.html?id=' + (p0 ? p0.kod : '') }] });
+    }
+    if(qsHata && !onHata){
+      parNot += GV.notice({ tone:'warn', title:'Adresteki hata kaydı bulunamadı',
+        text:'“' + qsHata + '” numaralı hata sistemde yok; görev boş forma açıldı.',
+        actions:[{ label:'Hatalar', href:'app-proje-hata.html' }] });
+    }else if(onHataDolu){
+      parNot += GV.notice({ tone:'danger', title:'Adresteki hata zaten bir göreve bağlı',
+        text:onHata.kod + ' hatası ' + onHata.gorev + ' görevine bağlı. Hata ↔ görev bağı tekildir; ' +
+             'ikinci bir bağ yazılmaz. Bu form bağsız yeni bir görev olarak açıldı.',
+        actions:[{ label:'Bağlı görevi aç', href:'app-gorev-detay.html?id=' + onHata.gorev }] });
+    }else if(yeniHata){
+      parNot += GV.notice({ tone:'ok', title:'Görev bir hata kaydından açılıyor',
+        text:yeniHata.kod + ' (' + yeniHata.baslik + ') hatasının şiddeti “' + yeniHata.siddet +
+             '”; components.md §9 eşlemesine göre görevin etki seviyesi “' + etkiEsle(yeniHata.siddet) +
+             '” olarak dolduruldu ve bu değerde kalmak zorundadır. Başlık, proje, modül, sprint ve öncelik ' +
+             'de hata kaydından geldi. Kaydettiğinizde bağ ' + yeniHata.kod + ' kaydının “gorev” alanına yazılır.',
+        actions:[{ label:'Hatayı aç', href:'app-proje-hata-detay.html?id=' + yeniHata.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + parNot +
+      (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock',
+        title:'Faturalandırılabilir süre alanı bu formda yok',
+        text:'Rolünüzde finansal yetki tanımlı değil. Faturalandırılabilir süre alanı forma basılmadı; ' +
+             'yeni görev bu alanda sıfır ile açılır ve değeri yetkili bir rol girer.' })) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-tasks') + 'Görev Kartı</h2>' +
+        '<div class="gc-sub">PROMPT.md §12 görev kartı alanları · durum, tür, öncelik ve etki sözlükten gelir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card" id="altKart">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clipboard-check') + 'Alt Görevler ve Kontrol Listesi</h2>' +
+        '<div class="gc-sub">Kaydedince alt görev kayıtları bu liste ile eşitlenir.</div></div>' +
+        '<div class="gc-head-acts"><button type="button" class="btn btn-line btn-sm" data-alt-ekle>' +
+          ico('i-plus','ic-sm') + ' Alt görev ekle</button></div></div>' +
+      '<div id="altBody"></div>' +
+    '</section>' +
+
+    '<section class="gv-card" id="bagKart">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-git') + 'Bağımlılıklar</h2>' +
+        '<div class="gc-sub">Bu görevin beklediği ve bu görevi bekleyen görevler.</div></div>' +
+        '<div class="gc-head-acts"><button type="button" class="btn btn-line btn-sm" data-bag-ekle>' +
+          ico('i-plus','ic-sm') + ' Bağımlılık ekle</button></div></div>' +
+      '<div id="bagBody"></div>' +
+    '</section>' +
+
+    '<section class="gv-card"><div class="gc-foot">' +
+      '<a class="btn btn-line" href="app-gorev.html">Vazgeç</a>' +
+      '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+        (duzenle ? 'Değişiklikleri kaydet' : 'Görevi oluştur') + '</button>' +
+    '</div></section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR — PROMPT.md §12 görev kartı
+     ================================================================= */
+  var ACIK_DEGIL = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  var SORUMLU_GEREKMEZ = ['Taslak','Havuzda','Atama bekliyor'];
+  var BASLADI = ['Devam ediyor','Kontrol bekliyor','Revize bekliyor','Revizede','Onay bekliyor','Tamamlandı'];
+  var KONTROL_GEREKIR = ['Kontrol bekliyor','Revize bekliyor','Revizede','Onay bekliyor','Tamamlandı'];
+  var ONAY_GEREKIR = ['Onay bekliyor','Tamamlandı'];
+
+  var yrdAlanlar = EKIP.map(function(e){
+    return { key:'yrd_' + e.kod, label:e.ad, type:'checkbox', cols:3,
+      checkLabel:e.ad + ' · ' + DB.depName(e.dep),
+      validate:function(v, d){
+        if(v && d.sorumlu === e.kod) return e.ad + ' ana sorumlu olarak seçili; aynı kişi yardımcı sorumlu olamaz.';
+        return '';
+      } };
+  });
+  var izlAlanlar = EKIP.map(function(e){
+    return { key:'izl_' + e.kod, label:e.ad, type:'checkbox', cols:3,
+      checkLabel:e.ad + ' · ' + DB.depName(e.dep) };
+  });
+
+  var sections = [
+    { title:'Görev tanımı',
+      desc:'Görevin ne olduğu ve neden yapıldığı. Görev türü PROMPT.md §12’nin 18 türlük sözlüğünden seçilir.',
+      fields:[
+        { key:'baslik', label:'Görev başlığı', type:'text', required:true, cols:8,
+          placeholder:'Örn. Tahlil sonuç ekranında PDF indirme hatası düzeltilecek' },
+        { key:'tur', label:'Görev türü', type:'select', options:TURLER, required:true, cols:4,
+          placeholder:'Tür seçin',
+          hint:'Sözlükteki ' + TURLER.length + ' türden biri; serbest metin kabul edilmez.',
+          validate:function(v){
+            return (v && TURLER.indexOf(v) === -1) ? 'Görev türü sözlükteki değerlerden biri olmalıdır.' : '';
+          } },
+        { key:'aciklama', label:'Ayrıntılı açıklama', type:'textarea', rows:3, required:true, cols:12,
+          placeholder:'Sorunun / işin ayrıntısı, hangi koşulda ortaya çıktığı, nelerin etkilendiği' },
+        { key:'amac', label:'Görev amacı', type:'textarea', rows:2, required:true, cols:8,
+          placeholder:'Örn. Store yayın onayı öncesi kritik hata giderilmeli' },
+        { key:'etiketler', label:'Etiketler', type:'text', cols:4,
+          placeholder:'iOS, Kritik, Store engeli',
+          hint:'Virgülle ayırın. Çip/etiket alanı ortak bileşende yok, metin olarak alınıp diziye çevrilir.' }
+      ]},
+
+    { title:'Bağlam ve bağlar',
+      desc:'Görevin hangi müşteri, proje, modül, sprint ve departmanla ilgili olduğu. Bağ alanları veride ' +
+           'yazılır, tarih ya da isim benzerliğinden türetilmez (components.md §9d).',
+      fields:[
+        { key:'proje', label:'Proje', type:'select', options:PROJELER, cols:6,
+          placeholder:'Proje seçin (iç iş ise boş bırakın)',
+          hint:'Proje seçilince müşteri, modül ve sprint listeleri projeye göre güncellenir.',
+          validate:function(v, d){
+            if(!v && d.tur === 'Proje görevi') return 'Proje görevi türünde proje seçilmelidir.';
+            return '';
+          } },
+        { key:'musteri', label:'Müşteri', type:'select', options:MUSTERILER, cols:6,
+          placeholder:'Müşteri seçin (iç iş ise boş bırakın)',
+          validate:function(v, d){
+            if(!d.proje) return '';
+            var p = DB.projects.filter(function(x){ return x.kod === d.proje; })[0];
+            if(p && v !== p.musteri)
+              return 'Seçili projenin müşterisi ' + (DB.customers.filter(function(c){ return c.kod === p.musteri; })[0] || {}).kisa +
+                     '; görev müşterisi projeyle aynı olmalıdır.';
+            return '';
+          } },
+        { key:'modul', label:'Proje modülü', type:'select', options:modulSecenek(formRec.proje), cols:6,
+          placeholder:'Modül seçin (opsiyonel)',
+          hint:'Yalnız seçili projenin modülleri listelenir.',
+          validate:function(v, d){
+            if(!v) return '';
+            var m = DB.projectModules.filter(function(x){ return x.kod === v; })[0];
+            if(!m) return 'Seçilen modül bulunamadı.';
+            if(m.proje !== d.proje) return 'Modül seçili projeye ait değil.';
+            return '';
+          } },
+        { key:'sprint', label:'Sprint', type:'select', options:sprintSecenek(formRec.proje), cols:6,
+          placeholder:'Sprint seçin (opsiyonel)',
+          validate:function(v, d){
+            if(!v) return '';
+            var s = DB.sprints.filter(function(x){ return x.kod === v; })[0];
+            if(!s) return 'Seçilen sprint bulunamadı.';
+            if(s.proje !== d.proje) return 'Sprint seçili projeye ait değil.';
+            return '';
+          } },
+        { key:'dep', label:'Sorumlu departman', type:'select', options:DEPARTMANLAR, required:true, cols:6,
+          placeholder:'Departman seçin' },
+        { key:'destek', label:'Doğuran destek talebi', type:'select', options:TALEPLER, cols:6,
+          placeholder:'Destek talebi seçin (yoksa boş bırakın)',
+          hint:'Görev bir destek talebinden doğduysa bağ burada yazılır (DB.tasks[].destek). Belirsizse boş bırakın.' }
+      ]},
+
+    { title:'Sorumluluk',
+      desc:'Görevi kimin verdiği, kimin yaptığı, kimin kontrol ve onay ettiği.' +
+           (duzenle ? ' Görevi oluşturan alanı kayıt açıldığında yazılır ve değiştirilmez.' : ''),
+      fields:[
+        { key:'veren', label:'Görevi veren', type:'select', options:KISILER, required:true, cols:6,
+          placeholder:'Kişi seçin' },
+        { key:'sorumlu', label:'Ana sorumlu', type:'select', options:KISILER, cols:6,
+          placeholder:'Kişi seçin (havuz görevinde boş bırakılabilir)',
+          hint:'Havuzda / taslak / atama bekleyen görevde boş kalabilir; diğer tüm durumlarda zorunludur.',
+          validate:function(v, d){
+            if(!v && SORUMLU_GEREKMEZ.indexOf(d.durum) === -1)
+              return '“' + d.durum + '” durumundaki görevin ana sorumlusu boş bırakılamaz.';
+            return '';
+          } },
+        { key:'kontrolEden', label:'Kontrol eden', type:'select', options:KISILER, cols:6,
+          placeholder:'Kişi seçin',
+          validate:function(v, d){
+            if(!v && KONTROL_GEREKIR.indexOf(d.durum) !== -1)
+              return '“' + d.durum + '” durumu kontrol adımını çalıştırır; kontrol eden seçilmelidir.';
+            return '';
+          } },
+        { key:'onaylayan', label:'Onaylayan', type:'select', options:KISILER, cols:6,
+          placeholder:'Kişi seçin',
+          validate:function(v, d){
+            if(!v && ONAY_GEREKIR.indexOf(d.durum) !== -1)
+              return '“' + d.durum + '” durumu onay adımını çalıştırır; onaylayan seçilmelidir.';
+            return '';
+          } }
+      ]},
+
+    { title:'Yardımcı sorumlular',
+      desc:'Göreve destek veren çalışanlar. Çoklu seçim alanı ortak bileşende yok; onay kutusu grubu kullanılır.',
+      fields:yrdAlanlar },
+
+    { title:'İzleyiciler',
+      desc:'Görevde değişiklik olduğunda bilgilendirilecek çalışanlar.',
+      fields:izlAlanlar },
+
+    { title:'Önceliklendirme',
+      desc:'Öncelik ve etki sözlükten gelir. Aynı kelime (Yüksek / Orta / Düşük) üç ayrı eksende geçtiği ' +
+           'için alanlar ayrı ayrı seçilir (components.md §5).',
+      fields:[
+        { key:'oncelik', label:'Öncelik', type:'select', options:ONCELIK, required:true, cols:4,
+          placeholder:'Öncelik seçin',
+          hint:'Sözlük: ' + ONCELIK.join(' · ') },
+        { key:'etki', label:'Etki seviyesi', type:'select', options:ETKILER, required:true, cols:4,
+          placeholder:'Etki seçin',
+          hint:hata
+            ? 'Bağlı hata ' + hata.kod + ' · şiddet “' + hata.siddet + '” → etki “' + etkiEsle(hata.siddet) +
+              '” (components.md §9 eşlemesi, değiştirilemez).'
+            : 'Sözlük: ' + ETKILER.join(' · ') + ' — öncelikten ayrı bir eksendir.',
+          validate:function(v){
+            if(hata && v !== etkiEsle(hata.siddet))
+              return 'Bu görev ' + hata.kod + ' hatasından doğuyor; şiddeti “' + hata.siddet +
+                     '” olduğu için etki “' + etkiEsle(hata.siddet) + '” olmalıdır.';
+            return '';
+          } },
+        { key:'aciliyet', label:'Aciliyet', type:'select', options:ACILIYET, required:true, cols:4,
+          placeholder:'Aciliyet seçin',
+          hint:'Veride aciliyet sözlüğü yok; küme mevcut kayıtlardan türetildi (' + ACILIYET.join(', ') + ').' }
+      ]},
+
+    { title:'Zaman ve efor',
+      desc:'Planlanan ve gerçekleşen zaman. Süreler saat cinsindendir.',
+      fields:[
+        { key:'baslangic', label:'Başlangıç tarihi', type:'date', cols:4,
+          validate:function(v, d){
+            if(!v && BASLADI.indexOf(d.durum) !== -1)
+              return '“' + d.durum + '” durumundaki görevin başlangıç tarihi boş olamaz.';
+            return '';
+          } },
+        { key:'termin', label:'Termin tarihi', type:'date', required:true, cols:4,
+          validate:function(v, d){
+            return (v && d.baslangic && v < d.baslangic)
+              ? 'Termin tarihi başlangıç tarihinden önce olamaz.' : '';
+          } },
+        { key:'tamamlanma', label:'Tamamlanma tarihi', type:'date', cols:4,
+          hint:'Yalnız tamamlanmış ya da arşivlenmiş görevde dolu olur.',
+          validate:function(v, d){
+            if(d.durum === 'Tamamlandı' && !v) return 'Tamamlandı durumundaki görevde tamamlanma tarihi zorunludur.';
+            if(v && ['Tamamlandı','Arşivlendi'].indexOf(d.durum) === -1)
+              return 'Görev “' + d.durum + '” durumundayken tamamlanma tarihi yazılamaz.';
+            if(v && d.baslangic && v < d.baslangic) return 'Tamamlanma tarihi başlangıçtan önce olamaz.';
+            return '';
+          } },
+        { key:'tahminiSure', label:'Tahmini süre (saat)', type:'number', required:true, min:0, cols:4,
+          hint:'Çeyrek saat girilebilir (örn. 6,5 için 6.5).' },
+        { key:'gercekSure', label:'Gerçekleşen süre (saat)', type:'number', min:0, cols:4,
+          hint:'Görev kartındaki toplam. Zaman kayıtları ayrı bir eksendir; bu alandan türetilmez.' },
+        { key:'ilerleme', label:'İlerleme', type:'percent', min:0, max:100, cols:4,
+          hint:altlar.length
+            ? 'Kontrol listesi ' + altlar.filter(function(a){ return a.tamam; }).length + '/' + altlar.length +
+              ' tamam. İlerleme yüzdesi veride ayrı bir alandır, kontrol listesinden hesaplanmaz.'
+            : 'Görevin tamamlanma yüzdesi.',
+          validate:function(v, d){
+            if(d.durum === 'Tamamlandı' && tam(v) !== 100) return 'Tamamlandı durumundaki görevin ilerlemesi %100 olmalıdır.';
+            return '';
+          } },
+        { key:'revizyon', label:'Revizyon sayısı', type:'number', min:0, cols:6,
+          hint:'Kaç kez revizyon istendiği. Revize akışı bu sayacı görev kartından artırır.' },
+        { key:'yenidenAcilma', label:'Yeniden açılma sayısı', type:'number', min:0, cols:6,
+          hint:'Kapandıktan sonra kaç kez yeniden açıldığı.' }
+      ]},
+
+    { title:'Kabul ve çıktı',
+      desc:'Görevin ne zaman “bitti” sayıldığı ve ortaya ne çıktığı.',
+      fields:[
+        { key:'kabulKriteri', label:'Kabul kriterleri', type:'textarea', rows:3, required:true, cols:6,
+          placeholder:'Örn. iOS 16/17/18 cihazlarda PDF indirilebilmeli, hata log kaydı temiz olmalı' },
+        { key:'beklenenCikti', label:'Beklenen çıktı', type:'text', required:true, cols:6,
+          placeholder:'Örn. Düzeltme PR + test raporu' },
+        { key:'teslimEdilenCikti', label:'Teslim edilen çıktı / tamamlanma kanıtı', type:'text', cols:12,
+          placeholder:'Örn. PR #142 · test-raporu-v18.pdf',
+          hint:'Tamamlandı durumunda zorunludur; kalite kontrolünün dayanağıdır.',
+          validate:function(v, d){
+            return (d.durum === 'Tamamlandı' && !String(v || '').trim())
+              ? 'Tamamlandı durumundaki görevde teslim edilen çıktı yazılmalıdır.' : '';
+          } }
+      ]},
+
+    { title:'Engel, gecikme ve tekrar',
+      desc:'Görevin ilerlemesini durduran nedenler. Durum geçiş kuralları (DB.taskTransitions) bu alanları zorunlu kılar.',
+      fields:[
+        { key:'engelNedeni', label:'Engel nedeni', type:'textarea', rows:2, cols:6,
+          placeholder:'Örn. Müşteri Logo API test hesabını hâlâ açmadı',
+          validate:function(v, d){
+            return (d.durum === 'Engellendi' && !String(v || '').trim())
+              ? 'Engellendi durumu için engel nedeni zorunludur (durum geçiş kuralı).' : '';
+          } },
+        { key:'gecikmeNedeni', label:'Gecikme nedeni', type:'textarea', rows:2, cols:6,
+          placeholder:'Örn. Kapsam dışı revizyon zinciri',
+          hint:'Termini geçmiş açık görevlerde doldurulması beklenir.' },
+        { key:'revizeNot', label:'Revizyon notu', type:'textarea', rows:2, cols:6,
+          placeholder:'Neyin düzeltilmesi gerekiyor?',
+          validate:function(v, d){
+            return (d.durum === 'Revize bekliyor' && !String(v || '').trim())
+              ? 'Revize bekliyor durumu için revizyon notu zorunludur (durum geçiş kuralı).' : '';
+          } },
+        { key:'tekrar', label:'Tekrar sıklığı', type:'select', options:TEKRARLAR, cols:6,
+          placeholder:'Tekrarlamıyor',
+          hint:'Veride tekrar sözlüğü yok; küme mevcut kayıtlardan türetildi (' +
+               (TEKRARLAR.length ? TEKRARLAR.join(', ') : 'kayıt yok') + ').',
+          validate:function(v, d){
+            if(d.tur === 'Tekrarlayan görev' && !v) return 'Tekrarlayan görev türünde tekrar sıklığı seçilmelidir.';
+            if(v && d.tur !== 'Tekrarlayan görev') return 'Tekrar sıklığı yalnız “Tekrarlayan görev” türünde yazılır.';
+            return '';
+          } }
+      ]}
+  ];
+
+  /* Faturalandırılabilir süre yetkiye bağlıdır — yetkisi olmayan role HİÇ basılmaz. */
+  if(canFinans){
+    var zamanBolum = sections.filter(function(s){ return s.title === 'Zaman ve efor'; })[0];
+    zamanBolum.fields.splice(5, 0, {
+      key:'faturalanabilir', label:'Faturalandırılabilir süre (saat)', type:'number', min:0, cols:4,
+      hint:'Müşteriye yansıyan süre; gerçekleşen süreyi aşamaz.',
+      validate:function(v, d){
+        return sayi(v) > sayi(d.gercekSure)
+          ? 'Faturalandırılabilir süre gerçekleşen süreden (' + sayi(d.gercekSure) + ' sa) büyük olamaz.' : '';
+      } });
+  }
+
+  sections.push({
+    title:'Kayıt durumu',
+    desc:'Görevin süreçteki durumu ve kaydın listelerde görünüp görünmeyeceği.',
+    fields:[
+      { key:'durum', label:'Görev durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        placeholder:'Durum seçin',
+        hint: duzenle && DB.taskTransitions[kayit.durum]
+          ? 'Şu anki durum “' + kayit.durum + '” · izin verilen geçişler: ' +
+            DB.taskTransitions[kayit.durum].next.join(', ') + '.'
+          : 'Sözlükteki ' + DURUMLAR.length + ' durumdan biri.',
+        validate:function(v){
+          if(!duzenle || v === kayit.durum) return '';
+          var rule = DB.taskTransitions[kayit.durum];
+          if(rule && rule.next.indexOf(v) === -1)
+            return '“' + kayit.durum + '” durumundan “' + v + '” durumuna geçiş tanımlı değil. ' +
+                   'İzin verilen geçişler: ' + rule.next.join(', ') + '.';
+          return '';
+        } },
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
+        onLabel:'Kayıt aktif — listelerde ve seçim kutularında görünür',
+        hint:'Kapatılırsa görev arşive düşer.',
+        validate:function(v){
+          var gelen = bagimliliklar.filter(function(b){ return b.yon === 'gelen'; });
+          if(!v && gelen.length)
+            return gelen.length + ' görev bu göreve bağlı; bağımlılıklar dururken kayıt arşive alınamaz.';
+          return '';
+        } }
+    ]});
+
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+
+  var form = GV.form({ mount:'#formMount', id:'gorev', record:formRec, sections:sections });
+
+  /* =================================================================
+     PROJEYE BAĞLI LİSTELER — proje değişince modül/sprint/müşteri yenilenir.
+     Dinleyiciler mount İÇİNDEKİ düğümlere bağlanır (ders L-16).
+     ================================================================= */
+  var elProje   = form.el.querySelector('[name="proje"]');
+  var elModul   = form.el.querySelector('[name="modul"]');
+  var elSprint  = form.el.querySelector('[name="sprint"]');
+  var elMusteri = form.el.querySelector('[name="musteri"]');
+
+  function doldur(el, list, secili, bosMetin){
+    if(!el) return;
+    el.innerHTML = '<option value="">' + esc(bosMetin) + '</option>' +
+      list.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (o.value === secili ? ' selected' : '') + '>' +
+               esc(o.label) + '</option>';
+      }).join('');
+    var varMi = list.filter(function(o){ return o.value === secili; }).length > 0;
+    el.value = varMi ? secili : '';
+  }
+
+  if(elProje){
+    elProje.addEventListener('change', function(){
+      var kod = elProje.value;
+      doldur(elModul,  modulSecenek(kod),  elModul ? elModul.value : '',  kod ? 'Modül seçin (opsiyonel)' : 'Önce proje seçin');
+      doldur(elSprint, sprintSecenek(kod), elSprint ? elSprint.value : '', kod ? 'Sprint seçin (opsiyonel)' : 'Önce proje seçin');
+      var p = DB.projects.filter(function(x){ return x.kod === kod; })[0];
+      if(p && elMusteri) elMusteri.value = p.musteri;
+      if(!kod && elMusteri) elMusteri.value = '';
+    });
+  }
+
+  /* =================================================================
+     ALT GÖREVLER — kendi tablosu ve modalı (GV.form alanı değil).
+     ui.js'te düzenlenebilir satır tablosu bileşeni yok; tablo ortak
+     markup sınıflarıyla kurulur. ≤760px'te .gv-tablewrap gizlenir
+     (UID-14) — aynı veriden .gv-cardlist karşılığı da basılır.
+     ================================================================= */
+  function altKod(){
+    var max = 0;
+    DB.subtasks.concat(altlar).forEach(function(s){
+      var m = /^ALT-(\d+)$/.exec(s.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'ALT-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  function altCiz(){
+    var hedef = document.getElementById('altBody');
+    if(!hedef) return;
+    if(!altlar.length){
+      hedef.innerHTML = '<div class="gc-body flush">' + GV.empty({
+        icon:'i-clipboard-check', title:'Alt görev eklenmedi',
+        desc:'Görevi kontrol edilebilir maddelere bölün. Alt görev eklemeden de kayıt tamamlanabilir.',
+        action:'<button type="button" class="btn btn-acc" data-alt-ekle>' +
+               '<svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg> İlk maddeyi ekle</button>'
+      }) + '</div>';
+      return;
+    }
+    var tamamSayi = altlar.filter(function(a){ return a.tamam; }).length;
+    hedef.innerHTML =
+      '<div class="gc-body flush">' +
+        '<div class="gv-tablewrap"><table class="gtable"><thead><tr>' +
+          '<th class="num th-narrow">Sıra</th><th>Alt görev</th><th>Sorumlu</th><th>Durum</th>' +
+          '<th class="col-acts"><span class="gv-sr">İşlemler</span></th>' +
+        '</tr></thead><tbody>' +
+        altlar.map(function(a, i){
+          return '<tr>' +
+            '<td class="num"><span class="u-num">' + (i + 1) + '</span></td>' +
+            '<td class="cell-wrap"><span class="cell-main">' + esc(a.baslik) + '</span>' +
+              '<span class="cell-code">' + esc(a.kod) + '</span></td>' +
+            '<td>' + GV.user(a.sorumlu, { sm:true }) + '</td>' +
+            '<td>' + (a.tamam ? '<span class="badge is-ok">Tamamlandı</span>' : '<span class="tag">Bekliyor</span>') + '</td>' +
+            '<td class="col-acts"><span class="cell-acts">' +
+              '<button type="button" class="ia" data-alt-duzenle="' + i + '" title="Alt görevi düzenle" ' +
+                'aria-label="Alt görevi düzenle">' + ico('i-edit','ic-sm') + '</button>' +
+              '<button type="button" class="ia is-danger" data-alt-sil="' + i + '" title="Alt görevi sil" ' +
+                'aria-label="Alt görevi sil">' + ico('i-trash','ic-sm') + '</button>' +
+            '</span></td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="gv-cardlist">' + altlar.map(function(a, i){
+          return '<div class="gv-mrow">' +
+            '<div class="gv-mrow-top"><span class="cell-main">' + (i + 1) + '. ' + esc(a.baslik) + '</span>' +
+              (a.tamam ? '<span class="badge is-ok">Tamam</span>' : '<span class="tag">Bekliyor</span>') + '</div>' +
+            '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(DB.empName(a.sorumlu)) + '</span>' +
+              '<span>' + esc(a.kod) + '</span></div>' +
+            '<div class="gv-mrow-bottom"><span class="cell-acts">' +
+              '<button type="button" class="ia" data-alt-duzenle="' + i + '" aria-label="Alt görevi düzenle">' +
+                ico('i-edit','ic-sm') + '</button>' +
+              '<button type="button" class="ia is-danger" data-alt-sil="' + i + '" aria-label="Alt görevi sil">' +
+                ico('i-trash','ic-sm') + '</button>' +
+            '</span></div></div>';
+        }).join('') + '</div>' +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<span class="gv-count"><b>' + altlar.length + '</b> madde · ' + tamamSayi + ' tamam · ' +
+          (altlar.length - tamamSayi) + ' bekliyor</span>' +
+        '<button type="button" class="btn btn-line btn-sm" data-alt-ekle>' +
+          ico('i-plus','ic-sm') + ' Alt görev ekle</button>' +
+      '</div>';
+  }
+
+  function altModal(idx){
+    var yeni = idx == null;
+    var a = yeni ? { kod:altKod(), baslik:'', tamam:false, sorumlu:(form.read().sorumlu || GV.session.emp) } : altlar[idx];
+    var body = '<div class="gv-fields">' +
+      '<div class="field f-col-12"><label for="aBaslik">Alt görev başlığı<span class="req" aria-hidden="true">*</span></label>' +
+        '<input type="text" class="inp" id="aBaslik" value="' + esc(a.baslik) + '" ' +
+        'placeholder="Örn. Düzeltme 3 cihazda doğrulandı"></div>' +
+      '<div class="field f-col-12"><label for="aSorumlu">Sorumlu<span class="req" aria-hidden="true">*</span></label>' +
+        '<select id="aSorumlu">' + KISILER.map(function(o){
+          return '<option value="' + esc(o.value) + '"' + (o.value === a.sorumlu ? ' selected' : '') + '>' +
+                 esc(o.label) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field f-col-12"><label class="f-check"><input type="checkbox" id="aTamam"' +
+        (a.tamam ? ' checked' : '') + '><span>Bu madde tamamlandı</span></label></div>' +
+      '</div>';
+
+    GV.modal({
+      title: yeni ? 'Alt görev ekle' : 'Alt görevi düzenle',
+      text: yeni ? 'Madde kaydedildiğinde alt görev kaydı olarak yazılır.' : a.kod,
+      icon:'i-clipboard-check', size:'lg', body:body,
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label: yeni ? 'Maddeyi ekle' : 'Maddeyi güncelle', cls:'btn-acc', icon:'i-check',
+          onClick:function(close, el){
+            var baslik = el.querySelector('#aBaslik').value.trim();
+            if(!baslik){ GV.toast('Alt görev başlığı zorunludur', 'danger'); return false; }
+            var kayitYeni = { kod:a.kod, baslik:baslik, tamam:el.querySelector('#aTamam').checked,
+                              sorumlu:el.querySelector('#aSorumlu').value };
+            if(yeni) altlar.push(kayitYeni); else altlar[idx] = kayitYeni;
+            altCiz();
+            form.setDirty(true);
+            GV.toast(yeni ? 'Alt görev eklendi — ' + baslik : 'Alt görev güncellendi — ' + baslik, 'ok');
+          } }
+      ]
+    });
+  }
+
+  /* =================================================================
+     BAĞIMLILIKLAR
+     ================================================================= */
+  function bagMetin(b){
+    var o = DB.tasks.filter(function(t){ return t.kod === b.digeri; })[0] || {};
+    return b.yon === 'giden'
+      ? 'Bu görev ' + String(b.tur).toLowerCase() + ' → ' + (o.baslik || b.digeri)
+      : (o.baslik || b.digeri) + ' → bu görev';
+  }
+
+  function bagCiz(){
+    var hedef = document.getElementById('bagBody');
+    if(!hedef) return;
+    if(!bagimliliklar.length){
+      hedef.innerHTML = '<div class="gc-body flush">' + GV.empty({
+        icon:'i-git', title:'Bağımlılık eklenmedi',
+        desc:'Bu görev başka bir göreve bağlı değil ve hiçbir görevi engellemiyor. ' +
+             'Bağımlılık kaydı iki görev arasında tek satır olarak tutulur.',
+        action:'<button type="button" class="btn btn-acc" data-bag-ekle>' +
+               '<svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg> İlk bağımlılığı ekle</button>'
+      }) + '</div>';
+      return;
+    }
+    hedef.innerHTML =
+      '<div class="gc-body flush">' +
+        '<div class="gv-tablewrap"><table class="gtable"><thead><tr>' +
+          '<th>Karşı görev</th><th>İlişki</th><th>Yön</th><th>Karşı görevin durumu</th>' +
+          '<th class="col-acts"><span class="gv-sr">İşlemler</span></th>' +
+        '</tr></thead><tbody>' +
+        bagimliliklar.map(function(b, i){
+          var o = DB.tasks.filter(function(t){ return t.kod === b.digeri; })[0] || {};
+          return '<tr>' +
+            '<td class="cell-wrap"><a class="cell-main" href="app-gorev-detay.html?id=' + esc(b.digeri) + '">' +
+              esc(o.baslik || b.digeri) + '</a><span class="cell-code">' + esc(b.digeri) + '</span></td>' +
+            '<td><span class="tag">' + esc(b.tur) + '</span></td>' +
+            '<td><span class="cell-sub">' + esc(b.yon === 'giden' ? 'Bu görevin kaydı' : 'Karşı görevin kaydı') + '</span></td>' +
+            '<td>' + GV.badge(o.durum) + '</td>' +
+            '<td class="col-acts"><span class="cell-acts">' +
+              '<button type="button" class="ia" data-bag-duzenle="' + i + '" title="Bağımlılığı düzenle" ' +
+                'aria-label="Bağımlılığı düzenle">' + ico('i-edit','ic-sm') + '</button>' +
+              '<button type="button" class="ia is-danger" data-bag-sil="' + i + '" title="Bağımlılığı sil" ' +
+                'aria-label="Bağımlılığı sil">' + ico('i-trash','ic-sm') + '</button>' +
+            '</span></td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="gv-cardlist">' + bagimliliklar.map(function(b, i){
+          var o = DB.tasks.filter(function(t){ return t.kod === b.digeri; })[0] || {};
+          return '<div class="gv-mrow">' +
+            '<div class="gv-mrow-top"><span class="cell-main">' + esc(bagMetin(b)) + '</span>' +
+              '<span class="tag">' + esc(b.tur) + '</span></div>' +
+            '<div class="gv-mrow-meta"><span>' + esc(b.digeri) + '</span>' +
+              '<span>' + esc(o.durum || '—') + '</span></div>' +
+            '<div class="gv-mrow-bottom"><span class="cell-acts">' +
+              '<button type="button" class="ia" data-bag-duzenle="' + i + '" aria-label="Bağımlılığı düzenle">' +
+                ico('i-edit','ic-sm') + '</button>' +
+              '<button type="button" class="ia is-danger" data-bag-sil="' + i + '" aria-label="Bağımlılığı sil">' +
+                ico('i-trash','ic-sm') + '</button>' +
+            '</span></div></div>';
+        }).join('') + '</div>' +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<span class="gv-count"><b>' + bagimliliklar.length + '</b> bağımlılık · ' +
+          bagimliliklar.filter(function(b){ return b.yon === 'giden'; }).length + ' bu görevin kaydı</span>' +
+        '<button type="button" class="btn btn-line btn-sm" data-bag-ekle>' +
+          ico('i-plus','ic-sm') + ' Bağımlılık ekle</button>' +
+      '</div>';
+  }
+
+  function bagModal(idx){
+    var yeni = idx == null;
+    var b = yeni ? { yon:'giden', digeri:'', tur:BAGIM_TUR[0] || '' } : bagimliliklar[idx];
+    var secenek = DB.tasks
+      .filter(function(t){ return !duzenle || t.kod !== kayit.kod; })
+      .map(function(t){ return { value:t.kod, label:t.kod + ' · ' + t.baslik }; });
+
+    function opts(list, secili){
+      return list.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (o.value === secili ? ' selected' : '') + '>' +
+               esc(o.label) + '</option>'; }).join('');
+    }
+
+    var body = '<div class="gv-fields">' +
+      '<div class="field f-col-12"><label for="bYon">Kaydın yönü<span class="req" aria-hidden="true">*</span></label>' +
+        '<select id="bYon">' + opts([
+          { value:'giden', label:'Bu görevin kaydı — bu görev karşı göreve bağlı' },
+          { value:'gelen', label:'Karşı görevin kaydı — karşı görev bu göreve bağlı' }
+        ], b.yon) + '</select>' +
+        '<div class="f-hint">Bağımlılık iki görev arasında tek satırda tutulur; yön kaydın hangi görevin ' +
+        'üzerinde yazıldığını belirler.</div></div>' +
+      '<div class="field f-col-12"><label for="bGorev">Karşı görev<span class="req" aria-hidden="true">*</span></label>' +
+        '<select id="bGorev"><option value="">Görev seçin</option>' + opts(secenek, b.digeri) + '</select></div>' +
+      '<div class="field f-col-12"><label for="bTur">İlişki türü<span class="req" aria-hidden="true">*</span></label>' +
+        '<select id="bTur">' + opts(BAGIM_TUR.map(function(t){ return { value:t, label:t }; }), b.tur) + '</select>' +
+        '<div class="f-hint">Veride ilişki türü sözlüğü yok; küme mevcut bağımlılık kayıtlarından türetildi (' +
+        (BAGIM_TUR.length ? BAGIM_TUR.join(', ') : 'kayıt yok') + ').</div></div>' +
+      '</div>';
+
+    GV.modal({
+      title: yeni ? 'Bağımlılık ekle' : 'Bağımlılığı düzenle',
+      text: yeni ? 'Bağ kaydedildiğinde bağımlılık kaydı olarak yazılır.' : bagMetin(b),
+      icon:'i-git', size:'lg', body:body,
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label: yeni ? 'Bağımlılığı ekle' : 'Bağımlılığı güncelle', cls:'btn-acc', icon:'i-check',
+          onClick:function(close, el){
+            var digeri = el.querySelector('#bGorev').value;
+            var yon    = el.querySelector('#bYon').value;
+            var tur    = el.querySelector('#bTur').value;
+            if(!digeri){ GV.toast('Karşı görev seçilmelidir', 'danger'); return false; }
+            if(!tur){ GV.toast('İlişki türü seçilmelidir', 'danger'); return false; }
+            if(duzenle && digeri === kayit.kod){ GV.toast('Görev kendine bağlanamaz', 'danger'); return false; }
+            var cakisma = bagimliliklar.filter(function(x, i2){
+              return i2 !== idx && x.digeri === digeri && x.yon === yon; }).length;
+            if(cakisma){ GV.toast('Bu görevle aynı yönde bir bağımlılık zaten var', 'danger'); return false; }
+            var kayitYeni = { yon:yon, digeri:digeri, tur:tur };
+            if(yeni) bagimliliklar.push(kayitYeni); else bagimliliklar[idx] = kayitYeni;
+            bagCiz();
+            form.setDirty(true);
+            GV.toast(yeni ? 'Bağımlılık eklendi' : 'Bağımlılık güncellendi', 'ok');
+          } }
+      ]
+    });
+  }
+
+  altCiz();
+  bagCiz();
+
+  /* Delege dinleyiciler mount İÇİNDEKİ kartlara bağlanır (ders L-16). */
+  document.getElementById('altKart').addEventListener('click', function(e){
+    if(e.target.closest('[data-alt-ekle]')){ altModal(null); return; }
+    var d = e.target.closest('[data-alt-duzenle]');
+    if(d){ altModal(+d.dataset.altDuzenle); return; }
+    var s = e.target.closest('[data-alt-sil]');
+    if(s){
+      var i = +s.dataset.altSil, a = altlar[i];
+      if(!a) return;
+      GV.confirm({ title:'Alt görevi sil', tone:'danger', okLabel:'Sil',
+        text:'“' + a.baslik + '” maddesi kontrol listesinden çıkarılacak. Kaydettiğinizde alt görev kaydı silinir.'
+      }).then(function(ok){
+        if(!ok) return;
+        altlar.splice(i, 1); altCiz(); form.setDirty(true);
+        GV.toast('Alt görev silindi — ' + a.baslik, 'ok');
+      });
+    }
+  });
+
+  document.getElementById('bagKart').addEventListener('click', function(e){
+    if(e.target.closest('[data-bag-ekle]')){ bagModal(null); return; }
+    var d2 = e.target.closest('[data-bag-duzenle]');
+    if(d2){ bagModal(+d2.dataset.bagDuzenle); return; }
+    var s2 = e.target.closest('[data-bag-sil]');
+    if(s2){
+      var i2 = +s2.dataset.bagSil, b2 = bagimliliklar[i2];
+      if(!b2) return;
+      GV.confirm({ title:'Bağımlılığı sil', tone:'danger', okLabel:'Sil',
+        text:bagMetin(b2) + ' bağı kaldırılacak. Kaydettiğinizde bağımlılık kaydı silinir.'
+      }).then(function(ok){
+        if(!ok) return;
+        bagimliliklar.splice(i2, 1); bagCiz(); form.setDirty(true);
+        GV.toast('Bağımlılık silindi', 'ok');
+      });
+    }
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    baslik:'Görev başlığı', tur:'Görev türü', aciklama:'Ayrıntılı açıklama', amac:'Görev amacı',
+    etiketler:'Etiketler', proje:'Proje', musteri:'Müşteri', modul:'Proje modülü', sprint:'Sprint',
+    dep:'Sorumlu departman', destek:'Doğuran destek talebi', veren:'Görevi veren', sorumlu:'Ana sorumlu',
+    yardimci:'Yardımcı sorumlular', izleyiciler:'İzleyiciler', kontrolEden:'Kontrol eden',
+    onaylayan:'Onaylayan', oncelik:'Öncelik', etki:'Etki seviyesi', aciliyet:'Aciliyet',
+    baslangic:'Başlangıç tarihi', termin:'Termin tarihi', tamamlanma:'Tamamlanma tarihi',
+    tahminiSure:'Tahmini süre', gercekSure:'Gerçekleşen süre', faturalanabilir:'Faturalandırılabilir süre',
+    ilerleme:'İlerleme', revizyon:'Revizyon sayısı', yenidenAcilma:'Yeniden açılma sayısı',
+    kabulKriteri:'Kabul kriterleri', beklenenCikti:'Beklenen çıktı',
+    teslimEdilenCikti:'Teslim edilen çıktı', engelNedeni:'Engel nedeni',
+    gecikmeNedeni:'Gecikme nedeni', revizeNot:'Revizyon notu', tekrar:'Tekrar sıklığı',
+    durum:'Görev durumu', aktif:'Kayıt durumu'
+  };
+
+  var KISI_ALAN = ['veren','sorumlu','kontrolEden','onaylayan'];
+  var SAYI_ALAN = ['tahminiSure','gercekSure','faturalanabilir'];
+  var TAM_ALAN  = ['ilerleme','revizyon','yenidenAcilma'];
+  var BOS_NULL  = ['proje','musteri','modul','sprint','destek','sorumlu','kontrolEden','onaylayan',
+                   'baslangic','tamamlanma','tekrar'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.tasks.forEach(function(x){
+      var m = /^GRV-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'GRV-' + String(DB.today).slice(0, 4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  function norm(x){
+    if(Array.isArray(x)) return x.join(' | ');
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(Array.isArray(v)) return v.length ? v.map(function(x){
+      return KISI_ALAN.indexOf(k) !== -1 || k === 'yardimci' || k === 'izleyiciler' ? DB.empName(x) : x;
+    }).join(', ') : '—';
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşiv';
+    if(KISI_ALAN.indexOf(k) !== -1) return DB.empName(v);
+    if(k === 'dep') return DB.depName(v);
+    if(k === 'proje') return DB.projName(v);
+    if(k === 'modul') return DB.modName(v);
+    if(SAYI_ALAN.indexOf(k) !== -1) return F.hours(v);
+    if(k === 'ilerleme') return '%' + v;
+    if(k === 'baslangic' || k === 'termin' || k === 'tamamlanma') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){
+      if(k.indexOf('yrd_') === 0 || k.indexOf('izl_') === 0) return;
+      v[k] = raw[k];
+    });
+
+    v.yardimci = EKIP.filter(function(e){ return raw['yrd_' + e.kod]; }).map(function(e){ return e.kod; });
+    v.izleyiciler = EKIP.filter(function(e){ return raw['izl_' + e.kod]; }).map(function(e){ return e.kod; });
+    v.etiketler = metinDizi(raw.etiketler);
+
+    SAYI_ALAN.forEach(function(k){ if(k in v) v[k] = sayi(v[k]); });
+    TAM_ALAN.forEach(function(k){ v[k] = tam(v[k]); });
+    ['baslik','aciklama','amac','kabulKriteri','beklenenCikti','teslimEdilenCikti',
+     'engelNedeni','gecikmeNedeni','revizeNot'].forEach(function(k){
+      v[k] = String(v[k] == null ? '' : v[k]).trim();
+    });
+    BOS_NULL.forEach(function(k){ if(v[k] === '' || v[k] == null) v[k] = null; });
+    v.aktif = !!v.aktif;
+
+    if(!canFinans){
+      /* Yetkisiz rol bu alanı hiç görmedi: düzenlemede mevcut değer korunur, yenide sıfır. */
+      v.faturalanabilir = duzenle ? kayit.faturalanabilir : 0;
+    }
+    return v;
+  }
+
+  /* Alt görev ve bağımlılık kayıtları koleksiyonlarla eşitlenir — dizi referansı
+     korunur, yerinde eklenip çıkarılır. */
+  function altYaz(kod){
+    var oncekiler = DB.subtasks.filter(function(s){ return s.ustGorev === kod; }).length;
+    for(var i = DB.subtasks.length - 1; i >= 0; i--){
+      if(DB.subtasks[i].ustGorev === kod) DB.subtasks.splice(i, 1);
+    }
+    altlar.forEach(function(a){
+      DB.subtasks.push({ kod:a.kod, ustGorev:kod, baslik:a.baslik, tamam:!!a.tamam, sorumlu:a.sorumlu });
+    });
+    return oncekiler !== altlar.length || duzenle;
+  }
+
+  function bagYaz(kod){
+    for(var i = DB.taskDeps.length - 1; i >= 0; i--){
+      var d = DB.taskDeps[i];
+      if(d.gorev === kod || d.bagimli === kod) DB.taskDeps.splice(i, 1);
+    }
+    bagimliliklar.forEach(function(b){
+      DB.taskDeps.push(b.yon === 'giden'
+        ? { gorev:kod, bagimli:b.digeri, tur:b.tur }
+        : { gorev:b.digeri, bagimli:kod, tur:b.tur });
+    });
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var hedefKod;
+
+    if(duzenle){
+      hedefKod = kayit.kod;
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:k === 'durum' ? 'info' : 'accent', icon:k === 'durum' ? 'i-refresh' : 'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+
+      var altOnce = DB.subtasks.filter(function(s){ return s.ustGorev === kayit.kod; }).length;
+      var bagOnce = DB.taskDeps.filter(function(d){ return d.gorev === kayit.kod || d.bagimli === kayit.kod; }).length;
+      altYaz(kayit.kod);
+      bagYaz(kayit.kod);
+      if(altOnce !== altlar.length){
+        DB.activities.unshift({ kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alt görev listesi güncellendi', eski:altOnce + ' madde', yeni:altlar.length + ' madde',
+          tone:'accent', icon:'i-clipboard-check' });
+        degisen++;
+      }
+      if(bagOnce !== bagimliliklar.length){
+        DB.activities.unshift({ kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Bağımlılık listesi güncellendi', eski:bagOnce + ' bağ', yeni:bagimliliklar.length + ' bağ',
+          tone:'accent', icon:'i-git' });
+        degisen++;
+      }
+
+      if(!degisen) GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      else GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' değişiklik', 'ok');
+    }else{
+      hedefKod = yeniKod();
+      DB.tasks.unshift(Object.assign({ kod:hedefKod, olusturan:GV.session.emp }, v));
+      DB.activities.unshift({
+        kayit:hedefKod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Görev oluşturuldu' + (yeniHata ? ' (' + yeniHata.kod + ' hatasından)' : ''),
+        eski:null, yeni:hedefKod, tone:'ok', icon:'i-plus'
+      });
+      altYaz(hedefKod);
+      bagYaz(hedefKod);
+
+      /* Hata → görev bağı doğan kaydın DEĞİL, hatanın üstünde tutulur (components.md §9d). */
+      if(yeniHata && !yeniHata.gorev){
+        yeniHata.gorev = hedefKod;
+        DB.activities.unshift({
+          kayit:yeniHata.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Düzeltme görevi oluşturuldu', eski:null, yeni:hedefKod, tone:'accent', icon:'i-tasks'
+        });
+      }
+      GV.toast(hedefKod + ' oluşturuldu' +
+        (altlar.length ? ' · ' + altlar.length + ' alt görev' : '') +
+        (bagimliliklar.length ? ' · ' + bagimliliklar.length + ' bağımlılık' : ''), 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-gorev.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'İş Takibi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Görev',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-gorev.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Görevi oluştur', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
