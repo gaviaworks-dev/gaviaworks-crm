@@ -139,8 +139,19 @@
     /* destek ve bakım — §18 */
     'Yanıtlandı':'ok', 'Yanıt bekliyor':'warn', 'Risk altında':'warn', 'İhlal edildi':'danger',
     'Tutturuldu':'ok', 'Aşıldı':'danger', 'Sona erdi':'neutral', 'Yenilemesi yaklaşan':'warn',
+    'Çözüm bekliyor':'warn',
+    /* NPS grupları — DB.surveys[].tavsiye kırılımı (9-10 / 7-8 / 0-6) */
+    'Destekleyici':'ok', 'Nötr':'warn', 'Kötüleyici':'danger',
+    /* filo — muayene sonucu ve poliçe yenileme (DB.inspections, DB.policies) */
+    'Geçti':'ok', 'Kaldı':'danger', 'Teklif alındı':'info', 'Sözleşmeye dahil':'neutral',
+    /* zimmet (DB.assignments[].durum) */
+    'İade edildi':'neutral',
+    /* satın alma — teklif değerlendirmesi ve teslim (DB.supplierQuotes, DB.orders) */
+    'Teknik uygun':'ok', 'Teknik uygun değil':'danger',
+    'Tercih edildi':'ok', 'Tercih bekliyor':'warn', 'Teslim bekleniyor':'warn', 'Tam':'ok',
     /* entegrasyon / sistem */
-    'Bağlı':'ok', 'Bağlı değil':'neutral', 'Planlandı':'info', 'Hata':'danger', 'Senkronda':'accent'
+    /* 'Planlandı' görev durumlarında zaten tanımlı (info), tekrar yazılmaz */
+    'Bağlı':'ok', 'Bağlı değil':'neutral', 'Hata':'danger', 'Senkronda':'accent'
   };
 
   function tone(v){ return TONE[v] || 'neutral'; }
