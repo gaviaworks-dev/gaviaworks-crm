@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Tedarikçi Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satinalma" data-screen="tedarikci">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today
+     ops.js  → DB.suppliers, DB.supplierQuotes, DB.orders
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.suppliers.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Satın Alma', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen tedarikçi kaydı sistemde yok.',
+      actions:[{ label:'Tedarikçi listesine dön', cls:'btn-line', href:'app-tedarikci.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Tedarikçi bulunamadı',
+      desc:'“' + esc(id) + '” kodlu tedarikçi bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-tedarikci.html">Tedarikçi listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Tedarikçi';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Tedarikçi kartının kimlik, iletişim, ticari koşul ve puan alanları
+     finansal tutar değildir; bu yüzden sayfa kapısı yalnız ekle/düzenle
+     yetkisine bakar. Finans ekseni (ömür boyu iş hacmi) ayrıca
+     `can('finans')` ile kapatılır — aşağıdaki para bloğu o role HİÇ
+     basılmaz.
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Satın Alma', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Tedarikçi listesine dön', cls:'btn-line', href:'app-tedarikci.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Tedarikçi kaydı düzenleme' : 'Tedarikçi kaydı oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Tedarikçileri listede ve ' +
+           'tedarikçi kartında görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-tedarikci.html">Tedarikçi listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-tedarikci-detay.html?id=' + esc(kayit.kod) +
+                   '">Tedarikçi kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  /* Veride yetkili / tel / vergiNo alanlarında “—” işareti “yok” anlamında
+     kullanılıyor (6 tedarikçinin 2'sinde). Form bunu boş metin olarak okur ve
+     kaydederken işareti çoğaltmaz. */
+  function val(v){ return (v == null || v === '' || v === '—') ? null : v; }
+  function bosla(v){ return val(v) == null ? '' : String(v); }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function paraSade(v){ return '<span class="u-num">' + F.money(v) + '</span>'; }
+  /* Puan rozeti — TONE sözlüğü sayısal puan tanımaz, ton AÇIKÇA geçilir (components.md §5) */
+  function puanRozet(v){
+    if(v == null || v === '') return '<span class="u-faint">—</span>';
+    var n = sayi(v);
+    var t = n >= 4.5 ? 'is-ok' : n >= 4 ? 'is-info' : n >= 3.5 ? 'is-warn' : 'is-danger';
+    return GV.badge(F.num(n, 1) + ' / 5', t);
+  }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* =================================================================
+     PARA VE PUAN EKSENLERİ — components.md §9b / §9c
+       DB.orders[].tutar / .vergi / .toplam  = NET / KDV / BRÜT
+       DB.suppliers[].toplamTutar            = NET, ömür boyu iş hacmi
+       DB.suppliers[].puan                   = tedarikçi genel puanı (tüm sipariş geçmişi)
+       DB.supplierQuotes[].puan              = teklif puanı (yalnız o teklif)
+     İki puan aynı hücrede GÖSTERİLMEZ; ayrı satırlarda tutulur.
+     ================================================================= */
+  function siparisleriOf(kod){
+    return DB.orders.filter(function(o){ return o.tedarikci === kod; })
+                    .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); });
+  }
+  function tekliflerOf(kod){
+    return DB.supplierQuotes.filter(function(q){ return q.tedarikci === kod; });
+  }
+  function netToplam(list){ return list.reduce(function(s, o){ return s + sayi(o.tutar); }, 0); }
+  function kdvToplam(list){ return list.reduce(function(s, o){ return s + sayi(o.vergi); }, 0); }
+  function brutToplam(list){ return list.reduce(function(s, o){ return s + sayi(o.toplam); }, 0); }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamTedarikci = DB.suppliers.length;
+  var aktifSayisi     = DB.suppliers.filter(function(x){ return x.durum === 'Aktif'; }).length;
+  var vergiNosuz      = DB.suppliers.filter(function(x){ return val(x.vergiNo) == null; }).length;
+  var yetkilisiz      = DB.suppliers.filter(function(x){ return val(x.yetkili) == null; }).length;
+  var siparisKaydiOlan = DB.suppliers.filter(function(x){ return siparisleriOf(x.kod).length > 0; }).length;
+  /* Kart hacmi sipariş kayıtlarından büyük olan tedarikçi sayısı — ömür boyu
+     sayaçlar sistem öncesi siparişleri de kapsıyor (ders L-08). */
+  var hacmiBuyukOlan = DB.suppliers.filter(function(x){
+    return sayi(x.toplamTutar) > netToplam(siparisleriOf(x.kod)); }).length;
+  var siparisKaydiToplam = DB.orders.length;
+
+  var KATEGORILER = [];
+  DB.suppliers.forEach(function(x){ if(KATEGORILER.indexOf(x.kategori) === -1) KATEGORILER.push(x.kategori); });
+  KATEGORILER.sort();
+  var VADELER = [];
+  DB.suppliers.forEach(function(x){ if(VADELER.indexOf(x.odemeVadesi) === -1) VADELER.push(x.odemeVadesi); });
+  var DURUMLAR = [];
+  DB.suppliers.forEach(function(x){ if(DURUMLAR.indexOf(x.durum) === -1) DURUMLAR.push(x.durum); });
+  if(DURUMLAR.indexOf('Aktif') === -1) DURUMLAR.push('Aktif');
+  if(DURUMLAR.indexOf('Pasif') === -1) DURUMLAR.push('Pasif');
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI — hepsi veride yazılı tekil bağdan
+     ================================================================= */
+  var siparisler   = duzenle ? siparisleriOf(kayit.kod) : [];
+  var teklifler    = duzenle ? tekliflerOf(kayit.kod)   : [];
+  var acikSiparis  = siparisler.filter(function(o){ return o.durum === 'Sipariş verildi'; });
+  var teslimAlinan = siparisler.filter(function(o){ return o.durum === 'Teslim alındı'; });
+  var kazanan      = teklifler.filter(function(q){ return q.tercih; });
+  var ortTeklifPuan = teklifler.length
+    ? teklifler.reduce(function(t, q){ return t + sayi(q.puan); }, 0) / teklifler.length : null;
+
+  var sipNet  = netToplam(siparisler);
+  var sipKdv  = kdvToplam(siparisler);
+  var sipBrut = brutToplam(siparisler);
+
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+     `toplamTutar` forma KONMAZ: sipariş kayıtlarından türetilebilen bir
+     ömür boyu sayaçtır (ders L-08) ve aşağıdaki iş hacmi kartında
+     hesaplanarak gösterilir.
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    ['yetkili','tel','eposta','vergiNo','adres'].forEach(function(k){ formRec[k] = bosla(kayit[k]); });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    formRec = {
+      unvan:'', kategori:'', yetkili:'', tel:'', eposta:'', vergiNo:'', adres:'',
+      odemeVadesi:'', siparisSayisi:0, puan:'', durum:'Aktif', aktif:true
+    };
+  }
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var ust = '';
+
+  var puanEkseniNot = GV.notice({
+    tone:'neutral', icon:'i-star', title:'Bu formda tek bir puan alanı vardır: tedarikçi genel puanı',
+    text:'“Tedarikçi genel puanı” tedarikçinin TÜM sipariş geçmişini ölçer: teslim zamanlaması, ürün ve ' +
+         'hizmet kalitesi, satış sonrası destek, fatura ve ödeme uyumu. Talepten bağımsızdır ve yavaş ' +
+         'değişir. “Teklif puanı” ise yalnız tek bir teklife verilir (fiyat, teslim süresi, garanti, ödeme ' +
+         'koşulu, teknik uygunluk) ve bu formdan yazılmaz — teklif puanı satın alma talebinin teklif ' +
+         'karşılaştırma ekranında girilir. İki puan aynı hücrede gösterilmez.',
+    actions:[{ label:'Teklif karşılaştırma', href:'app-satinalma-teklif.html' }] });
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı (form-brief §8) ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      (siparisler.length || teklifler.length)
+        ? { tone:acikSiparis.length ? 'warn' : 'info',
+            icon:acikSiparis.length ? 'i-alert' : 'i-info',
+            title:'Bu tedarikçiye bağlı kayıtlar var',
+            text:kayit.kod + ' kaydına bağlı ' + siparisler.length + ' sipariş ve ' + teklifler.length +
+                 ' teklif kaydı sistemde tutuluyor' +
+                 (acikSiparis.length ? '; bunların ' + acikSiparis.length + ' tanesi hâlâ açık (teslim bekleniyor)' : '') +
+                 '. Tedarikçiyi pasife alır veya arşivlerseniz bu kayıtlar silinmez ama tedarikçi yeni ' +
+                 'teklif ve sipariş seçimlerinde listelenmez' +
+                 (acikSiparis.length ? ' — açık siparişin takibi tedarikçi kartından sürer.' : '.') +
+                 ' Sipariş ve teklif kayıtları bu formdan değiştirilmez.',
+            actions:[{ label:'Siparişleri gör', href:'app-siparis.html?f_tedarikci=' + kayit.kod },
+                     { label:'Teklif karşılaştırma', href:'app-satinalma-teklif.html' },
+                     { label:'Tedarikçi kartını aç', href:'app-tedarikci-detay.html?id=' + kayit.kod }] }
+        : { tone:'neutral', icon:'i-info', title:'Bu tedarikçiye bağlı sipariş veya teklif kaydı yok',
+            text:kayit.kod + ' kaydı için sistemde sipariş ve teklif kaydı bulunmuyor; kartındaki ' +
+                 F.num(sayi(kayit.siparisSayisi)) + ' siparişlik geçmiş sisteme aktarılmamış kayıtlardan geliyor. ' +
+                 'Ölçüm: ' + toplamTedarikci + ' tedarikçinin ' + siparisKaydiOlan +
+                 ' tanesinin sipariş kaydı sistemde var.',
+            actions:[{ label:'Sipariş listesi', href:'app-siparis.html' },
+                     { label:'Tedarikçi kartını aç', href:'app-tedarikci-detay.html?id=' + kayit.kod }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var son = acts[0];
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Tedarikçi kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Ünvan', esc(kayit.unvan)],
+        ['Kategori', '<span class="tag">' + esc(kayit.kategori) + '</span>'],
+        ['Tedarikçi durumu', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Tedarikçi genel puanı <span class="u-faint">(tüm sipariş geçmişi)</span>', puanRozet(kayit.puan)],
+        ['Ortalama teklif puanı <span class="u-faint">(ayrı eksen — ' + teklifler.length + ' teklif)</span>',
+          ortTeklifPuan != null ? puanRozet(ortTeklifPuan) : null],
+        ['Ödeme vadesi', '<span class="tag">' + esc(kayit.odemeVadesi) + '</span>'],
+        ['Sipariş sayısı <span class="u-faint">(tedarikçi kartı — ömür boyu)</span>',
+          '<b class="u-num">' + F.num(sayi(kayit.siparisSayisi)) + '</b> sipariş'],
+        ['Sistemdeki sipariş kaydı', siparisler.length
+          ? '<b class="u-num">' + siparisler.length + '</b> kayıt' +
+            sub(teslimAlinan.length + ' teslim alındı · ' + acikSiparis.length + ' açık')
+          : '<span class="u-faint">Sipariş kaydı yok</span>'],
+        canFinans
+          ? ['Ömür boyu iş hacmi <span class="u-faint">(KDV hariç — tedarikçi kartı)</span>',
+             '<b>' + para(kayit.toplamTutar) + '</b>']
+          : null,
+        ['Yetkili kişi', val(kayit.yetkili) ? esc(kayit.yetkili) : null],
+        ['Vergi numarası', val(kayit.vergiNo) ? '<span class="u-num">' + esc(kayit.vergiNo) + '</span>' : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-tedarikci-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Tedarikçi kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni tedarikçi kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki tedarikçi kodu atanır, aktivite geçmişine “Tedarikçi kaydı ' +
+             'oluşturuldu” satırı düşer ve tedarikçi listesine dönülür. Ömür boyu iş hacmi bu formdan ' +
+             'girilmez: sipariş kayıtlarından hesaplanır ve yeni tedarikçinin henüz siparişi olmadığı ' +
+             'için sıfır olarak başlar. Teklif ve sipariş kayıtları da bu formdan doğmaz — teklifler ' +
+             'satın alma talebinin teklif karşılaştırma adımında, siparişler sipariş ekranında oluşur. ' +
+             'Ölçüm: sistemde ' + toplamTedarikci + ' tedarikçi kayıtlı, ' + aktifSayisi + ' tanesi aktif.',
+        actions:[{ label:'Tedarikçi listesi', href:'app-tedarikci.html' },
+                 { label:'Teklif karşılaştırma', href:'app-satinalma-teklif.html' },
+                 { label:'Sipariş listesi', href:'app-siparis.html' }] }) + '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-building') + 'Tedarikçi Bilgileri</h2>' +
+        '<div class="gc-sub">Tedarikçi kodu kaydederken atanır · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-star') + 'Puan Eksenleri</h2>' +
+        '<div class="gc-sub">Genel puan ile teklif puanı ayrı satırlarda tutulur; alanı ' +
+          'değiştirdikçe güncellenir.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-satinalma-teklif.html">' + ico('i-columns','ic-sm') +
+            ' Teklif karşılaştırma</a></div></div>' +
+      '<div class="gc-body" id="puanOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-wallet') + 'Ömür Boyu İş Hacmi</h2>' +
+        '<div class="gc-sub">Sipariş kayıtlarından hesaplanır; bu formda elle girilen bir tutar ' +
+          'alanı yoktur.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-siparis.html' +
+            (duzenle ? '?f_tedarikci=' + esc(kayit.kod) : '') + '">' + ico('i-truck','ic-sm') +
+            ' Sipariş listesi</a></div></div>' +
+      '<div class="gc-body" id="hacimOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' +
+        GV.notice({ tone:'neutral', icon:'i-paperclip',
+          title:'Banka bilgisi, sözleşme ve tedarikçi belgeleri bu formda yok',
+          text:'Tedarikçi kaydı IBAN/banka hesabı, tedarikçi sözleşmesi, vergi levhası ve imza ' +
+               'sirküleri gibi belgeleri tutmaz — belge yönetimi doküman ekranında yürür. Dönemsel ' +
+               'tedarikçi değerlendirme formu ve kara liste akışı da bu prototipin kapsamı dışındadır; ' +
+               'genel puan bu formdan elle güncellenir.',
+          actions:[{ label:'Doküman yönetimi', href:'app-dokuman.html' }].concat(
+            duzenle ? [{ label:'Tedarikçi kartını aç', href:'app-tedarikci-detay.html?id=' + kayit.kod }] : []) }) +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-tedarikci.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Tedarikçi kimliği',
+    desc:'Firmanın resmi ünvanı, çalıştığı kategori ve vergi kimliği. Tedarikçi kodu kaydederken ' +
+         'sistem tarafından atanır, elle girilmez.',
+    fields:[
+      { key:'unvan', label:'Ünvan', type:'text', required:true, cols:12,
+        placeholder:'Örn. Teknomarket Bilişim Ltd.',
+        hint:'Firmanın resmi ünvanı; listede, sipariş ve teklif ekranlarında bu ad görünür.',
+        validate:function(v){
+          var ayni = DB.suppliers.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) &&
+                   String(x.unvan).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+          return ayni ? 'Aynı ünvanla kayıtlı bir tedarikçi var (' + ayni.kod +
+                        '). Mükerrer kayıt yerine mevcut tedarikçi güncellenmeli.' : '';
+        } },
+
+      { key:'kategori', label:'Tedarik kategorisi', type:'select', options:KATEGORILER, required:true, cols:6,
+        placeholder:'Kategori seçin',
+        hint:'Küme mevcut tedarikçi kayıtlarından alındı: ' + KATEGORILER.join(' · ') +
+             '. Kategori tedarikçi listesinin sekmelerini ve filtresini besler.' },
+
+      { key:'vergiNo', label:'Vergi numarası', type:'text', cols:6,
+        placeholder:'10 haneli vergi numarası',
+        hint:'Yurt dışı tedarikçide boş bırakılır. Ölçüm: ' + toplamTedarikci + ' tedarikçinin ' +
+             vergiNosuz + ' tanesinde vergi numarası yok (yurt dışı firma).',
+        validate:function(v){
+          var s = String(v || '').trim();
+          if(!s) return '';
+          if(!/^\d{10,11}$/.test(s)) return 'Vergi numarası 10 haneli (şahıs firmasında 11 haneli TCKN) olmalıdır.';
+          var ayni = DB.suppliers.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) && String(x.vergiNo).trim() === s; })[0];
+          return ayni ? 'Bu vergi numarası ' + ayni.kod + ' (' + ayni.unvan + ') kaydında kullanılıyor.' : '';
+        } },
+
+      { key:'adres', label:'Adres', type:'text', cols:12,
+        placeholder:'Örn. Ostim, Ankara',
+        hint:'Listede ünvanın altında görünen kısa adres; yurt dışı tedarikçide ülke adı yazılır.' }
+    ]});
+
+  sections.push({ title:'İletişim',
+    desc:'Sipariş ve teklif yazışmalarının yürütüldüğü kanal. Kurumsal (self-servis) tedarikçilerde ' +
+         'kişi bazlı yetkili ve telefon bulunmayabilir; e-posta her kayıtta zorunludur.',
+    fields:[
+      { key:'yetkili', label:'Yetkili kişi', type:'text', cols:6,
+        placeholder:'Örn. Cem Aksu',
+        hint:'Kurumsal hesaplarda boş bırakılır. Ölçüm: ' + toplamTedarikci + ' tedarikçinin ' +
+             yetkilisiz + ' tanesinde kişi bazlı yetkili tanımlı değil.' },
+
+      { key:'tel', label:'Telefon', type:'tel', cols:6,
+        placeholder:'+90 312 000 00 00',
+        hint:'En az 10 hane. Yetkilisi olmayan kurumsal hesaplarda boş bırakılır.' },
+
+      { key:'eposta', label:'E-posta', type:'email', required:true, cols:12,
+        placeholder:'ornek@tedarikci.com',
+        hint:'Sipariş ve teklif talepleri bu adrese gönderilir. Ölçüm: ' + toplamTedarikci +
+             ' tedarikçinin tamamında e-posta adresi yazılı.',
+        validate:function(v){
+          var s = String(v || '').trim().toLowerCase();
+          if(!s) return '';
+          var ayni = DB.suppliers.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) &&
+                   String(x.eposta).trim().toLowerCase() === s; })[0];
+          return ayni ? 'Bu e-posta adresi ' + ayni.kod + ' (' + ayni.unvan + ') kaydında kullanılıyor.' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Ticari koşullar',
+    desc:'Siparişlerin hangi ödeme vadesiyle verildiği ve tedarikçiyle ömür boyu kaç sipariş ' +
+         'yürütüldüğü. Sipariş tutarları bu formda yazılmaz; sipariş kayıtlarından okunur.',
+    fields:[
+      { key:'odemeVadesi', label:'Ödeme vadesi', type:'select', options:VADELER, required:true, cols:6,
+        placeholder:'Vade seçin',
+        hint:'Küme mevcut kayıtlardan alındı: ' + VADELER.join(' · ') +
+             '. Vade, siparişin fatura ödeme planını belirler.' },
+
+      { key:'siparisSayisi', label:'Ömür boyu sipariş sayısı', type:'number', min:0, required:true, cols:6,
+        hint:'Tedarikçiyle bugüne kadar yürütülen toplam sipariş adedi — sisteme aktarılmamış geçmiş ' +
+             'siparişleri de kapsar, bu yüzden sipariş kayıtlarından türetilemez. Ölçüm: ' +
+             toplamTedarikci + ' tedarikçinin ' + siparisKaydiOlan + ' tanesinin sipariş kaydı sistemde ' +
+             'var, toplam ' + siparisKaydiToplam + ' sipariş kaydı tutuluyor.',
+        validate:function(v){
+          var n = sayi(v);
+          if(n < 0) return 'Sipariş sayısı negatif olamaz.';
+          if(Math.round(n) !== n) return 'Sipariş sayısı tam sayı olmalıdır.';
+          if(duzenle && n < siparisler.length)
+            return 'Sistemde bu tedarikçiye ait ' + siparisler.length + ' sipariş kaydı var; ömür boyu ' +
+                   'sipariş sayısı bundan küçük olamaz.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Değerlendirme',
+    desc:'Tedarikçi genel puanı tüm sipariş geçmişinin karnesidir: teslim zamanlaması, kalite, satış ' +
+         'sonrası destek ve ödeme uyumu. Tek bir teklife verilen teklif puanı BAŞKA bir eksendir ve ' +
+         'bu formda yer almaz.',
+    fields:[
+      { key:'puan', label:'Tedarikçi genel puanı', type:'number', required:true, min:0, max:5, cols:6,
+        hint:'0 ile 5 arasında, tek ondalık basamakla yazılır (örn. 4,4 için 4.4). Talepten bağımsızdır ' +
+             've yavaş değişir; tek bir kötü teklif bu puanı düşürmez. Ölçüm: ' + toplamTedarikci +
+             ' tedarikçinin ortalama genel puanı ' +
+             F.num(DB.suppliers.reduce(function(s, x){ return s + sayi(x.puan); }, 0) / toplamTedarikci, 1) + '.',
+        validate:function(v){
+          var n = sayi(v);
+          if(String(v).trim() === '') return '';
+          if(Math.round(n * 10) / 10 !== n) return 'Genel puan en fazla bir ondalık basamakla yazılır (örn. 4.4).';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Durum',
+    desc:'Tedarikçi durumu çalışma ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'durum', label:'Tedarikçi durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. Ölçüm: ' + toplamTedarikci + ' tedarikçinin ' +
+             aktifSayisi + ' tanesi aktif. Pasif tedarikçi yeni teklif ve sipariş seçimlerinde ' +
+             'listelenmez; geçmiş kayıtları durur.' },
+
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — tedarikçi listelerinde, sayaçlarda ve teklif seçimlerinde görünür',
+        hint:'Kapatılırsa tedarikçi arşive düşer; bağlı sipariş ve teklif kayıtları silinmez.',
+        validate:function(v, d){
+          return (!v && d.durum === 'Aktif')
+            ? 'Aktif tedarikçi arşivlenemez — önce tedarikçi durumunu “Pasif” yapın.' : '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'tedarikci', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER — puan eksenleri ve iş hacmi
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function puanOzetiCiz(){
+    var hedef = document.getElementById('puanOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var girilen = String(v.puan).trim() === '' ? null : sayi(v.puan);
+    var band = girilen == null ? null
+      : girilen >= 4.5 ? 'Çok iyi (4,5 ve üzeri)'
+      : girilen >= 4   ? 'İyi (4,0 – 4,4)'
+      : girilen >= 3.5 ? 'Orta (3,5 – 3,9)'
+      : 'Zayıf (3,5 altı)';
+
+    hedef.innerHTML = puanEkseniNot + ozetListe([
+      ['Tedarikçi genel puanı <span class="u-faint">(forma girilen — tüm sipariş geçmişi)</span>',
+        puanRozet(girilen)],
+      ['Puan bandı', band ? esc(band) : '<span class="u-faint">Puan girilmedi</span>'],
+      duzenle
+        ? ['Kayıtlı genel puan <span class="u-faint">(değişiklik öncesi)</span>', puanRozet(kayit.puan)]
+        : null,
+      ['Ortalama teklif puanı <span class="u-faint">(AYRI eksen — bu formdan yazılmaz)</span>',
+        ortTeklifPuan != null
+          ? puanRozet(ortTeklifPuan) + sub(teklifler.length + ' teklifin ortalaması')
+          : '<span class="u-faint">' + (duzenle ? 'Bu tedarikçiden teklif alınmamış'
+                                                : 'Yeni tedarikçinin teklifi yok') + '</span>'],
+      (duzenle && teklifler.length)
+        ? ['Tercih edilen teklif', '<b class="u-num">' + kazanan.length + '</b> / ' + teklifler.length +
+           sub('kazanma oranı %' + Math.round(kazanan.length / teklifler.length * 100))]
+        : null,
+      (girilen != null && ortTeklifPuan != null)
+        ? ['İki eksen arasındaki fark',
+           '<b class="u-num">' + (girilen - ortTeklifPuan >= 0 ? '+' : '−') +
+           F.num(Math.abs(girilen - ortTeklifPuan), 1) + '</b>' +
+           sub('genel puan − ortalama teklif puanı; karşılaştırma değil, iki ayrı ölçüdür')]
+        : null
+    ]);
+  }
+
+  function hacimOzetiCiz(){
+    var hedef = document.getElementById('hacimOzet');
+    if(!hedef) return;
+
+    /* Finans yetkisi olmayan role tutar HİÇ basılmaz — maskeli satır da yazılmaz,
+       yerine ne görülemediği açıkça söylenir (PROMPT.md §5). */
+    if(!canFinans){
+      hedef.innerHTML = GV.notice({ tone:'neutral', icon:'i-lock',
+        title:'İş hacmi tutarları rolünüze kapalı',
+        text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar görüntüleme yetkisi yok; tedarikçinin ' +
+             'ömür boyu iş hacmi ve sipariş tutarları bu ekranda gösterilmiyor. Tedarikçi kimliği, ' +
+             'iletişim, ticari koşul ve puan alanlarını düzenlemeye devam edebilirsiniz — hacim zaten ' +
+             'bu formdan yazılmaz, sipariş kayıtlarından hesaplanır.' }) +
+        ozetListe([
+          ['Sistemdeki sipariş kaydı', '<b class="u-num">' + siparisler.length + '</b> kayıt'],
+          ['Teslim alınan', '<b class="u-num">' + teslimAlinan.length + '</b>'],
+          ['Açık sipariş', '<b class="u-num">' + acikSiparis.length + '</b>']
+        ]);
+      return;
+    }
+
+    var v = form.read();
+    var omurSiparis = sayi(v.siparisSayisi);
+    var kartHacim = duzenle ? sayi(kayit.toplamTutar) : 0;
+    var fark = kartHacim - sipNet;
+
+    var uyari;
+    if(!duzenle){
+      uyari = GV.notice({ tone:'info', icon:'i-info',
+        title:'Yeni tedarikçinin iş hacmi sıfır olarak başlar',
+        text:'Ömür boyu iş hacmi (KDV hariç) bu formdan girilmez: sipariş kayıtlarının net tutarlarından ' +
+             'hesaplanır (ders L-08 — türetilebilir sayaç forma elle yazılmaz). Yeni tedarikçinin henüz ' +
+             'siparişi olmadığı için kayıt sıfır hacimle açılır; ilk sipariş verildiğinde hacim sipariş ' +
+             'kayıtlarından beslenir.' });
+    }else if(!siparisler.length){
+      uyari = GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Kartın bildirdiği hacmin sipariş kaydı karşılığı yok',
+        text:kayit.kod + ' kartı ' + F.money(kartHacim) + ' (KDV hariç) ömür boyu hacim ve ' +
+             F.num(sayi(kayit.siparisSayisi)) + ' sipariş bildiriyor, ancak sipariş kayıtlarında bu ' +
+             'tedarikçiye ait kayıt yok. Tutarın tamamı sisteme aktarılmamış geçmiş siparişlerden geliyor; ' +
+             'bu form onu değiştirmez. Ölçüm: ' + toplamTedarikci + ' tedarikçinin ' + hacmiBuyukOlan +
+             ' tanesinde kart hacmi sipariş kayıtlarının toplamından büyük.' });
+    }else if(fark > 0){
+      uyari = GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Kart hacmi sipariş kayıtlarının toplamından büyük',
+        text:'Sipariş kayıtlarından hesaplanan net hacim ' + F.money(sipNet) + ' (KDV hariç, ' +
+             siparisler.length + ' kayıt), tedarikçi kartında yazılı ömür boyu hacim ise ' +
+             F.money(kartHacim) + '. Fark ' + F.money(fark) + ' ve sisteme aktarılmamış geçmiş ' +
+             'siparişlerden geliyor. Bu form hacmi yazmaz; kart değeri olduğu gibi korunur. Ölçüm: ' +
+             toplamTedarikci + ' tedarikçinin ' + hacmiBuyukOlan + ' tanesinde aynı fark var.' });
+    }else if(fark === 0){
+      uyari = GV.notice({ tone:'ok', icon:'i-check-circle',
+        title:'Kart hacmi sipariş kayıtlarıyla birebir',
+        text:'Sipariş kayıtlarının net toplamı (' + F.money(sipNet) + ', KDV hariç) tedarikçi kartındaki ' +
+             'ömür boyu hacimle aynı; hacim tamamen sistemdeki siparişlerden türetilebiliyor.' });
+    }else{
+      uyari = GV.notice({ tone:'danger', icon:'i-alert',
+        title:'Sipariş kayıtları kart hacmini aşıyor',
+        text:'Sipariş kayıtlarının net toplamı ' + F.money(sipNet) + ' (KDV hariç), tedarikçi kartındaki ' +
+             'ömür boyu hacim ise ' + F.money(kartHacim) + '. Ömür boyu sayaç sistemdeki siparişlerden ' +
+             'küçük olamaz — kart alanı ' + F.money(Math.abs(fark)) + ' eksik kalmış. Bu form hacmi ' +
+             'yazmadığı için düzeltme veri katmanında yapılmalıdır.' });
+    }
+
+    hedef.innerHTML = uyari + ozetListe([
+      ['Sistemdeki sipariş kaydı', '<b class="u-num">' + siparisler.length + '</b> kayıt' +
+        (siparisler.length ? sub(teslimAlinan.length + ' teslim alındı · ' + acikSiparis.length + ' açık') : '')],
+      ['Sipariş kayıtlarından hacim <span class="u-faint">(KDV hariç)</span>', para(sipNet)],
+      ['Sipariş kayıtlarından KDV', paraSade(sipKdv)],
+      ['Sipariş kayıtlarından hacim <span class="u-faint">(KDV dahil)</span>', '<b>' + para(sipBrut) + '</b>'],
+      duzenle
+        ? ['Tedarikçi kartındaki ömür boyu hacim <span class="u-faint">(KDV hariç — bu formdan yazılmaz)</span>',
+           '<b>' + para(kartHacim) + '</b>']
+        : ['Yeni kayda yazılacak ömür boyu hacim <span class="u-faint">(KDV hariç)</span>',
+           '<b>' + para(0) + '</b>' + sub('sipariş kaydı yok')],
+      duzenle
+        ? ['Fark <span class="u-faint">(kart − sipariş kayıtları)</span>',
+           fark === 0 ? '<span class="badge is-ok no-dot">Yok</span>'
+             : '<b class="' + (fark > 0 ? 'u-num' : 'u-danger') + '">' + F.money(Math.abs(fark)) + '</b>' +
+               sub(fark > 0 ? 'sisteme aktarılmamış geçmiş siparişler' : 'kart sayacı eksik kalmış')]
+        : null,
+      ['Ortalama sipariş tutarı <span class="u-faint">(kart hacmi / ömür boyu sipariş sayısı, KDV hariç)</span>',
+        omurSiparis > 0 && (duzenle ? kartHacim : 0) > 0
+          ? paraSade(Math.round((duzenle ? kartHacim : 0) / omurSiparis))
+          : '<span class="u-faint">Hesaplanamıyor — hacim ya da sipariş sayısı sıfır</span>'],
+      ['Forma girilen ömür boyu sipariş sayısı', '<b class="u-num">' + F.num(omurSiparis) + '</b> sipariş' +
+        (duzenle && omurSiparis !== sayi(kayit.siparisSayisi)
+          ? sub('kayıtlı değer ' + F.num(sayi(kayit.siparisSayisi))) : '')]
+    ]) +
+
+    (siparisler.length
+      ? '<div class="gv-summary">' + siparisler.map(function(o){
+          return '<div class="gv-summary-row">' +
+            '<span class="gv-summary-lbl">' + esc(o.kod) + ' · ' + esc(o.durum) + '</span>' +
+            '<span class="gv-summary-val"><span class="u-num">' + F.money(sayi(o.tutar)) + '</span>' +
+              sub(F.date(o.tarih) + ' · KDV hariç · brüt ' + F.money(sayi(o.toplam))) + '</span></div>';
+        }).join('') + '</div>'
+      : '');
+  }
+
+  function ozetleriCiz(){ puanOzetiCiz(); hacimOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    unvan:'Ünvan', kategori:'Tedarik kategorisi', yetkili:'Yetkili kişi', tel:'Telefon',
+    eposta:'E-posta', vergiNo:'Vergi numarası', adres:'Adres', odemeVadesi:'Ödeme vadesi',
+    siparisSayisi:'Ömür boyu sipariş sayısı', puan:'Tedarikçi genel puanı',
+    durum:'Tedarikçi durumu', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Tedarikçi kodu yıl bölümü taşımaz: TDR-001 … TDR-006. */
+  function yeniKod(){
+    var max = 0;
+    DB.suppliers.forEach(function(x){
+      var m = /^TDR-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    var n = String(max + 1);
+    while(n.length < 3) n = '0' + n;
+    return 'TDR-' + n;
+  }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif') return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'puan')  return F.num(sayi(v), 1) + ' / 5';
+    if(k === 'siparisSayisi') return F.num(sayi(v)) + ' sipariş';
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    /* '—' sentinel'i yeniden yazılmaz; boş alan boş metin olarak kaydedilir. */
+    ['unvan','adres','yetkili','tel','eposta','vergiNo'].forEach(function(k){
+      v[k] = String(v[k] == null ? '' : v[k]).trim();
+    });
+    v.puan          = Math.round(sayi(v.puan) * 10) / 10;
+    v.siparisSayisi = Math.round(sayi(v.siparisSayisi));
+    v.aktif         = !!v.aktif;
+    return v;
+  }
+
+  /* Bu form sipariş, teklif ve iş hacmi YAZMAZ. Girilen değerler bağlı kayıtlarla
+     çelişiyorsa kullanıcı kaydetmeden önce açıkça uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var kapaniyor = duzenle && (v.durum === 'Pasif' || !v.aktif) &&
+                    (kayit.durum !== 'Pasif' && kayit.aktif !== false);
+
+    if(kapaniyor && acikSiparis.length){
+      out.push('Bu tedarikçinin ' + acikSiparis.length + ' açık siparişi var (' +
+               acikSiparis.map(function(o){ return o.kod; }).join(' · ') +
+               '); tedarikçi pasife alınsa da bu siparişlerin teslim takibi sürer.');
+    }
+    if(kapaniyor && !acikSiparis.length && teklifler.length){
+      out.push('Bu tedarikçiden alınmış ' + teklifler.length + ' teklif kaydı var; pasif tedarikçi yeni ' +
+               'teklif seçimlerinde listelenmez ama geçmiş teklifler karşılaştırma ekranında durur.');
+    }
+    if(duzenle && v.siparisSayisi !== sayi(kayit.siparisSayisi)){
+      out.push('Ömür boyu sipariş sayısı ' + F.num(sayi(kayit.siparisSayisi)) + ' → ' +
+               F.num(v.siparisSayisi) + ' olarak değişiyor; bu sayaç sipariş kayıtlarından türetilmez ' +
+               've sistemde bu tedarikçiye ait ' + siparisler.length + ' sipariş kaydı var.');
+    }
+    if(duzenle && v.puan !== sayi(kayit.puan)){
+      out.push('Tedarikçi genel puanı ' + F.num(sayi(kayit.puan), 1) + ' → ' + F.num(v.puan, 1) +
+               ' olarak değişiyor; bu puan tüm sipariş geçmişini temsil eder, tek bir teklifin puanı değildir.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         `toplamTutar` forma girilmediği için hiç dokunulmaz — ömür boyu hacim
+         sistem öncesi siparişleri de kapsar ve bu formdan sıfırlanamaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. `toplamTutar`
+         forma girilmez: yeni tedarikçinin sipariş kaydı olmadığı için sipariş
+         kayıtlarından hesaplanan net hacim sıfırdır (ders L-08). */
+      var yeni = {
+        kod:kod, unvan:v.unvan, kategori:v.kategori, yetkili:v.yetkili, tel:v.tel,
+        eposta:v.eposta, vergiNo:v.vergiNo, adres:v.adres, puan:v.puan,
+        siparisSayisi:v.siparisSayisi, toplamTutar:netToplam(siparisleriOf(kod)),
+        odemeVadesi:v.odemeVadesi, durum:v.durum, aktif:v.aktif
+      };
+
+      DB.suppliers.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Tedarikçi kaydı oluşturuldu — ' + v.unvan + ' · ' + v.kategori +
+              ' · genel puan ' + F.num(v.puan, 1) + ' / 5',
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-tedarikci.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz tedarikçi kaydı yeni değerlerle yazılır, bağlı sipariş ve ' +
+           'teklif kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Satın Alma',
+    title:basligi,
+    sub: duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-tedarikci.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
