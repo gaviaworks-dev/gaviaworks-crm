@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>SLA Takibi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="destek" data-screen="sla">
+<div id="slaNot"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var canDuzenle = GV.perm.can('duzenle');
+
+  /* ---- Süre biçimlendirme: dakika → "3 sa 12 dk" / "2 gün 4 sa" ---------
+     (GV.fmt.hours saat alır; SLA hedefleri dakika cinsinden tutulduğu için
+     dakika tabanlı yerel yardımcı gerekiyor — CSS değil, saf biçimlendirme) */
+  function sure(dk){
+    if(dk == null) return '—';
+    var m = Math.abs(Math.round(dk));
+    var g = Math.floor(m / 1440), s = Math.floor((m % 1440) / 60), d = m % 60;
+    if(g) return g + ' gün' + (s ? ' ' + s + ' sa' : '');
+    if(s) return s + ' sa' + (d ? ' ' + d + ' dk' : '');
+    return d + ' dk';
+  }
+
+  /* ---- Referans an: DB.today gününün başlangıcı (mock veri sabit eksen) -- */
+  var SIMDI = new Date(DB.today + 'T00:00:00');
+  function gecenDk(iso){
+    if(!iso) return null;
+    return Math.round((SIMDI - new Date(String(iso).slice(0,16) + ':00')) / 60000);
+  }
+
+  function acik(x){ return ['Kapandı','Çözüldü'].indexOf(x.durum) === -1; }
+  function empAd(kod){ return DB.empName(kod); }
+
+  /* ---- Politika eşleşmesi: kategori × öncelik ('Tümü' joker) ------------- */
+  function politika(t){
+    var l = DB.slaPolicies;
+    for(var i = 0; i < l.length; i++){
+      var p = l[i];
+      if(p.kategori === t.kategori && (p.oncelik === t.oncelik || p.oncelik === 'Tümü')) return p;
+    }
+    return null;
+  }
+
+  /* ---- SLA türetmesi — kaynak kayıt DEĞİŞTİRİLMEZ, satır üstünde hesaplanır
+     Genel durum İKİ EKSENİN KÖTÜSÜDÜR (ops.js'teki DB.tickets tanımı):
+     her eksende tüketim = geçen / hedef · ≥1 ihlal · ≥0,75 risk · altı zamanında. */
+  function seviye(oran){
+    return oran >= 1 ? 'İhlal edildi' : oran >= 0.75 ? 'Risk altında' : 'Zamanında';
+  }
+  /* ilerleme çubuğu tonu — rozet tonu GV.badge sözlüğünden gelir */
+  function tonu(durum){
+    return durum === 'İhlal edildi' ? 'danger' : durum === 'Risk altında' ? 'warn' : 'ok';
+  }
+
+  var _cache = {};
+  function S(x){
+    if(_cache[x.kod]) return _cache[x.kod];
+    var p = politika(x);
+    var gecenAcilis = gecenDk(x.acilis);
+
+    /* ilk yanıt ekseni — yanıt verilmediyse açılıştan bu yana geçen süre sayar */
+    var yanitHedef = p ? p.ilkYanit : null;
+    var yanitGecen = x.mudahaleSuresi != null ? x.mudahaleSuresi : gecenAcilis;
+    var yanitOran = yanitHedef ? yanitGecen / yanitHedef : 0;
+
+    /* çözüm ekseni — çözülmediyse açılıştan bu yana geçen süre sayar */
+    var hedef = p ? p.cozum : null;
+    var gecen = x.cozumSuresi != null ? x.cozumSuresi : gecenAcilis;
+    var oran = hedef ? gecen / hedef : 0;
+
+    /* kötü olan eksen genel durumu belirler */
+    var belirleyiciOran = Math.max(yanitOran, oran);
+    var eksen = yanitOran > oran ? 'ilk yanıt' : 'çözüm';
+
+    var s = {
+      p:p, kapali:!acik(x),
+      yanitHedef:yanitHedef, yanitGecen:yanitGecen, yanitOran:yanitOran,
+      yanitYuzde:yanitHedef ? Math.round(yanitOran * 100) : null,
+      yanit:x.mudahaleSuresi == null ? 'Yanıt bekliyor'
+            : (yanitHedef != null && x.mudahaleSuresi > yanitHedef ? 'Aşıldı' : 'Tutturuldu'),
+      hedef:hedef, gecen:gecen, oran:oran,
+      kalan:hedef != null ? hedef - gecen : null,
+      durum:seviye(belirleyiciOran), eksen:eksen,
+      yuzde:p ? Math.round(belirleyiciOran * 100) : null
+    };
+    _cache[x.kod] = s;
+    return s;
+  }
+
+  /* ---- Seçenek listeleri: canonical veriden türetilir -------------------- */
+  var ONCELIKLER = DB.priorities;
+  var KATEGORILER = DB.slaPolicies.map(function(p){ return p.kategori; })
+                                  .filter(function(v,i,a){ return a.indexOf(v) === i; });
+  var ETKILER = ONCELIKLER.filter(function(o){
+    return DB.tickets.some(function(t){ return t.etki === o; });
+  });
+
+  /* ---- SLA politikaları paneli ------------------------------------------ */
+  function politikaDrawer(){
+    var satir = DB.slaPolicies.map(function(p){
+      var kullanim = DB.tickets.filter(function(t){ return politika(t) === p; }).length;
+      return '<tr>' +
+        '<td class="cell-wrap"><span class="cell-main">' + esc(p.kategori) + '</span>' +
+          '<span class="cell-code">' + p.kod + ' · ' + kullanim + ' talep</span></td>' +
+        '<td>' + (p.oncelik === 'Tümü' ? '<span class="tag">Tüm öncelikler</span>' : GV.pri(p.oncelik)) + '</td>' +
+        '<td class="num"><span class="u-num">' + sure(p.ilkYanit) + '</span></td>' +
+        '<td class="num"><span class="u-num">' + sure(p.cozum) + '</span>' +
+          '<span class="cell-sub">Etiket: ' + esc(p.etiket) + '</span></td>' +
+        '<td><span class="tag">' + esc(p.calismaSaati) + '</span></td>' +
+        '<td class="cell-wrap">' + (p.eskalasyon === 'Yok'
+          ? '<span class="u-faint">Eskalasyon tanımlı değil</span>'
+          : '<span class="u-sm">' + esc(p.eskalasyon) + '</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    GV.drawer({
+      title:'SLA Politikaları',
+      body:'<p class="u-sm u-muted u-mt-0">' +
+             esc('Kategori ve öncelik kırılımında sözleşmeye bağlı ilk yanıt ve çözüm hedefleri. ' +
+                 'Bir destek talebinin hedefi, kategorisiyle eşleşen ve önceliğini kapsayan satırdan gelir.') +
+           '</p>' +
+           '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+             '<th>Kategori</th><th>Öncelik</th><th>İlk yanıt hedefi</th>' +
+             '<th>Çözüm hedefi</th><th>Çalışma saati</th><th>Eskalasyon kuralı</th>' +
+           '</tr></thead><tbody>' + satir + '</tbody></table></div>' +
+           '<p class="u-xs u-muted u-mt-4">' +
+             esc('Politikalar salt okunurdur; düzenleme Ayarlar bölümündeki sözleşme tanımlarından yapılır.') +
+           '</p>',
+      actions:[{ label:'Kapat', cls:'btn-line' }]
+    });
+  }
+
+  /* ---- Sorumlu değiştirme ----------------------------------------------- */
+  function sorumluModal(baslik, metin, mevcut, onOk){
+    GV.modal({
+      title:baslik, text:metin, icon:'i-user-check', size:'sm',
+      body:'<div class="field"><label class="f-lbl" for="slaSorumlu">Yeni sorumlu</label>' +
+             '<select id="slaSorumlu">' +
+             DB.employees.filter(function(e){ return e.aktif !== false; }).map(function(e){
+               return '<option value="' + e.kod + '"' + (e.kod === mevcut ? ' selected' : '') + '>' +
+                      esc(e.ad) + ' · ' + esc(e.pozisyon || e.depAd || '') + '</option>';
+             }).join('') +
+             '</select>' +
+             '<span class="f-hint">Atama değişikliği talebin SLA sayacını sıfırlamaz, hedef açılış anına göre işler.</span>' +
+           '</div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+               { label:'Ata', cls:'btn-acc', onClick:function(close, el){
+                   onOk(el.querySelector('#slaSorumlu').value); } }]
+    });
+  }
+
+  /* ---- Sayfa başlığı ----------------------------------------------------- */
+  GV.pageHead({
+    eyebrow:'Destek ve Bakım', title:'SLA Takibi',
+    sub:'Sözleşme hedeflerine göre ilk yanıt ve çözüm süresi izleme',
+    actions:[
+      { label:'SLA Politikaları', icon:'i-shield-check', run:politikaDrawer },
+      { label:'Destek Talepleri', icon:'i-support', href:'app-destek.html' }
+    ]
+  });
+
+  /* ---- Hesap tabanı notu -------------------------------------------------- */
+  document.getElementById('slaNot').innerHTML = GV.notice({
+    tone:'info', icon:'i-hourglass', title:'SLA hesap tabanı',
+    text:'SLA durumu ilk yanıt ve çözüm eksenlerinin kötüsünü yansıtır: her eksende tüketim ' +
+         '≥ %100 ise ihlal, ≥ %75 ise risk altında sayılır. Açık taleplerde geçen süre ' +
+         F.date(DB.today) + ' gününün başlangıcına göre takvim dakikası olarak ölçülür; ' +
+         'çalışma saati kısıtı (mesai içi / 7-24) hesaba katılmaz.'
+  });
+
+  /* ---- Liste ------------------------------------------------------------- */
+  var L = GV.list({
+    mount:'#liste', id:'destekSla', key:'kod', source:function(){ return DB.tickets; },
+    exportName:'sla-takibi', exportTitle:'SLA Takibi', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Talep kodu, başlık, müşteri veya kategori ara',
+             fields:['kod','baslik','musteriAd','kategori','acan'],
+             extra:function(r){ return empAd(r.sorumlu); } },
+    defaultSort:'kalan', defaultDir:'asc',
+
+    kpis:[
+      { label:'Açık talep', icon:'i-support',
+        calc:function(a){ return a.filter(acik).length; } },
+      { label:'SLA riski altında', icon:'i-hourglass', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return acik(x) && S(x).durum === 'Risk altında'; }).length; } },
+      { label:'İhlal edilen', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(function(x){ return S(x).durum === 'İhlal edildi'; }).length; } },
+      { label:'İlk yanıt tutturma', icon:'i-target', tone:'ok',
+        format:function(v){ return v == null ? '—' : v + '%'; },
+        calc:function(a){
+          var l = a.filter(function(x){ return x.mudahaleSuresi != null; });
+          if(!l.length) return null;
+          var ok = l.filter(function(x){ return S(x).yanit === 'Tutturuldu'; }).length;
+          return Math.round(ok / l.length * 100); } },
+      { label:'Ortalama ilk yanıt', icon:'i-clock', tone:'info',
+        format:function(v){ return v == null ? '—' : sure(v); },
+        calc:function(a){
+          var l = a.filter(function(x){ return x.mudahaleSuresi != null; });
+          if(!l.length) return null;
+          return Math.round(l.reduce(function(s,x){ return s + x.mudahaleSuresi; }, 0) / l.length); } }
+    ],
+
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'risk', label:'Risk Altında', icon:'i-hourglass',
+        filter:function(x){ return acik(x) && S(x).durum === 'Risk altında'; } },
+      { key:'ihlal', label:'İhlal Edildi', icon:'i-alert',
+        filter:function(x){ return S(x).durum === 'İhlal edildi'; } },
+      { key:'zamaninda', label:'Zamanında', icon:'i-check-circle',
+        filter:function(x){ return S(x).durum === 'Zamanında'; } },
+      { key:'kapali', label:'Kapananlar', icon:'i-archive', filter:function(x){ return !acik(x); } }
+    ],
+
+    columns:[
+      { key:'kod', label:'Talep', width:'14%', locked:true, cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-destek.html?q=' + x.kod + '">' + x.kod + '</a>' +
+                 '<span class="cell-code">' + esc(x.kategori) + '</span>'; } },
+      { key:'musteriAd', label:'Müşteri', cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-musteri-detay.html?id=' + x.musteri + '">' + esc(x.musteriAd) + '</a>' +
+                 '<span class="cell-sub">' + esc(x.acan) + '</span>'; },
+        exportValue:function(x){ return x.musteriAd; } },
+      { key:'baslik', label:'Başlık', width:'20%', cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-destek.html?q=' + x.kod + '">' + esc(x.baslik) + '</a>'; } },
+      { key:'kategori', label:'Kategori', visible:false, render:function(x){
+          return '<span class="tag">' + esc(x.kategori) + '</span>'; } },
+      { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
+      { key:'etki', label:'Etki', render:function(x){
+          return '<span class="tag">' + esc(x.etki) + '</span>'; } },
+      { key:'hedef', label:'SLA hedefi', render:function(x){
+          var s = S(x);
+          if(!s.p) return '<span class="u-faint">Politika eşleşmedi</span>';
+          return '<span class="badge is-info no-dot">' + esc(s.p.etiket) + '</span>' +
+                 '<span class="cell-sub">İlk yanıt ' + sure(s.yanitHedef) + ' · ' + esc(s.p.calismaSaati) + '</span>'; },
+        sortValue:function(x){ return S(x).hedef; },
+        exportValue:function(x){ var s = S(x); return s.p ? s.p.etiket + ' (ilk yanıt ' + sure(s.yanitHedef) + ')' : ''; } },
+      { key:'ilkYanit', label:'İlk yanıt', render:function(x){
+          var s = S(x);
+          if(x.mudahaleSuresi == null){
+            return GV.badge('Yanıt bekliyor') +
+                   '<span class="cell-sub">' + sure(s.yanitGecen) + ' geçti · hedefin %' +
+                   (s.yanitYuzde == null ? '—' : s.yanitYuzde) + '\'i</span>';
+          }
+          return '<span class="u-num">' + sure(x.mudahaleSuresi) + '</span> ' + GV.badge(s.yanit); },
+        sortValue:function(x){ return x.mudahaleSuresi == null ? -1 : x.mudahaleSuresi; },
+        exportValue:function(x){ var s = S(x);
+          return (x.mudahaleSuresi == null ? 'Yanıt bekliyor' : sure(x.mudahaleSuresi) + ' — ' + s.yanit); } },
+      { key:'gecen', label:'Çözüm / geçen süre', render:function(x){
+          var s = S(x);
+          return '<span class="u-num">' + sure(s.gecen) + '</span>' +
+                 '<span class="cell-sub">' + (x.cozumSuresi != null ? 'Çözüme kadar' : 'Açılıştan bu yana') + '</span>'; },
+        sortValue:function(x){ return S(x).gecen; },
+        exportValue:function(x){ return S(x).gecen; } },
+      { key:'kalan', label:'Kalan / aşım', render:function(x){
+          var s = S(x);
+          if(s.kalan == null) return '<span class="u-faint">—</span>';
+          if(s.kalan >= 0) return '<span class="u-num u-ok u-b">' + sure(s.kalan) + ' kaldı</span>';
+          return '<span class="u-num u-danger u-b">' + sure(-s.kalan) + ' aşım</span>'; },
+        sortValue:function(x){ return S(x).kalan; },
+        exportValue:function(x){ var s = S(x);
+          return s.kalan == null ? '' : (s.kalan >= 0 ? sure(s.kalan) + ' kaldı' : sure(-s.kalan) + ' aşım'); } },
+      { key:'yuzde', label:'Hedef tüketimi', visible:false, render:function(x){
+          var s = S(x);
+          if(s.yuzde == null) return '<span class="u-faint">—</span>';
+          return GV.progress(Math.min(100, s.yuzde), { tone:tonu(s.durum) }) +
+                 '<span class="cell-sub">Belirleyen: ' + s.eksen + '</span>'; },
+        sortValue:function(x){ return S(x).yuzde; },
+        exportValue:function(x){ var s = S(x); return s.yuzde == null ? '' : s.yuzde + '%'; } },
+      { key:'sorumlu', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu, { sm:true }); },
+        sortValue:function(x){ return empAd(x.sorumlu); },
+        exportValue:function(x){ return empAd(x.sorumlu); } },
+      { key:'slaDurum', label:'SLA durumu', render:function(x){
+          var s = S(x);
+          return GV.badge(s.durum) + '<span class="cell-sub">Belirleyen eksen: ' + s.eksen + '</span>'; },
+        sortValue:function(x){ return S(x).yuzde; },
+        exportValue:function(x){ var s = S(x); return s.durum + ' (' + s.eksen + ')'; } },
+      { key:'acilis', label:'Açılış', visible:false, render:function(x){
+          return '<span class="cell-date">' + F.dt(x.acilis) + '</span>'; } },
+      { key:'durum', label:'Talep durumu', render:function(x){ return GV.badge(x.durum); } }
+    ],
+
+    filters:[
+      { key:'kategori', label:'Talep kategorisi', type:'multi', options:KATEGORILER },
+      { key:'oncelik', label:'Öncelik', type:'multi', options:ONCELIKLER },
+      { key:'etki', label:'Etki', type:'multi', options:ETKILER },
+      { key:'slaDurum', label:'SLA durumu', type:'select',
+        options:['Zamanında','Risk altında','İhlal edildi'],
+        test:function(x, v){ return S(x).durum === v; } },
+      { key:'yanit', label:'İlk yanıt durumu', type:'select',
+        options:['Tutturuldu','Aşıldı','Yanıt bekliyor'],
+        test:function(x, v){ return S(x).yanit === v; } },
+      { key:'sorumlu', label:'Sorumlu', type:'select',
+        options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'acilis', label:'Açılış tarihi', type:'daterange' }
+    ],
+
+    rowClass:function(x){
+      var s = S(x);
+      return s.durum === 'İhlal edildi' && acik(x) ? 'is-late' : ''; },
+
+    card:function(x){
+      var s = S(x);
+      return '<div class="gv-rcard-top"><div>' +
+          '<a class="cell-main" href="app-destek.html?q=' + x.kod + '">' + esc(x.baslik) + '</a>' +
+          '<div class="cell-sub">' + x.kod + ' · ' + esc(x.musteriAd) + '</div></div>' +
+          GV.badge(s.durum) + '</div>' +
+        '<div class="gv-rcard-meta">' + GV.pri(x.oncelik) +
+          '<span>' + ico('i-target','ic-sm') + 'Hedef ' + (s.p ? esc(s.p.etiket) : '—') + '</span>' +
+          '<span>' + ico('i-clock','ic-sm') + 'Belirleyen: ' + s.eksen + '</span></div>' +
+        (s.yuzde != null ? GV.progress(Math.min(100, s.yuzde), { tone:tonu(s.durum) }) : '') +
+        '<div class="gv-rcard-foot">' + GV.user(x.sorumlu, { sm:true }) +
+          (s.kalan == null ? '<span class="u-faint">—</span>'
+            : s.kalan >= 0 ? '<span class="u-num u-ok u-b">' + sure(s.kalan) + ' kaldı</span>'
+                           : '<span class="u-num u-danger u-b">' + sure(-s.kalan) + ' aşım</span>') +
+        '</div>';
+    },
+
+    mobile:function(x){
+      var s = S(x);
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-destek.html?q=' + x.kod + '">' +
+          esc(x.baslik) + '</a>' + GV.pri(x.oncelik) + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.musteriAd) + '</div>' +
+        '<div class="gv-mrow-meta">' +
+          '<span>' + ico('i-target','ic-sm') + 'Hedef ' + (s.p ? esc(s.p.etiket) : '—') + '</span>' +
+          '<span>' + ico('i-clock','ic-sm') + 'İlk yanıt ' +
+            (x.mudahaleSuresi == null ? 'bekliyor' : sure(x.mudahaleSuresi)) + '</span>' +
+          '<span>' + ico('i-target','ic-sm') + 'Belirleyen: ' + s.eksen + '</span>' +
+        '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+          GV.badge(s.durum) + GV.badge(x.durum) + '</span>' +
+          (s.kalan == null ? '<span class="u-faint">—</span>'
+            : s.kalan >= 0 ? '<span class="u-num u-ok u-b">' + sure(s.kalan) + ' kaldı</span>'
+                           : '<span class="u-num u-danger u-b">' + sure(-s.kalan) + ' aşım</span>') +
+        '</div>';
+    },
+
+    rowActions:(function(){
+      var a = [{ key:'ac', icon:'i-external', label:'Talebi aç',
+                 href:function(x){ return 'app-destek.html?q=' + x.kod; } }];
+      if(canDuzenle){
+        a.push({ key:'eskale', icon:'i-trend-up', label:'Eskalasyon başlat', run:function(x){
+          var s = S(x);
+          if(!acik(x)){ GV.toast('Kapanmış talep için eskalasyon başlatılmaz.', 'info'); return; }
+          var kural = s.p && s.p.eskalasyon && s.p.eskalasyon !== 'Yok'
+            ? s.p.eskalasyon
+            : 'Bu politika için tanımlı eskalasyon kuralı yok; talep destek sorumlusuna bildirilecek.';
+          GV.confirm({
+            title:'Eskalasyon başlat', tone:'danger', okLabel:'Eskalasyonu başlat',
+            text:x.kod + ' · ' + x.baslik,
+            body:'<div class="field"><span class="f-lbl">Politika kuralı</span>' +
+                   '<p class="u-sm u-ink">' + esc(kural) + '</p>' +
+                   '<span class="f-hint">' + esc((s.p ? s.p.kod + ' · ' : '') +
+                     'Hedef ' + (s.p ? s.p.etiket : '—') + ' · geçen süre ' + sure(s.gecen)) + '</span></div>'
+          }).then(function(ok){
+            if(ok) GV.toast(x.kod + ' eskalasyona alındı, sorumlu yöneticiye bildirim gönderildi', 'ok');
+          }); } });
+        a.push({ key:'ata', icon:'i-user-check', label:'Sorumluyu değiştir', run:function(x, refresh){
+          sorumluModal('Sorumluyu değiştir', x.kod + ' · ' + x.baslik, x.sorumlu, function(kod){
+            x.sorumlu = kod;
+            GV.toast(x.kod + ' → ' + empAd(kod) + ' kişisine atandı', 'ok');
+            refresh();
+          }); } });
+      }
+      return a;
+    })(),
+
+    bulk:(function(){
+      var b = [];
+      if(canDuzenle){
+        b.push({ key:'eskale', label:'Seçilenleri eskale et', icon:'i-trend-up', tone:'danger',
+          confirm:'Seçili {n} talep için eskalasyon başlatılacak ve sorumlu yöneticilere bildirim gönderilecek.',
+          run:function(ids){
+            var n = ids.filter(function(id){
+              var x = DB.tickets.filter(function(t){ return t.kod === id; })[0];
+              return x && acik(x);
+            }).length;
+            GV.toast(n + ' talep eskalasyona alındı' +
+              (n < ids.length ? ' · ' + (ids.length - n) + ' kapalı talep atlandı' : ''), n ? 'ok' : 'info'); } });
+        b.push({ key:'ata', label:'Sorumlu ata', icon:'i-user-check', run:function(ids){
+          sorumluModal('Toplu sorumlu ataması', ids.length + ' talep için sorumlu belirleyin', null, function(kod){
+            ids.forEach(function(id){
+              var x = DB.tickets.filter(function(t){ return t.kod === id; })[0];
+              if(x) x.sorumlu = kod;
+            });
+            GV.toast(ids.length + ' talep ' + empAd(kod) + ' kişisine atandı', 'ok');
+            if(L) L.refresh();
+          }); } });
+      }
+      b.push({ key:'disa', label:'Dışa aktar', icon:'i-download' });
+      return b;
+    })(),
+
+    emptyState:{ icon:'i-hourglass', title:'Bu görünümde SLA kaydı yok',
+      desc:'Destek talepleri açıldığı anda kategori ve önceliğine göre bir SLA politikasına bağlanır; ' +
+           'ilk yanıt ve çözüm süresi bu ekrandan izlenir.',
+      action:'<a class="btn btn-acc" href="app-destek.html"><svg class="ic"><use href="#i-support"></use></svg> Destek Taleplerine Git</a>' }
+  });
+
+});
+</script>
+</body>
+</html>

@@ -593,6 +593,7 @@
     'app-musteri-iletisim.html',
     'app-istalebi.html',
     'app-destek.html',
+    'app-destek-sla.html',
     'app-destek-paket.html',
     'app-destek-memnuniyet.html',
     'app-izin.html',
