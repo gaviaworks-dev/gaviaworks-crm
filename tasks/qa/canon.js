@@ -129,6 +129,25 @@ head('7) slaDurum ↔ SLA hedeflerinden hesaplanan durum');
   });
 }
 
+/* ---------- 8. Finans: milestone ↔ fatura ↔ tahsilat zinciri ---------- */
+head('8) Milestone ↔ fatura ↔ tahsilat');
+{
+  const seen = {};
+  DB.invoices.forEach(i => {
+    if (!i.milestone) return;
+    say(!seen[i.milestone], i.kod + ' ile ' + seen[i.milestone] + ' aynı milestone\'a bağlı (' + i.milestone + ')');
+    seen[i.milestone] = i.kod;
+  });
+  DB.milestones.forEach(m => {
+    const inv = DB.invoices.find(i => i.milestone === m.kod);
+    const pay = inv ? DB.payments.find(p => p.fatura === inv.kod) : null;
+    if (inv) say(inv.tutar === m.odeme,
+      m.kod + ' odeme=' + money(m.odeme) + ' fatura net=' + money(inv.tutar));
+    if (m.odemeDurum === 'Ödendi') say(!!pay && pay.durum === 'Ödendi',
+      m.kod + " odemeDurum='Ödendi' ama tahsilat=" + (pay ? pay.durum : 'yok'));
+  });
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
