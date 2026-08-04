@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Teslim Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="teslim">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName, DB.today
+     work.js → DB.deliveries, DB.milestones, DB.tests, DB.projectModules, DB.projects,
+               DB.activities, DB.proj, DB.projName, DB.mod, DB.modName
+     misc.js → DB.invoices, DB.contracts -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.deliveries.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Proje Yönetimi', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen teslim kaydı sistemde yok.',
+      actions:[{ label:'Teslim listesi', cls:'btn-line', href:'app-proje-teslim.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Teslim kaydı bulunamadı',
+      desc:'“' + esc(id) + '” numaralı teslim bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-teslim.html">Teslim listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teslim Kaydı');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teslim Kaydı') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Proje Yönetimi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teslim Kaydı',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Teslim listesi', cls:'btn-line', href:'app-proje-teslim.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Teslim kaydı düzenleme' : 'Teslim kaydı ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Teslimleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-proje-teslim.html">Teslim listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-proje-teslim-detay.html?id=' + kayit.kod + '">Teslim kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     SÖZLÜKLER (components.md §9 · work.js → DB.deliveries başlığı)
+       · `musteriOnay` bir DURUM değeridir: Onaylandı / Bekliyor / Revizyon istendi.
+         '—' sentinel'i kullanılmaz.
+       · `durum` kümesi teslim listesinin durum filtresiyle birebir aynıdır —
+         aynı eksen iki yerde ayrışmasın diye oradan alındı.
+       · `moduller` DİZİdir: boş dizi = projenin modül kırılımı veride yok,
+         kapsam proje ekseninde okunur.
+       · `test` = teslimi kabule bağlayan koşum · `milestone` = tekil taksit bağı.
+     ================================================================= */
+  var DURUMLAR = ['Planlandı','Onaylandı','Gecikti'];
+  var ONAYLAR  = ['Onaylandı','Bekliyor','Revizyon istendi'];
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  var toplamTeslim  = DB.deliveries.length;
+  var taksitliTeslim= DB.deliveries.filter(function(t){ return !!t.milestone; }).length;
+  var testliTeslim  = DB.deliveries.filter(function(t){ return !!t.test; }).length;
+  var modullu       = DB.deliveries.filter(function(t){ return (t.moduller || []).length > 0; }).length;
+  var onayliTeslim  = DB.deliveries.filter(function(t){ return t.musteriOnay === 'Onaylandı'; }).length;
+  /* Sentinel kanaryası: küme dışı bir `musteriOnay` değeri ('—', null, boş) doğdu mu? */
+  var sentinelKayit = DB.deliveries.filter(function(t){ return ONAYLAR.indexOf(t.musteriOnay) === -1; });
+
+  /* Tekil bağ kanaryası: bir milestone'a en fazla bir teslim. */
+  var cokluTaksit = [];
+  DB.milestones.forEach(function(m){
+    var n = DB.deliveries.filter(function(t){ return t.milestone === m.kod; });
+    if(n.length > 1) cokluTaksit.push(m.kod + ' → ' + n.map(function(t){ return t.kod; }).join(', '));
+  });
+
+  /* =================================================================
+     ADRES PARAMETRESİYLE ÖN DOLDURMA — ?proje=PRJ-… · ?milestone=MS-…
+     ================================================================= */
+  function ms(kod){ return kod ? (DB.milestones.filter(function(m){ return m.kod === kod; })[0] || null) : null; }
+  function tst(kod){ return kod ? (DB.tests.filter(function(t){ return t.kod === kod; })[0] || null) : null; }
+  function fatura(mk){ return mk ? (DB.invoices.filter(function(i){ return i.milestone === mk; })[0] || null) : null; }
+  function sozlesme(sk){ return sk ? (DB.contracts.filter(function(c){ return c.kod === sk; })[0] || null) : null; }
+
+  var qsProje  = qs.get('proje');
+  var qsTaksit = qs.get('milestone');
+  var onProje  = qsProje ? DB.proj(qsProje) : null;
+  var onTaksit = ms(qsTaksit);
+  /* Taksit geldiyse proje ondan okunur (milestone kaydında proje YAZILI); iki parametre
+     çelişirse taksitin projesi kazanır ve çelişki ekranda söylenir. */
+  var celiskiProje   = !!(onTaksit && onProje && onTaksit.proje !== onProje.kod);
+  var baslangicProje = duzenle ? kayit.proje : (onTaksit ? onTaksit.proje : (onProje ? onProje.kod : ''));
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden; bağlar aynı projeyle sınırlanır
+     (canon.js eksen 15: bağ verilen modül/koşum/taksit aynı projede olmalı)
+     ================================================================= */
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){
+      var say = DB.deliveries.filter(function(t){ return t.proje === p.kod && (!duzenle || t.kod !== kayit.kod); }).length;
+      return { value:p.kod, label:p.ad + ' · ' + p.kod + (say ? ' · ' + say + ' teslim' : '') };
+    });
+
+  var KISILER = DB.employees
+    .filter(function(e){ return e.aktif !== false || (duzenle && e.kod === kayit.teslimEden); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+
+  function modulListe(pk){
+    return DB.projectModules.filter(function(m){ return m.proje === pk; });
+  }
+  /* Bu taksite bağlı BAŞKA teslim (düzenlenen kaydın kendisi sayılmaz). */
+  function taksitSahibi(mk){
+    return DB.deliveries.filter(function(t){
+      return t.milestone === mk && (!duzenle || t.kod !== kayit.kod); })[0] || null;
+  }
+  function taksitSecenek(pk){
+    return DB.milestones.filter(function(m){ return m.proje === pk; })
+      .sort(function(a, b){ return (a.taksit || 0) - (b.taksit || 0); })
+      .map(function(m){
+        var sahip = taksitSahibi(m.kod);
+        return { value:m.kod, label:m.kod + ' · ' + m.taksit + '. taksit · ' + m.ad + ' · ' + F.date(m.tarih) +
+          (canFinans ? ' · ' + F.money(m.odeme) + ' (KDV hariç)' : '') +
+          ' · ' + m.durum + (sahip ? ' · ' + sahip.kod + ' teslimine bağlı' : '') };
+      });
+  }
+  function testSecenek(pk){
+    return DB.tests.filter(function(t){ return t.proje === pk; })
+      .sort(function(a, b){ return String(a.tarih).localeCompare(String(b.tarih)); })
+      .map(function(t){
+        return { value:t.kod, label:t.kod + ' · ' + t.ad + ' · ' + t.tur + ' · ' + F.date(t.tarih) + ' · ' + t.durum };
+      });
+  }
+
+  /* =================================================================
+     FORM KAYDI — modül kapsamı checkbox grubu olarak açılır:
+     her modül ayrı bir `mod_<kod>` alanıdır, kaydederken `moduller` dizisine toplanır.
+     ================================================================= */
+  function modKey(kod){ return 'mod_' + kod; }
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.milestone  = kayit.milestone || '';
+    formRec.test       = kayit.test || '';
+    formRec.onayTarihi = kayit.onayTarihi || '';
+    formRec.not        = kayit.not || '';
+    formRec.aktif      = kayit.aktif !== false;
+    (kayit.moduller || []).forEach(function(mk){ formRec[modKey(mk)] = true; });
+  }else{
+    /* Teslim eden oturumdaki kullanıcıyla açılır — bu bir BAĞ değil, form varsayılanıdır. */
+    var benim = GV.session && GV.session.emp && DB.emp(GV.session.emp) ? GV.session.emp : '';
+    formRec = {
+      ad:'', proje:baslangicProje, tarih:DB.today,
+      durum:'Planlandı', musteriOnay:'Bekliyor', onayTarihi:'',
+      teslimEden:benim, not:'',
+      /* Taksit bağı adresten geldiyse yazılır; modül ve kabul koşumu taksitten
+         TÜRETİLMEZ (form-brief §5 kural 4 — belirsiz bağ boş bırakılır). */
+      milestone:(onTaksit ? onTaksit.kod : ''), test:'',
+      aktif:true
+    };
+  }
+
+  /* =================================================================
+     BAĞLAM — düzenleme modunda kaydın ilişkileri (hepsi veride YAZILI alan)
+     ================================================================= */
+  var proje    = duzenle && kayit.proje ? DB.proj(kayit.proje) : null;
+  var taksit   = duzenle ? ms(kayit.milestone) : null;
+  var kabul    = duzenle ? tst(kayit.test) : null;
+  var ftr      = taksit ? fatura(taksit.kod) : null;
+  var szl      = taksit ? sozlesme(taksit.sozlesme) : null;
+  var kapsam   = duzenle ? (kayit.moduller || []).map(function(mk){ return DB.mod(mk); }).filter(Boolean) : [];
+  var yetimMod = duzenle ? (kayit.moduller || []).filter(function(mk){ return !DB.mod(mk); }) : [];
+  var acts     = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  var ust = '';
+
+  /* ---- Kanarya: '—' sentinel'i ya da küme dışı müşteri onayı doğdu mu ---- */
+  if(sentinelKayit.length){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', title:'Müşteri onayı alanında küme dışı değer var',
+      text:'`musteriOnay` bir durum değeridir ve yalnız ' + ONAYLAR.join(' · ') + ' değerlerini alır ' +
+           '(components.md §9); “—” sentinel’i kullanılmaz. Şu an ' + sentinelKayit.length +
+           ' teslim kaydında küme dışı bir değer yazılı: ' +
+           sentinelKayit.map(function(t){ return t.kod; }).join(', ') + '. Bu form küme dışı değer ' +
+           'yazmaz; mevcut kayıtları veri katmanı düzeltmelidir.' }) + '</div></section>';
+  }
+
+  /* ---- Kanarya: bir taksite birden çok teslim bağlanmış mı ---- */
+  if(cokluTaksit.length){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', title:'Bir taksite birden çok teslim bağlanmış',
+      text:'Bir milestone’a en fazla BİR teslim düşer (components.md §9). Çakışan bağlar: ' +
+           cokluTaksit.join(' · ') + '. Bu form yeni çakışma yazmaz — dolu bir taksit seçilirse ' +
+           'kaydetmeye izin vermez.' }) + '</div></section>';
+  }
+
+  if(duzenle){
+    /* ---- Bağlar: hangisi yazılı, hangisi boş ---- */
+    var bagAksiyon = [];
+    if(taksit) bagAksiyon.push({ label:'Taksiti aç', href:'app-proje-milestone.html?id=' + taksit.kod, cls:'btn-line' });
+    if(kabul)  bagAksiyon.push({ label:'Kabul koşumunu aç', href:'app-proje-test-detay.html?id=' + kabul.kod, cls:'btn-line' });
+    if(proje)  bagAksiyon.push({ label:'Projeyi aç', href:'app-proje-detay.html?id=' + proje.kod, cls:'btn-line' });
+
+    var yaziliBag = [
+      taksit ? 'taksit ' + taksit.kod : null,
+      kabul ? 'kabul koşumu ' + kabul.kod : null,
+      kapsam.length ? kapsam.length + ' modül' : null
+    ].filter(Boolean);
+
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({
+        tone:yaziliBag.length ? 'ok' : 'info',
+        title:yaziliBag.length ? 'Bu kayıtta ' + yaziliBag.length + ' bağ ekseni veride yazılı'
+                               : 'Bu kayıtta yazılı bağ yok',
+        text:(yaziliBag.length
+              ? 'Yazılı bağlar: ' + yaziliBag.join(' · ') + '. Taksit ve kabul koşumu TEKİL bağdır, ' +
+                'modül kapsamı dizidir. '
+              : 'Taksit, kabul koşumu ve modül kapsamının üçü de boş. ') +
+             'Bağ tarih yakınlığından türetilmez (ders L-13); yalnız gerçekten bilinen bağ yazılır. ' +
+             ((kayit.moduller || []).length === 0
+               ? 'Modül kapsamı boş: kapsam proje ekseninde okunur — bu bir eksiklik değil, ' +
+                 'projenin modül kırılımı olmadığında beklenen durumdur.'
+               : 'Modül kapsamı yalnız aynı projenin modüllerinden seçilir.'),
+        actions:bagAksiyon }) +
+      '</div></section>';
+
+    /* ---- Kapsamda projede olmayan modül kodu varsa ---- */
+    if(yetimMod.length){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Kapsamda karşılığı olmayan modül kodu var',
+        text:'Kayıtta yazılı ' + yetimMod.join(', ') + ' kodlu modül(ler) DB.projectModules içinde ' +
+             'bulunamadı. Bu kodlar form açılırken işaretlenemedi; kaydederseniz kapsamdan düşerler.' }) +
+        '</div></section>';
+    }
+
+    /* ---- Fatura zinciri uyarısı: taksit ↔ fatura ↔ teslim ---- */
+    if(taksit && ftr){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Bağlı taksitin faturası kesilmiş',
+        text:taksit.kod + ' taksitine ' + ftr.kod + ' faturası kesilmiş (' + ftr.durum + ')' +
+             (canFinans ? ' · net ' + F.money(ftr.tutar) + ' (KDV hariç), brüt ' + F.money(ftr.toplam) + ' (KDV dahil)' : '') +
+             '. Taksit bağını burada değiştirirseniz fatura kaydı otomatik güncellenmez — fatura ' +
+             've tahsilat kendi ekranlarından düzenlenir.',
+        actions:[{ label:'Faturayı aç', href:'app-fatura-detay.html?id=' + ftr.kod }] }) + '</div></section>';
+    }
+
+    /* ---- Bağlam kartı ---- */
+    var son = acts[0];
+    var onayGun = kayit.onayTarihi ? F.days(kayit.onayTarihi, kayit.tarih) : null;
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Teslim numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Teslim adı', esc(kayit.ad)],
+        ['Proje', proje
+          ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+            sub(proje.kod + ' · ' + proje.durum)
+          : (kayit.proje ? '<span class="u-num">' + esc(kayit.proje) + '</span>' + sub('Proje kaydı bulunamadı') : null)],
+        ['Müşteri', proje && proje.musteri
+          ? '<a href="app-musteri-detay.html?id=' + proje.musteri + '">' + esc(proje.musteriAd) + '</a>' : null],
+        ['Teslim tarihi', GV.dateCell(kayit.tarih, { done:kayit.durum === 'Onaylandı' }) + sub(F.dateLong(kayit.tarih))],
+        ['Teslim durumu', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Müşteri onayı', GV.badge(kayit.musteriOnay)],
+        ['Onay tarihi', kayit.onayTarihi
+          ? GV.dateCell(kayit.onayTarihi, { done:true }) +
+            (onayGun == null ? '' : sub('teslimden ' + onayGun + ' gün sonra')) : null],
+        ['Teslim eden', GV.user(kayit.teslimEden, { sm:true })],
+        ['Karşılık gelen taksit', taksit
+          ? '<a href="app-proje-milestone.html?id=' + taksit.kod + '">' + esc(taksit.kod) + '</a>' +
+            sub(taksit.taksit + '. taksit · ' + taksit.ad +
+                (canFinans ? ' · ' + F.money(taksit.odeme) + ' (KDV hariç)' : '') +
+                (szl ? ' · ' + szl.kod : ''))
+          : null],
+        ['Kabul test koşumu', kabul
+          ? '<a href="app-proje-test-detay.html?id=' + kabul.kod + '">' + esc(kabul.kod) + '</a>' +
+            sub(kabul.ad + ' · ' + kabul.tur + ' · ' + kabul.durum)
+          : null],
+        ['Kapsanan modüller', kapsam.length
+          ? kapsam.map(function(m){ return esc(m.ad); }).join(', ') +
+            sub(kapsam.map(function(m){ return m.kod; }).join(' · '))
+          : null],
+        ['Teslim notu', kayit.not ? esc(kayit.not) : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-proje-teslim-detay.html?id=' + kayit.kod + '">' +
+        ico('i-external','ic-sm') + ' Teslim kartını aç</a>');
+
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni teslim kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki teslim numarası atanır, aktivite geçmişine “Teslim kaydı ' +
+           'oluşturuldu” satırı düşülür ve teslim listesine dönülür. Bu form fatura kesmez ve ' +
+           'taksitin durumunu değiştirmez: teslim ↔ taksit bağı kurulur, faturalama kendi ' +
+           'ekranından yürür.',
+      actions:[{ label:'Teslim listesi', href:'app-proje-teslim.html' }] });
+
+    var onNot = '';
+    if(qsTaksit && !onTaksit){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki taksit bulunamadı',
+        text:'“' + qsTaksit + '” numaralı milestone sistemde yok, bu yüzden taksit alanı boş açıldı. ' +
+             'Ödeme planından geçerli bir taksit seçebilirsiniz.',
+        actions:[{ label:'Milestone listesi', href:'app-proje-milestone.html' }] });
+    }else if(onTaksit){
+      var sahip0 = taksitSahibi(onTaksit.kod);
+      onNot += GV.notice({ tone:sahip0 ? 'warn' : 'ok',
+        title:sahip0 ? 'Adresteki taksit zaten başka bir teslime bağlı' : 'Taksit adresten geldi',
+        text:onTaksit.kod + ' · ' + onTaksit.taksit + '. taksit · ' + onTaksit.ad + ' seçili açıldı; ' +
+             'projesi (' + DB.projName(onTaksit.proje) + ') taksit kaydında yazılı olduğu için proje ' +
+             'alanı da doldu. ' +
+             (sahip0
+               ? 'Ancak bu taksit ' + sahip0.kod + ' teslimine bağlı ve bir taksite en fazla bir ' +
+                 'teslim düşer — kaydetmeden önce başka bir taksit seçmelisiniz.'
+               : 'Taksitin kapsadığı modüller ve kabul koşumu OTOMATİK yazılmaz; kapsam teslimin ' +
+                 'kendi ekseninde işaretlenir.'),
+        actions:[{ label:'Taksiti aç', href:'app-proje-milestone.html?id=' + onTaksit.kod }] });
+    }
+    if(qsProje && !onProje){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki proje bulunamadı',
+        text:'“' + qsProje + '” numaralı proje kaydı sistemde yok, bu yüzden proje alanı ön seçili ' +
+             'gelmedi. Listeden geçerli bir proje seçebilirsiniz.',
+        actions:[{ label:'Projeler', href:'app-proje.html' }] });
+    }else if(onProje && celiskiProje){
+      onNot += GV.notice({ tone:'warn', title:'Adresteki proje ile taksitin projesi çelişiyor',
+        text:'Adreste ' + onProje.kod + ' projesi yazıyor ama ' + onTaksit.kod + ' taksiti ' +
+             onTaksit.proje + ' projesine ait. Bağ taksit kaydında yazılı olduğu için proje alanı ' +
+             'taksitin projesiyle açıldı.' });
+    }else if(onProje){
+      var pTeslim = DB.deliveries.filter(function(t){ return t.proje === onProje.kod; });
+      var pBos = DB.milestones.filter(function(m){
+        return m.proje === onProje.kod && !DB.deliveries.filter(function(t){ return t.milestone === m.kod; })[0]; });
+      onNot += GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
+        text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili ' +
+             'açıldı. Bu projede ' + pTeslim.length + ' teslim kaydı ve teslimi olmayan ' +
+             pBos.length + ' taksit var.',
+        actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + onProje.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + onNot + '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-package') + 'Teslim Künyesi</h2>' +
+        '<div class="gc-sub">Kapsam, müşteri onayı ve veride yazılı bağlar · ' +
+          'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-proje-teslim.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR — bölümler seçili projeye göre kurulur.
+     Modül kapsamı checkbox grubudur; proje değişince alan kümesi de değişir,
+     bu yüzden form seçenek yamalamakla değil, BAŞTAN kurulur.
+     ================================================================= */
+  function bolumler(pk){
+    var mods = modulListe(pk);
+    var taksitler = taksitSecenek(pk);
+    var kosumlar = testSecenek(pk);
+
+    return [
+      { title:'Teslim kimliği',
+        desc:'Neyin teslim edildiği ve hangi projeye ait olduğu. Teslim numarası kaydederken ' +
+             'sistem tarafından atanır, elle girilmez.',
+        fields:[
+          { key:'ad', label:'Teslim adı', type:'text', required:true, cols:12,
+            placeholder:'Örn. Beta sürüm (v0.9)',
+            hint:'Sürüm bilgisi ayrı bir alan değildir; ada “v0.9” biçiminde yazılırsa teslim kartı ' +
+                 'sürüm etiketini adın içinden okur.',
+            validate:function(v, d){
+              var ayni = DB.deliveries.filter(function(t){
+                return (!duzenle || t.kod !== kayit.kod) && t.proje === d.proje &&
+                       String(t.ad).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+              return ayni ? 'Aynı projede aynı adla bir teslim var (' + ayni.kod + '). Teslim adı ' +
+                            'ayırt edici olmalı ya da mevcut kayıt güncellenmeli.' : '';
+            } },
+          { key:'proje', label:'Proje', type:'select', options:PROJELER, required:true, cols:6,
+            placeholder:'Proje seçin',
+            hint:'Proje değişince modül kapsamı, taksit ve kabul koşumu seçenekleri yeniden kurulur; ' +
+                 'yeni projeye ait olmayan seçimler düşer.' },
+          { key:'tarih', label:'Teslim tarihi', type:'date', required:true, cols:6,
+            hint:'Planlı teslimde ileri tarih girilebilir; gecikme bu tarihten ' + F.date(DB.today) +
+                 ' veri eksenine göre ölçülür.',
+            validate:function(v, d){
+              if(v && d.durum === 'Onaylandı' && v > DB.today)
+                return 'Onaylanmış teslimin tarihi ileri bir tarih olamaz.';
+              return '';
+            } }
+        ]},
+
+      { title:'Durum ve müşteri onayı',
+        desc:'Teslim durumu işin kendi ekseni, müşteri onayı kabul ekseni — ikisi ayrı alandır. ' +
+             'Müşteri onayı bir DURUM değeridir (' + ONAYLAR.join(' · ') + '); “—” yazılmaz.',
+        fields:[
+          { key:'durum', label:'Teslim durumu', type:'select', options:DURUMLAR, required:true, cols:4,
+            hint:'Liste bu kümeyi kullanır. “Planlandı” kalıp tarihi geçen teslim listede ayrıca ' +
+                 'geciken sayılır, durumu elle değiştirilmesi gerekmez.',
+            validate:function(v, d){
+              if(v === 'Gecikti' && d.tarih && d.tarih >= DB.today)
+                return 'Gecikti durumu yalnız teslim tarihi geçmiş kayıtlarda kullanılır; tarih ' +
+                       'ileride olduğu için “Planlandı” seçilmelidir.';
+              if(v === 'Onaylandı' && d.musteriOnay !== 'Onaylandı')
+                return 'Teslim durumu “Onaylandı” ise müşteri onayı da “Onaylandı” olmalıdır.';
+              return '';
+            } },
+          { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:ONAYLAR, required:true, cols:4,
+            hint:'Ölçüm: ' + toplamTeslim + ' teslimin ' + onayliTeslim + ' tanesinde müşteri onayı ' +
+                 'alınmış. Onay beklenirken “Bekliyor”, geri dönüş geldiyse “Revizyon istendi” yazılır. ' +
+                 'Teslim kartındaki onay akışı iki alanı birlikte yürütür (onay işlenince teslim durumu ' +
+                 'da “Onaylandı” olur); burada durumu ayrıca seçmelisiniz.' },
+          { key:'onayTarihi', label:'Müşteri onay tarihi', type:'date', cols:4,
+            hint:'Yalnız onayı alınmış teslimde dolar; teslim tarihinden önce olamaz.',
+            validate:function(v, d){
+              if(d.musteriOnay === 'Onaylandı' && !v)
+                return 'Müşteri onayı alınmış teslimde onay tarihi zorunludur.';
+              if(v && d.musteriOnay !== 'Onaylandı')
+                return 'Onay tarihi yalnız müşteri onayı “Onaylandı” olan teslimde yazılır.';
+              if(v && d.tarih && v < d.tarih)
+                return 'Onay tarihi teslim tarihinden önce olamaz.';
+              if(v && v > DB.today)
+                return 'Onay tarihi ileri bir tarih olamaz.';
+              return '';
+            } }
+        ]},
+
+      { title:'Sorumluluk ve not',
+        desc:'Teslimi yapan çalışan ve teslimle birlikte iletilen kısa not.',
+        fields:[
+          { key:'teslimEden', label:'Teslim eden', type:'select', options:KISILER, required:true, cols:6,
+            placeholder:'Çalışan seçin',
+            hint:duzenle ? 'Teslimi yapan çalışan.' : 'Oturumdaki kullanıcı seçili geldi; değiştirebilirsiniz.' },
+          { key:'not', label:'Teslim notu', type:'textarea', cols:12, rows:3,
+            placeholder:'Örn. Test cihazlarına dağıtıldı',
+            hint:'Listede ve teslim kartında görünür. Ayrıntılı kabul tutanağı bu alanda değil, ' +
+                 'bağlı kabul koşumunda tutulur.' }
+        ]},
+
+      { title:'Kapsam — modüller',
+        desc:pk
+          ? (mods.length
+              ? DB.projName(pk) + ' projesinin ' + mods.length + ' modülü var; teslimin kapsadıklarını ' +
+                'işaretleyin. Hiçbiri işaretlenmezse kapsam proje ekseninde okunur — bu geçerli bir ' +
+                'durumdur. Ölçüm: ' + toplamTeslim + ' teslimin ' + modullu + ' tanesinde modül kapsamı yazılı.'
+              : DB.projName(pk) + ' projesinin veride modül kırılımı yok; kapsam proje ekseninde okunur ' +
+                've bu teslimde modül işaretlenmez.')
+          : 'Modül kapsamı seçili projenin modüllerinden işaretlenir. Önce proje seçin.',
+        fields:mods.map(function(m){
+          return { key:modKey(m.kod), type:'checkbox', cols:6,
+            label:m.ad,
+            checkLabel:m.ad + ' · ' + m.kod + ' · ' + m.durum + ' · %' + m.ilerleme };
+        })},
+
+      { title:'Bağlar',
+        desc:'Taksit ve kabul koşumu TEKİL bağdır ve veride yazılır; tarih yakınlığından ' +
+             'türetilmez. Seçenekler yalnız aynı projenin kayıtlarıdır.',
+        fields:[
+          { key:'milestone', label:'Karşılık gelen taksit', type:'select', options:taksitler, cols:6,
+            placeholder:taksitler.length ? 'Taksit bağı yok' : 'Bu projede taksit yok',
+            hint:'Bir taksite en fazla BİR teslim bağlanır. Ölçüm: ' + toplamTeslim + ' teslimin ' +
+                 taksitliTeslim + ' tanesinde taksit bağı yazılı. Taksit tutarları net (KDV hariç) eksendedir.',
+            validate:function(v, d){
+              if(!v) return '';
+              var m = ms(v);
+              if(!m) return 'Seçilen taksit bulunamadı.';
+              if(m.proje !== d.proje)
+                return 'Taksit başka bir projeye ait (' + m.proje + '); bağ aynı projede olmalıdır.';
+              var sahip = taksitSahibi(m.kod);
+              return sahip ? m.kod + ' taksiti zaten ' + sahip.kod + ' teslimine bağlı; bir taksite ' +
+                             'en fazla bir teslim düşer.' : '';
+            } },
+          { key:'test', label:'Kabul test koşumu', type:'select', options:kosumlar, cols:6,
+            placeholder:kosumlar.length ? 'Kabul koşumuna bağlı değil' : 'Bu projede test koşumu yok',
+            hint:'Teslimi kabule bağlayan koşum. Ölçüm: ' + toplamTeslim + ' teslimin ' + testliTeslim +
+                 ' tanesinde kabul koşumu yazılı. Koşumun kapsadığı modüller teslimin kapsamına ' +
+                 'otomatik yazılmaz.',
+            validate:function(v, d){
+              if(!v) return '';
+              var t = tst(v);
+              if(!t) return 'Seçilen test koşumu bulunamadı.';
+              if(t.proje !== d.proje)
+                return 'Koşum başka bir projeye ait (' + t.proje + '); bağ aynı projede olmalıdır.';
+              if((d.durum === 'Onaylandı' || d.musteriOnay === 'Onaylandı') && t.durum !== 'Tamamlandı')
+                return t.kod + ' koşumu “' + t.durum + '” durumunda; kabule bağlanan koşum ' +
+                       'tamamlanmadan teslim onaylanmış görünemez.';
+              return '';
+            } }
+        ]},
+
+      { title:'Kayıt durumu',
+        desc:'Liste bileşeni pasif kaydı arşiv sayar; arşivlenen teslim yalnız “Arşivlenenleri ' +
+             'göster” açıkken listelenir.',
+        fields:[
+          { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+            onLabel:'Kayıt aktif — teslim listelerinde ve sayaçlarda görünür',
+            hint:'Kapatılırsa kayıt arşive düşer; bağlı taksit, fatura ve kabul koşumu silinmez.' }
+        ]}
+    ];
+  }
+
+  /* Sabit (projeden bağımsız) alan sayısı — modül checkbox’ları bu sayıya girmez. */
+  var sabitAlan = 0, zorunluAlan = 0;
+  bolumler('').forEach(function(s){
+    (s.fields || []).forEach(function(f){ sabitAlan++; if(f.required) zorunluAlan++; });
+  });
+
+  /* =================================================================
+     FORM KURULUMU VE PROJE DEĞİŞİMİ
+     ================================================================= */
+  var form = null;
+  function kurForm(rec){
+    form = GV.form({ mount:'#formMount', id:'teslim', record:rec, sections:bolumler(rec.proje || '') });
+  }
+  kurForm(formRec);
+
+  /* Mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze kopyayla değiştirdiği için
+     dinleyici birikmez (ders L-16). Form yeniden kurulunca da bu düğüm ayakta kalır. */
+  var formMount = document.getElementById('formMount');
+  formMount.addEventListener('change', function(e){
+    if(!e.target || e.target.name !== 'proje') return;
+
+    var cur = form.read();
+    var yeniProje = cur.proje;
+    var dusen = [];
+
+    if(cur.milestone && (ms(cur.milestone) || {}).proje !== yeniProje){ cur.milestone = ''; dusen.push('taksit'); }
+    if(cur.test && (tst(cur.test) || {}).proje !== yeniProje){ cur.test = ''; dusen.push('kabul koşumu'); }
+    var dusenModul = 0;
+    Object.keys(cur).forEach(function(k){
+      if(k.indexOf('mod_') !== 0 || !cur[k]) return;
+      var m = DB.mod(k.slice(4));
+      if(!m || m.proje !== yeniProje){ cur[k] = false; dusenModul++; }
+    });
+    if(dusenModul) dusen.push(dusenModul + ' modül');
+
+    kurForm(cur);
+    form.setDirty(true);
+    var sel = document.getElementById('f_proje');
+    if(sel) sel.focus();
+    if(dusen.length){
+      GV.toast(dusen.join(' ve ') + ' seçimi temizlendi — yeni projeye ait değil', 'warn');
+    }
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    ad:'Teslim adı', proje:'Proje', tarih:'Teslim tarihi', durum:'Teslim durumu',
+    musteriOnay:'Müşteri onayı', onayTarihi:'Müşteri onay tarihi', teslimEden:'Teslim eden',
+    not:'Teslim notu', moduller:'Kapsanan modüller', milestone:'Karşılık gelen taksit',
+    test:'Kabul test koşumu', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.deliveries.forEach(function(x){
+      var m = /^TSL-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'TSL-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer;
+     dizi alanı sıralı birleştirilir. */
+  function norm(x){
+    if(Array.isArray(x)) return x.join('|');
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(k === 'moduller') return (v && v.length) ? v.map(function(mk){ return DB.modName(mk); }).join(', ')
+                                                : 'Modülsüz (proje ekseni)';
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşivli';
+    if(k === 'teslimEden') return DB.empName(v);
+    if(k === 'proje') return DB.projName(v);
+    if(k === 'tarih' || k === 'onayTarihi') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    /* Modül checkbox'ları `moduller` dizisine toplanır — proje modül sırası korunur. */
+    var moduller = modulListe(raw.proje).filter(function(m){ return raw[modKey(m.kod)] === true; })
+                                        .map(function(m){ return m.kod; });
+
+    var v = {
+      ad:String(raw.ad || '').trim(),
+      proje:raw.proje,
+      milestone:String(raw.milestone || '').trim() || null,
+      tarih:raw.tarih,
+      durum:raw.durum,
+      teslimEden:raw.teslimEden,
+      musteriOnay:raw.musteriOnay,
+      onayTarihi:String(raw.onayTarihi || '').trim() || null,
+      not:String(raw.not || '').trim() || null,
+      moduller:moduller,
+      test:String(raw.test || '').trim() || null,
+      aktif:!!raw.aktif
+    };
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      DB.deliveries.unshift(Object.assign({ kod:kod }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Teslim kaydı oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ hedeflerine yalnız AKTİVİTE satırı düşülür — hedef kayıtta ayna ALAN açılmaz
+         (components.md §9d yön kuralı): bağ teslimin üstünde tutulur. */
+      if(v.milestone){
+        DB.activities.unshift({
+          kayit:v.milestone, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Taksite teslim bağlandı: ' + kod, eski:null, yeni:v.ad,
+          tone:'accent', icon:'i-package'
+        });
+      }
+      if(v.test){
+        DB.activities.unshift({
+          kayit:v.test, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Koşum ' + kod + ' tesliminin kabul koşumu olarak işaretlendi', eski:null, yeni:v.ad,
+          tone:'accent', icon:'i-flask'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-proje-teslim.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Proje Yönetimi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teslim Kaydı',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + sabitAlan +
+        ' sabit alan + seçili projenin modül kapsamı.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + sabitAlan + ' sabit alan, ' + zorunluAlan +
+        ' zorunlu · modül kapsamı seçili projeye göre açılır.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-proje-teslim.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
