@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Bakım Paketleri — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="destek" data-screen="paket">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* ---- türetilmiş yardımcılar — kaynak veri (DB.supportPackages) DEĞİŞTİRİLMEZ ---- */
+  var acikTalepDurum = function(t){ return ['Kapandı','Çözüldü'].indexOf(t.durum) === -1; };
+
+  var kota      = function(p){ return (p.kullanilan || 0) + (p.kalan || 0); };
+  var oran      = function(p){ var t = kota(p); return t ? Math.round((p.kullanilan || 0) / t * 100) : 0; };
+  var kalanGun  = function(p){ return F.days(p.bitis); };
+  var dolmus    = function(p){ var d = kalanGun(p); return d != null && d < 0; };
+  var kritik    = function(p){ return oran(p) >= 80; };
+  var yaklasan  = function(p){ var d = kalanGun(p); return d != null && d >= 0 && d <= 60; };
+
+  var musteri   = function(kod){ return DB.customers.filter(function(c){ return c.kod === kod; })[0] || null; };
+  var musteriAd = function(p){ var c = musteri(p.musteri); return c ? c.unvan : p.musteri; };
+  var musteriKisa = function(p){ var c = musteri(p.musteri); return c ? c.kisa : p.musteri; };
+
+  var talepler  = function(p){ return DB.tickets.filter(function(t){ return t.musteri === p.musteri; }); };
+  var acikTalep = function(p){ return talepler(p).filter(acikTalepDurum).length; };
+  var harcanan  = function(p){ return talepler(p).reduce(function(s, t){ return s + (t.harcananSure || 0); }, 0); };
+
+  var saatBedel = function(p){ var t = kota(p); return t ? Math.round((p.tutar || 0) / t) : null; };
+
+  /* Dönem uzunluğu (ay) — paket bedelini yıllığa çevirmek için kullanılır.
+     Paketlerin bir kısmı 6 aylık, bir kısmı 12/24 aylıktır; yıllık gelir
+     karşılaştırılabilir olsun diye bedel dönem ayına bölünüp 12 ile çarpılır. */
+  var donemAy = function(p){
+    if(!p.baslangic || !p.bitis) return 12;
+    var a = String(p.baslangic).slice(0,10).split('-'), b = String(p.bitis).slice(0,10).split('-');
+    var m = (Number(b[0]) - Number(a[0])) * 12 + (Number(b[1]) - Number(a[1])) + (Number(b[2]) >= Number(a[2]) ? 1 : 0);
+    return m > 0 ? m : 12;
+  };
+  var yillikGelir = function(p){ var m = donemAy(p); return Math.round((p.tutar || 0) / m * 12); };
+
+  var yilEkle = function(iso){ return iso ? (Number(String(iso).slice(0,4)) + 1) + String(iso).slice(4) : iso; };
+  var yenile  = function(p){
+    p.baslangic = yilEkle(p.baslangic);
+    p.bitis     = yilEkle(p.bitis);
+    p.durum     = 'Aktif';
+  };
+
+  /* Yenilemeye işaretleme — DB'de böyle bir alan yok; sayfa oturumu boyunca
+     tutulan geçici işaret listesidir (kaynak veriye alan eklenmez). */
+  var isaretli = {};
+  var isaretRozet = function(p){
+    return isaretli[p.kod] ? '<span class="badge is-warn no-dot">Yenilemeye işaretli</span>' : '';
+  };
+
+  var TUKETIM = { '%50 ve üzeri':50, '%70 ve üzeri':70, '%80 ve üzeri':80, '%90 ve üzeri':90 };
+
+  var moneyCell = function(v){
+    return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>'
+                     : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+  };
+  var moneyKpi = function(v){ return canFinans ? F.moneyK(v) : '••••••'; };
+
+  GV.pageHead({ eyebrow:'Destek ve Bakım', title:'Bakım Paketleri',
+    sub:'Müşteri bakım sözleşmeleri, saat kotası ve tükenme durumu',
+    actions:[
+      { label:'Destek Talepleri', icon:'i-support', href:'app-destek.html' },
+      { label:'Yeni Bakım Paketi', icon:'i-plus', cls:'btn-acc', href:'app-destek-paket-form.html' }
+    ] });
+
+  GV.list({
+    mount:'#liste', id:'destekpaket', key:'kod', source:function(){ return DB.supportPackages; },
+    exportName:'bakim-paketleri', exportTitle:'Bakım Paketleri', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Paket kodu, paket adı veya müşteri ara',
+             fields:['kod','ad','musteri','durum'],
+             extra:function(p){ return musteriAd(p) + ' ' + musteriKisa(p); } },
+    defaultSort:'bitis', defaultDir:'asc',
+
+    kpis:[
+      { label:'Aktif bakım paketi', icon:'i-shield-check', tone:'ok',
+        calc:function(a){ return a.filter(function(p){ return p.durum === 'Aktif' && !dolmus(p); }).length; } },
+      { label:'Yıllık paket geliri', icon:'i-wallet', format:moneyKpi,
+        meta:function(){ return 'dönem bedeli 12 aya normalize edildi'; },
+        calc:function(a){ return a.reduce(function(s, p){ return s + yillikGelir(p); }, 0); } },
+      { label:'Kotası kritik (≥ %80)', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(kritik).length; } },
+      { label:'Yenilemesi yaklaşan (60 gün)', icon:'i-hourglass', tone:'warn',
+        calc:function(a){ return a.filter(yaklasan).length; } },
+      { label:'Toplam kalan saat', icon:'i-clock', tone:'info', format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.reduce(function(s, p){ return s + (p.kalan || 0); }, 0); } }
+    ],
+
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'aktif', label:'Aktif', icon:'i-shield-check',
+        filter:function(p){ return p.durum === 'Aktif' && !dolmus(p); } },
+      { key:'kritik', label:'Kota Kritik', icon:'i-alert', filter:kritik },
+      { key:'yaklasan', label:'Yenilemesi Yaklaşan', icon:'i-hourglass', filter:yaklasan },
+      { key:'dolmus', label:'Süresi Dolmuş', icon:'i-archive', filter:dolmus }
+    ],
+
+    columns:[
+      { key:'kod', label:'Paket', width:'16%', locked:true, cellClass:'cell-wrap',
+        render:function(p){ return '<span class="cell-main">' + p.kod + '</span>' +
+          '<span class="cell-sub">' + esc(p.ad) + '</span>'; } },
+      { key:'musteri', label:'Müşteri', width:'18%', cellClass:'cell-wrap',
+        sortValue:function(p){ return musteriAd(p); },
+        render:function(p){ return '<a class="cell-main" href="app-musteri.html?q=' + p.musteri + '">' + esc(musteriAd(p)) + '</a>' +
+          '<span class="cell-code">' + p.musteri + '</span>'; },
+        exportValue:function(p){ return musteriAd(p); } },
+      { key:'ad', label:'Paket adı', visible:false,
+        render:function(p){ return '<span class="tag">' + esc(p.ad) + '</span>'; } },
+      { key:'aylikSaat', label:'Aylık saat', cellClass:'num',
+        render:function(p){ return '<span class="u-num">' + F.hours(p.aylikSaat) + '</span>'; } },
+      { key:'kotaToplam', label:'Toplam kota', cellClass:'num',
+        sortValue:function(p){ return kota(p); },
+        render:function(p){ return '<span class="u-num">' + F.hours(kota(p)) + '</span>'; },
+        exportValue:function(p){ return kota(p); } },
+      { key:'kullanilan', label:'Kullanılan', cellClass:'num',
+        render:function(p){ return '<span class="u-num">' + F.hours(p.kullanilan) + '</span>'; } },
+      { key:'kalan', label:'Kalan', cellClass:'num',
+        render:function(p){
+          var d = oran(p) >= 90 ? 'u-danger' : oran(p) >= 80 ? 'u-warn' : '';
+          return '<b class="u-num ' + d + '">' + F.hours(p.kalan) + '</b>'; } },
+      { key:'tuketim', label:'Tüketim', width:'12%',
+        sortValue:function(p){ return oran(p); },
+        render:function(p){ var o = oran(p);
+          return GV.progress(o, { tone:o >= 90 ? 'danger' : o >= 80 ? 'warn' : 'ok' }); },
+        exportValue:function(p){ return oran(p) + '%'; } },
+      { key:'acikTalep', label:'Açık talep', cellClass:'num', visible:false,
+        sortValue:function(p){ return acikTalep(p); },
+        render:function(p){ var n = acikTalep(p);
+          return n ? '<b class="u-num">' + n + '</b>' : '<span class="u-faint">—</span>'; },
+        exportValue:function(p){ return acikTalep(p); } },
+      { key:'harcanan', label:'Dönemde harcanan', cellClass:'num', visible:false,
+        sortValue:function(p){ return harcanan(p); },
+        render:function(p){ return '<span class="u-num">' + F.hours(harcanan(p)) + '</span>'; },
+        exportValue:function(p){ return harcanan(p); } },
+      { key:'baslangic', label:'Başlangıç',
+        render:function(p){ return '<span class="cell-date">' + F.date(p.baslangic) + '</span>'; } },
+      { key:'bitis', label:'Bitiş',
+        sortValue:function(p){ return p.bitis || ''; },
+        render:function(p){ return GV.dateCell(p.bitis, { done:dolmus(p) }); },
+        exportValue:function(p){ return p.bitis || ''; } },
+      { key:'kalanGun', label:'Kalan gün', cellClass:'num',
+        sortValue:function(p){ return kalanGun(p); },
+        render:function(p){
+          var d = kalanGun(p);
+          if(d == null) return '<span class="u-faint">—</span>';
+          if(d < 0) return '<span class="badge is-danger no-dot">Süresi doldu</span>';
+          return '<span class="u-num ' + (d <= 60 ? 'u-warn' : '') + '">' + d + ' gün</span>'; },
+        exportValue:function(p){ return kalanGun(p); } },
+      { key:'tutar', label:'Paket bedeli', cellClass:'num',
+        render:function(p){ return moneyCell(p.tutar); },
+        exportValue:function(p){ return canFinans ? p.tutar : ''; } },
+      { key:'saatBedel', label:'Saat başı bedel', cellClass:'num', visible:false,
+        sortValue:function(p){ return saatBedel(p); },
+        render:function(p){ return moneyCell(saatBedel(p)); },
+        exportValue:function(p){ return canFinans ? saatBedel(p) : ''; } },
+      { key:'yillik', label:'Yıllık gelir', cellClass:'num', visible:false,
+        sortValue:function(p){ return yillikGelir(p); },
+        render:function(p){ return moneyCell(yillikGelir(p)); },
+        exportValue:function(p){ return canFinans ? yillikGelir(p) : ''; } },
+      { key:'durum', label:'Durum',
+        render:function(p){
+          return GV.badge(dolmus(p) ? 'Süresi doldu' : p.durum) + isaretRozet(p); },
+        exportValue:function(p){ return dolmus(p) ? 'Süresi doldu' : p.durum; } }
+    ],
+
+    filters:[
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'ad', label:'Paket adı', type:'multi',
+        options:DB.supportPackages.map(function(p){ return p.ad; })
+          .filter(function(v, i, s){ return s.indexOf(v) === i; }) },
+      { key:'durum', label:'Paket durumu', type:'multi',
+        options:DB.supportPackages.map(function(p){ return p.durum; })
+          .filter(function(v, i, s){ return s.indexOf(v) === i; }) },
+      { key:'bitis', label:'Bitiş tarihi', type:'daterange' },
+      { key:'tuketimEsik', label:'Tüketim eşiği', type:'select', options:Object.keys(TUKETIM),
+        test:function(p, v){ var e = TUKETIM[v]; return e == null || oran(p) >= e; } }
+    ],
+
+    rowClass:function(p){ return dolmus(p) || oran(p) >= 90 ? 'is-late' : ''; },
+
+    card:function(p){
+      var o = oran(p), d = kalanGun(p);
+      return '<div class="gv-rcard-top"><div>' +
+          '<a class="cell-main" href="app-musteri.html?q=' + p.musteri + '">' + esc(musteriAd(p)) + '</a>' +
+          '<div class="cell-sub">' + p.kod + ' · ' + esc(p.ad) + '</div></div>' +
+          GV.badge(dolmus(p) ? 'Süresi doldu' : p.durum) + '</div>' +
+        '<div class="gv-rcard-meta">' +
+          '<span>Aylık ' + F.hours(p.aylikSaat) + '</span>' +
+          '<span>Kota ' + F.hours(kota(p)) + '</span>' +
+          '<span>Kalan ' + F.hours(p.kalan) + '</span>' +
+          '<span>' + (d == null ? '—' : d < 0 ? 'Süresi doldu' : d + ' gün') + '</span>' +
+        '</div>' +
+        GV.progress(o, { tone:o >= 90 ? 'danger' : o >= 80 ? 'warn' : 'ok' }) +
+        '<div class="gv-rcard-foot">' + moneyCell(p.tutar) +
+          (isaretli[p.kod] ? '<span class="badge is-warn no-dot">Yenilemeye işaretli</span>'
+                           : '<span class="cell-sub">Bitiş ' + F.dateShort(p.bitis) + '</span>') + '</div>';
+    },
+
+    mobile:function(p){
+      var o = oran(p), d = kalanGun(p);
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-musteri.html?q=' + p.musteri + '">' +
+          esc(musteriAd(p)) + '</a>' + (canFinans ? '<span class="cell-money">' + F.money(p.tutar) + '</span>' : '') + '</div>' +
+        '<div class="gv-mrow-code">' + p.kod + ' · ' + esc(p.ad) + '</div>' +
+        '<div class="gv-mrow-meta">' +
+          '<span>' + GV.ico('i-clock','ic-sm') + F.hours(p.kalan) + ' kalan / ' + F.hours(kota(p)) + '</span>' +
+          '<span>' + GV.ico('i-gauge','ic-sm') + '%' + o + ' tüketim</span>' +
+        '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+          GV.badge(dolmus(p) ? 'Süresi doldu' : p.durum) + isaretRozet(p) + '</span>' +
+          '<span class="cell-sub ' + (d != null && d < 0 ? 'u-danger' : d != null && d <= 60 ? 'u-warn' : '') + '">' +
+          F.rel(p.bitis) + '</span></div>';
+    },
+
+    rowActions:[
+      { key:'musteri', icon:'i-building', label:'Müşteriyi aç',
+        href:function(p){ return 'app-musteri.html?q=' + p.musteri; } },
+      { key:'talepler', icon:'i-support', label:'Talepleri gör',
+        href:function(p){ return 'app-destek.html?t=tumu&f_musteri=' + p.musteri; } },
+      { key:'yenile', icon:'i-refresh', label:'Paketi yenile', run:function(p, refresh){
+          if(!GV.perm.can('duzenle')){ GV.toast('Bakım paketi güncelleme yetkiniz yok.', 'danger'); return; }
+          GV.confirm({ title:'Bakım paketini yenile',
+            text:p.kod + ' dönemi ' + F.date(p.baslangic) + ' – ' + F.date(p.bitis) + ' yerine ' +
+                 F.date(yilEkle(p.baslangic)) + ' – ' + F.date(yilEkle(p.bitis)) +
+                 ' olarak bir yıl uzatılacak. Kalan saat kotası devreder, dönem sonunda kapatılmaz.',
+            okLabel:'Yenile' }).then(function(ok){
+              if(!ok) return;
+              yenile(p);
+              delete isaretli[p.kod];
+              GV.toast(p.kod + ' bir yıl yenilendi', 'ok');
+              refresh(); }); } }
+    ],
+
+    bulk:[
+      { key:'isaretle', label:'Yenilemeye işaretle', icon:'i-flag',
+        confirm:'Seçili {n} paket yenileme listesine işaretlenecek ve müşteri sorumlusuna hatırlatma düşecek.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Bakım paketi güncelleme yetkiniz yok.', 'danger'); return; }
+          ids.forEach(function(k){ isaretli[k] = true; });
+          GV.toast(ids.length + ' paket yenilemeye işaretlendi', 'ok');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+
+    emptyState:{ icon:'i-shield-check', title:'Bu görünümde bakım paketi yok',
+      desc:'Bakım paketleri müşterinin aylık destek saat kotasını tanımlar; destek taleplerinde harcanan süre bu kotadan düşer.',
+      action:'<a class="btn btn-line" href="app-destek.html"><svg class="ic"><use href="#i-support"></use></svg> Destek Taleplerine Git</a>' }
+  });
+
+});
+</script>
+</body>
+</html>

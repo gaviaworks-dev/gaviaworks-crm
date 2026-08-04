@@ -98,3 +98,25 @@ zorunda kalıyor (`app-ayar-sirket.html` bunu yaptı) — bileşenin iç işleyi
 
 **Çözüm (kapanış fazında):** `GV.upload`'a `onFile(file, meta)` geri çağrısı eklenecek ve
 istenirse bileşen önizlemeyi kendisi basacak (`.gv-thumb` ile — bkz. UID-03).
+
+---
+
+## UID-05 · `GV.perm.scope('gor')` liste ekranlarında uygulanmıyor
+
+**Nerede:** `GV.list` kullanan **tüm** liste ekranları (65+ ekran).
+
+**Sorun:** `GV.perm.scope('gor')` `'tum' | 'departman' | 'proje' | 'kendi'` döndürüyor ama
+ekranların yalnız üçü (`app-panel-ozet`, `app-rapor-personel`, `app-rapor-proje`) bunu okuyor.
+Liste ekranları kaynağın **tamamını** basıyor. Ölçülen örnek: `app-destek-paket.html`
+`musteri` rolüyle açıldığında 6 müşterinin bakım paketini birden gösteriyor —
+maskeleme çalışıyor ama **satır kapsamı** yok.
+
+**Kök neden:** Kapsam süzgeci ekran başına yazılması gereken bir şey olarak bırakılmış;
+ortak katmanda karşılığı yok. 65 ekrana tek tek yazmak da zaten yanlış çözüm.
+
+**Çözüm (kapanış fazında):** `GV.list`'e `scopeField` sözleşmesi eklenecek
+(`{ musteri:'musteri', personel:'sorumlu', proje:'proje', dep:'dep' }` gibi bir eşleme).
+`GV.list` kaynağı basmadan önce oturumdaki rolün `scope('gor')` değerine göre süzecek;
+ekran yalnız hangi alanın hangi kapsama karşılık geldiğini bildirecek. Süzgeç uygulandığında
+liste üstünde bilgilendirici bir çip görünecek ("Yalnız kendi kayıtlarınız").
+`scopeField` vermeyen ekran için davranış değişmez — geçiş kırılmadan yapılabilir.

@@ -593,6 +593,7 @@
     'app-musteri-iletisim.html',
     'app-istalebi.html',
     'app-destek.html',
+    'app-destek-paket.html',
     'app-izin.html',
     'app-zaman.html',
     'app-kapasite.html',
