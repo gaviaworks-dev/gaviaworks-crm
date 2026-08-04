@@ -698,7 +698,10 @@
     'app-destek-form.html',
     'app-proje-sprint-form.html',
     'app-proje-test-form.html',
-    'app-proje-hata-form.html'
+    'app-proje-hata-form.html',
+    'app-proje-teslim-form.html',
+    'app-proje-degisiklik-form.html',
+    'app-istalebi-form.html'
   ];
   GV.built = BUILT;
 
