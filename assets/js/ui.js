@@ -93,6 +93,8 @@
      1. DURUM SÖZLÜKLERİ (semantik ton eşlemesi)
      =================================================================== */
   var TONE = {
+    /* değişiklik talebi — DB.changeRequests[].durum */
+    'Değerlendiriliyor':'accent',
     /* test türleri — DB.tests[].tur (app-proje-test.html) */
     'Regresyon':'info', 'Fonksiyonel':'accent', 'Performans':'purple',
     'Duman':'warn', 'Kabul':'ok',
@@ -146,7 +148,11 @@
 
   GV.pri = function(v){
     if(!v) return '<span class="u-faint">—</span>';
-    var k = String(v).toLowerCase().replace('ı','i').replace('ü','u').replace('ö','o').replace('ş','s').replace('ç','c').replace('ğ','g');
+    /* Global regex şart: 'düşük' iki 'ü' içerir, tekil replace 'dusük' üretip
+       CSS'teki .pri.is-dusuk ile eşleşmiyordu (öncelik rozeti renksiz kalıyordu). */
+    var k = String(v).toLowerCase().replace(/ı/g,'i').replace(/ü/g,'u').replace(/ö/g,'o')
+                     .replace(/ş/g,'s').replace(/ç/g,'c').replace(/ğ/g,'g')
+                     .replace(/\s+/g,'-');   /* 'Çok yüksek' → tek sınıf: is-cok-yuksek */
     return '<span class="pri is-' + k + '">' + esc(v) + '</span>';
   };
 
