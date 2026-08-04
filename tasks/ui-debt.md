@@ -151,3 +151,50 @@ yakın; en az üç ekranda aynı desen tekrarlandı.
 
 **Çözüm (kapanış fazında):** `GV.list` dönüşüne `exportRows(rows, format)` eklenecek ve
 toplu işlem bunu seçili kayıtlarla çağıracak. Ekranlarda tekrarlanan toast deseni silinecek.
+
+---
+
+## UID-08 · Form kontrolü ile etiketi arasında boşluk yok
+
+**Nerede:** Çıktı Al modalındaki radio grubu, Gelişmiş Filtre panelindeki checkbox listesi
+ve aynı kalıbı kuran **tüm ekranlar**.
+
+**Sorun:** `input` ile etiket metni bitişik; aralarında hiç boşluk yok.
+
+**Kök neden:** Ortak katmanda kontrol ile etiketi arasında **taban boşluk kuralı yok**.
+Bu kusurun **dördüncü tekrarı** — persona çipi · giriş rol kartı · radio grubu · checkbox
+listesi. `lessons.md` **L-04** ile aynı aile: iki parçalı etiket kalıbının boşluk/akış
+davranışı ortak katmanda tanımlı değil, her yerde yeniden doğuyor.
+
+**Çözüm (kapanış fazında):** `ui.css`'te **tek taban kural** — kontrol + etiket kalıbı için
+token'lı boşluk (ve dikey optik hizalama). **Ekran ekran yama YASAK.**
+
+---
+
+## UID-09 · Native form kontrolleri tasarım sistemine alınmamış
+
+**Nerede:** `select`, tarih, `checkbox` ve `radio` alanları — form, filtre ve rapor şeritleri.
+
+**Sorun:** `select` tarayıcının kendi okuyla; tarih alanları tarayıcının kendi takvim ikonu
+ve `gg.aa.yyyy` yer tutucusuyla görünüyor. Özel stillenmiş bileşenlerin yanında **yamalı**
+duruyor. Seçim kartlarında native `radio` ile kartın seçili görünümü **aynı bilgiyi iki kez**
+anlatıyor.
+
+**Çözüm (kapanış fazında):** Tüm form kontrolleri için **tek görünüm standardı**; renkler
+`tokens.css`'ten. Seçim kartında bilgi tek kanaldan verilir.
+
+---
+
+## UID-10 · Yan panelde başlık ile kaydırılan içerik arasında ayrım yok
+
+**Nerede:** Gelişmiş Filtre ve **yan panel (`GV.drawer`) kullanan tüm ekranlar**.
+
+**Sorun:** Kaydırınca ilk satır başlığın altına girip kesiliyor — başlık ile gövde arasında
+hiçbir ayrım yok.
+
+**Çözüm (kapanış fazında):** Başlığa alt kenarlık **veya** kaydırma gölgesi; yan panel
+bileşeninde **tek yerde**.
+
+**Ek (aynı fazda):**
+- Para alanlarında **birim eki yok**.
+- **Filtre uygula** butonu seçili filtre sayısını göstermiyor.
