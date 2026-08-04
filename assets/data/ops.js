@@ -239,7 +239,11 @@ DB.suppliers = [
     toplamTutar:882000, odemeVadesi:'Aylık', durum:'Aktif', aktif:true }
 ];
 
-/* ---- Satın alma talepleri (PROMPT.md §17) ------------------------------- */
+/* ---- Satın alma talepleri (PROMPT.md §17) -------------------------------
+   PARA EKSENİ (components.md §9b): `tahminiMaliyet` **NET** (KDV hariç).
+   Doğrulandı: talebi karşılayan siparişin `DB.orders[].tutar` alanıyla birebir
+   eşleşir (SAT-2026-013 → 8.400 · -012 → 28.500 · -011 → 64.000).
+   ------------------------------------------------------------------------- */
 DB.purchases = [
   { kod:'SAT-2026-014', talepEden:'EMP-010', dep:'DEP-12', proje:null, urun:'Geliştirici dizüstü bilgisayar',
     kategori:'Bilgisayar', aciklama:'Yeni geliştirici ve yedek cihaz ihtiyacı', ozellik:'M3 Pro · 18 GB · 512 GB',
@@ -282,7 +286,13 @@ DB.purchaseApprovals = [
   { talep:'SAT-2026-015', sira:2, rol:'Şirket Sahibi', kisi:'EMP-001', durum:'Bekliyor', tarih:null, not:null }
 ];
 
-/* ---- Tedarikçi teklifleri ----------------------------------------------- */
+/* ---- Tedarikçi teklifleri -----------------------------------------------
+   PARA EKSENİ: `fiyat` **NET** (KDV hariç) — talebin `tahminiMaliyet`i ve
+   doğan siparişin `tutar`ı ile aynı eksende.
+   PUAN EKSENİ (components.md §9c): buradaki `puan` **yalnız o teklifi** ölçer
+   ("Teklif puanı"); tedarikçinin genel performansı `DB.suppliers[].puan`'dır
+   ("Tedarikçi genel puanı"). İkisi aynı hücrede gösterilmez.
+   ------------------------------------------------------------------------- */
 DB.supplierQuotes = [
   { talep:'SAT-2026-014', tedarikci:'TDR-002', fiyat:186000, teslimSuresi:'5 iş günü', garanti:'3 yıl',
     odeme:'Peşin', teknikUygun:true, puan:4.8, tercih:true, gerekce:'En hızlı teslim, yetkili servis' },
@@ -307,7 +317,11 @@ DB.supplierQuotes = [
     odeme:'Peşin', teknikUygun:true, puan:3.7, tercih:false, gerekce:'Daha pahalı' }
 ];
 
-/* ---- Siparişler ---------------------------------------------------------- */
+/* ---- Siparişler ----------------------------------------------------------
+   PARA EKSENİ: `tutar` **NET** · `vergi` KDV · `toplam` **BRÜT** (`tutar + vergi`).
+   `teslimTarihi` çift anlamlıdır: sipariş henüz teslim alınmadıysa **planlanan**,
+   `durum:'Teslim alındı'` ise **gerçekleşen** tarihtir — ekranda hangisi olduğu yazılır.
+   -------------------------------------------------------------------------- */
 DB.orders = [
   { kod:'SIP-2026-009', talep:'SAT-2026-013', tedarikci:'TDR-005', tarih:'2026-07-26', teslimTarihi:'2026-08-08',
     tutar:8400, vergi:1680, toplam:10080, doviz:'TRY', durum:'Sipariş verildi', fatura:null, irsaliye:null,
