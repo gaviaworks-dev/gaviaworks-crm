@@ -279,3 +279,225 @@ ya `.gv-tablewrap` mobilde gizlemek yerine **varsayılan olarak yatay kaydırsı
 `GV.list`'in ürettiği tabloya özgü bir sınıfla yapılsın), ya da detay sekmeleri için
 `GV.list`'in mobil kart üreticisi yeniden kullanılabilir hale getirilsin. `is-mobilescroll`
 istisnasını elle geçen ekranlar sonrasında sadeleştirilecek. **Nokta yaması yok.**
+
+---
+
+## UID-15 · Dört detay ekranı shell iskeletini elle kopyalıyor
+
+**Nerede:** `app-gorev-detay.html` · `app-musteri-detay.html` · `app-lead-detay.html` ·
+`app-proje-detay.html` — dördü de `.gv-app` > rail/menü/divider/overlay/top/main markup'ını
+kendi `<body>`'sine yazıyor.
+
+**Sorun:** `buildSkeleton()` `.gv-app` gördüğünde erken dönüyor (bilinçli kaçış). Sonuç iki katlı:
+1. **20 satır shell markup'ı dört yerde tekrarlanıyor** — CLAUDE.md "benzer ekranlar için tekrarlı
+   kod yazılmaz" kuralının ihlali.
+2. Kopyalanan `.gv-divider` **UID-01'in eklediği `aria-controls="gvMenu"` niteliğini taşımıyor**
+   (ölçüldü: dördünde de 0). `aria-expanded` çalışma anında yazıldığı için kurtuluyor, `aria-controls`
+   kurtulmuyor. Yani ortak katmanda kapatılan bir a11y açığı, kopyalanmış markup üzerinden yaşıyor.
+3. `#gvPageHead` doğmadığı için bu ekranlarda **`GV.pageHead` sessizce hiçbir şey yapmıyor** —
+   çağıran bir ekran hata almadan başlıksız kalır.
+
+**Kök neden:** Detay ekranı kalıbı, `buildSkeleton()` yazılmadan önce kurulmuştu; sözlük de
+"detay ekranı iskeletini kendi yazar" diye kayıtlıydı. 5. oturumda `app-teklif-detay.html`
+iskelet yolunun detay ekranında da sorunsuz çalıştığını gösterdi; `app-arac-detay.html` bu yola
+çevrildi ve `components.md` §3 düzeltildi.
+
+**Çözüm (kapanış fazında):** Dört eski detay ekranından elle yazılmış `.gv-app` bloğu silinecek,
+yerine `<div id="rec"></div>` kalacak; sayfa başlığı elle markup yerine `GV.pageHead(...)` ile
+kurulacak. Sonra dördü 1440/768/390'da yeniden doğrulanacak. **Nokta yaması yok** — dördü tek turda.
+
+---
+
+## UID-16 · Detay ekranlarının aktivite sekmesi her kayıtta boş
+
+**Nerede:** `DB.activities` — `app-teklif-detay` · `app-personel-detay` · `app-arac-detay`
+(ve muhtemelen üretilecek 20 detay ekranının çoğu).
+
+**Sorun:** `DB.activities[].kayit` yalnız `GRV-*`, `LEAD-*`, `MUS-*`, `PRJ-*` kodları taşıyor.
+`TKL-*` · `EMP-*` · `ARC-*` için **hiç kayıt yok**, dolayısıyla üç yeni detay ekranının da
+"Aktivite geçmişi" sekmesi **her kayıtta** boş durum basıyor. Ekran doğru davranıyor —
+veri kapsamı eksik. PROMPT.md "aktivite ve değişiklik geçmişi" kabul kriteri (§28) bu hâliyle
+karşılanmıyor.
+
+**Not:** Bu bir arayüz borcu değil **veri borcu**; buraya yazıldı çünkü etkisi arayüzde görünüyor
+ve çözümü tek yerde (veri katmanı). Detay ekranı üretimi bittiğinde hangi kod öneklerinin
+aktivite beklediği kesinleşecek, tek turda yazılacak — parça parça eklemek canonical taramayı
+yanıltır.
+
+**Çözüm:** `assets/data/work.js` → `DB.activities`'e teklif, personel, araç, talep, sözleşme,
+fatura ve destek eksenlerinde gerçek hareket kaydı eklenecek; `canon.js`'e "her detay ekranı
+kod öneki için en az bir aktivite" ekseni girecek.
+
+---
+
+## UID-17 · Her detay ekranı kendi `dl(pairs)` yardımcısını yeniden yazıyor
+
+**Nerede:** `app-gorev-detay` · `app-musteri-detay` · `app-lead-detay` · `app-proje-detay` ·
+`app-teklif-detay` · `app-personel-detay` · `app-arac-detay` · `app-satinalma-detay` ·
+`app-sozlesme-detay` — dokuzu da `.gv-dl` markup'ını üreten yerel bir `dl()` fonksiyonu taşıyor.
+
+**Sorun:** Aynı bileşen dokuz kez yazılınca **kararlar ayrışıyor**. Ölçülen ayrışma: `dt`
+escape'i. `app-teklif-detay` escape ediyordu ve para ekseni işaretini ham metin olarak bastı
+(ders **L-14**, düzeltildi); diğerleri etmiyordu. Boş değer sentineli (`—` / `.is-empty`),
+iki sütunlu satır ve uzun metin kırpma davranışı da ekrandan ekrana farklı.
+
+**Kök neden:** `.gv-dl` yalnız **CSS** olarak var; `components.md` §3 markup'ın elle kurulacağını
+söylüyor. `GV.badge`, `GV.activity`, `GV.chain` gibi bir JS karşılığı yok — o yüzden her ekran
+kendi üreticisini yazıyor. `GV.detail()`/`GV.gantt()`'ın hayalet çıkması da aynı boşluğun belirtisi.
+
+**Çözüm (kapanış fazında):** `ui.js`'e **`GV.dl(pairs, opts)`** eklenecek: `dt` sayfada yazılı
+işaretleme olarak geçer (escape edilmez), `dd` değer olarak escape'li basılır, boş değer tek
+yerde `.is-empty` + `—` alır. Dokuz ekranın yerel `dl()` fonksiyonu silinip buna çevrilecek,
+`components.md` §3'e işlenecek, `tasks/qa/esc.js` regresyon testi olarak kalacak.
+**Nokta yaması yok** — dokuzu tek turda.
+
+---
+
+## VB-05 · Destek talebi → görev / hata / değişiklik bağ alanı veride yok
+
+**Nerede:** `DB.tasks` · `DB.bugs` · `DB.changeRequests` — hiçbirinde `talep` (DST-*) alanı yok.
+
+**Sorun:** PROMPT.md §18 "destek → görev / hata / geliştirme / değişiklik / ek teklif dönüşümü"
+istiyor ve plan.md Wave 9'da madde olarak duruyor. `app-destek-detay.html` dönüşümü **üretebiliyor**
+(görev yazıyor) ama **geri okuyamıyor**: 7 talebin hiçbirinde dönüşüm bulunamıyor, "Dönüşümler"
+sekmesi her kayıtta boş. Ekran bunu `etiketler:['Destek talebi','DST-…']` ile idare ediyor —
+bağ alanı değil, metin eşleşmesi.
+
+**Ölçülen kanıt:** `DST-2026-118` ile `HTA-2026-074` aynı projede, aynı olayı anlatıyor
+("Tarih seçici mobilde açılmıyor") — açıkça aynı kayıt, ama veride bağ yok. Uydurulmadı (L-08:
+ekran değil veri düzeltilir, ama bağ **yazılı** olmalı — L-13).
+
+**Ek bulgu (5. oturum) — hata → görev bağı da yok.** `DB.tasks[].hata` hiçbir kayıtta yazılı
+değil. `GRV-2026-101` ("Tahlil sonuç ekranında PDF indirme hatası düzeltilecek", `tur:'Hata'`)
+ile `HTA-2026-071` ("iOS PDF indirme sessizce başarısız", şiddet **Kritik**) açıkça aynı olay,
+ama bağ yazılı olmadığı için **kurulmadı** (L-13: çıkarım bağ değildir). Bağ yazıldığında
+components.md §9'un şiddet→etki eşlemesi de ihlal çıkacak: görevde `etki:'Yüksek'`, kural
+`Çok yüksek` istiyor. **İkisi aynı turda düzeltilmeli** — önce bağ yazılır, sonra etki hizalanır,
+sonra `canon.js`'e "hata bağı olan görevin etkisi şiddet eşlemesine uyar" ekseni eklenir.
+`app-proje-hata-detay.html` bu ihlali gizlemiyor, ekranda raporluyor.
+
+**Çözüm:** `DB.tasks[].talep` · `DB.tasks[].hata` · `DB.bugs[].talep` · `DB.changeRequests[].talep` alanları açılacak,
+mevcut örtük eşleşmeler (en az bir tane ölçüldü) yazılacak, `canon.js`'e "talep bağı olan kayıt
+gerçekten var olan bir talebi gösterir" ekseni eklenecek. UID-16 (aktivite kapsamı) ile aynı turda.
+
+---
+
+## VB-06 · Fatura ve tahsilat mutasyonları birbirini kapatmıyor
+
+**Nerede:** `app-fatura.html` · `app-fatura-detay.html` (Ödendi işaretle) ·
+`app-tahsilat.html` · `app-tahsilat-detay.html` (Tahsil edildi işaretle).
+
+**Sorun:** Dört ekranda da mutasyon **tek koleksiyona** dokunuyor. Faturayı "Ödendi"
+işaretlemek bağlı `DB.payments` kaydını kapatmıyor; tahsilatı kapatmak da faturayı
+kapatmıyor. Sonuç: kullanıcı faturayı ödendi yaptıktan sonra tahsilat sekmesi hâlâ
+açık alacak gösteriyor — **ekran kendi içinde çelişiyor**.
+
+**Kök neden:** İki koleksiyonun zinciri veride kurulu (`payment.fatura`) ama mutasyon
+tarafında karşılığı yok; her ekran kendi kaydını güncelliyor. Yeni detay ekranları
+bunu liste ekranlarındaki mevcut desene sadık kalarak devraldı.
+
+**Çözüm (kapanış fazında):** Fatura ↔ tahsilat kapanışı **tek yerde** tanımlanacak
+(örn. `GV.fin.settleInvoice(kod)` / `settlePayment(kod)`), dört ekran da onu çağıracak;
+`DB.customers[].bekleyenTahsilat` da aynı yordamda yeniden türetilecek (BRÜT eksende,
+12 müşteride doğrulanmış bağ). `canon.js`'e "fatura Ödendi ise bağlı tahsilat da Ödendi"
+ekseni eklenecek. **Nokta yaması yok** — dördü tek turda.
+
+---
+
+## VB-07 · Sipariş → demirbaş aktarım bağı veride yok
+
+**Nerede:** `DB.assets` — sipariş bağı alanı (`siparis`) hiçbir kayıtta yok, yalnız
+`tedarikci` var.
+
+**Sorun:** PROMPT.md §17 "demirbaşa / araca otomatik aktarım" istiyor ve plan.md Wave 8'de
+madde olarak duruyor. `app-siparis-detay.html`'in "Demirbaşa aktarım" sekmesi bu yüzden
+üç siparişin üçünde de boş; ekran dürüst davranıp yalnız **tedarikçi eşleşmesini**
+gösteriyor ve "bu sipariş bağı değildir" diye etiketliyor. Aynı boşluk `app-demirbas-detay`
+"Satın alma" sekmesinde de görünüyor.
+
+**Neden şimdi kapatılmadı:** Bağı yazmak yeni demirbaş kayıtları da gerektiriyor
+(SIP-2026-008 ergonomik sandalyenin demirbaş karşılığı veride yok) — kapsam genişletmesi
+olurdu ve yarım bağ canonical taramayı yanıltır (L-13).
+
+**Çözüm:** `DB.assets[].siparis` alanı açılacak, mevcut üç siparişin demirbaş karşılıkları
+yazılacak (gerekiyorsa kayıt eklenerek), `canon.js`'e "sipariş bağı olan demirbaş gerçekten
+var olan bir siparişi gösterir + bir sipariş bir demirbaş grubuna bağlanır" ekseni girecek.
+UID-16 (aktivite kapsamı) ve VB-05 (destek dönüşümü) ile aynı turda.
+
+---
+
+## UID-18 · `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor
+
+**Nerede:** `ui.css` → `.cell-wrap` `min-width` dayatıyor. Etkilenen: çok kolonlu tablo
+kuran **her** detay ekranı; ölçülen örnek `app-proje-teslim-detay.html` taksit–fatura
+zinciri tablosu.
+
+**Sorun:** İki metin kolonuna `.cell-wrap` verildiğinde tek başlarına ~416 px genişlik
+alıyorlar; net/KDV/brüt kolonları taşıp tablo 1440 px'te bile yatay kaydırmaya düşüyor.
+Ekran bunu `.cell-wrap`'i **hiç kullanmayarak** ve başlıklara `th-narrow` vererek çözdü —
+yani ortak sınıf, kullanılması gereken yerde kullanılamıyor.
+
+**Kök neden:** `.cell-wrap` tek başına bir hücrenin okunabilirliği için yazılmış; kolon
+sayısıyla ölçeklenen bir genişlik bütçesi yok.
+
+**Çözüm (kapanış fazında):** `.cell-wrap`'in `min-width`'i kolon sayısına duyarlı hâle
+getirilecek (ya da `.cell-wrap.is-tight` gibi dar bir varyant tanımlanıp geniş tablolarda
+o kullanılacak). Kararın ardından `.cell-wrap` kullanan tüm tablolar 1440/768/390'da
+yeniden ölçülecek. **Nokta yaması yok.**
+
+---
+
+## VB-08 · Kalite zincirinin hiçbir halkasında yazılı bağ yok
+
+**Nerede:** `DB.tests` ↔ `DB.bugs` ↔ `DB.deliveries` ↔ `DB.projectModules` ↔ `DB.sprints`.
+
+**Sorun:** Üç detay ekranı (`app-proje-test-detay` · `app-proje-hata-detay` ·
+`app-proje-teslim-detay`) aynı boşluğu bağımsız olarak raporladı:
+- `DB.tests` **modül ve sprint alanı taşımıyor** → kapsam yalnız proje ekseninde.
+- `DB.tests[].hata` ve `DB.bugs[].test` **yok** → hangi koşumun hangi hatayı açtığı yazılı değil.
+- `DB.bugs[].sprint` **yok** → sprint bağlı görevden veya tarihten türetiliyor.
+- `DB.deliveries` **kapsam/modül bağı taşımıyor** → teslimin neyi kapsadığı okunamıyor.
+- `DB.tests` **senaryo bazlı döküm tutmuyor** → hangi senaryonun düştüğü görünmüyor.
+
+Üç ekran da bağ **uydurmadı** (L-13): aday listeleri "bağ değildir" diye etiketli ve
+"güçlü aday" ölçütü (`basarisiz > 0` + tarih ±3 gün) üç ekranda **birebir aynı** tutuldu ki
+iki ekran aynı çifte çelişen sinyal vermesin.
+
+**Sonuç:** PROMPT.md §11'in kalite zinciri (test → hata → düzeltme → teslim) arayüzde
+kurulu ama **veri tarafında kopuk**; ekranlar zinciri tarih yakınlığıyla tahmin ediyor.
+
+**Çözüm:** `DB.tests[].modul` · `DB.tests[].sprint` · `DB.bugs[].test` · `DB.bugs[].sprint` ·
+`DB.deliveries[].moduller` alanları açılacak, mevcut kayıtlara yazılacak, `canon.js`'e
+"bağ verilen kod gerçekten var + bir hata en fazla bir koşuma bağlanır" ekseni eklenecek.
+VB-05 (destek dönüşümü) ve VB-07 (sipariş → demirbaş) ile **aynı turda** — üçü de aynı
+sınıf: modüller arası bağın veride yazılı olmaması.
+
+---
+
+## UID-19 · Tablo toplam satırı için ortak sınıf yok
+
+**Nerede:** `ui.css` `.gtable` ailesi. Ölçülen örnek: `app-proje-degisiklik-detay.html`
+sözleşme hesabı tablosunun iki toplam satırı.
+
+**Sorun:** Ara toplam / genel toplam satırını gövde satırlarından ayıran bir sınıf yok
+(`tr.is-total` ya da `tfoot` stili). Ekran uydurmadı — satırları sınıfsız bırakıp yalnız
+`<b>` ile vurguladı. Aynı boşluk `app-teklif-detay.html`'de de çıkmıştı; orada kalem
+toplamları `<tfoot>` yerine tablo altında `.gv-summary` olarak basıldı.
+
+**Kök neden:** `.gtable` liste bileşeni için yazıldı; liste tablosunun toplam satırı yok,
+detay ekranının hesap tablosunun var.
+
+**Çözüm (kapanış fazında):** `.gtable tfoot` **ve** `tr.is-total` için tek bir kural —
+üst kenarlık, ağırlık ve zemin token'lardan. Sonra `.gv-summary` ile idare eden yerler
+(`app-teklif-detay` kalem toplamı) buna çevrilecek. **Nokta yaması yok.**
+
+---
+
+## Not — `DB.impacts` tonu sözlüğe EKLENMEZ
+
+Değişiklik talebi ajanı "`Çok yüksek/Yüksek/Orta/Düşük` ton sözlüğünde yok, eklenmeli"
+diye bildirdi. **Eklenmeyecek** — components.md §5'teki eksen çakışması kaydı bunu
+açıkça yasaklıyor: aynı kelimeler öncelik, etki ve müşteri riski eksenlerinde geçiyor,
+sözlüğe konursa riski yüksek müşteri ile önceliği yüksek görev aynı rengi alır.
+Bu değerlerde `GV.badge(v,'is-danger')` ile **açık ton geçmek doğru kullanımdır**.
+Kayıt buraya, aynı öneri tekrar gelirse hızlı reddedilebilsin diye düşüldü.

@@ -9,7 +9,7 @@
 | L-03 | Her kolonda sıralama ikonu → başlık gürültüsü | Gösterge yalnız aktif sıralamada ikon, diğerlerinde hover'da soluk işaret | 2026-08-03 |
 | L-04 | Persona çipinde ad/rol üst üste bindi | İki satırlı etiketlerde alt öğelere `display:block` | 2026-08-03 |
 | L-05 | Mimari kazanım iddiası sorgulandı | İddia ölçülerek raporlanır; tahmin sapması olduğu gibi yazılır | 2026-08-03 |
-| L-06 | Subagent kendi QA'sını yazarken orkestratörün `scratchpad/qa.js`'ini ezdi | Subagent sözleşmesine "scratchpad dahil hiçbir ortak dosyaya yazma" maddesi eklendi; QA script'i orkestratöre ait | 2026-08-03 |
+| L-06 | Subagent kendi QA'sını yazarken orkestratörün `scratchpad/qa.js`'ini ezdi — **5. oturumda TEKRARLADI** | Yasak maddesi yetmedi. Kalıcı çözüm: script'ler `tasks/qa/`'da izlenir ve **ayrı bir `scratchpad/qa-run/` dizinine** kopyalanıp oradan koşulur; orkestratör subagentlerin yazdığı scratchpad kökünden hiçbir script çalıştırmaz | 2026-08-03 · 2026-08-04 |
 | L-07 | QA yalnız tam yetkili rolle koşuldu; 403 ekranında sayfa script'i null üzerinde patlıyordu | Her ekran **en az bir kısıtlı rolle** de test edilir; `gv:ready` yalnız yetki kapısı açıkken tetiklenir | 2026-08-03 |
 | L-08 | Rapor ekranları üç canonical veri çelişkisi ortaya çıkardı (kart sayacı ↔ işlem verisi) | Türetilebilir sayaç veriye **yazılmaz**, veriden hesaplanır; yazılıysa her wave sonunda taranır (`canon.js`) | 2026-08-03 |
 | L-09 | Rail tutamağının görünen boyutu = yakalama alanı olunca imleç tam üstüne gelmeden tepki vermiyordu | Küçük tutamaklarda **görünen biçim ile yakalama alanı ayrılır**: dış öğe görünmez ve geniş, iç öğe görünen ve küçük. Yakalama alanı yalnız **boşluk oluklarına** taşar, hiçbir etkileşimli öğeyi örtmez — bu ölçülerek doğrulanır (`elementFromPoint` ile altındaki öğe sorgulanır) | 2026-08-04 |
@@ -138,3 +138,61 @@ bu **tarama script'inde doğrulanır**, yorumda "tekil olmalı" demek yetmez.
 yazılı değilse ilk yeni ekran iki farklı yorumla iki farklı sayı gösterir.
 (c) Bu çelişkiyi bulan şey yine yeni bir ekranın eski veriyi sorgulamasıydı — L-08 tekrar
 doğrulandı: **ekran değil veri düzeltilir.**
+
+## L-14 · Etiket escape kararı ekran başına verilirse er geç ham HTML basılır
+**Olay:** Her detay ekranı kendi `dl(pairs)` yardımcısını yazıyor ve `dt` metnini escape
+edip etmemeye ayrı karar veriyor. `app-teklif-detay.html` escape ediyordu; para ekseni işareti
+`<span class="u-faint">(KDV hariç)</span>` ekranda **ham metin olarak** göründü — beş para
+etiketinin hepsinde. Ekran canlıya çıkmıştı.
+**Neden yakalanmadı:** Konsol hatası yok, yatay taşma yok, `href="#"` yok — sayfa teknik olarak
+sağlam. `qa.js` bu sınıfı **göremez**; hata yalnız *okunan metinde* var.
+**Kural:** (a) Bir bileşen hem sabit işaretleme hem veri taşıyorsa, hangi tarafın escape
+edildiği **bileşende** kararlaştırılır, ekranda değil — `dd`/değer tarafı escape'li, `dt`/etiket
+tarafı sayfada yazılı sabit. (b) Bu sınıf statik okumayla değil **render sonrası metinde**
+taranır: `tasks/qa/esc.js` etiket düğümlerinin `textContent`'inde HTML etiketi arar, her wave
+sonunda koşulur. (c) Daha genel: **"konsol temiz" ile "ekran doğru" aynı şey değildir.**
+
+## L-15 · Mock veri bellekte durduğu için sayfa yeniden yükleme mutasyonu siler
+**Olay:** Veriyi değiştiren aksiyonlar (`Onayla` · `Ödendi işaretle` · `Görev ata` ·
+`Bakım kaydı ekle` · `Aşama değiştir` · `Zaman kaydı ekle` · `Revize iste` ·
+`İletişim kaydı ekle`) işi bitirince `setTimeout(location.reload, 700)` çağırıyordu.
+Veri `assets/data/*.js` içinde **bellekte** tutuluyor; sayfa yeniden yüklenince o
+script'ler baştan koşuyor ve **yapılan değişiklik siliniyor**. Kullanıcı toast'ı
+görüyor, sonra ekran hiçbir şey olmamış gibi eski hâline dönüyor.
+**Ölçüm:** `app-satinalma-detay.html` `SAT-2026-014` — onay öncesi `Onay bekliyor
+adim:2`, onay + reload sonrası yine `Onay bekliyor adim:2`. `GV.refresh()` ile
+`Sipariş verildi adim:3`.
+**Yayılma:** Hata **kalıp ekranlarda** doğmuştu (`app-gorev-detay` 4 çağrı ·
+`app-musteri-detay` 1 · `app-lead-detay` 2) ve onları örnek alan altı yeni detay
+ekranına aynen kopyalandı — toplam **dokuz ekran, on beş çağrı**.
+**Kural:** (a) Mock veriyi değiştiren hiçbir aksiyon `location.reload()` ile
+bitmez; **`GV.refresh()`** ile biter (shell.js — `gv:ready`'yi yeniden tetikler,
+ekran kendini güncel veriyle baştan kurar). (b) Bunun çalışması için sayfa kurulum
+kodu **idempotent** olmalı: `GV.pageHead` artık kendi bastığı `.gv-page-head`
+bloğunu da değiştirebiliyor (önceden yalnız `#gvPageHead` yer tutucusunu arıyordu ve
+ikinci çağrıda sessizce hiçbir şey yapmıyordu). (c) `location.reload()` yalnız
+**mutasyon içermeyen** yerlerde doğrudur — hata durumundaki "Tekrar dene" butonu
+(`app-panel-yonetici.html`, `dashboard.js`) bilinçli istisnadır.
+(d) Regresyon testi: `tasks/qa/mut.js` her ekranda `GV.refresh()`'i iki kez
+tetikleyip başlığın/`.gv-app`'in çoğalmadığını ve içeriğin boşalmadığını ölçer.
+(e) Daha genel: **toast "işlem oldu" demez.** Mutasyonun kalıcı olduğu ölçülerek
+doğrulanır — L-14'ün "konsol temiz ≠ ekran doğru" kuralının veri tarafındaki ikizi.
+
+## L-16 · Yerinde yeniden çizim, kalıcı düğümdeki dinleyicileri biriktirir
+**Olay:** L-15'in çözümü (`GV.refresh()` = `gv:ready`'yi yeniden tetikle) yeni bir hata
+doğurdu: ekranlar `mount.addEventListener('click', …)` veya
+`document.addEventListener('click', …)` ile **delege** dinleyici bağlıyor. Bu düğümler
+yeniden çizimde ölmediği için her tazelemede bir dinleyici daha birikiyordu.
+**Ölçüm:** üç tazeleme sonrası tek tıklamada **3 modal** açıldı.
+**Kural:** (a) `GV.refresh()` mount düğümünü (`#rec`) **taze bir kopyayla değiştirir** —
+mount'a bağlı dinleyiciler böyle düşer, ekranın hiçbir şey yapması gerekmez.
+(b) `document` / `window` gibi **değiştirilemeyen** düğüme bağlanan dinleyici
+`GV.on(el, type, fn, key)` ile bağlanır; aynı `key` ikinci kez gelince önceki sökülür.
+Aynı düğümde birden çok dinleyici varsa **her birine ayrı `key`** verilir, yoksa
+birbirlerini söker (üç siteli `app-gorev-detay.html`'de bu tuzağa düşüldü ve düzeltildi).
+(c) Ölçüm **net** dinleyici üzerinden yapılır: `addEventListener` çağrısını saymak
+yanıltır, çünkü `GV.on` her turda önce söküp sonra bağlar. `tasks/qa/listen.js`
+add − remove farkını sayar; 20 detay ekranında sabit kalması doğrulandı.
+(d) Genel ders: **bir hatanın çözümü yeni bir hata sınıfı açabilir.** L-15'i kapatan
+değişiklik ölçülmeden "tamam" denmedi — ölçüm bu ikinci hatayı ortaya çıkardı.
+

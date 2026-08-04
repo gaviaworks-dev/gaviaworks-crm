@@ -26,6 +26,8 @@ Namespace: CSS `.gv-*`, JS `window.GV.*`.
 | Bildirim merkezi | `GV.notify` | panel + sayaç + okundu |
 | Sayfa başlığı üreticisi | `GV.pageHead({eyebrow,title,sub,actions:[{label,icon,cls,href,run}]})` | her ekranın ilk çağrısı; breadcrumb'ı da besler |
 | Sayfa iskeleti | `buildSkeleton()` (shell.js, otomatik) | rail+menü+üstbar+main; sayfa yalnızca config yazar |
+| Yeniden çizim | `GV.refresh()` | Mock veriyi **değiştiren** her aksiyonun sonu. `gv:ready`'yi yeniden tetikler; `location.reload()` veriyi silerdi (L-15). `#rec` mount düğümünü taze kopyayla değiştirir, böylece mount'a bağlı dinleyiciler birikmez (L-16) |
+| Tekil dinleyici | `GV.on(el, type, fn, key)` | `document`/`window` gibi **kalıcı** düğüme dinleyici bağlarken. Aynı `key` ikinci kez gelince öncekini söker. Aynı düğümde birden çok dinleyici varsa **her birine ayrı key** |
 | Yayın kaydı | `GV.built` (BUILT dizisi) · `GV.isBuilt(href)` · `GV.markWip(root)` | BUILT'te olmayan hedefin `href`'i düşürülür, `data-wip` basılır; MutationObserver sonradan basılan DOM'u da tarar |
 
 ---
@@ -83,8 +85,15 @@ mobil kart görünümü **aynı veri kaynağından** üretilir (ikinci markup ya
 > `ui.js`'te karşılığı hiç olmadı. Detay ekranları **elle markup + `GV.tabs`** ile kurulur.
 > Kalıp: **`app-gorev-detay.html`** — yeni detay ekranı yazan buna bakar.
 
-Detay ekranı liste ekranlarından farklı olarak `buildSkeleton()` kullanmaz; shell markup'ını
-(`.gv-app` > `.gv-rail`/`.gv-menu`/`.gv-divider`/`.gv-overlay`/`.gv-top`/`.gv-main`) kendi yazar.
+**İSKELET — 5. oturumda değişti.** Detay ekranı da **`buildSkeleton()` kullanır**: `<body>`'ye
+yalnız `<div id="rec"></div>` konur, shell iskeletini `shell.js` kurar ve `GV.pageHead(...)`
+normal çalışır. Kalıp: **`app-teklif-detay.html`**.
+
+> Eski kayıt "detay ekranı shell markup'ını kendi yazar" diyordu; bu **tekrarlı kod** üretiyordu
+> ve kopyalanan `.gv-divider` UID-01'in eklediği `aria-controls="gvMenu"` niteliğini taşımıyordu.
+> `buildSkeleton()` `.gv-app` varsa erken döner — bu yüzden elle iskelet yazan sayfada
+> `#gvPageHead` hiç doğmaz ve **`GV.pageHead` sessizce hiçbir şey yapmaz**. Elle iskelet yazan
+> dört eski ekran **UID-15** olarak borç defterinde.
 
 | Parça | Sınıf / API |
 |---|---|
@@ -132,6 +141,12 @@ Aynı kelime farklı anlam taşıdığı için bunlar TONE sözlüğüne **konul
 riski yüksek müşteri ile önceliği yüksek görev aynı rengi alırdı. Risk gibi eksen-belirsiz
 değerlerde `GV.badge(v, 'is-danger')` biçiminde **açık ton geçmek doğru kullanımdır**,
 yerel ton haritası yazmak değil. Örnek: `app-musteri.html` · `app-musteri-detay.html`.
+
+**5. oturumda sözlüğe eklenenler** — bu değerlerde artık açık ton geçmeye gerek yok:
+`Çözüm bekliyor`(warn) · NPS grupları `Destekleyici`(ok)/`Nötr`(warn)/`Kötüleyici`(danger) ·
+muayene `Geçti`(ok)/`Kaldı`(danger) · poliçe `Teklif alındı`(info)/`Sözleşmeye dahil`(neutral) ·
+zimmet `İade edildi`(neutral) · teklif `Teknik uygun`(ok)/`Teknik uygun değil`(danger)/
+`Tercih edildi`(ok)/`Tercih bekliyor`(warn) · sipariş `Teslim bekleniyor`(warn)/`Tam`(ok).
 
 **Destek ve bakım (§18) tonları** — `extra` geçmeye gerek yok, sözlükte tanımlı:
 `Yanıtlandı`(ok) · `Yanıt bekliyor`(warn) · `Risk altında`(warn) · `İhlal edildi`(danger) ·
@@ -255,10 +270,15 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.invoices[].tutar / .vergi / .toplam` | net / KDV / brüt | `toplam = tutar + vergi`; `tutar` = milestone `odeme` |
 | `DB.payments[].tutar` | **BRÜT** | Faturanın `toplam`ı |
 | `DB.projects[].sozlesmeTutari` | **NET** | Sözleşmenin `tutar`ı |
+| `DB.customers[].bekleyenTahsilat` | **BRÜT** | Açık (durumu `Ödendi` olmayan) tahsilatlarının toplamı. 12 müşterinin 12'sinde birebir doğrulandı |
 | `DB.customers[].toplamCiro` | **NET** | Ömür boyu net ciro; DB'deki sözleşmelerinin `tutar` toplamından **küçük olamaz** |
 | `DB.quotes[].araToplam` · `.indirim` · `.vergi` · `.toplam` | net / net / KDV / **BRÜT** | Zincir: `net = araToplam − indirim` → `vergi = net × vergiOran/100` → `toplam = net + vergi`. Doğrulandı, 3/3 teklifte tutar |
 | `DB.leads[].butce` | **NET** | Müşterinin beyan ettiği tahmini bütçe. Tekliften türetilmez (beyan, ölçüm değil) ama proje genelindeki **tek eksen** kuralına uyar |
 | `DB.supportPackages[].tutar` | **NET** | Paket bedeli. `BKP-001` = `SZL-2026-022.tutar` (180.000) ile birebir doğrulandı |
+| `DB.purchases[].tahminiMaliyet` | **NET** | Talebin tahmini bedeli. Doğan siparişin `tutar`ı ile birebir (3/3 doğrulandı) |
+| `DB.supplierQuotes[].fiyat` | **NET** | Teklif edilen bedel — talep ve sipariş ile aynı eksende |
+| `DB.orders[].tutar / .vergi / .toplam` | net / KDV / **BRÜT** | `toplam = tutar + vergi` |
+| `DB.suppliers[].toplamTutar` | **NET** | Ömür boyu iş hacmi. Ölçüldü: brüt olsaydı /1,2 tam liraya inerdi, 6 tedarikçinin 3'ünde inmiyor. TDR-003: 126.000 / 3 = 42.000 = `SAT-2026-015` net `tahminiMaliyet`i |
 
 **Ödeme planı bütünlüğü:** Projeli her sözleşmenin taksit seti `DB.milestones`'ta **tamdır** —
 `Σ odeme = sözleşme tutarı` ve `taksit` numaraları 1..N boşluksuzdur (19 milestone / 6 sözleşme).
@@ -296,6 +316,9 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | `dbref.js` | Her ekranın okuduğu `DB.<koleksiyon>` ↔ yüklediği veri dosyası (lessons L-12) | `TEMİZ — N ekran` |
 | `links.js` | Kırık hedef · BUILT'te olmayan ekran · hayalet BUILT kaydı · yetim ekran. Üretilmemiş hedefleri **kuyruk** olarak listeler, hata saymaz | `TEMİZ` + kuyruk listesi |
 | `gate.js [roller]` | Tüm ekranlar × roller: konsol hatası, 403 sayımı, boş sayfa | `TEMİZ` |
+| `tabs.js "a.html" [roller]` | Detay ekranının **her sekmesini** tek tek tıklar, konsol hatası + boş aktif panel arar (L-12 sınıfı: açılış QA'si sekme içini göremez) | `TEMİZ — N sekme tıklaması` |
+| `listen.js "a.html" [rol]` | 3× `GV.refresh()` sonrası `document` üzerindeki **net** dinleyici sayısının artmadığını ölçer (L-16). Çağrı değil net sayılır — `GV.on` her turda söküp bağlar | `TEMİZ — N ekran` |
+| `esc.js ["a.html"] [rol]` | Etiket düğümlerinde **ham HTML metni** arar — escape edilmemesi gereken yer escape edilmişse `<span …>` ekranda yazı olarak görünür. Konsol hatası vermez, `qa.js` göremez | `TEMİZ — N ekran` |
 | `grip-qa.js` | Rail tutamağı: geometri, yüzey rengi, hover yakalama noktaları, odak, içerik örtme | `TEMİZ — tüm ölçümler geçti` |
 
 > `canon2.js` / `canon3.js` / `ref.js` **artık yok** — üçü de `canon.js` içinde birleşti.
