@@ -565,7 +565,7 @@ DB.approvals = [
   { kod:'ONY-2026-056', tur:'Ön analiz onayı', kayit:'ANL-2026-001', baslik:'Poyraz İnşaat ön analizi',
     talepEden:'EMP-003', onaylayan:'EMP-001', tutar:null, tarih:'2026-07-21', durum:'Bekliyor',
     aciliyet:'Orta', link:'app-onanaliz-detay.html?id=ANL-2026-001' },
-  { kod:'ONY-2026-057', tur:'Komisyon hakedişi', kayit:'KOM-2026-003', baslik:'Murat Sezer — Marmara Enerji komisyonu',
+  { kod:'ONY-2026-057', tur:'Komisyon kazancı', kayit:'KOM-2026-003', baslik:'Murat Sezer — Marmara Enerji komisyonu',
     talepEden:'EMP-012', onaylayan:'EMP-001', tutar:47600, tarih:'2026-07-09', durum:'Bekliyor',
     aciliyet:'Orta', link:'app-komisyon-detay.html?id=KOM-2026-003' },
   { kod:'ONY-2026-058', tur:'Timesheet onayı', kayit:'TSH-2026-030', baslik:'30. hafta zaman kayıtları — 6 personel',

@@ -281,15 +281,15 @@ DB.leads = [
 /* ---- Ön analizler (PROMPT.md §10) ------------------------------------- */
 DB.analyses = [
   { kod:'ANL-2026-001', lead:'LEAD-2026-003', firma:'Poyraz İnşaat Taahhüt', hizmet:'CRM / ERP',
-    amac:'Proje, tedarikçi ve hakediş süreçlerini tek sistemde toplamak',
-    hedefKullanici:'Saha ekibi, satın alma, muhasebe, yönetim', rolSayisi:6,
+    amac:'Proje, tedarikçi ve ilerleme ödemesi süreçlerini tek sistemde toplamak',
+    hedefKullanici:'Operasyon ekibi, satın alma, muhasebe, yönetim', rolSayisi:6,
     anaModul:8, altModul:24, web:true, mobil:true, yonetimPaneli:true, musteriPaneli:false,
     entegrasyon:['E-fatura','Logo ERP'], aiOzellik:false, odeme:false, abonelik:false,
     cokluDil:false, cokluSirket:true, raporlama:true, bildirim:true, guvenlik:'Rol bazlı + log', kvkk:true,
     sunucu:'Müşteri bulut hesabı', ekip:5, isgucu:420, sure:16, sureBirim:'hafta',
     riskler:['Kapsam belirsizliği yüksek','Logo entegrasyon dokümantasyonu eksik'],
-    belirsiz:['Hakediş hesaplama kuralları','Onay hiyerarşisi'],
-    beklenen:['Mevcut Excel şablonları','Logo API erişimi','Örnek hakediş dosyası'],
+    belirsiz:['İlerleme ödemesi hesaplama kuralları','Onay hiyerarşisi'],
+    beklenen:['Mevcut Excel şablonları','Logo API erişimi','Örnek ödeme planı dosyası'],
     kapsamIci:['Web uygulaması','Yönetim paneli','E-fatura entegrasyonu','Rapor merkezi'],
     kapsamDisi:['Mobil saha uygulaması (Faz 2)','Muhasebe defter kaydı'],
     hazirlayan:'EMP-003', tarih:'2026-07-20', durum:'Onay bekliyor', maliyet:612000, aktif:true },
@@ -416,7 +416,10 @@ DB.interactions = [
     konu:'AI skorlama POC sonuçları', ozet:'Model doğruluğu %87, kabul kriterinin üzerinde.', sonuc:'Canlıya alma planlanacak' }
 ];
 
-/* ---- Komisyon hakedişleri --------------------------------------------- */
+/* ---- Komisyon kazançları -----------------------------------------------
+   NOT: `hakedis` / `hakedisTarihi` ALAN ADLARI hâlâ inşaat terimi taşıyor (VB-04).
+   Rename tek turda yapılacak; o güne kadar ekranlarda gösterilen ETİKET
+   "Komisyon kazancı" / "Kazanç tarihi"dir, alan adı değil. */
 DB.commissions = [
   { kod:'KOM-2026-001', referans:'REF-001', kisi:'Hakan Demirtaş', musteri:'MUS-2025-004', firma:'Ege Eğitim Kurumları',
     ciro:640000, oran:5, tutar:32000, hakedisTarihi:'2026-04-15', durum:'Ödendi', odemeTarihi:'2026-05-02', onay:'Onaylandı', aktif:true },
