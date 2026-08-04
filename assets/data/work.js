@@ -134,16 +134,20 @@ DB.projectModules = [
 ];
 
 /* ---- Milestone --------------------------------------------------------- */
+/* Milestone = sözleşmenin ödeme planındaki taksit.
+   Canonical: `odeme` faturanın NET tutarıdır (`DB.invoices[].tutar`, KDV hariç).
+   Bir milestone'a en fazla BİR fatura bağlanır; `odemeDurum` o faturanın
+   tahsilat kaydındaki durumu yansıtır. */
 DB.milestones = [
   { kod:'MS-001', proje:'PRJ-2026-001', ad:'Beta sürüm teslimi', tarih:'2026-07-10', durum:'Tamamlandı', odeme:264000, odemeDurum:'Ödendi', ilerleme:100 },
   { kod:'MS-002', proje:'PRJ-2026-001', ad:'Store yayın onayı', tarih:'2026-08-14', durum:'Gecikti', odeme:176000, odemeDurum:'Bekliyor', ilerleme:82 },
   { kod:'MS-003', proje:'PRJ-2026-002', ad:'POC kabul', tarih:'2026-07-25', durum:'Tamamlandı', odeme:300000, odemeDurum:'Ödendi', ilerleme:100 },
   { kod:'MS-004', proje:'PRJ-2026-002', ad:'Canlıya alma', tarih:'2026-09-04', durum:'Planlandı', odeme:300000, odemeDurum:'Bekliyor', ilerleme:48 },
-  { kod:'MS-005', proje:'PRJ-2026-003', ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:184000, odemeDurum:'Bekliyor', ilerleme:64 },
-  { kod:'MS-006', proje:'PRJ-2026-003', ad:'Entegrasyon testi', tarih:'2026-09-30', durum:'Planlandı', odeme:184000, odemeDurum:'Bekliyor', ilerleme:20 },
-  { kod:'MS-007', proje:'PRJ-2026-005', ad:'Rezervasyon motoru demo', tarih:'2026-08-22', durum:'Yaklaşıyor', odeme:126000, odemeDurum:'Bekliyor', ilerleme:52 },
-  { kod:'MS-008', proje:'PRJ-2026-006', ad:'Canlıya alma', tarih:'2026-06-26', durum:'Gecikti', odeme:92500, odemeDurum:'Bekliyor', ilerleme:71 },
-  { kod:'MS-009', proje:'PRJ-2026-004', ad:'Nihai teslim', tarih:'2026-07-24', durum:'Tamamlandı', odeme:106200, odemeDurum:'Bekliyor', ilerleme:100 }
+  { kod:'MS-005', proje:'PRJ-2026-003', ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:163333, odemeDurum:'Bekliyor', ilerleme:64 },
+  { kod:'MS-006', proje:'PRJ-2026-003', ad:'Entegrasyon testi', tarih:'2026-09-30', durum:'Planlandı', odeme:163333, odemeDurum:'Bekliyor', ilerleme:20 },
+  { kod:'MS-007', proje:'PRJ-2026-005', ad:'Rezervasyon motoru demo', tarih:'2026-08-22', durum:'Yaklaşıyor', odeme:70000, odemeDurum:'Bekliyor', ilerleme:52 },
+  { kod:'MS-008', proje:'PRJ-2026-006', ad:'Canlıya alma', tarih:'2026-06-26', durum:'Gecikti', odeme:77083, odemeDurum:'Bekliyor', ilerleme:71 },
+  { kod:'MS-009', proje:'PRJ-2026-004', ad:'Nihai teslim', tarih:'2026-07-24', durum:'Tamamlandı', odeme:88500, odemeDurum:'Bekliyor', ilerleme:100 }
 ];
 
 /* ---- Sprintler --------------------------------------------------------- */

@@ -40,7 +40,7 @@ DB.contracts = [
 /* ---- Faturalar ----------------------------------------------------------- */
 DB.invoices = [
   { kod:'FTR-2026-024', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu', sozlesme:'SZL-2026-019',
-    proje:'PRJ-2026-001', milestone:'MS-002', tarih:'2026-07-10', vade:'2026-08-09',
+    proje:'PRJ-2026-001', milestone:'MS-001', tarih:'2026-07-10', vade:'2026-08-09',
     tutar:264000, vergi:52800, toplam:316800, durum:'Ödendi', odemeTarihi:'2026-07-28', aktif:true },
   { kod:'FTR-2026-025', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu', sozlesme:'SZL-2026-019',
     proje:'PRJ-2026-001', milestone:'MS-002', tarih:'2026-08-01', vade:'2026-08-31',
