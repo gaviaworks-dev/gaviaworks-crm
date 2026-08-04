@@ -66,8 +66,14 @@ document.addEventListener('gv:ready', function(){
   var ayniTaksit = d.milestone
     ? DB.deliveries.filter(function(x){ return x.milestone === d.milestone && x.kod !== d.kod; }) : [];
 
-  /* Proje modülleri — teslim kaydında kapsam (modül) bağ alanı YOK, bkz. Kapsam sekmesi */
+  /* Proje modülleri + teslimin YAZILI kapsamı (`DB.deliveries[].moduller`, VB-08).
+     Boş dizi = projenin modül kırılımı veride yok; kapsam proje ekseninde okunur. */
   var moduller = proje ? DB.projectModules.filter(function(m){ return m.proje === proje.kod; }) : [];
+  var kapsamKod = d.moduller || [];
+  var kapsamModulleri = moduller.filter(function(m){ return kapsamKod.indexOf(m.kod) !== -1; });
+  var kapsamDisi = moduller.filter(function(m){ return kapsamKod.indexOf(m.kod) === -1; });
+  /* Kabul koşumu — `DB.deliveries[].test` alanında yazılı tekil bağ. */
+  var kabulTesti = d.test ? (DB.tests.filter(function(t){ return t.kod === d.test; })[0] || null) : null;
 
   var testler = proje ? DB.tests.filter(function(t){ return t.proje === proje.kod; })
                                 .sort(function(a,b){ return String(a.tarih).localeCompare(String(b.tarih)); }) : [];
@@ -356,7 +362,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var tabs = [
     { key:'genel',    lbl:'Genel',                ic:'i-info' },
-    { key:'kapsam',   lbl:'Kapsam',               ic:'i-layers',    cnt:moduller.length },
+    { key:'kapsam',   lbl:'Kapsam',               ic:'i-layers',    cnt:kapsamModulleri.length || moduller.length },
     { key:'kalite',   lbl:'Kalite',               ic:'i-flask',     cnt:testOnce.length + hataTeslimdeAcik.length },
     { key:'zincir',   lbl:'Taksit ve Fatura Zinciri', ic:'i-wallet' },
     { key:'onay',     lbl:'Müşteri Onayı',        ic:'i-stamp' },
@@ -427,9 +433,15 @@ document.addEventListener('gv:ready', function(){
           text:'Bu teslim kaydında serbest metin notu yok. Revizyon istendiğinde girilen gerekçe de bu alana yazılır.' })) +
 
     sec('Kapsam ve Kalite Özeti',
-      GV.notice({ tone:'neutral', icon:'i-info', title:'Kapsam alanı teslim kaydında tutulmuyor',
-        text:'DB.deliveries kaydı modül düzeyinde kapsam bağı taşımıyor. Kapsam sekmesinde projenin modülleri bağlam olarak listelenir.' }) +
       dl([
+        ['Teslimin kapsadığı modül', kapsamModulleri.length
+          ? '<b>' + kapsamModulleri.length + '</b> modül <span class="cell-sub">' +
+            esc(kapsamModulleri.map(function(m){ return m.ad; }).join(' · ')) + '</span>'
+          : '<span class="u-faint">Kapsam yazılı değil — proje ekseninde okunur</span>'],
+        ['Kabul koşumu', kabulTesti
+          ? '<a href="app-proje-test-detay.html?id=' + esc(kabulTesti.kod) + '">' + esc(kabulTesti.kod) + '</a>' +
+            ' <span class="cell-sub">' + esc(kabulTesti.tur) + ' · ' + esc(kabulTesti.durum) + '</span>'
+          : '<span class="u-faint">Kabul koşumuna bağlı değil</span>'],
         ['Projenin modül sayısı', proje ? '<b>' + moduller.length + '</b> modül' : null],
         ['Teslim tarihine kadar koşan test', '<b>' + testOnce.length + '</b> test koşusu'],
         ['Teslim anında açık hata', hataTeslimdeAcik.length
@@ -444,38 +456,76 @@ document.addEventListener('gv:ready', function(){
     '</div>';
 
   /* =================================================================
-     2. KAPSAM — teslim kaydında modül bağı YOK (eksik veri alanı)
+     2. KAPSAM — `DB.deliveries[].moduller` alanında YAZILI (VB-08)
      ================================================================= */
+  function kapsamSatir(m){
+    var ici = kapsamKod.indexOf(m.kod) !== -1;
+    return '<tr' + (ici ? ' class="is-late"' : '') + '>' +
+      '<td><span class="cell-code">' + esc(m.kod) + '</span></td>' +
+      '<td class="cell-wrap"><span class="cell-main">' + esc(m.ad) + '</span></td>' +
+      '<td>' + GV.badge(m.durum) + '</td>' +
+      '<td>' + GV.progress(m.ilerleme) + '</td>' +
+      '<td>' + GV.user(m.sorumlu, { sm:true }) + '</td>' +
+      '<td class="num"><span class="u-num">' + F.num(m.efor) + '</span></td>' +
+      '<td>' + (ici
+        ? '<span class="badge is-ok no-dot">Kapsamda</span>'
+        : '<span class="tag">Kapsam dışı</span>') + '</td></tr>';
+  }
+  /* Kapsamdaki modülün tamamlanmamış olması teslim riskidir — hesaplanır, uydurulmaz. */
+  var kapsamEksik = kapsamModulleri.filter(function(m){ return m.durum !== 'Tamamlandı'; });
+
   var pKapsam =
     '<div class="gc-body">' +
-      GV.notice({ tone:'warn', icon:'i-layers', title:'Teslim kapsamı modül düzeyinde tanımlı değil',
-        text:'DB.deliveries kaydında “kapsam” / “modüller” bağ alanı bulunmuyor. Bu teslimin hangi modülleri ' +
-             'içerdiği veride yazılı olmadığı için türetilmez; aşağıda yalnız projenin tüm modülleri bağlam ' +
-             'olarak listelenir.' }) +
-      GV.empty({ icon:'i-layers', title:'Bu teslime bağlı modül kaydı yok',
-        desc:'Teslim ile modül arasında bağ alanı tanımlanınca teslimin kapsamı burada listelenecek.',
-        action:proje ? '<a class="btn btn-acc" href="app-proje-detay.html?id=' + proje.kod + '">Proje modüllerini aç</a>'
-                     : '<a class="btn btn-acc" href="app-proje.html">Proje listesine git</a>' }) +
+      (kapsamModulleri.length
+        ? GV.notice({ tone:'ok', icon:'i-layers', title:'Teslim kapsamı veride yazılı',
+            text:'Bu teslim ' + kapsamModulleri.length + ' modülü kapsıyor — kapsam `DB.deliveries[].moduller` ' +
+                 'dizisinde yazılıdır, projenin modül listesinden türetilmedi (ders L-13). Kapsam dışındaki ' +
+                 'modüller tabloda ayrıca işaretlendi ki teslimin neyi içermediği de okunabilsin.' })
+        : GV.notice({ tone:'info', icon:'i-info', title:'Bu teslimin modül kapsamı boş',
+            text:'`DB.deliveries[].moduller` boş dizi: bu projenin modül kırılımı veride tutulmuyor, bu yüzden ' +
+                 'teslim proje ekseninde okunuyor. Aşağıdaki liste bağlamdır, teslimin kapsamı değildir.' })) +
+      dl([
+        ['Kapsamdaki modül', kapsamModulleri.length
+          ? '<b class="u-num">' + kapsamModulleri.length + '</b> / ' + moduller.length
+          : '<span class="u-faint">Yazılı kapsam yok</span>'],
+        ['Kapsamda tamamlanmamış modül', kapsamEksik.length
+          ? '<b class="u-num u-danger">' + kapsamEksik.length + '</b> <span class="cell-sub">' +
+            esc(kapsamEksik.map(function(m){ return m.ad + ' (%' + m.ilerleme + ')'; }).join(' · ')) + '</span>'
+          : (kapsamModulleri.length ? '<span class="badge is-ok no-dot">Hepsi tamamlandı</span>' : null)],
+        ['Kabul koşumu <span class="u-faint">(yazılı bağ)</span>', kabulTesti
+          ? '<a class="cell-main" href="app-proje-test-detay.html?id=' + esc(kabulTesti.kod) + '">' +
+            esc(kabulTesti.ad) + '</a> <span class="cell-sub">' + esc(kabulTesti.kod) + ' · ' +
+            esc(kabulTesti.tur) + ' · ' + F.date(kabulTesti.tarih) + ' · ' + esc(kabulTesti.durum) + '</span>'
+          : '<span class="u-faint">Bu teslim bir kabul koşumuna bağlanmadı</span>'],
+        ['Koşumun kapsamı', kabulTesti && (kabulTesti.moduller || []).length
+          ? esc(kabulTesti.moduller.map(function(k){ return DB.modName(k); }).join(' · '))
+          : null]
+      ]) +
     '</div>' +
+    (kabulTesti && kapsamModulleri.length &&
+      kapsamKod.slice().sort().join(',') !== (kabulTesti.moduller || []).slice().sort().join(',')
+      ? '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
+          title:'Kabul koşumunun kapsamı teslimin kapsamıyla birebir aynı değil',
+          text:'Teslim ' + kapsamKod.length + ' modülü kapsıyor, bağlı kabul koşumu ' +
+               (kabulTesti.moduller || []).length + ' modülü tarıyor. İkisi ayrı alanlarda yazılı olduğu için ' +
+               'ekran bunu düzeltmiyor, olduğu gibi raporluyor.' }) + '</div>'
+      : '') +
     (moduller.length
-      ? secHead('Projenin modülleri (bağlam)', 'i-layers') +
+      ? secHead(kapsamModulleri.length ? 'Kapsam ve proje modülleri' : 'Projenin modülleri (bağlam)', 'i-layers') +
         '<div class="gc-body flush">' +
-        tbl('<th>Modül</th><th>Modül adı</th><th>Durum</th><th>İlerleme</th><th>Sorumlu</th><th class="num">Efor (saat)</th>',
-          moduller.map(function(m){
-            return '<tr><td><span class="cell-code">' + esc(m.kod) + '</span></td>' +
-              '<td class="cell-wrap"><span class="cell-main">' + esc(m.ad) + '</span></td>' +
-              '<td>' + GV.badge(m.durum) + '</td>' +
-              '<td>' + GV.progress(m.ilerleme) + '</td>' +
-              '<td>' + GV.user(m.sorumlu, { sm:true }) + '</td>' +
-              '<td class="num"><span class="u-num">' + F.num(m.efor) + '</span></td></tr>';
-          }).join('')) +
-        sayac('<b>' + moduller.length + '</b> proje modülü <span class="u-faint">(teslim kapsamı bağı olmadığı için ' +
-          'projenin tamamı listelenir)</span> · ' +
-          moduller.filter(function(m){ return m.durum === 'Tamamlandı'; }).length + ' tamamlandı',
+        tbl('<th>Modül</th><th>Modül adı</th><th>Durum</th><th>İlerleme</th><th>Sorumlu</th>' +
+            '<th class="num">Efor (saat)</th><th>Kapsam</th>',
+          kapsamModulleri.concat(kapsamDisi).map(kapsamSatir).join('')) +
+        sayac('<b>' + kapsamModulleri.length + '</b> modül bu teslimin kapsamında · ' + kapsamDisi.length +
+          ' modül kapsam dışı · ' +
+          moduller.filter(function(m){ return m.durum === 'Tamamlandı'; }).length + ' modül tamamlandı',
           proje ? '<a class="btn btn-line btn-sm" href="app-proje-detay.html?id=' + proje.kod + '">' +
             ico('i-briefcase','ic-sm') + ' Proje detayı</a>' : '') +
         '</div>'
-      : '');
+      : '<div class="gc-body">' + GV.empty({ icon:'i-layers', title:'Bu projede modül kaydı yok',
+          desc:'Teslimin bağlı olduğu projede tanımlı modül bulunmuyor; kapsam bu yüzden proje ekseninde okunur.',
+          action:proje ? '<a class="btn btn-acc" href="app-proje-detay.html?id=' + proje.kod + '">Projeyi aç</a>'
+                       : '<a class="btn btn-acc" href="app-proje.html">Proje listesine git</a>' }) + '</div>');
 
   /* =================================================================
      3. KALİTE — teslim öncesi testler + teslim anında açık hatalar
