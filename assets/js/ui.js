@@ -122,6 +122,9 @@
     'Tahsil edildi':'ok', 'Kısmi tahsilat':'warn', 'Vadesi yaklaşıyor':'warn',
     /* doküman / sözleşme */
     'Geçerli':'ok', 'Yürürlükte':'ok', 'Feshedildi':'danger', 'İmza bekliyor':'purple',
+    /* destek ve bakım — §18 */
+    'Yanıtlandı':'ok', 'Yanıt bekliyor':'warn', 'Risk altında':'warn', 'İhlal edildi':'danger',
+    'Tutturuldu':'ok', 'Aşıldı':'danger', 'Sona erdi':'neutral', 'Yenilemesi yaklaşan':'warn',
     /* entegrasyon / sistem */
     'Bağlı':'ok', 'Bağlı değil':'neutral', 'Planlandı':'info', 'Hata':'danger', 'Senkronda':'accent'
   };
