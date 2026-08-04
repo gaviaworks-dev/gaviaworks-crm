@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kararlar ve Aksiyonlar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="toplanti" data-screen="karar">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, me = GV.session.emp;
+  var LIST = null;
+
+  /* =====================================================================
+     TÜRETİLMİŞ ALANLAR — kaynak veri DEĞİŞTİRİLMEZ
+     DB.decisions kaydında toplantı adı, sorumlu adı, görev başlığı yoktur;
+     hepsi kod üzerinden DB.meetings / DB.employees / DB.tasks'tan çözülür.
+     ===================================================================== */
+  var DURUMLAR = ['Bekliyor','Devam ediyor','Tamamlandı','Gecikti'];
+
+  function mtg(kod){ return DB.meetings.filter(function(m){ return m.kod === kod; })[0] || null; }
+  function tsk(kod){ return kod ? (DB.tasks.filter(function(t){ return t.kod === kod; })[0] || null) : null; }
+  function cus(kod){ return kod ? (DB.customers.filter(function(c){ return c.kod === kod; })[0] || null) : null; }
+  function prj(kod){ return kod ? (DB.projects.filter(function(p){ return p.kod === kod; })[0] || null) : null; }
+
+  function acik(d){ return d.durum !== 'Tamamlandı'; }
+  /* Kalan gün: termin ile DB.today farkı. Kaynak durum 'Gecikti' olmasa bile
+     termini geçmiş açık karar gecikmiş sayılır — ama d.durum'a DOKUNULMAZ. */
+  function kalan(d){ return d.termin ? F.days(d.termin) : null; }
+  function gec(d){ return acik(d) && (d.durum === 'Gecikti' || (kalan(d) != null && kalan(d) < 0)); }
+  function buHafta(d){ var g = kalan(d); return acik(d) && g != null && g >= 0 && g <= 7; }
+
+  function mAd(d){ var m = mtg(d.toplanti); return m ? m.ad : d.toplanti; }
+  function mTur(d){ var m = mtg(d.toplanti); return m ? m.tur : null; }
+  function mTarih(d){ var m = mtg(d.toplanti); return m ? String(m.tarih).slice(0,10) : null; }
+
+  /* Toplantı ekranının ilk sekmesi "Planlı Toplantılar" — tamamlanmış bir
+     toplantıya gitmek için sekme "tumu" olmalı, arama alanı kodu tarıyor. */
+  function toplantiHref(d){ return 'app-toplanti.html?t=tumu&q=' + encodeURIComponent(d.toplanti); }
+
+  /* Kolonda ve dışa aktarımda kullanılan bağlam metni */
+  function baglamText(d){
+    var m = mtg(d.toplanti) || {};
+    var c = cus(m.musteri), p = prj(m.proje);
+    if(!c && !p) return 'İç toplantı';
+    return [c ? c.kisa : null, p ? p.ad : null].filter(Boolean).join(' · ');
+  }
+
+  function kalanCell(d){
+    if(!d.termin) return '<span class="u-faint">Termin yok</span>';
+    var g = kalan(d);
+    if(!acik(d)) return '<span class="u-faint u-nowrap">Kapandı</span>';
+    if(g < 0)  return GV.badge((-g) + ' gün gecikti', 'is-danger');
+    if(g === 0) return GV.badge('Bugün son gün', 'is-warn');
+    if(g <= 3)  return GV.badge(g + ' gün kaldı', 'is-warn');
+    return '<span class="u-sm u-muted u-nowrap">' + g + ' gün kaldı</span>';
+  }
+  function kalanText(d){
+    if(!d.termin) return 'Termin yok';
+    if(!acik(d)) return 'Kapandı';
+    var g = kalan(d);
+    return g < 0 ? (-g) + ' gün gecikti' : g === 0 ? 'Bugün son gün' : g + ' gün kaldı';
+  }
+
+  function gorevCell(d){
+    var t = tsk(d.gorev);
+    if(!d.gorev) return '<span class="u-faint">—</span>';
+    return '<a class="cell-main" href="app-gorev-detay.html?id=' + esc(d.gorev) + '">' +
+           esc(t ? t.baslik : d.gorev) + '</a>' +
+           '<span class="cell-code">' + esc(d.gorev) + (t ? ' · ' + t.durum : '') + '</span>';
+  }
+
+  function ozetSatir(lbl, val){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + lbl +
+           '</span><span class="gv-summary-val">' + val + '</span></div>';
+  }
+
+  /* Yeni görev kodu — DB.tasks içindeki en yüksek GRV-2026-xxx + 1.
+     Toplu dönüştürmede her kayıt sırayla eklendiği için çakışma oluşmaz. */
+  function yeniGorevKodu(){
+    var max = 0;
+    DB.tasks.forEach(function(t){
+      var m = /^GRV-2026-(\d+)$/.exec(t.kod || '');
+      if(m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'GRV-2026-' + (max + 1);
+  }
+
+  var yetkiEkle = GV.perm.can('ekle');
+  var yetkiDuzenle = GV.perm.can('duzenle');
+
+  /* =====================================================================
+     PROMPT.md §19 — "Toplantı kararları tek işlemle göreve dönüştürülebilmelidir."
+     Form alanları karardan ve toplantıdan önceden doldurulur.
+     ===================================================================== */
+  function gorevOlustur(d, opt){
+    opt = opt || {};
+    var m = mtg(d.toplanti) || {};
+    var kod = yeniGorevKodu();
+    var atanan = opt.sorumlu || d.sorumlu;
+    DB.tasks.unshift({
+      kod:kod,
+      baslik:opt.baslik || d.karar,
+      tur:opt.tur || 'Toplantı aksiyonu',
+      proje:m.proje || null, modul:null, sprint:null, musteri:m.musteri || null,
+      dep:(DB.emp(atanan) || {}).dep || null,
+      olusturan:me, veren:me, sorumlu:atanan, yardimci:[],
+      izleyiciler:(m.katilimci || []).filter(function(k){ return k !== atanan; }),
+      kontrolEden:me, onaylayan:me,
+      oncelik:opt.oncelik || 'Orta', etki:'Orta', aciliyet:'Orta',
+      durum:'Atandı', baslangic:DB.today, termin:opt.termin || d.termin, tamamlanma:null,
+      tahminiSure:8, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
+      aciklama:'Toplantı kararı: ' + d.karar + ' (' + d.kod + ' · ' + d.toplanti + ')',
+      amac:'Toplantıda alınan kararın uygulanması',
+      kabulKriteri:'Karar uygulandı ve toplantı katılımcılarına raporlandı',
+      beklenenCikti:'—',
+      etiketler:['Toplantı aksiyonu', d.toplanti], aktif:true
+    });
+    d.gorev = kod;
+    return kod;
+  }
+
+  function donusturModal(d, refresh){
+    var m = mtg(d.toplanti) || {};
+    GV.modal({
+      title:'Karardan Görev Oluştur', text:d.kod + ' · ' + (m.ad || d.toplanti),
+      icon:'i-flag', size:'lg',
+      body:'<div class="field"><label for="gvBaslik">Görev başlığı</label>' +
+           '<input type="text" id="gvBaslik" class="inp" value="' + esc(d.karar) + '"></div>' +
+           '<div class="gv-grid gv-grid-2 u-mt-4">' +
+             '<div class="field"><label for="gvTur">Görev türü</label><select id="gvTur">' +
+               DB.taskTypes.map(function(t){
+                 return '<option value="' + esc(t) + '"' + (t === 'Toplantı aksiyonu' ? ' selected' : '') + '>' + esc(t) + '</option>';
+               }).join('') + '</select></div>' +
+             '<div class="field"><label for="gvOncelik">Öncelik</label><select id="gvOncelik">' +
+               DB.priorities.map(function(p){
+                 var v = gec(d) ? 'Yüksek' : 'Orta';
+                 return '<option value="' + esc(p) + '"' + (p === v ? ' selected' : '') + '>' + esc(p) + '</option>';
+               }).join('') + '</select></div>' +
+             '<div class="field"><label for="gvSorumlu">Atanan</label><select id="gvSorumlu">' +
+               DB.employees.map(function(e){
+                 return '<option value="' + esc(e.kod) + '"' + (e.kod === d.sorumlu ? ' selected' : '') + '>' + esc(e.ad) + '</option>';
+               }).join('') + '</select></div>' +
+             '<div class="field"><label for="gvTermin">Termin</label>' +
+               '<input type="date" id="gvTermin" value="' + esc(d.termin || DB.today) + '"></div>' +
+           '</div>' +
+           GV.notice({ tone:'info', title:'Karar ile görev bağlı kalır',
+             text:'Oluşan görev bu karara bağlanır; kararın durumu görev üzerinden takip edilir. ' +
+                  'Proje, müşteri ve izleyiciler toplantı kaydından devralınır.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Görev Oluştur', cls:'btn-acc', onClick:function(close, el){
+            var baslik = el.querySelector('#gvBaslik').value.trim();
+            if(!baslik){ GV.toast('Görev başlığı boş bırakılamaz', 'warn'); return false; }
+            var kod = gorevOlustur(d, {
+              baslik:baslik,
+              tur:el.querySelector('#gvTur').value,
+              oncelik:el.querySelector('#gvOncelik').value,
+              sorumlu:el.querySelector('#gvSorumlu').value,
+              termin:el.querySelector('#gvTermin').value || d.termin
+            });
+            if(refresh) refresh();
+            GV.result({ tone:'ok', title:'Görev oluşturuldu',
+              text:kod + ' açıldı ve ' + DB.empName(tsk(kod).sorumlu) + ' kişisine atandı.',
+              actions:[
+                { label:'Görevi aç', cls:'btn-acc', onClick:function(){ location.href = 'app-gorev-detay.html?id=' + kod; } },
+                { label:'Kapat', cls:'btn-line' }
+              ] });
+          } }
+      ]
+    });
+  }
+
+  /* Karar detayı — toplantı bağlamı, gündem, notlar, sorumlu, termin, bağlı görev */
+  function kararDrawer(d){
+    var m = mtg(d.toplanti) || {};
+    var t = tsk(d.gorev);
+    var c = cus(m.musteri), p = prj(m.proje);
+
+    var body =
+      '<p class="u-sm u-muted u-mb-4">' + esc(d.kod) + '</p>' +
+      '<h3 class="u-mt-0">' + esc(d.karar) + '</h3>' +
+      '<div class="gv-summary u-mt-4">' +
+        ozetSatir('Durum', GV.badge(d.durum)) +
+        ozetSatir('Sorumlu', GV.user(d.sorumlu)) +
+        ozetSatir('Termin', d.termin
+          ? GV.dateCell(d.termin, { done:!acik(d) }) + ' ' + kalanCell(d)
+          : '<span class="u-faint">Termin yok</span>') +
+        ozetSatir('Toplantı', '<a class="cell-main" href="' + toplantiHref(d) + '">' + esc(m.ad || d.toplanti) + '</a>' +
+          '<span class="cell-sub">' + esc(d.toplanti) + '</span>') +
+        ozetSatir('Toplantı türü', m.tur ? '<span class="tag">' + esc(m.tur) + '</span>' : '<span class="u-faint">—</span>') +
+        ozetSatir('Toplantı tarihi', m.tarih ? esc(F.dt(m.tarih)) : '<span class="u-faint">—</span>') +
+        ozetSatir('Yer', m.yer ? esc(m.yer) : '<span class="u-faint">—</span>') +
+        ozetSatir('Müşteri / proje', (c || p)
+          ? [c ? esc(c.kisa) : null, p ? esc(p.ad) : null].filter(Boolean).join(' · ')
+          : '<span class="u-faint">İç toplantı</span>') +
+        ozetSatir('Bağlı görev', t
+          ? '<a class="cell-main" href="app-gorev-detay.html?id=' + esc(t.kod) + '">' + esc(t.baslik) + '</a>' +
+            '<span class="cell-sub">' + esc(t.kod) + ' · ' + esc(t.durum) + '</span>'
+          : '<span class="u-faint">Göreve dönüştürülmedi</span>') +
+      '</div>' +
+
+      '<h3 class="u-mt-8">Toplantı gündemi</h3>' +
+      ((m.gundem || []).length
+        ? '<div class="u-row u-wrap">' + m.gundem.map(function(g){ return '<span class="tag">' + esc(g) + '</span>'; }).join('') + '</div>'
+        : '<p class="u-sm u-muted">Bu toplantı için gündem maddesi kayıtlı değil.</p>') +
+
+      '<h3 class="u-mt-8">Toplantı notu</h3>' +
+      (m.notlar
+        ? '<p class="u-sm u-muted">' + esc(m.notlar) + '</p>'
+        : '<p class="u-sm u-faint">Toplantı notu girilmemiş.</p>') +
+
+      '<h3 class="u-mt-8">Aynı toplantının diğer kararları</h3>' +
+      (function(){
+        var digger = DB.decisions.filter(function(x){ return x.toplanti === d.toplanti && x.kod !== d.kod; });
+        if(!digger.length) return '<p class="u-sm u-muted">Bu toplantıda başka karar yok.</p>';
+        return '<div class="gv-summary">' + digger.map(function(x){
+          return ozetSatir('<span class="u-sm">' + esc(x.karar) + '</span>',
+                           GV.badge(x.durum) + ' ' + GV.user(x.sorumlu, { sm:true }));
+        }).join('') + '</div>';
+      })() +
+
+      '<div class="u-row u-wrap u-mt-8">' +
+        '<a class="btn btn-line btn-sm" href="' + toplantiHref(d) + '">' +
+          ico('i-users','ic-sm') + ' Toplantıyı aç</a>' +
+        (t ? '<a class="btn btn-acc btn-sm" href="app-gorev-detay.html?id=' + esc(t.kod) + '">' +
+              ico('i-tasks','ic-sm') + ' Görevi aç</a>' : '') +
+        (c ? '<a class="btn btn-line btn-sm" href="app-musteri.html?q=' + encodeURIComponent(m.musteri) + '">' +
+              ico('i-building','ic-sm') + ' Müşteriyi aç</a>' : '') +
+      '</div>';
+
+    GV.drawer({ title:'Karar Detayı', body:body, actions:[{ label:'Kapat', cls:'btn-line' }] });
+  }
+
+  function durumModal(d, refresh){
+    GV.modal({
+      title:'Karar Durumunu Değiştir', text:d.kod + ' · ' + d.karar, icon:'i-stamp', size:'sm',
+      body:'<div class="field"><label for="gvDurum">Yeni durum</label><select id="gvDurum">' +
+        DURUMLAR.map(function(s){
+          return '<option value="' + esc(s) + '"' + (s === d.durum ? ' selected' : '') + '>' + esc(s) + '</option>';
+        }).join('') + '</select></div>' +
+        (gec(d) && d.durum !== 'Gecikti'
+          ? GV.notice({ tone:'warn', title:'Termin geçmiş',
+              text:'Bu kararın termini ' + F.dateShort(d.termin) + ' tarihinde doldu, kayıtlı durumu hâlâ "' + d.durum + '".' })
+          : ''),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Durumu Kaydet', cls:'btn-acc', onClick:function(close, el){
+            var v = el.querySelector('#gvDurum').value;
+            if(v === d.durum){ GV.toast('Durum değişmedi', 'info'); return; }
+            d.durum = v;
+            if(refresh) refresh();
+            GV.toast(d.kod + ' durumu "' + v + '" olarak güncellendi', 'ok');
+          } }
+      ]
+    });
+  }
+
+  /* =====================================================================
+     SAYFA BAŞLIĞI
+     ===================================================================== */
+  GV.pageHead({
+    eyebrow:'Toplantı ve Ajanda',
+    title:'Kararlar ve Aksiyonlar',
+    sub:'—',
+    actions:[
+      { label:'Toplantı Listesi', icon:'i-users', href:'app-toplanti.html' },
+      { label:'Görev Listesi', icon:'i-tasks', href:'app-gorev.html' }
+    ]
+  });
+
+  /* =====================================================================
+     SATIR AKSİYONLARI — yetkiye göre kurulur
+     ===================================================================== */
+  var rowActions = [
+    { key:'toplanti', icon:'i-external', label:'Toplantıyı aç', href:toplantiHref },
+    { key:'detay', icon:'i-eye', label:'Kararı görüntüle', run:function(d){ kararDrawer(d); } }
+  ];
+  if(yetkiEkle){
+    /* Görevi olan kararda bağlantı doğrudan göreve gider (link), olmayanda
+       buton karardan görev oluşturma formunu açar. */
+    rowActions.push({ key:'gorev', icon:'i-flag', label:'Göreve dönüştür / Görevi aç',
+      href:function(d){ return d.gorev ? 'app-gorev-detay.html?id=' + d.gorev : null; },
+      run:function(d, refresh){ donusturModal(d, refresh); } });
+  }
+  if(yetkiDuzenle){
+    rowActions.push({ key:'durum', icon:'i-stamp', label:'Durumu değiştir',
+      run:function(d, refresh){ durumModal(d, refresh); } });
+  }
+
+  /* =====================================================================
+     TOPLU İŞLEMLER
+     ===================================================================== */
+  function secili(ids){ return DB.decisions.filter(function(d){ return ids.indexOf(d.kod) !== -1; }); }
+
+  var bulk = [];
+  if(yetkiEkle){
+    bulk.push({ key:'donustur', label:'Göreve dönüştür', icon:'i-flag', run:function(ids){
+      var kayit = secili(ids);
+      var uygun = kayit.filter(function(d){ return !d.gorev; });
+      if(!uygun.length){
+        GV.toast('Seçili kararların hepsi zaten bir göreve bağlı.', 'info');
+        return;
+      }
+      GV.confirm({
+        title:'Seçilen kararları göreve dönüştür',
+        text:uygun.length + ' karar için görev açılacak. Sorumlu ve termin karardan devralınır.',
+        okLabel:'Görevleri oluştur'
+      }).then(function(ok){
+        if(!ok) return;
+        var kodlar = uygun.map(function(d){ return gorevOlustur(d); });
+        if(LIST) LIST.refresh();
+        GV.result({ tone:'ok', title:'Görevler oluşturuldu',
+          text:kodlar.length + ' görev açıldı: ' + kodlar.join(', ') +
+               (kayit.length - uygun.length ? ' · ' + (kayit.length - uygun.length) + ' karar zaten bağlıydı, atlandı.' : ''),
+          actions:[
+            { label:'Görev listesini aç', cls:'btn-acc', onClick:function(){ location.href = 'app-gorev.html?t=verdigim'; } },
+            { label:'Kapat', cls:'btn-line' }
+          ] });
+      });
+    } });
+  }
+  if(yetkiDuzenle){
+    bulk.push({ key:'durum', label:'Durum ata', icon:'i-stamp', run:function(ids){
+      var kayit = secili(ids);
+      if(!kayit.length) return;
+      GV.modal({
+        title:'Seçilen Kararlara Durum Ata', text:kayit.length + ' karar güncellenecek',
+        icon:'i-stamp', size:'sm',
+        body:'<div class="field"><label for="gvBulkDurum">Yeni durum</label><select id="gvBulkDurum">' +
+          DURUMLAR.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
+          '</select></div>',
+        actions:[
+          { label:'Vazgeç', cls:'btn-line' },
+          { label:'Uygula', cls:'btn-acc', onClick:function(close, el){
+              var v = el.querySelector('#gvBulkDurum').value;
+              kayit.forEach(function(d){ d.durum = v; });
+              if(LIST) LIST.refresh();
+              GV.toast(kayit.length + ' kararın durumu "' + v + '" olarak güncellendi', 'ok');
+            } }
+        ]
+      });
+    } });
+  }
+  bulk.push({ key:'disa', label:'Çıktı al', icon:'i-download' });
+
+  /* =====================================================================
+     LİSTE
+     ===================================================================== */
+  LIST = GV.list({
+    mount:'#liste', id:'toplantikarar', key:'kod',
+    source:function(){ return DB.decisions; },
+    exportName:'toplanti-kararlari', exportTitle:'Toplantı Kararları ve Aksiyonları',
+    pageSize:25, views:['table','card'],
+    defaultSort:'termin', defaultDir:'asc',
+    search:{ placeholder:'Karar metni, karar kodu, toplantı veya sorumlu ara',
+      fields:['kod','karar','toplanti','durum','gorev'],
+      extra:function(d){
+        var t = tsk(d.gorev);
+        return [mAd(d), mTur(d), DB.empName(d.sorumlu), baglamText(d), t ? t.baslik : ''].join(' ');
+      } },
+
+    kpis:[
+      { label:'Toplam karar', icon:'i-flag',
+        calc:function(a){ return a.length; } },
+      { label:'Açık karar', icon:'i-hourglass', tone:'info', href:'app-toplanti-karar.html?t=acik',
+        calc:function(a){ return a.filter(acik).length; } },
+      { label:'Gecikmiş karar', icon:'i-alert', tone:'danger', href:'app-toplanti-karar.html?t=geciken',
+        calc:function(a){ return a.filter(gec).length; } },
+      { label:'Göreve dönüştürülmüş', icon:'i-tasks', tone:'purple',
+        calc:function(a){ return a.filter(function(d){ return !!d.gorev; }).length; },
+        meta:function(a){
+          var n = a.filter(function(d){ return !!d.gorev; }).length;
+          return a.length ? '%' + Math.round(n / a.length * 100) + ' dönüşüm oranı' : '—';
+        } },
+      { label:'Bu hafta terminlenen', icon:'i-calendar', tone:'warn',
+        calc:function(a){ return a.filter(buHafta).length; } }
+    ],
+
+    tabs:[
+      { key:'tumu',    label:'Tümü',                icon:'i-list',         filter:null },
+      { key:'acik',    label:'Açık',                icon:'i-hourglass',    filter:acik },
+      { key:'geciken', label:'Gecikmiş',            icon:'i-alert',        filter:gec },
+      { key:'tamam',   label:'Tamamlandı',          icon:'i-check-circle', filter:function(d){ return d.durum === 'Tamamlandı'; } },
+      { key:'gorevsiz',label:'Göreve dönüşmemiş',   icon:'i-flag',         filter:function(d){ return !d.gorev; } }
+    ],
+
+    columns:[
+      { key:'kod', label:'Karar kodu', width:'11%', locked:true, render:function(d){
+          return '<span class="cell-main">' + esc(d.kod) + '</span>' +
+                 '<span class="cell-code">' + esc(d.toplanti) + '</span>'; } },
+
+      { key:'karar', label:'Karar', width:'24%', cellClass:'cell-wrap', render:function(d){
+          return '<span class="cell-main">' + esc(d.karar) + '</span>' +
+                 (d.gorev ? '<span class="cell-sub">' + esc(d.gorev) + ' görevine bağlandı</span>'
+                          : '<span class="cell-sub u-faint">Göreve dönüştürülmedi</span>'); },
+        exportValue:function(d){ return d.karar; } },
+
+      { key:'toplanti', label:'Toplantı', width:'18%', cellClass:'cell-wrap',
+        sortValue:function(d){ return mAd(d); },
+        render:function(d){
+          return '<a class="cell-main" href="' + toplantiHref(d) + '">' + esc(mAd(d)) + '</a>' +
+                 (mTur(d) ? '<span class="cell-sub">' + esc(mTur(d)) + '</span>' : ''); },
+        exportValue:function(d){ return mAd(d) + (mTur(d) ? ' (' + mTur(d) + ')' : ''); } },
+
+      { key:'toplantiTarihi', label:'Toplantı tarihi',
+        sortValue:function(d){ return mTarih(d); },
+        render:function(d){
+          var m = mtg(d.toplanti);
+          if(!m) return '<span class="u-faint">—</span>';
+          return '<span class="u-nowrap">' + esc(F.dateShort(m.tarih)) + '</span>' +
+                 '<span class="cell-sub">' + esc(String(m.tarih).slice(11,16)) + ' · ' + esc(m.durum) + '</span>'; },
+        exportValue:function(d){ var m = mtg(d.toplanti); return m ? F.dt(m.tarih) : ''; } },
+
+      { key:'sorumlu', label:'Sorumlu',
+        sortValue:function(d){ return DB.empName(d.sorumlu); },
+        render:function(d){ return GV.user(d.sorumlu); },
+        exportValue:function(d){ return DB.empName(d.sorumlu); } },
+
+      { key:'termin', label:'Termin', render:function(d){
+          return GV.dateCell(d.termin, { done:!acik(d) }); } },
+
+      { key:'kalanGun', label:'Kalan gün',
+        sortValue:function(d){ var g = kalan(d); return g == null ? 99999 : g; },
+        render:kalanCell, exportValue:kalanText },
+
+      { key:'durum', label:'Durum', render:function(d){ return GV.badge(d.durum); } },
+
+      { key:'gorev', label:'Bağlı görev', width:'16%', cellClass:'cell-wrap',
+        sortValue:function(d){ return d.gorev || 'zzz'; },
+        render:gorevCell,
+        exportValue:function(d){ var t = tsk(d.gorev); return d.gorev ? (d.gorev + ' · ' + (t ? t.baslik : '')) : '—'; } },
+
+      { key:'baglam', label:'Müşteri / proje', cellClass:'cell-wrap', sortable:false,
+        render:function(d){
+          var m = mtg(d.toplanti) || {};
+          var c = cus(m.musteri), p = prj(m.proje);
+          if(!c && !p) return '<span class="u-faint">İç toplantı</span>';
+          return (c ? '<a class="cell-main" href="app-musteri.html?q=' + encodeURIComponent(m.musteri) + '">' + esc(c.kisa) + '</a>' : '') +
+                 (p ? '<a class="cell-sub" href="app-proje.html?t=tumu&q=' + encodeURIComponent(m.proje) + '">' + esc(p.ad) + '</a>' : ''); },
+        exportValue:baglamText },
+
+      { key:'toplantiTuru', label:'Toplantı türü', visible:false, sortable:false,
+        render:function(d){ return mTur(d) ? '<span class="tag">' + esc(mTur(d)) + '</span>' : '<span class="u-faint">—</span>'; },
+        exportValue:function(d){ return mTur(d) || ''; } }
+    ],
+
+    filters:[
+      { key:'toplanti', label:'Toplantı', type:'select',
+        options:DB.meetings.filter(function(m){
+          return DB.decisions.some(function(d){ return d.toplanti === m.kod; });
+        }).map(function(m){ return { value:m.kod, label:m.ad }; }) },
+
+      { key:'toplantiTuru', label:'Toplantı türü', type:'multi',
+        options:DB.meetings.map(function(m){ return m.tur; }).filter(function(t, i, a){ return a.indexOf(t) === i; }),
+        test:function(d, v){
+          var t = mTur(d);
+          return Array.isArray(v) ? v.indexOf(String(t)) !== -1 : String(t) === String(v); } },
+
+      { key:'sorumlu', label:'Sorumlu', type:'select',
+        options:DB.decisions.map(function(d){ return d.sorumlu; })
+          .filter(function(e, i, a){ return a.indexOf(e) === i; })
+          .map(function(e){ return { value:e, label:DB.empName(e) }; }) },
+
+      { key:'durum', label:'Karar durumu', type:'multi', options:DURUMLAR },
+
+      { key:'termin', label:'Termin aralığı', type:'daterange' },
+
+      { key:'gorevDurumu', label:'Göreve dönüşüm', type:'select',
+        options:[{ value:'var', label:'Göreve dönüşmüş' }, { value:'yok', label:'Göreve dönüşmemiş' }],
+        test:function(d, v){ return v === 'var' ? !!d.gorev : !d.gorev; } }
+    ],
+
+    rowClass:function(d){ return gec(d) ? 'is-late' : ''; },
+
+    card:function(d){
+      return '<div class="gv-rcard-top"><div><span class="cell-main">' + esc(d.karar) + '</span>' +
+          '<div class="cell-code">' + esc(d.kod) + '</div></div>' + GV.badge(d.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><a href="' + toplantiHref(d) + '">' + esc(mAd(d)) + '</a>' +
+          '<span>' + esc(mTur(d) || '—') + '</span></div>' +
+        '<div class="gv-rcard-meta"><span>' + GV.user(d.sorumlu, { sm:true }) + '</span>' +
+          '<span>' + esc(baglamText(d)) + '</span></div>' +
+        '<div class="gv-rcard-foot">' + GV.dateCell(d.termin, { done:!acik(d) }) + kalanCell(d) + '</div>' +
+        '<div class="gv-rcard-meta">' + (d.gorev
+          ? '<a href="app-gorev-detay.html?id=' + esc(d.gorev) + '">' + esc(d.gorev) + ' görevi</a>'
+          : '<span class="u-faint">Göreve dönüştürülmedi</span>') + '</div>';
+    },
+
+    mobile:function(d){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(d.karar) + '</span>' +
+          GV.badge(d.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + esc(d.kod) + ' · ' + esc(mAd(d)) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(DB.empName(d.sorumlu)) + '</span>' +
+          '<span>' + ico('i-calendar','ic-sm') + esc(d.termin ? F.dateShort(d.termin) : '—') + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + kalanCell(d) + '</span>' +
+          (d.gorev
+            ? '<a class="u-xs" href="app-gorev-detay.html?id=' + esc(d.gorev) + '">' + esc(d.gorev) + '</a>'
+            : '<span class="u-xs u-faint">Görev yok</span>') + '</div>';
+    },
+
+    rowActions:rowActions,
+    bulk:bulk,
+
+    emptyState:{ icon:'i-flag', title:'Bu görünümde karar yok',
+      desc:'Toplantılarda alınan kararlar burada takip edilir; sorumlusu ve termini olan her karar ' +
+           'tek işlemle göreve dönüştürülebilir.',
+      action:'<a class="btn btn-acc" href="app-toplanti.html"><svg class="ic"><use href="#i-users"></use></svg> Toplantı Listesi</a>' }
+  });
+});
+</script>
+</body>
+</html>
