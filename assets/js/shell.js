@@ -591,6 +591,7 @@
     'app-proje-hata.html',
     'app-proje-hata-detay.html',
     'app-proje-degisiklik.html',
+    'app-proje-degisiklik-detay.html',
     'app-proje-teslim.html',
     'app-proje-teslim-detay.html',
     'app-proje-detay.html',

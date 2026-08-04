@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Değişiklik Talebi Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="degisiklik">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+  var canOnay   = GV.perm.can('onay');
+
+  var id = new URLSearchParams(location.search).get('id') || (DB.changeRequests[0] || {}).kod;
+  var d  = DB.changeRequests.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!d){
+    GV.pageHead({ eyebrow:'Proje Yönetimi', title:'Değişiklik Talebi Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Değişiklik talepleri', icon:'i-list', href:'app-proje-degisiklik.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Değişiklik talebi bulunamadı',
+      desc:'“' + esc(id || '') + '” kodlu değişiklik talebi sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-degisiklik.html">Değişiklik talepleri listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(d.kod);
+  document.title = d.kod + ' — Değişiklik Talebi — GaviaWorks CRM';
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride YAZILI bağdan türetilir (L-13)
+     ================================================================= */
+  var proje    = d.proje ? DB.proj(d.proje) : null;
+  var musteri  = proje && proje.musteri
+    ? DB.customers.filter(function(m){ return m.kod === proje.musteri; })[0] : null;
+  /* Projenin sözleşmesi: DB.contracts[].proje eşleşmesi (liste ekranıyla aynı kural) */
+  var sozlesme = d.proje
+    ? DB.contracts.filter(function(c){ return c.proje === d.proje && c.aktif !== false; })[0] || null : null;
+  /* Onay kuyruğunda bu kayda ait adım — DB.approvals[].kayit yazılı bağdır */
+  var ony      = DB.approvals.filter(function(a){ return a.kayit === d.kod; })[0] || null;
+  var acts     = DB.activities.filter(function(a){ return a.kayit === d.kod; });
+
+  var moduller = d.proje ? DB.projectModules.filter(function(m){ return m.proje === d.proje; }) : [];
+  var taksitler = d.proje
+    ? DB.milestones.filter(function(m){ return m.proje === d.proje; })
+                   .sort(function(a,b){ return a.taksit - b.taksit; })
+    : [];
+  var acikTaksit = taksitler.filter(function(m){ return m.odemeDurum !== 'Ödendi'; });
+
+  /* Ek teklif bağı DB.changeRequests'te YOK — müşterinin teklifleri yalnız ADAY olarak
+     listelenir, "bu talepten doğdu" diye yazılmaz (L-13). */
+  var adayTeklif = musteri
+    ? DB.quotes.filter(function(q){ return q.musteri === musteri.kod; })
+                .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Görev ↔ değişiklik talebi bağı DB.tasks'te YOK — türetme yapılmaz, sekme boş kalır. */
+  var uretilenGorev = [];
+
+  /* =================================================================
+     PARA — components.md §9b
+       d.etkiMaliyet      = NET (KDV hariç), müşteriye yansıyacak bedel ekseni
+       contracts.tutar    = NET · .kdv = KDV · .toplam = BRÜT
+       projects.butce / .gerceklesenMaliyet = İÇ MALİYET ekseni (ayrı eksen)
+     Net ve brüt aynı kolonda karışmaz; her etikette eksen yazılıdır.
+     ================================================================= */
+  var kur = sozlesme ? (sozlesme.doviz === 'TRY' ? '₺' : sozlesme.doviz) : '₺';
+
+  function para(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="cell-money">' + F.money(v, kur) + '</span>';
+  }
+  function paraSade(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="u-num">' + F.money(v, kur) + '</span>';
+  }
+  /* Paradan türeyen oran da maskelenir — maskeli tutarla birlikte gösterilirse eksen sızar */
+  function paraOran(v){
+    if(!canFinans) return '<span class="cell-mask">••••</span>';
+    return '<b class="u-num">%' + F.num(v, 1) + '</b>';
+  }
+  var finansNot = canFinans ? '' : GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Kayıtlar ve süre etkisi listelenir, para alanları maskelenir.' });
+
+  /* =================================================================
+     SÜRE — etkiSure SAAT eksenindedir (liste ekranı F.hours ile basar,
+     "8 saatten fazla" filtresi de saat üzerinden çalışır). Gün karşılığı
+     8 sa/gün adam-gün dönüşümüyle TÜRETİLİR ve etikette öyle yazılır.
+     Bugün referansı DB.today.
+     ================================================================= */
+  var etkiSaat = d.etkiSure || 0;
+  var etkiGun  = etkiSaat / 8;
+  var acik     = d.durum === 'Onay bekliyor' || d.durum === 'Değerlendiriliyor';
+  var beklemeGun = (function(){ var g = F.days(d.tarih); return g == null ? null : -g; })();
+
+  var projeSaat    = proje ? (proje.tahminiSure || 0) : 0;
+  var sureSapma    = projeSaat ? (etkiSaat / projeSaat * 100) : null;
+  var yeniProjeSaat = projeSaat ? projeSaat + etkiSaat : null;
+
+  var etkiNet      = d.etkiMaliyet || 0;
+  var sozlesmeNet  = sozlesme ? sozlesme.tutar : (proje ? proje.sozlesmeTutari : null);
+  var maliyetSapma = sozlesmeNet ? (etkiNet / sozlesmeNet * 100) : null;
+  var butceNet     = proje ? (proje.butce || 0) : 0;
+  var butceSapma   = butceNet ? (etkiNet / butceNet * 100) : null;
+
+  /* Sözleşme bedeline etki — açık hesap (NET → KDV → BRÜT) */
+  var kdvOran   = sozlesme ? sozlesme.kdvOran : null;
+  var yeniNet   = sozlesme ? sozlesme.tutar + etkiNet : null;
+  var yeniKdv   = (sozlesme && kdvOran != null) ? Math.round(yeniNet * kdvOran / 100) : null;
+  var yeniBrut  = (yeniNet != null && yeniKdv != null) ? yeniNet + yeniKdv : null;
+  var farkKdv   = (yeniKdv != null && sozlesme) ? yeniKdv - sozlesme.kdv : null;
+  var farkBrut  = (yeniBrut != null && sozlesme) ? yeniBrut - sozlesme.toplam : null;
+
+  /* Etki düzeyi: kayıtta `etki` ALANI YOK. DB.impacts ölçeğinde, süre ve bedel
+     sapmalarının BÜYÜĞÜNDEN hesaplanır; ekranda "hesaplanan" diye etiketlenir. */
+  var enBuyukSapma = Math.max(sureSapma || 0, maliyetSapma || 0);
+  var etkiDuzeyi   = enBuyukSapma >= 20 ? 'Çok yüksek'
+                   : enBuyukSapma >= 10 ? 'Yüksek'
+                   : enBuyukSapma >= 3  ? 'Orta' : 'Düşük';
+  /* GV.badge ton sözlüğünde DB.impacts değerleri yok — açık ton geçilir (yerel ton haritası yazılmaz) */
+  var etkiTon = etkiDuzeyi === 'Çok yüksek' ? 'is-danger'
+              : etkiDuzeyi === 'Yüksek'     ? 'is-warn'
+              : etkiDuzeyi === 'Orta'       ? 'is-info' : 'is-neutral';
+  function sapmaTon(p){ return p == null ? null : p >= 20 ? 'danger' : p >= 10 ? 'warn' : p >= 3 ? 'info' : 'ok'; }
+
+  /* =================================================================
+     YARDIMCILAR — dt escape EDİLMEZ (eksen işareti span içerir, L-14),
+     dd çağıran tarafta esc()'lenir.
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+  function saatGun(saat){
+    return '<b class="u-num">' + F.hours(saat) + '</b> <span class="cell-sub">≈ ' +
+      F.num(saat / 8, 1) + ' adam-gün (8 sa/gün)</span>';
+  }
+
+  /* =================================================================
+     MUTASYON — location.reload() YOK, GV.refresh() (L-15)
+     ================================================================= */
+  function onayla(kararNotu){
+    var eskiDurum = d.durum;
+    d.durum = 'Onaylandı';
+    d.karar = kararNotu || ((!d.karar || d.karar === '—') ? 'Onaylandı — plana işlenecek' : d.karar);
+    if(ony) ony.durum = 'Onaylandı';
+    DB.activities.unshift({ kayit:d.kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Değişiklik talebi onaylandı' + (kararNotu ? ' — ' + kararNotu : ''),
+      eski:eskiDurum, yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' });
+    if(ony){
+      DB.activities.unshift({ kayit:ony.kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:d.kod + ' değişiklik talebi onaylandı', eski:'Bekliyor', yeni:'Onaylandı',
+        tone:'ok', icon:'i-stamp' });
+    }
+    GV.toast(d.kod + ' onaylandı', 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+  }
+
+  function reddet(gerekce){
+    var eskiDurum = d.durum;
+    d.durum = 'Reddedildi';
+    d.karar = gerekce;
+    if(ony) ony.durum = 'Reddedildi';
+    DB.activities.unshift({ kayit:d.kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Değişiklik talebi reddedildi — ' + gerekce,
+      eski:eskiDurum, yeni:'Reddedildi', tone:'danger', icon:'i-x-circle' });
+    if(ony){
+      DB.activities.unshift({ kayit:ony.kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:d.kod + ' değişiklik talebi reddedildi', eski:'Bekliyor', yeni:'Reddedildi',
+        tone:'danger', icon:'i-x-circle' });
+    }
+    GV.toast(d.kod + ' reddedildi', 'warn');
+    setTimeout(function(){ GV.refresh(); }, 700);
+  }
+
+  function onayModal(){
+    GV.modal({
+      title:'Değişiklik talebini onayla', text:d.kod + ' · ' + d.baslik, icon:'i-stamp', size:'lg',
+      body:
+        dl([
+          ['Süre etkisi <span class="u-faint">(saat)</span>', saatGun(etkiSaat)],
+          ['Maliyet etkisi <span class="u-faint">(KDV hariç)</span>',
+            etkiNet ? para(etkiNet) : '<span class="u-faint">Maliyet etkisi yok</span>'],
+          ['Kapsam', d.kapsamIci ? GV.badge('Kapsam içi', 'is-ok') : GV.badge('Kapsam dışı', 'is-warn')],
+          ['Hesaplanan etki düzeyi', GV.badge(etkiDuzeyi, etkiTon)]
+        ]) +
+        '<div class="field u-mt-4"><label for="onKarar">Karar notu <span class="u-faint">(opsiyonel)</span></label>' +
+          '<textarea id="onKarar" rows="2" placeholder="Faz 2 kapsamına alındı · ek teklif hazırlanacak…">' +
+          esc(d.karar && d.karar !== '—' ? d.karar : '') + '</textarea>' +
+          '<span class="f-hint">Boş bırakılırsa karar alanına “Onaylandı — plana işlenecek” yazılır.</span></div>' +
+        GV.notice(d.kapsamIci === false
+          ? { tone:'warn', title:'Kapsam dışı talep — bedel sözleşmeye eklenmez',
+              text:'Onay bu talebi plana alır ama sözleşme bedelini kendiliğinden değiştirmez. ' +
+                   'Kapsam dışı işin bedeli ek teklif ve sözleşme zeyilnamesiyle yürür; Sözleşme etkisi sekmesindeki hesap bunun projeksiyonudur.' }
+          : { tone:'info', title:'Kapsam içi talep',
+              text:'Talep sözleşme kapsamında görüldüğü için ek bedel doğurmaz; yalnız plan ve süre etkisi işlenir.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Talebi onayla', cls:'btn-acc', icon:'i-check', onClick:function(close, el){
+            onayla(el.querySelector('#onKarar').value.trim());
+          } }
+      ]
+    });
+  }
+
+  function redModal(){
+    GV.modal({
+      title:'Değişiklik talebini reddet', text:d.kod + ' · ' + d.baslik, icon:'i-x-circle',
+      tone:'danger', size:'lg',
+      body:
+        '<div class="field"><label for="rdNeden">Red gerekçesi<span class="req">*</span></label>' +
+          '<textarea id="rdNeden" rows="3" placeholder="Kapsam dışı · bütçe yok · sürüm sonrası değerlendirilecek…"></textarea>' +
+          '<span class="f-hint">En az 10 karakter. Gerekçe talebin karar alanına yazılır ve aktivite geçmişine düşer.</span>' +
+          '<span class="f-err">' + ico('i-alert','ic-sm') + 'Red gerekçesi zorunludur — en az 10 karakter yazın.</span></div>' +
+        GV.notice({ tone:'warn', title:'Red kararı talebi kapatır',
+          text:'Talep durumu “Reddedildi” olur' + (ony ? ' ve ' + ony.kod + ' onay kaydı da reddedilmiş olarak işaretlenir' : '') +
+               '. Süre ve bedel etkisi projeye yansıtılmaz.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Talebi reddet', cls:'btn-danger', icon:'i-x-circle', onClick:function(close, el){
+            var t = el.querySelector('#rdNeden');
+            var v = t.value.trim();
+            if(v.length < 10){
+              t.closest('.field').classList.add('is-invalid');
+              GV.toast('Red gerekçesi zorunlu — en az 10 karakter', 'warn');
+              t.focus();
+              return false;
+            }
+            reddet(v);
+          } }
+      ]
+    });
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  var phActions = [
+    { label:'Değişiklik talepleri', icon:'i-list', href:'app-proje-degisiklik.html' }
+  ];
+  if(proje) phActions.push({ label:'Proje', icon:'i-briefcase', href:'app-proje-detay.html?id=' + proje.kod });
+  if(sozlesme) phActions.push({ label:'Sözleşme', icon:'i-file-check', href:'app-sozlesme-detay.html?id=' + sozlesme.kod });
+  /* Ölü buton yasağı: yetki yoksa ya da talep karara bağlanmışsa buton HİÇ basılmaz */
+  if(canOnay && acik) phActions.push({ label:'Onayla', icon:'i-stamp', cls:'btn-acc', run:onayModal });
+
+  GV.pageHead({
+    eyebrow:'Proje Yönetimi', title:'Değişiklik Talebi Detayı',
+    sub:d.kod + ' · ' + (proje ? proje.ad : d.proje) + ' · ' + d.baslik,
+    actions:phActions
+  });
+
+  /* =================================================================
+     KAYIT BAŞLIĞI
+     ================================================================= */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + d.kod + '</span>' +
+        GV.badge(d.durum) +
+        (d.kapsamIci ? GV.badge('Kapsam içi', 'is-ok') : GV.badge('Kapsam dışı', 'is-warn')) +
+        GV.badge(etkiDuzeyi + ' etki', etkiTon) +
+        (acik && beklemeGun != null && beklemeGun > 7
+          ? '<span class="badge is-danger">' + F.num(beklemeGun) + ' gündür karara bağlanmadı</span>' : '') +
+        (d.aktif === false ? '<span class="tag">Arşiv</span>' : '') + '</div>' +
+      '<h1>' + esc(d.baslik) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        (proje
+          ? '<span>' + ico('i-briefcase','ic-sm') + '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a></span>'
+          : '<span>' + ico('i-briefcase','ic-sm') + esc(d.proje || 'Projesiz') + '</span>') +
+        (musteri
+          ? '<span>' + ico('i-building','ic-sm') + '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a></span>'
+          : '') +
+        '<span>' + ico('i-user','ic-sm') + esc(d.talep) + ' talebi</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + F.date(d.tarih) + '</span>' +
+        '<span>' + ico('i-clock','ic-sm') + F.hours(etkiSaat) + ' süre etkisi</span>' +
+        '<span>' + ico('i-wallet','ic-sm') + (canFinans
+          ? (etkiNet ? F.money(etkiNet, kur) + ' (KDV hariç)' : 'Maliyet etkisi yok')
+          : 'Tutar gizli') + '</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* =================================================================
+     SEKMELER
+     ================================================================= */
+  var tabs = [
+    { key:'genel',    lbl:'Genel',            ic:'i-info' },
+    { key:'etki',     lbl:'Etki Analizi',     ic:'i-percent' },
+    { key:'onay',     lbl:'Onay Akışı',       ic:'i-stamp' },
+    { key:'teklif',   lbl:'Ek Teklif',        ic:'i-quote',     cnt:adayTeklif.length },
+    { key:'gorev',    lbl:'Üretilen Görevler', ic:'i-tasks',    cnt:uretilenGorev.length },
+    { key:'sozlesme', lbl:'Sözleşme Etkisi',  ic:'i-file-check' },
+    { key:'aktivite', lbl:'Aktivite Geçmişi', ic:'i-activity',  cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL — DB.changeRequests alanlarının TAMAMI
+       kod · proje · baslik · talep · tarih · etkiSure · etkiMaliyet ·
+       durum · kapsamIci · karar · sorumlu · aktif
+     ================================================================= */
+  var pGenel = '<div class="gc-body">' +
+    sec('Talep Kimliği', dl([
+      ['Talep kodu', '<span class="u-num">' + esc(d.kod) + '</span>'],
+      ['Talep başlığı', esc(d.baslik)],
+      ['Bağlı proje', proje
+        ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+          ' <span class="cell-sub">' + esc(proje.kod) + ' · ' + esc(proje.tur) + ' · ' + esc(proje.durum) + '</span>'
+        : esc(d.proje)],
+      ['Müşteri', musteri
+        ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>' +
+          ' <span class="cell-sub">' + esc(musteri.kod) + ' · ' + esc(musteri.sektor) + '</span>'
+        : (proje ? esc(proje.musteriAd) : null)],
+      ['Talep eden taraf', '<span class="badge is-neutral no-dot">' + esc(d.talep) + '</span>'],
+      ['Talep tarihi', GV.dateCell(d.tarih, { done:!acik })],
+      ['Karara bağlanmadan geçen süre', acik && beklemeGun != null
+        ? '<b class="u-num' + (beklemeGun > 7 ? ' u-danger' : beklemeGun > 3 ? ' u-warn' : '') + '">' +
+          F.num(beklemeGun) + ' gün</b> <span class="cell-sub">bugün ' + F.date(DB.today) + '</span>'
+        : '<span class="u-faint">Talep karara bağlandı</span>'],
+      ['Talep sorumlusu', GV.user(d.sorumlu, { sm:true })]
+    ])) +
+
+    sec('Kapsam ve Karar', dl([
+      ['Talep durumu', GV.badge(d.durum)],
+      ['Kapsam değerlendirmesi', d.kapsamIci
+        ? GV.badge('Kapsam içi', 'is-ok') + ' <span class="cell-sub">Sözleşme kapsamında görülüyor, ek bedel doğurmaz</span>'
+        : GV.badge('Kapsam dışı', 'is-warn') + ' <span class="cell-sub">Sözleşme kapsamı dışında — ek teklif gerektirir</span>'],
+      ['Karar', d.karar && d.karar !== '—'
+        ? esc(d.karar) : '<span class="u-faint">Karar yazılmadı</span>'],
+      ['Kayıt durumu', d.aktif === false
+        ? '<span class="tag">Arşivlendi</span>' : '<span class="badge is-ok no-dot">Aktif kayıt</span>']
+    ])) +
+
+    sec('Etki Özeti', finansNot + dl([
+      ['Süre etkisi <span class="u-faint">(saat)</span>', saatGun(etkiSaat)],
+      ['Maliyet etkisi <span class="u-faint">(KDV hariç · net)</span>',
+        etkiNet ? '<b>' + para(etkiNet) + '</b>' : '<span class="u-faint">Maliyet etkisi yok</span>'],
+      ['Hesaplanan etki düzeyi <span class="u-faint">(kayıtta etki alanı yok)</span>',
+        GV.badge(etkiDuzeyi, etkiTon) +
+        ' <span class="cell-sub">süre ve bedel sapmalarının büyüğünden türetildi</span>'],
+      ['Onay kaydı', ony
+        ? '<a href="app-panel-onaylar.html">' + esc(ony.kod) + '</a> ' + GV.badge(ony.durum) +
+          ' <span class="cell-sub">' + esc(ony.tur) + ' · aciliyet ' + esc(ony.aciliyet) + '</span>'
+        : '<span class="u-faint">Onay kuyruğunda kayıt yok</span>']
+    ])) +
+    '</div>';
+
+  /* =================================================================
+     2. ETKİ ANALİZİ — süre ve bedel AYRI AYRI, projenin tabanına göre
+     ================================================================= */
+  var pEtki = '<div class="gc-body">' +
+    GV.notice({ tone:'neutral', icon:'i-info', title:'Bu sekmede üç ayrı eksen var',
+      text:'Süre etkisi SAAT eksenindedir (gün karşılığı 8 sa/gün adam-gün dönüşümüdür). ' +
+           'Maliyet etkisi müşteriye yansıyacak NET bedeldir (KDV hariç) ve sözleşme bedeliyle aynı eksende karşılaştırılır. ' +
+           'Projenin bütçesi ve gerçekleşen maliyeti ise İÇ MALİYET eksenidir; ikisi aynı satırda toplanmaz.' }) +
+
+    sec('Süre Etkisi', proje
+      ? dl([
+          ['Talebin süre etkisi <span class="u-faint">(saat)</span>', saatGun(etkiSaat)],
+          ['Projenin tahmini süresi <span class="u-faint">(saat)</span>',
+            '<b class="u-num">' + F.hours(projeSaat) + '</b> <span class="cell-sub">≈ ' + F.num(projeSaat / 8, 1) + ' adam-gün</span>'],
+          ['Projede harcanan süre <span class="u-faint">(saat)</span>',
+            '<b class="u-num">' + F.hours(proje.harcananSure) + '</b> <span class="cell-sub">tahminin %' +
+            (projeSaat ? F.num(proje.harcananSure / projeSaat * 100, 1) : '—') + '’i</span>'],
+          ['Süre sapması <span class="u-faint">(talep / proje tahmini)</span>', sureSapma == null ? null :
+            '<b class="u-num">%' + F.num(sureSapma, 1) + '</b> ' +
+            GV.progress(Math.min(100, Math.round(sureSapma)), { tone:sapmaTon(sureSapma) })],
+          ['Talep sonrası tahmini süre <span class="u-faint">(saat)</span>', yeniProjeSaat == null ? null :
+            '<b class="u-num">' + F.hours(yeniProjeSaat) + '</b> <span class="cell-sub">' +
+            F.hours(projeSaat) + ' + ' + F.hours(etkiSaat) + '</span>'],
+          ['Projenin planlanan bitişi', GV.dateCell(proje.planlananBitis, { done:!!proje.gercekBitis }) +
+            ' <span class="cell-sub">' + F.rel(proje.planlananBitis) + '</span>'],
+          ['Takvim kayması', '<span class="u-faint">Kayıtta yeni bitiş tarihi alanı yok — süre etkisi yalnız adam-saat olarak tutulur</span>']
+        ])
+      : GV.notice({ tone:'warn', title:'Talep bir projeye bağlı değil',
+          text:'Süre etkisi karşılaştırması için projenin tahmini süresi gerekir; bu talepte proje bağı çözülemedi.' })) +
+
+    sec('Maliyet Etkisi', finansNot + (proje
+      ? dl([
+          ['Talebin maliyet etkisi <span class="u-faint">(KDV hariç · net)</span>',
+            etkiNet ? '<b>' + para(etkiNet) + '</b>' : '<span class="u-faint">Maliyet etkisi yok</span>'],
+          ['Sözleşme bedeli <span class="u-faint">(KDV hariç · net)</span>', sozlesmeNet == null ? null :
+            para(sozlesmeNet) + (sozlesme ? ' <span class="cell-sub">' + esc(sozlesme.kod) + '</span>'
+                                          : ' <span class="cell-sub">proje kartından</span>')],
+          ['Bedel sapması <span class="u-faint">(net / net)</span>', maliyetSapma == null ? null :
+            paraOran(maliyetSapma) + ' ' +
+            (canFinans ? GV.progress(Math.min(100, Math.round(maliyetSapma)), { tone:sapmaTon(maliyetSapma) }) : '')],
+          ['Talep sonrası sözleşme neti <span class="u-faint">(KDV hariç)</span>', yeniNet == null ? null :
+            '<b>' + para(yeniNet) + '</b> <span class="cell-sub">hesap Sözleşme etkisi sekmesinde açık</span>'],
+          ['Projenin iç bütçesi <span class="u-faint">(ayrı eksen — iç maliyet)</span>',
+            butceNet ? para(butceNet) : null],
+          ['Gerçekleşen iç maliyet <span class="u-faint">(ayrı eksen — iç maliyet)</span>',
+            proje.gerceklesenMaliyet ? para(proje.gerceklesenMaliyet) +
+              ' <span class="cell-sub">bütçenin %' + (butceNet ? F.num(proje.gerceklesenMaliyet / butceNet * 100, 1) : '—') + '’i</span>' : null],
+          ['Talep bedelinin iç bütçeye oranı <span class="u-faint">(bilgi amaçlı — eksenler farklı)</span>',
+            butceSapma == null ? null : paraOran(butceSapma)]
+        ])
+      : GV.notice({ tone:'warn', title:'Proje bağı yok',
+          text:'Maliyet etkisi karşılaştırması için projenin sözleşme bedeli gerekir.' }))) +
+    '</div>' +
+
+    /* Etkilenen modül / taksit bağı kayıtta YOK — projenin tamamı listelenir, öyle etiketlenir */
+    '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
+      title:'Talep ↔ modül / taksit bağı kayıtta yok',
+      text:'DB.changeRequests kaydı hangi modülün ve hangi taksitin etkilendiğini tutmuyor. ' +
+           'Aşağıda projenin TÜM modülleri ve ödeme planı taksitleri listelenir; “etkilenen” seçimi türetilmemiştir.' }) + '</div>' +
+
+    '<div class="gc-body flush">' +
+    (moduller.length
+      ? tbl('<th>Modül</th><th>Modül adı</th><th>Durum</th><th>İlerleme</th><th>Sorumlu</th><th class="num">Efor (saat)</th>',
+          moduller.map(function(m){
+            return '<tr><td><span class="cell-code">' + esc(m.kod) + '</span></td>' +
+              '<td class="cell-wrap"><span class="cell-main">' + esc(m.ad) + '</span></td>' +
+              '<td>' + GV.badge(m.durum) + '</td>' +
+              '<td>' + GV.progress(m.ilerleme) + '</td>' +
+              '<td>' + GV.user(m.sorumlu, { sm:true }) + '</td>' +
+              '<td class="num"><span class="u-num">' + F.hours(m.efor) + '</span></td></tr>';
+          }).join('')) +
+        sayac('<b>' + moduller.length + '</b> modül · projenin toplam modül eforu ' +
+          F.hours(moduller.reduce(function(s, m){ return s + (m.efor || 0); }, 0)) +
+          ' · talebin süre etkisi ' + F.hours(etkiSaat),
+          proje ? '<a class="btn btn-line btn-sm" href="app-proje-detay.html?id=' + proje.kod + '">' +
+            ico('i-briefcase','ic-sm') + ' Projeyi aç</a>' : '')
+      : GV.empty({ icon:'i-layers', title:'Projenin modülü kayıtlı değil',
+          desc:'Bu projede tanımlı modül bulunmuyor, bu yüzden modül bazlı etki listesi çıkarılamıyor.',
+          action:proje ? '<a class="btn btn-acc" href="app-proje-detay.html?id=' + proje.kod + '">Projeyi aç</a>'
+                       : '<a class="btn btn-acc" href="app-proje.html">Proje listesine git</a>' })) +
+    '</div>' +
+
+    '<div class="gc-body flush">' +
+    (taksitler.length
+      ? tbl('<th class="num">Taksit</th><th>Taksit adı</th><th>Planlanan tarih</th>' +
+            '<th class="num">Taksit tutarı (KDV hariç)</th><th>Taksit durumu</th><th>Ödeme durumu</th><th>İlerleme</th>',
+          taksitler.map(function(m){
+            return '<tr><td class="num"><b class="u-num">' + m.taksit + '</b>' +
+                '<span class="cell-code">' + esc(m.kod) + '</span></td>' +
+              '<td class="cell-wrap"><span class="cell-main">' + esc(m.ad) + '</span></td>' +
+              '<td>' + GV.dateCell(m.tarih, { done:m.durum === 'Tamamlandı' }) + '</td>' +
+              '<td class="num">' + para(m.odeme) + '</td>' +
+              '<td>' + GV.badge(m.durum) + '</td>' +
+              '<td>' + GV.badge(m.odemeDurum) + '</td>' +
+              '<td>' + GV.progress(m.ilerleme) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + taksitler.length + '</b> taksit · <b>' + acikTaksit.length + '</b> tanesi henüz ödenmedi · ' +
+          'ödenmemiş taksit toplamı ' +
+          para(acikTaksit.reduce(function(s, m){ return s + (m.odeme || 0); }, 0)) +
+          ' <span class="u-faint">(KDV hariç)</span>',
+          '<a class="btn btn-line btn-sm" href="app-odemeplani.html">' + ico('i-milestone','ic-sm') + ' Ödeme planı</a>')
+      : GV.empty({ icon:'i-milestone', title:'Projenin taksit planı yok',
+          desc:'Bu projeye bağlı ödeme planı taksiti kayıtlı değil; taksit bazlı bedel etkisi çıkarılamıyor.',
+          action:'<a class="btn btn-acc" href="app-odemeplani.html">Ödeme planına git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     3. ONAY AKIŞI — DB.approvals varsa oradan, yoksa talep alanlarından
+     ================================================================= */
+  var zincir = [
+    { rol:'Talebi ileten taraf', kisi:d.talep, tarih:d.tarih, durum:'Onaylandı',
+      not:'Talep kaydı açıldı' },
+    { rol:'Proje yöneticisi değerlendirmesi', kisi:DB.empName(d.sorumlu),
+      tarih:d.durum === 'Değerlendiriliyor' ? null : (ony ? ony.tarih : d.tarih),
+      durum:d.durum === 'Değerlendiriliyor' ? 'Bekliyor' : 'Onaylandı',
+      not:d.kapsamIci ? 'Kapsam içi görüldü' : 'Kapsam dışı — onay makamına taşındı' },
+    { rol:'Onay makamı', kisi:ony ? DB.empName(ony.onaylayan) : null,
+      tarih:(d.durum === 'Onaylandı' || d.durum === 'Reddedildi') ? (ony ? ony.tarih : d.tarih) : null,
+      durum:d.durum === 'Onaylandı' ? 'Onaylandı'
+           : d.durum === 'Reddedildi' ? 'Reddedildi'
+           : d.durum === 'Onay bekliyor' ? 'Bekliyor' : 'Sırada',
+      not:d.karar && d.karar !== '—' ? d.karar : null }
+  ];
+
+  var onayAksiyon = (canOnay && acik)
+    ? '<div class="u-row u-mt-8">' +
+        '<button type="button" class="btn btn-acc" id="btnOnayla">' + ico('i-stamp') + ' Talebi onayla</button>' +
+        '<button type="button" class="btn btn-danger" id="btnReddet">' + ico('i-x-circle') + ' Talebi reddet</button>' +
+      '</div>'
+    : '';
+
+  var onayDurumNot;
+  if(!acik){
+    onayDurumNot = GV.notice({ tone:d.durum === 'Onaylandı' ? 'ok' : 'neutral',
+      icon:d.durum === 'Onaylandı' ? 'i-check-circle' : 'i-x-circle',
+      title:'Talep karara bağlandı',
+      text:d.kod + ' durumu “' + d.durum + '”. ' +
+           (d.karar && d.karar !== '—' ? 'Karar: ' + d.karar + '. ' : '') +
+           'Karara bağlanmış talepte onay/red aksiyonu basılmaz.' });
+  } else if(!canOnay){
+    onayDurumNot = GV.notice({ tone:'neutral', icon:'i-lock', title:'Onay yetkiniz yok',
+      text:'Talep hâlâ “' + d.durum + '” durumunda ama rolünüzde onay yetkisi bulunmadığı için ' +
+           'onaylama ve reddetme aksiyonları gösterilmiyor.' });
+  } else {
+    onayDurumNot = GV.notice({ tone:'warn', icon:'i-hourglass', title:'Talep karar bekliyor',
+      text:d.kod + ' ' + (beklemeGun != null ? beklemeGun + ' gündür ' : '') + '“' + d.durum +
+           '” durumunda. Onay ya da red kararı bu ekrandan verilir.' });
+  }
+
+  var pOnay = '<div class="gc-body">' + onayDurumNot +
+    (ony ? '' : GV.notice({ tone:'warn', icon:'i-alert', title:'Onay kuyruğunda adım kaydı yok',
+      text:'DB.approvals içinde ' + d.kod + ' kaydına bağlı adım bulunmuyor. Aşağıdaki zincir talebin ' +
+           'kendi alanlarından (talep eden taraf · sorumlu · durum · karar) kurulmuştur; onaylayan kişi ve ' +
+           'onay tarihi bu kayıtta tutulmadığı için boş kalır.' })) +
+    '<div class="u-mt-8">' + GV.chain(zincir) + '</div>' +
+    onayAksiyon + '</div>' +
+
+    (ony
+      ? '<div class="gc-body">' + sec('Onay Kuyruğu Kaydı', dl([
+          ['Onay kodu', '<a href="app-panel-onaylar.html">' + esc(ony.kod) + '</a>'],
+          ['Onay türü', esc(ony.tur)],
+          ['Bağlı kayıt', '<span class="u-num">' + esc(ony.kayit) + '</span>' +
+            (ony.kayit === d.kod ? ' <span class="badge is-ok no-dot">Bu talep</span>' : '')],
+          ['Onay başlığı', esc(ony.baslik)],
+          ['Talep eden', GV.user(ony.talepEden, { sm:true })],
+          ['Onaylayan', GV.user(ony.onaylayan, { sm:true })],
+          ['Onaya düşme tarihi', GV.dateCell(ony.tarih, { done:ony.durum !== 'Bekliyor' })],
+          ['Aciliyet', GV.pri(ony.aciliyet)],
+          ['Onay durumu', GV.badge(ony.durum)],
+          ['Onaydaki tutar <span class="u-faint">(KDV hariç · net)</span>',
+            ony.tutar == null ? '<span class="u-faint">Tutarsız onay</span>'
+              : para(ony.tutar) + (ony.tutar === etkiNet
+                  ? ' <span class="badge is-ok no-dot">Talebin maliyet etkisiyle birebir</span>'
+                  : ' <span class="badge is-warn no-dot">Talep kaydından farklı</span>')]
+        ])) + '</div>'
+      : '');
+
+  /* =================================================================
+     4. EK TEKLİF — bağ alanı YOK, müşterinin teklifleri "aday" (L-13)
+     ================================================================= */
+  var pTeklif = '<div class="gc-body">' + finansNot +
+    GV.notice({ tone:'warn', icon:'i-alert', title:'Talep ↔ teklif bağı kayıtta yok',
+      text:'DB.changeRequests kaydı doğan ek teklifin kodunu tutmuyor, DB.quotes de değişiklik talebine ' +
+           'geri referans vermiyor. Aşağıdakiler ' + (musteri ? musteri.kisa : 'müşterinin') +
+           ' teklifleridir ve yalnız ADAY olarak listelenir — “bu talepten doğdu” bilgisi veride yazılı değildir.' }) +
+    '</div>' +
+    '<div class="gc-body flush">' +
+    (adayTeklif.length
+      ? tbl('<th>Teklif</th><th>Teklif tarihi</th><th class="num">Versiyon</th>' +
+            '<th class="num">Net tutar (KDV hariç)</th><th class="num">KDV</th>' +
+            '<th class="num">Brüt toplam (KDV dahil)</th><th>Durum</th><th>İç onay</th>' +
+            '<th>Müşteri onayı</th><th>Talebe göre</th>',
+          adayTeklif.map(function(q){
+            var net = (q.araToplam || 0) - (q.indirim || 0);
+            var sonra = String(q.tarih).localeCompare(String(d.tarih)) >= 0;
+            return '<tr><td><a class="cell-main" href="app-teklif-detay.html?id=' + q.kod + '">' + esc(q.kod) + '</a>' +
+                '<span class="cell-sub">' + esc(q.firma) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(q.tarih) + '</span></td>' +
+              '<td class="num"><span class="u-num">v' + q.versiyon + '</span></td>' +
+              '<td class="num">' + para(net) + '</td>' +
+              '<td class="num">' + paraSade(q.vergi) + '</td>' +
+              '<td class="num">' + para(q.toplam) + '</td>' +
+              '<td>' + GV.badge(q.durum) + '</td>' +
+              '<td>' + GV.badge(q.icOnay) + '</td>' +
+              '<td>' + (q.musteriOnay && q.musteriOnay !== '—' ? GV.badge(q.musteriOnay) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td class="cell-wrap">' +
+                (sonra ? '<span class="badge is-info no-dot">Talepten sonra</span>'
+                       : '<span class="tag">Talepten önce</span>') +
+                (etkiNet && net === etkiNet
+                  ? ' <span class="badge is-warn no-dot">Net tutar maliyet etkisiyle aynı</span>' : '') +
+              '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + adayTeklif.length + '</b> aday teklif · ' +
+          adayTeklif.filter(function(q){ return String(q.tarih).localeCompare(String(d.tarih)) >= 0; }).length +
+          ' tanesi talep tarihinden (' + F.date(d.tarih) + ') sonra hazırlanmış · hiçbiri talebe bağlı olarak işaretlenmemiş',
+          '<a class="btn btn-line btn-sm" href="app-teklif.html">' + ico('i-quote','ic-sm') + ' Teklif listesi</a>')
+      : GV.empty({ icon:'i-quote',
+          title:'Talepten doğan ek teklif yok',
+          desc:(musteri ? musteri.kisa + ' müşterisinin' : 'Bu müşterinin') +
+               ' sistemde kayıtlı teklifi bulunmuyor, bu yüzden aday olarak gösterilecek bir kayıt da çıkmıyor. ' +
+               'Kapsam dışı ve onaylanmış talepler ek tekliften yürür.',
+          action:'<a class="btn btn-acc" href="app-teklif.html">Teklif listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     5. ÜRETİLEN GÖREVLER — görev ↔ talep bağı DB.tasks'te YOK
+     ================================================================= */
+  var pGorev = '<div class="gc-body">' +
+    GV.notice({ tone:'warn', icon:'i-alert', title:'Görev ↔ değişiklik talebi bağı kayıtta yok',
+      text:'DB.tasks kaydı bağlı olduğu değişiklik talebini tutmuyor (proje · modül · sprint · müşteri bağı var, ' +
+           'değişiklik talebi bağı yok). Bu yüzden “bu talepten doğan görevler” türetilmez; ' +
+           (proje ? proje.ad + ' projesinin tüm görevleri görev havuzundan izlenir.' : 'görevler görev havuzundan izlenir.') }) +
+    GV.empty({ icon:'i-tasks', title:'Talebe bağlı görev kaydı yok',
+      desc:'Değişiklik talebi onaylandığında açılan görevler bu sekmede listelenir. Görev kaydında talep bağı ' +
+           'alanı doğduğunda bu liste kendiliğinden dolar.',
+      action:proje
+        ? '<a class="btn btn-acc" href="app-gorev.html?q=' + proje.kod + '">' + proje.kod + ' görevlerini aç</a>'
+        : '<a class="btn btn-acc" href="app-gorev.html">Görev havuzuna git</a>' }) +
+    '</div>';
+
+  /* =================================================================
+     6. SÖZLEŞME ETKİSİ — hesap ekranda AÇIK, maskeli
+     ================================================================= */
+  var uygulandi = d.durum === 'Onaylandı';
+  var pSozlesme = '<div class="gc-body">' + finansNot +
+    (sozlesme
+      ? (d.durum === 'Reddedildi'
+          ? GV.notice({ tone:'neutral', icon:'i-x-circle', title:'Talep reddedildi — sözleşme bedeli değişmez',
+              text:d.kod + ' reddedildiği için ' + sozlesme.kod + ' bedeli olduğu gibi kalır. ' +
+                   'Aşağıdaki hesap yalnız “onaylansaydı ne olurdu” projeksiyonudur.' })
+          : uygulandi
+            ? GV.notice({ tone:'warn', icon:'i-alert', title:'Talep onaylı ama sözleşme kaydı güncellenmemiş',
+                text:'Talep “Onaylandı” durumunda; buna karşın ' + sozlesme.kod + ' sözleşmesinin bedeli hâlâ ' +
+                     'değişiklik öncesi tutardır. Sözleşme bedeline yansıma zeyilname ile yapılır ve bu prototipte ' +
+                     'sözleşme kaydında karşılığı yoktur — aşağıdaki “yeni bedel” hesaplanan değerdir, kayıtlı değer değildir.' })
+            : GV.notice({ tone:'info', icon:'i-info', title:'Aşağıdaki hesap projeksiyondur',
+                text:'Talep henüz karara bağlanmadı. Onaylanırsa ' + sozlesme.kod +
+                     ' bedeline maliyet etkisi eklenir; hesap adım adım aşağıdadır.' }))
+      : GV.notice({ tone:'warn', icon:'i-alert', title:'Projenin sözleşmesi bulunamadı',
+          text:(proje ? proje.ad + ' projesine' : 'Bu projeye') +
+               ' bağlı aktif sözleşme kaydı yok; bedel etkisi sözleşme üzerinden hesaplanamıyor.' })) +
+    '</div>' +
+
+    (sozlesme
+      ? '<div class="gc-body">' + sec('Sözleşme Kaydı', dl([
+          ['Sözleşme', '<a href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' + esc(sozlesme.kod) + '</a>' +
+            ' <span class="cell-sub">' + esc(sozlesme.ad) + '</span>'],
+          ['Müşteri', esc(sozlesme.musteriAd)],
+          ['Sözleşme durumu', GV.badge(sozlesme.durum)],
+          ['Dönem', F.date(sozlesme.baslangic) + ' – ' + F.date(sozlesme.bitis)],
+          ['Ödeme planı', esc(sozlesme.odemePlani)],
+          ['Para birimi', esc(sozlesme.doviz)]
+        ])) + '</div>' +
+
+        '<div class="gc-body flush">' +
+        tbl('<th>Hesap adımı</th><th>Eksen</th><th class="num">Tutar</th>',
+          '<tr><td class="cell-wrap"><span class="cell-main">Mevcut sözleşme bedeli</span>' +
+              '<span class="cell-sub">' + esc(sozlesme.kod) + ' · kayıtlı değer</span></td>' +
+            '<td><span class="tag">Net (KDV hariç)</span></td>' +
+            '<td class="num">' + para(sozlesme.tutar) + '</td></tr>' +
+          '<tr><td class="cell-wrap"><span class="cell-main">+ Talebin maliyet etkisi</span>' +
+              '<span class="cell-sub">' + esc(d.kod) + ' · ' + (d.kapsamIci ? 'kapsam içi' : 'kapsam dışı') + '</span></td>' +
+            '<td><span class="tag">Net (KDV hariç)</span></td>' +
+            '<td class="num">' + (etkiNet ? para(etkiNet) : '<span class="u-faint">0 — maliyet etkisi yok</span>') + '</td></tr>' +
+          '<tr><td class="cell-wrap"><span class="cell-main">= Yeni sözleşme bedeli</span>' +
+              '<span class="cell-sub">hesaplanan · kayıtlı değil</span></td>' +
+            '<td><span class="tag">Net (KDV hariç)</span></td>' +
+            '<td class="num"><b>' + para(yeniNet) + '</b></td></tr>' +
+          '<tr><td class="cell-wrap"><span class="cell-main">Yeni bedelin KDV’si</span>' +
+              '<span class="cell-sub">%' + kdvOran + ' · yeni net × ' + kdvOran + ' / 100</span></td>' +
+            '<td><span class="tag">KDV</span></td>' +
+            '<td class="num">' + paraSade(yeniKdv) + '</td></tr>' +
+          '<tr><td class="cell-wrap"><span class="cell-main">= Yeni genel toplam</span>' +
+              '<span class="cell-sub">yeni net + yeni KDV</span></td>' +
+            '<td><span class="tag">Brüt (KDV dahil)</span></td>' +
+            '<td class="num"><b>' + para(yeniBrut) + '</b></td></tr>') +
+        sayac('Hesap: ' +
+          (canFinans
+            ? F.money(sozlesme.tutar, kur) + ' + ' + F.money(etkiNet, kur) + ' = ' + F.money(yeniNet, kur) +
+              ' (net) · KDV %' + kdvOran + ' → ' + F.money(yeniKdv, kur) + ' · brüt ' + F.money(yeniBrut, kur)
+            : 'tutarlar maskeli — net + maliyet etkisi = yeni net · yeni net × %' + kdvOran + ' = KDV · net + KDV = brüt'),
+          '<a class="btn btn-line btn-sm" href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' +
+            ico('i-file-check','ic-sm') + ' Sözleşmeyi aç</a>') +
+        '</div>' +
+
+        '<div class="gc-body">' + ozetListe([
+          ['Mevcut bedel <span class="u-faint">(KDV hariç)</span>', para(sozlesme.tutar)],
+          ['Mevcut KDV <span class="u-faint">(%' + kdvOran + ')</span>', para(sozlesme.kdv)],
+          ['Mevcut genel toplam <span class="u-faint">(KDV dahil)</span>', para(sozlesme.toplam)],
+          ['Maliyet etkisi <span class="u-faint">(KDV hariç)</span>', para(etkiNet)],
+          ['Yeni bedel <span class="u-faint">(KDV hariç)</span>', '<b>' + para(yeniNet) + '</b>'],
+          ['Yeni genel toplam <span class="u-faint">(KDV dahil)</span>', '<b>' + para(yeniBrut) + '</b>'],
+          ['Brüt fark <span class="u-faint">(KDV dahil)</span>', para(farkBrut)],
+          ['KDV farkı', para(farkKdv)],
+          ['Bedel artış oranı <span class="u-faint">(net / net)</span>', paraOran(maliyetSapma || 0)]
+        ]) + '</div>' +
+
+        '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-milestone',
+          title:'Ek bedelin taksit dağılımı kayıtta yok',
+          text:'Sözleşmenin ödeme planı ' + taksitler.length + ' taksitten oluşuyor ve toplamı mevcut sözleşme netine eşit. ' +
+               'Ek bedelin hangi taksite yazılacağı ya da yeni taksit açılıp açılmayacağı veride tutulmuyor; ' +
+               'ödeme planı ekranından yürütülür.',
+          actions:[{ label:'Ödeme planı', href:'app-odemeplani.html' },
+                   { label:'Taksitler', href:'app-proje-milestone.html' }] }) + '</div>'
+      : '<div class="gc-body">' + GV.empty({ icon:'i-file-check', title:'Sözleşme kaydı yok',
+          desc:'Bedel etkisi hesabı için projeye bağlı bir sözleşme gerekir. Sözleşme listesinden projeye sözleşme bağlanabilir.',
+          action:'<a class="btn btn-acc" href="app-sozlesme.html">Sözleşme listesine git</a>' }) + '</div>');
+
+  /* =================================================================
+     7. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body">' +
+    (acts.length ? GV.activity(acts)
+      : GV.empty({ icon:'i-activity', title:'Bu talepte kayıtlı hareket yok',
+          desc:'Talep üzerinde yapılan durum, karar ve onay değişiklikleri burada listelenir. ' +
+               'Onay ya da red kararı verildiğinde ilk kayıt buraya düşer.',
+          action:'<a class="btn btn-line" href="app-proje-degisiklik.html">Değişiklik taleplerine dön</a>' })) +
+    '</div>';
+
+  var panels = {
+    genel:pGenel, etki:pEtki, onay:pOnay, teklif:pTeklif,
+    gorev:pGorev, sozlesme:pSozlesme, aktivite:pAktivite
+  };
+
+  /* =================================================================
+     SAĞ ÖZET PANELİ
+     ================================================================= */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Proje', proje
+        ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.kod) + '</a>'
+        : '<span class="u-faint">Projesiz</span>'],
+      ['Müşteri', musteri
+        ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a>'
+        : (proje ? esc(proje.musteriAd) : '<span class="u-faint">—</span>')],
+      ['Talep eden taraf', '<span class="badge is-neutral no-dot">' + esc(d.talep) + '</span>'],
+      ['Talep sorumlusu', GV.user(d.sorumlu, { sm:true })],
+      ['Talep tarihi', GV.dateCell(d.tarih, { done:!acik })],
+      ['Süre etkisi <span class="u-faint">(saat · adam-gün)</span>',
+        '<b class="u-num">' + F.hours(etkiSaat) + '</b> <span class="cell-sub">≈ ' + F.num(etkiGun, 1) + ' adam-gün</span>'],
+      ['Maliyet etkisi <span class="u-faint">(KDV hariç · net)</span>',
+        etkiNet ? para(etkiNet) : '<span class="u-faint">Yok</span>'],
+      ['Etki düzeyi <span class="u-faint">(hesaplanan)</span>', GV.badge(etkiDuzeyi, etkiTon)],
+      ['Kapsam', d.kapsamIci ? GV.badge('Kapsam içi', 'is-ok') : GV.badge('Kapsam dışı', 'is-warn')],
+      ['Talep durumu', GV.badge(d.durum)],
+      ['Onay durumu', ony ? GV.badge(ony.durum)
+        : (acik ? GV.badge('Bekliyor', 'is-warn') + ' <span class="cell-sub">onay kaydı yok</span>'
+                : GV.badge(d.durum))],
+      ['Doğan ek teklif', '<span class="u-faint">Kayıtta teklif bağı yok</span>']
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-percent') + 'Etki Karşılaştırması</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Projenin tahmini süresi <span class="u-faint">(saat)</span>',
+        proje ? '<span class="u-num">' + F.hours(projeSaat) + '</span>' : '<span class="u-faint">—</span>'],
+      ['Süre sapması <span class="u-faint">(talep / proje)</span>',
+        sureSapma == null ? '<span class="u-faint">—</span>' : '<b class="u-num">%' + F.num(sureSapma, 1) + '</b>'],
+      ['Sözleşme bedeli <span class="u-faint">(KDV hariç)</span>',
+        sozlesmeNet == null ? '<span class="u-faint">—</span>' : para(sozlesmeNet)],
+      ['Bedel sapması <span class="u-faint">(net / net)</span>',
+        maliyetSapma == null ? '<span class="u-faint">—</span>' : paraOran(maliyetSapma)],
+      ['Talep sonrası bedel <span class="u-faint">(KDV hariç)</span>',
+        yeniNet == null ? '<span class="u-faint">—</span>' : para(yeniNet)],
+      ['Karar bekleme süresi', acik && beklemeGun != null
+        ? '<b class="u-num' + (beklemeGun > 7 ? ' u-danger' : '') + '">' + F.num(beklemeGun) + ' gün</b>'
+        : '<span class="u-faint">Karara bağlandı</span>']
+    ]) + '</div></section>' +
+
+    (proje
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-briefcase') + 'Bağlı Proje</h2></div>' +
+        '<div class="gc-body">' + ozetListe([
+          ['Proje', '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>'],
+          ['Durum', GV.badge(proje.durum)],
+          ['Sağlık', GV.badge(proje.saglik)],
+          ['Öncelik', GV.pri(proje.oncelik)],
+          ['Proje yöneticisi', GV.user(proje.pm, { sm:true })],
+          ['İlerleme', GV.progress(proje.ilerleme)],
+          ['Planlanan bitiş', GV.dateCell(proje.planlananBitis, { done:!!proje.gercekBitis })],
+          ['Sözleşme', sozlesme
+            ? '<a href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' + esc(sozlesme.kod) + '</a>'
+            : '<span class="u-faint">Yok</span>']
+        ]) + '</div></section>'
+      : '') +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3))
+      : '<p class="u-sm u-faint">Bu talep kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* =================================================================
+     AKSİYONLAR — mount yenilendiği için dinleyici birikmez (L-16)
+     ================================================================= */
+  mount.addEventListener('click', function(e){
+    if(e.target.closest('#btnOnayla')) return onayModal();
+    if(e.target.closest('#btnReddet')) return redModal();
+  });
+});
+</script>
+</body>
+</html>
