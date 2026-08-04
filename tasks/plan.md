@@ -83,6 +83,7 @@ departman/proje/kayıt/şirket bazlı erişim.
 
 ### Wave 2 — kısmen başlandı
 - [x] `app-lead.html` — müşteri adayları listesi (8 sekme, 9 filtre, 13 kolon)
+- [x] `app-lead-detay.html` — lead detayı (9 sekme, 28 alan, aşama geçmişi, müşteriye dönüştürme)
 - [x] `app-teklif.html` — teklif listesi (8 sekme, geçerlilik + onay takibi, revize teklif akışı)
 - [x] `app-gorev.html` — görev listesi (13 sekme, kanban/kart/tablo)
 - [x] `app-gorev-detay.html` — görev detayı (8 sekme, durum geçişi, zaman kaydı, onay zinciri)
@@ -101,10 +102,12 @@ departman/proje/kayıt/şirket bazlı erişim.
 
 ### Wave 3 — Müşteriler (§8.3)
 - [ ] Müşteri listesi (sekmeler: Tüm/Aktif/Potansiyel/Riskli/Pasif)
+- [x] `app-musteri-detay.html` — müşteri detayı, **15 sekme** (finans maskeleme, iletişim kaydı ekleme modalı)
 - [ ] Müşteri detayı — **15 sekme:** Genel Bilgiler · Yetkililer · İletişim Geçmişi · Satış Fırsatları · Teklifler · Sözleşmeler · Projeler · Görevler · Toplantılar · Destek Talepleri · Faturalar · Tahsilatlar · Dosyalar · Raporlar · Aktivite Geçmişi
 - [ ] Müşteri formu + Yetkili formu
 
 ### Wave 4 — Projeler (§11)
+- [x] `app-proje-detay.html` — proje detayı, **22 sekme** (Gantt sekmesi `.gv-gantt` CSS'ini nihayet tüketti, teknik envanter, iş yükü, kanban)
 - [x] `app-proje-milestone.html` — milestone listesi (taksit sırası, sözleşme→fatura→tahsilat zinciri, faturası kesilmemiş sekmesi, finans maskeleme)
 - [x] `app-proje-sprint.html` — sprint listesi (hız/tamamlanma oranı, sprint görev kırılımı)
 - [x] `app-proje-test.html` — test koşumları (senaryo/başarı oranı, projedeki açık hata bağı)

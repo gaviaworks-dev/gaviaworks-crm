@@ -126,6 +126,13 @@ Semantik renkler accent'ten **bağımsız**. `.gv-badge` + ton sınıfı:
 Kayıtlı sözlükler: görev durumu (19), satış aşaması (15), proje durumu, destek durumu,
 izin durumu, satın alma onay durumu, araç durumu, öncelik (4), SLA durumu.
 
+**⚠️ Eksen çakışması — `Yüksek` / `Orta` / `Düşük` üç ayrı eksende geçer:**
+öncelik (`DB.priorities`), etki (`DB.impacts`) ve **risk** (`DB.customers[].risk`).
+Aynı kelime farklı anlam taşıdığı için bunlar TONE sözlüğüne **konulamaz** — konulsaydı
+riski yüksek müşteri ile önceliği yüksek görev aynı rengi alırdı. Risk gibi eksen-belirsiz
+değerlerde `GV.badge(v, 'is-danger')` biçiminde **açık ton geçmek doğru kullanımdır**,
+yerel ton haritası yazmak değil. Örnek: `app-musteri.html` · `app-musteri-detay.html`.
+
 **Destek ve bakım (§18) tonları** — `extra` geçmeye gerek yok, sözlükte tanımlı:
 `Yanıtlandı`(ok) · `Yanıt bekliyor`(warn) · `Risk altında`(warn) · `İhlal edildi`(danger) ·
 `Tutturuldu`(ok) · `Aşıldı`(danger) · `Sona erdi`(neutral) · `Yenilemesi yaklaşan`(warn).
@@ -249,6 +256,9 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.payments[].tutar` | **BRÜT** | Faturanın `toplam`ı |
 | `DB.projects[].sozlesmeTutari` | **NET** | Sözleşmenin `tutar`ı |
 | `DB.customers[].toplamCiro` | **NET** | Ömür boyu net ciro; DB'deki sözleşmelerinin `tutar` toplamından **küçük olamaz** |
+| `DB.quotes[].araToplam` · `.indirim` · `.vergi` · `.toplam` | net / net / KDV / **BRÜT** | Zincir: `net = araToplam − indirim` → `vergi = net × vergiOran/100` → `toplam = net + vergi`. Doğrulandı, 3/3 teklifte tutar |
+| `DB.leads[].butce` | **NET** | Müşterinin beyan ettiği tahmini bütçe. Tekliften türetilmez (beyan, ölçüm değil) ama proje genelindeki **tek eksen** kuralına uyar |
+| `DB.supportPackages[].tutar` | **NET** | Paket bedeli. `BKP-001` = `SZL-2026-022.tutar` (180.000) ile birebir doğrulandı |
 
 **Ödeme planı bütünlüğü:** Projeli her sözleşmenin taksit seti `DB.milestones`'ta **tamdır** —
 `Σ odeme = sözleşme tutarı` ve `taksit` numaraları 1..N boşluksuzdur (19 milestone / 6 sözleşme).

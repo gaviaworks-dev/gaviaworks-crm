@@ -256,3 +256,26 @@ En az üç ekranda aynı desen tekrarlandı (`app-proje-teslim`, `app-proje-test
 eklenecek; koşulu sağlamayan madde toplu işlem barına **hiç basılmayacak**. Ekranlardaki
 `run` içi yetki toastları ikinci savunma hattı olarak kalacak ama birincil kapı bileşende olacak.
 `rowActions[].show` ile aynı sözleşme adı kullanılacak — iki farklı isim öğrenilmesin.
+
+---
+
+## UID-14 · Detay ekranı sekme tabloları ≤760px'de kayboluyor
+
+**Nerede:** `.gv-tablewrap` — `ui.css`'te **≤760px'de `display:none`**. Detay ekranlarının sekme
+içi tabloları (`app-gorev-detay`, `app-musteri-detay` 15 sekme, `app-proje-detay` 22 sekme,
+`app-lead-detay` 9 sekme) bu sarmalayıcıyı kullanıyor.
+
+**Sorun:** Liste ekranlarında bu kural doğru — orada `.gv-cardlist` mobil ikizi var. Ama **detay
+ekranlarında ikiz yok**; sekme mobilde tamamen boş kalıyor. `app-gorev-detay.html` bunu hiç
+üretmiyor, yani mevcut kalıp ekran zaten kusurlu ve yeni detay ekranları kalıbı devraldı.
+`app-musteri-detay` / `app-proje-detay` / `app-lead-detay` geçici olarak belgeli
+`.gv-tablewrap.is-mobilescroll` istisnasını kullandı (tablo kendi içinde yatay kayıyor).
+
+**Kök neden:** "Mobilde tablo gizlenir, yerine kart listesi gelir" kuralı **liste bileşenine**
+göre yazılmış; detay ekranı bağlamında karşılığı olmadan uygulanıyor.
+
+**Çözüm (kapanış fazında):** Detay sekmesi tabloları için ortak bir sarmalayıcı kararı verilecek —
+ya `.gv-tablewrap` mobilde gizlemek yerine **varsayılan olarak yatay kaydırsın** (gizleme yalnız
+`GV.list`'in ürettiği tabloya özgü bir sınıfla yapılsın), ya da detay sekmeleri için
+`GV.list`'in mobil kart üreticisi yeniden kullanılabilir hale getirilsin. `is-mobilescroll`
+istisnasını elle geçen ekranlar sonrasında sadeleştirilecek. **Nokta yaması yok.**
