@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Timesheet Onayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="timesheet">
+<div id="uyari"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ME = GV.session.emp;
+
+  /* =================================================================
+     YETKİ — onay aksiyonları ve görüş kapsamı
+     'kendi' kapsamındaki rol yalnız kendi timesheet'ini görür.
+     ================================================================= */
+  var canOnay  = GV.perm.can('onay');
+  var gorScope = GV.perm.scope('gor');              /* tum | departman | proje | kendi */
+  var sadeceBen = gorScope === 'kendi';
+
+  function gorulur(t){ return sadeceBen ? t.personel === ME : true; }
+
+  /* =================================================================
+     TÜRETİLMİŞ ALANLAR — canonical veriden hesaplanır
+     Beklenen haftalık mesai 40 saat; eksik/fazla veride hazırdır,
+     burada yeniden hesaplanmaz (assumptions: haftalık 40 saat esası).
+     ================================================================= */
+  var HAFTALIK = 40;
+
+  function oran(t){ return t.toplam ? Math.round(t.faturalanabilir / t.toplam * 100) : 0; }
+  function bekleme(t){ var d = F.days(t.bitis); return d == null ? 0 : Math.max(0, -d); }
+  function bekliyor(t){ return t.durum === 'Onay bekliyor'; }
+  function sonuclanmis(t){ return t.durum === 'Onaylandı'; }
+
+  /* Timesheet'in satır kırılımı: aynı personelin dönem aralığındaki zaman kayıtları */
+  function satirlar(t){
+    return DB.timelogs.filter(function(l){
+      return l.personel === t.personel && l.tarih >= t.baslangic && l.tarih <= t.bitis;
+    }).sort(function(a, b){ return a.tarih < b.tarih ? -1 : a.tarih > b.tarih ? 1 : 0; });
+  }
+  function satirToplam(rows){ return rows.reduce(function(s, l){ return s + l.sure; }, 0); }
+
+  function empAd(k){ return DB.empName(k) || k || '—'; }
+  function depAd(k){ var e = DB.emp(k); return e ? e.depAd : '—'; }
+  function projeAd(k){
+    if(!k) return null;
+    var p = DB.projects.filter(function(x){ return x.kod === k; })[0];
+    return p ? p.ad : k;
+  }
+  function gorevAd(k){
+    if(!k) return null;
+    var g = DB.tasks.filter(function(x){ return x.kod === k; })[0];
+    return g ? g.baslik : k;
+  }
+
+  var HAFTALAR = DB.timesheets.map(function(t){ return t.hafta; })
+    .filter(function(v, i, a){ return a.indexOf(v) === i; }).sort();
+
+  var PERSONELLER = DB.employees.filter(function(e){
+    return DB.timesheets.some(function(t){ return t.personel === e.kod && gorulur(t); });
+  });
+  var ONAYLAYANLAR = DB.employees.filter(function(e){
+    return DB.timesheets.some(function(t){ return t.onaylayan === e.kod && gorulur(t); });
+  });
+  var DEPARTMANLAR = DB.departments.filter(function(d){
+    return DB.timesheets.some(function(t){ var e = DB.emp(t.personel); return e && e.dep === d.kod && gorulur(t); });
+  });
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({ eyebrow:'Personel', title:'Timesheet Onayı',
+    sub:'Haftalık timesheet onay sırası',
+    actions:[{ label:'Zaman Kayıtları', icon:'i-timer', href:'app-zaman.html' }] });
+
+  /* Kapsam uyarısı — salt kendi kayıtlarını gören rol bunu bilmelidir */
+  var uyari = document.getElementById('uyari');
+  if(uyari){
+    if(sadeceBen){
+      uyari.innerHTML = GV.notice({ tone:'info', icon:'i-lock',
+        title:'Yalnız kendi timesheet\'inizi görüyorsunuz',
+        text:'Rolünüzün görüntüleme kapsamı "kendi" olduğu için listede sadece size ait haftalık kayıtlar yer alır. ' +
+             'Onay ve iade aksiyonları yöneticinizdedir.' });
+    }else if(!canOnay){
+      uyari.innerHTML = GV.notice({ tone:'warn',
+        title:'Onay yetkiniz yok',
+        text:'Timesheet listesini görüntüleyebilirsiniz; onaylama ve iade etme aksiyonları rolünüzde kapalıdır.' });
+    }
+  }
+
+  /* =================================================================
+     İADE (revize talebi) — tekil ve toplu için ortak form
+     ================================================================= */
+  function iadeModal(kayitlar, sonra){
+    if(!kayitlar.length){ GV.toast('İade edilebilecek bekleyen timesheet yok.', 'info'); return; }
+    var metin = kayitlar.length === 1
+      ? kayitlar[0].kod + ' · ' + empAd(kayitlar[0].personel) + ' · ' + kayitlar[0].hafta
+      : kayitlar.length + ' timesheet revize için personele geri gönderilecek';
+    GV.modal({
+      title:'Timesheet\'i iade et', text:metin, icon:'i-refresh', tone:'warn', size:'sm',
+      body:'<div class="field"><label for="tsIade">İade gerekçesi</label>' +
+             '<textarea id="tsIade" rows="3" placeholder="Personelin göreceği açıklama — hangi gün veya kayıt düzeltilmeli?"></textarea>' +
+             '<div class="f-hint">Kayıt "Revize bekliyor" durumuna alınır ve personelin zaman kayıtları ekranına düşer.</div></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:'İade Et', cls:'btn-acc', onClick:function(close, el){
+            var not = el.querySelector('#tsIade').value.trim();
+            if(!not){ GV.toast('İade gerekçesi zorunludur', 'danger'); return false; }
+            kayitlar.forEach(function(t){
+              t.durum = 'Revize bekliyor';
+              t.iadeGerekce = not;
+              t.iadeTarihi = DB.today;
+              t.iadeEden = ME;
+            });
+            GV.toast(kayitlar.length === 1
+              ? kayitlar[0].kod + ' iade edildi · ' + empAd(kayitlar[0].personel) + ' bilgilendirildi'
+              : kayitlar.length + ' timesheet iade edildi · ilgili personel bilgilendirildi', 'ok');
+            if(sonra) sonra();
+          } }] });
+  }
+
+  function onayla(t){
+    t.durum = 'Onaylandı';
+    t.onaylayan = ME;
+    t.onayTarihi = DB.today;
+  }
+
+  /* =================================================================
+     KIRILIM PANELİ — haftanın zaman kaydı satırları
+     ================================================================= */
+  function kirilimAc(t, refresh){
+    var rows = satirlar(t);
+    var kayitli = satirToplam(rows);
+    var kayitliFat = satirToplam(rows.filter(function(l){ return l.faturalanabilir; }));
+
+    var ozet = '<dl class="gv-dl">' +
+      '<div><dt>Personel</dt><dd>' + esc(empAd(t.personel)) + '</dd></div>' +
+      '<div><dt>Departman</dt><dd>' + esc(depAd(t.personel)) + '</dd></div>' +
+      '<div><dt>Hafta</dt><dd>' + esc(t.hafta) + '</dd></div>' +
+      '<div><dt>Dönem</dt><dd>' + F.date(t.baslangic) + ' – ' + F.date(t.bitis) + '</dd></div>' +
+      '<div><dt>Toplam mesai</dt><dd>' + F.hours(t.toplam) + '</dd></div>' +
+      '<div><dt>Faturalanabilir</dt><dd>' + F.hours(t.faturalanabilir) + ' · %' + oran(t) + '</dd></div>' +
+      '<div><dt>Eksik mesai</dt><dd' + (t.eksik ? '' : ' class="is-empty"') + '>' + (t.eksik ? F.hours(t.eksik) : 'Yok') + '</dd></div>' +
+      '<div><dt>Fazla mesai</dt><dd' + (t.fazla ? '' : ' class="is-empty"') + '>' + (t.fazla ? F.hours(t.fazla) : 'Yok') + '</dd></div>' +
+      '<div><dt>Onaylayan</dt><dd>' + esc(empAd(t.onaylayan)) + '</dd></div>' +
+      '<div><dt>Durum</dt><dd>' + GV.badge(t.durum) + '</dd></div>' +
+      '</dl>';
+
+    var iadeNot = t.iadeGerekce
+      ? GV.notice({ tone:'warn', title:'İade gerekçesi', text:t.iadeGerekce })
+      : '';
+
+    var fark = Math.round((t.toplam - kayitli) * 100) / 100;
+    var uyum = fark === 0 ? '' : GV.notice({ tone:'warn',
+      title:'Satır kırılımı haftanın tamamını karşılamıyor',
+      text:'Bu döneme düşen zaman kaydı satırlarının toplamı ' + F.hours(kayitli) +
+           ', timesheet üzerinde bildirilen toplam ' + F.hours(t.toplam) + '. ' +
+           F.hours(Math.abs(fark)) + ' için sisteme girilmiş satır kaydı yok.' });
+
+    var tablo;
+    if(rows.length){
+      tablo = '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+        '<th>Tarih</th><th>Proje</th><th>Görev</th><th>Süre</th><th>Faturalandırma</th><th>Açıklama</th>' +
+        '</tr></thead><tbody>' +
+        rows.map(function(l){
+          return '<tr>' +
+            '<td><span class="cell-date">' + F.dateShort(l.tarih) + '</span></td>' +
+            '<td>' + (l.proje
+              ? '<a class="cell-code" href="app-proje-detay.html?id=' + l.proje + '">' + esc(projeAd(l.proje)) + '</a>'
+              : '<span class="u-faint">Proje dışı</span>') + '</td>' +
+            '<td>' + (l.gorev
+              ? '<a class="cell-main" href="app-gorev-detay.html?id=' + l.gorev + '">' + esc(gorevAd(l.gorev)) + '</a>'
+              : '<span class="u-faint">—</span>') + '</td>' +
+            '<td class="num"><b class="u-num">' + F.hours(l.sure) + '</b></td>' +
+            '<td>' + (l.faturalanabilir
+              ? '<span class="badge is-ok no-dot">Faturalanabilir</span>'
+              : '<span class="tag">İç iş</span>') + '</td>' +
+            '<td class="cell-wrap">' + esc(l.aciklama) + '</td>' +
+          '</tr>';
+        }).join('') + '</tbody></table></div>';
+    }else{
+      tablo = GV.empty({ icon:'i-timer', title:'Bu döneme ait zaman kaydı satırı yok',
+        desc:'Timesheet özeti bildirilmiş ancak haftaya düşen tekil zaman kaydı bulunamadı.' });
+    }
+
+    /* gün bazlı toplam */
+    var gunler = [];
+    rows.forEach(function(l){
+      var g = gunler.filter(function(x){ return x.tarih === l.tarih; })[0];
+      if(!g){ g = { tarih:l.tarih, sure:0, fat:0 }; gunler.push(g); }
+      g.sure += l.sure;
+      if(l.faturalanabilir) g.fat += l.sure;
+    });
+
+    var gunOzet = '<div class="gv-summary u-mt-8">' +
+      gunler.map(function(g){
+        return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(F.dateLong(g.tarih)) + '</span>' +
+          '<span class="gv-summary-val">' + F.hours(g.sure) + ' · fat. ' + F.hours(g.fat) + '</span></div>';
+      }).join('') +
+      '<div class="gv-summary-row"><span class="gv-summary-lbl">Listelenen satır toplamı</span>' +
+        '<span class="gv-summary-val">' + F.hours(kayitli) + ' · fat. ' + F.hours(kayitliFat) + '</span></div>' +
+      '<div class="gv-summary-row"><span class="gv-summary-lbl">Timesheet bildirimi</span>' +
+        '<span class="gv-summary-val">' + F.hours(t.toplam) + ' · fat. ' + F.hours(t.faturalanabilir) + '</span></div>' +
+      '<div class="gv-summary-row"><span class="gv-summary-lbl">Beklenen haftalık mesai</span>' +
+        '<span class="gv-summary-val">' + F.hours(HAFTALIK) + '</span></div>' +
+    '</div>';
+
+    var acts = [{ label:'Kapat', cls:'btn-line' }];
+    if(canOnay && bekliyor(t)){
+      acts.push({ label:'İade Et', cls:'btn-line', close:false,
+        onClick:function(close){ close(); iadeModal([t], refresh); } });
+      acts.push({ label:'Onayla', cls:'btn-acc',
+        onClick:function(){ onayla(t); GV.toast(t.kod + ' onaylandı', 'ok'); if(refresh) refresh(); } });
+    }
+
+    GV.drawer({
+      title:t.kod + ' — Haftalık Kırılım',
+      body:ozet + iadeNot + uyum +
+           '<h3 class="gc-title u-mt-8">Zaman kaydı satırları</h3>' + tablo +
+           '<h3 class="gc-title u-mt-8">Gün bazlı toplam</h3>' + gunOzet,
+      actions:acts
+    });
+  }
+
+  /* =================================================================
+     SATIR AKSİYONLARI
+     ================================================================= */
+  var rowActions = [
+    { key:'kirilim', icon:'i-layers', label:'Kırılımı gör',
+      run:function(t, refresh){ kirilimAc(t, refresh); } }
+  ];
+
+  if(canOnay){
+    rowActions.push({ key:'onayla', icon:'i-check', label:'Onayla', run:function(t, refresh){
+      if(sonuclanmis(t)){ GV.toast('Bu timesheet zaten onaylı.', 'info'); return; }
+      var rows = satirlar(t);
+      var kayitli = satirToplam(rows);
+      GV.confirm({
+        title:'Timesheet\'i onayla',
+        text:empAd(t.personel) + ' · ' + t.hafta + ' · ' + F.hours(t.toplam) + ' toplam, ' +
+             F.hours(t.faturalanabilir) + ' faturalanabilir (%' + oran(t) + ')' +
+             (t.eksik ? ' — DİKKAT: ' + F.hours(t.eksik) + ' eksik mesai bildirilmiş.' : '') +
+             (t.fazla ? ' — DİKKAT: ' + F.hours(t.fazla) + ' fazla mesai bildirilmiş.' : '') +
+             (kayitli !== t.toplam ? ' Satır kırılımı ' + F.hours(kayitli) + ' ile eşleşmiyor.' : ''),
+        tone:(t.eksik || t.fazla || kayitli !== t.toplam) ? 'danger' : 'warn',
+        okLabel:'Onayla'
+      }).then(function(ok){
+        if(!ok) return;
+        onayla(t);
+        GV.toast(t.kod + ' onaylandı · ' + F.hours(t.toplam), 'ok');
+        refresh();
+      });
+    } });
+
+    rowActions.push({ key:'iade', icon:'i-refresh', label:'İade et', cls:'is-danger', run:function(t, refresh){
+      if(!bekliyor(t)){ GV.toast('Yalnız onay bekleyen timesheet iade edilebilir.', 'info'); return; }
+      iadeModal([t], refresh);
+    } });
+  }
+
+  rowActions.push({ key:'personel', icon:'i-user', label:'Personeli aç',
+    href:function(t){ return 'app-personel.html?t=tumu&q=' + encodeURIComponent(t.personel); } });
+
+  /* =================================================================
+     TOPLU İŞLEMLER
+     ================================================================= */
+  function secilenler(ids){
+    return DB.timesheets.filter(function(t){ return ids.indexOf(t.kod) !== -1 && gorulur(t); });
+  }
+
+  var bulk = [];
+  if(canOnay){
+    bulk.push({ key:'onayla', label:'Seçilenleri onayla', icon:'i-check',
+      confirm:'Seçili {n} timesheet onaylanacak. Zaten onaylı kayıtlar atlanır.',
+      run:function(ids){
+        var hedef = secilenler(ids), n = 0, atlanan = 0;
+        hedef.forEach(function(t){ if(sonuclanmis(t)){ atlanan++; } else { onayla(t); n++; } });
+        GV.toast(n
+          ? n + ' onaylandı' + (atlanan ? ' · ' + atlanan + ' kayıt zaten onaylıydı' : '')
+          : 'Seçili kayıtların hepsi zaten onaylıydı', n ? 'ok' : 'warn');
+      } });
+
+    bulk.push({ key:'iade', label:'Seçilenleri iade et', icon:'i-refresh', tone:'danger',
+      run:function(ids){
+        var hedef = secilenler(ids).filter(bekliyor);
+        var atlanan = ids.length - hedef.length;
+        if(!hedef.length){ GV.toast('Seçili kayıtlarda onay bekleyen timesheet yok.', 'warn'); return; }
+        iadeModal(hedef, function(){
+          if(atlanan) GV.toast(atlanan + ' kayıt onay beklemediği için atlandı', 'info');
+          list.refresh();
+        });
+      } });
+  }
+  bulk.push({ key:'disa', label:'Çıktı al', icon:'i-download' });
+
+  /* =================================================================
+     LİSTE
+     ================================================================= */
+  var list = GV.list({
+    mount:'#liste', id:'zamanonay', key:'kod',
+    source:function(){ return DB.timesheets.filter(gorulur); },
+    exportName:'timesheet-onay', exportTitle:'Timesheet Onayı', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Timesheet kodu, personel, hafta veya durum ara',
+             fields:['kod','hafta','durum','personel'],
+             extra:function(t){ return empAd(t.personel) + ' ' + depAd(t.personel) + ' ' + empAd(t.onaylayan); } },
+    defaultSort:'bekleme', defaultDir:'desc',
+
+    kpis:[
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn',
+        calc:function(a){ return a.filter(bekliyor).length; } },
+      { label:'Onaylanan', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(sonuclanmis).length; } },
+      { label:'Bekleyen toplam mesai', icon:'i-timer', format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.filter(bekliyor).reduce(function(s,t){ return s + t.toplam; }, 0); } },
+      { label:'Ortalama faturalanabilir oran', icon:'i-percent', tone:'info',
+        format:function(v){ return '%' + v; },
+        calc:function(a){ return a.length ? Math.round(a.reduce(function(s,t){ return s + oran(t); }, 0) / a.length) : 0; } },
+      { label:'Eksik mesai bildiren personel', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(function(t){ return t.eksik > 0; }).length; } }
+    ],
+
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'bekleyen', label:'Onay Bekliyor', icon:'i-stamp', filter:bekliyor },
+      { key:'onayli', label:'Onaylandı', icon:'i-check-circle', filter:sonuclanmis },
+      { key:'eksik', label:'Eksik Mesai', icon:'i-alert', filter:function(t){ return t.eksik > 0; } },
+      { key:'fazla', label:'Fazla Mesai', icon:'i-hourglass', filter:function(t){ return t.fazla > 0; } }
+    ],
+
+    columns:[
+      { key:'kod', label:'Timesheet', width:'14%', locked:true,
+        render:function(t){ return '<span class="cell-main">' + t.kod + '</span>' +
+          '<span class="cell-code">' + esc(t.hafta) + '</span>'; } },
+      { key:'personel', label:'Personel', width:'16%',
+        render:function(t){ return GV.user(t.personel, { sm:true }); },
+        sortValue:function(t){ return empAd(t.personel); },
+        exportValue:function(t){ return empAd(t.personel); } },
+      { key:'departman', label:'Departman', sortable:true,
+        sortValue:function(t){ return depAd(t.personel); },
+        render:function(t){ return '<span class="cell-sub">' + esc(depAd(t.personel)) + '</span>'; },
+        exportValue:function(t){ return depAd(t.personel); } },
+      { key:'hafta', label:'Hafta', visible:false,
+        render:function(t){ return '<span class="tag">' + esc(t.hafta) + '</span>'; } },
+      { key:'donem', label:'Dönem', sortValue:function(t){ return t.baslangic; },
+        render:function(t){ return '<span class="cell-date">' + F.dateShort(t.baslangic) + ' – ' + F.dateShort(t.bitis) + '</span>'; },
+        exportValue:function(t){ return t.baslangic + ' – ' + t.bitis; } },
+      { key:'toplam', label:'Toplam', cellClass:'num',
+        render:function(t){ return '<b class="u-num">' + F.hours(t.toplam) + '</b>'; } },
+      { key:'faturalanabilir', label:'Faturalanabilir', cellClass:'num',
+        render:function(t){ return '<span class="u-num">' + F.hours(t.faturalanabilir) + '</span>'; } },
+      { key:'oran', label:'Faturalanabilir oran', width:'12%',
+        sortValue:oran,
+        render:function(t){ var v = oran(t); return GV.progress(v, { tone:v >= 85 ? 'ok' : v >= 70 ? 'warn' : 'danger' }); },
+        exportValue:function(t){ return oran(t) + '%'; } },
+      { key:'eksik', label:'Eksik', cellClass:'num', sortValue:function(t){ return t.eksik; },
+        render:function(t){ return t.eksik
+          ? '<b class="u-num u-danger">' + F.hours(t.eksik) + '</b>'
+          : '<span class="u-faint">—</span>'; },
+        exportValue:function(t){ return t.eksik; } },
+      { key:'fazla', label:'Fazla', cellClass:'num', sortValue:function(t){ return t.fazla; },
+        render:function(t){ return t.fazla
+          ? '<b class="u-num u-warn">' + F.hours(t.fazla) + '</b>'
+          : '<span class="u-faint">—</span>'; },
+        exportValue:function(t){ return t.fazla; } },
+      { key:'bekleme', label:'Bekleme', cellClass:'num', sortValue:bekleme,
+        render:function(t){
+          if(!bekliyor(t)) return '<span class="u-faint">—</span>';
+          var g = bekleme(t);
+          return '<span class="u-num' + (g >= 3 ? ' u-danger' : g >= 1 ? ' u-warn' : '') + '">' + g + ' gün</span>'; },
+        exportValue:function(t){ return bekliyor(t) ? bekleme(t) : ''; } },
+      { key:'onaylayan', label:'Onaylayan',
+        render:function(t){ return GV.user(t.onaylayan, { sm:true }); },
+        sortValue:function(t){ return empAd(t.onaylayan); },
+        exportValue:function(t){ return empAd(t.onaylayan); } },
+      { key:'durum', label:'Durum', render:function(t){ return GV.badge(t.durum); } }
+    ],
+
+    filters:[
+      { key:'personel', label:'Personel', type:'select',
+        options:PERSONELLER.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'departman', label:'Departman', type:'multi',
+        options:DEPARTMANLAR.map(function(d){ return { value:d.kod, label:d.ad }; }),
+        test:function(t, v){ var e = DB.emp(t.personel); return !!e && v.indexOf(e.dep) !== -1; } },
+      { key:'hafta', label:'Hafta', type:'select', options:HAFTALAR },
+      { key:'durum', label:'Onay durumu', type:'multi',
+        options:['Onay bekliyor','Onaylandı','Revize bekliyor'] },
+      { key:'onaylayan', label:'Onaylayan', type:'select',
+        options:ONAYLAYANLAR.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'oranEsik', label:'Faturalanabilir oran (en az %)', type:'text',
+        test:function(t, v){ return oran(t) >= (parseFloat(v) || 0); } },
+      { key:'mesai', label:'Mesai sapması', type:'select',
+        options:['Yalnız eksik mesai','Yalnız fazla mesai','Eksik veya fazla','Tam mesai'],
+        test:function(t, v){
+          if(v === 'Yalnız eksik mesai') return t.eksik > 0;
+          if(v === 'Yalnız fazla mesai') return t.fazla > 0;
+          if(v === 'Eksik veya fazla') return t.eksik > 0 || t.fazla > 0;
+          return !t.eksik && !t.fazla; } }
+    ],
+
+    rowClass:function(t){ return (t.eksik > 0 || t.fazla > 0) && bekliyor(t) ? 'is-late' : ''; },
+
+    card:function(t){
+      return '<div class="gv-rcard-top"><div>' + GV.user(t.personel) +
+        '<div class="cell-sub">' + esc(depAd(t.personel)) + '</div></div>' + GV.badge(t.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + t.kod + '</span><span>' + esc(t.hafta) + '</span>' +
+        '<span>' + F.dateShort(t.baslangic) + ' – ' + F.dateShort(t.bitis) + '</span></div>' +
+        GV.progress(oran(t), { tone:oran(t) >= 85 ? 'ok' : oran(t) >= 70 ? 'warn' : 'danger' }) +
+        '<div class="gv-rcard-foot"><span class="u-xs u-muted">' + F.hours(t.toplam) + ' toplam · ' +
+        F.hours(t.faturalanabilir) + ' faturalanabilir</span>' +
+        (t.eksik ? '<span class="badge is-danger no-dot">Eksik ' + F.hours(t.eksik) + '</span>'
+                 : t.fazla ? '<span class="badge is-warn no-dot">Fazla ' + F.hours(t.fazla) + '</span>'
+                 : '<span class="badge is-ok no-dot">Tam mesai</span>') + '</div>';
+    },
+
+    mobile:function(t){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(empAd(t.personel)) + '</span>' +
+        '<b class="u-num">' + F.hours(t.toplam) + '</b></div>' +
+        '<div class="gv-mrow-code">' + t.kod + ' · ' + esc(t.hafta) + ' · ' +
+        F.dateShort(t.baslangic) + ' – ' + F.dateShort(t.bitis) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-wallet','ic-sm') + F.hours(t.faturalanabilir) + ' (%' + oran(t) + ')</span>' +
+        (t.eksik ? '<span>' + GV.ico('i-alert','ic-sm') + 'Eksik ' + F.hours(t.eksik) + '</span>' : '') +
+        (t.fazla ? '<span>' + GV.ico('i-hourglass','ic-sm') + 'Fazla ' + F.hours(t.fazla) + '</span>' : '') + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(t.durum) + '</span>' +
+        (bekliyor(t) ? '<span class="cell-sub">' + bekleme(t) + ' gündür bekliyor</span>' : '') + '</div>';
+    },
+
+    rowActions:rowActions,
+    bulk:bulk,
+
+    emptyState:{ icon:'i-clipboard-check', title:'Bu görünümde timesheet yok',
+      desc:'Haftalık timesheet\'ler dönem kapandığında onay sırasına düşer; onaylanan saatler faturalandırma ve maliyet hesabına girer.',
+      action:'<a class="btn btn-acc" href="app-zaman.html"><svg class="ic" aria-hidden="true"><use href="#i-timer"></use></svg> Zaman Kayıtları</a>' }
+  });
+
+});
+</script>
+</body>
+</html>

@@ -600,6 +600,7 @@
     'app-toplanti-karar.html',
     'app-izin.html',
     'app-zaman.html',
+    'app-zaman-onay.html',
     'app-kapasite.html',
     'app-performans.html',
     'app-demirbas.html',
