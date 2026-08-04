@@ -554,3 +554,57 @@ parça yapılırsa tarama iki kez yanılır.
 **Çözüm (VB-04 ile aynı turda):** Modül adı yazılım terminolojisine çevrilecek
 ("Mobil ekip yönetimi" / "Ekip operasyon yönetimi"); `DB.projectModules` dışında bu adı **metin
 olarak** taşıyan yer var mı diye tam metin taraması yapılacak.
+
+---
+
+## VB-10 · Onay akışı yapılandırması hiçbir veri dosyasında yok
+
+**Nerede:** Satın alma onay eşikleri (6 makam, tutar ve kategoriye göre) `app-ayar-onay.html`
+içinde **sayfa-yerel sabit** + `localStorage('gv.onayakis')` olarak yaşıyor. `assets/data/*.js`
+içinde karşılığı yok.
+
+**Sorun:** `app-satinalma-form.html` girilen tutara göre onay zinciri önizlemesi basabilmek için
+eşik tablosunu **kopyalamak zorunda kaldı**. Aynı gerçek iki yerde yaşıyor; biri değişince
+diğeri sessizce yanlış zincir gösterir. İzin, zaman kaydı, teklif ve değişiklik talebi akışları
+için de aynı boşluk var — bu dört akış da yalnız ayar ekranında tanımlı.
+
+**Ölçüm:** Form ekranının kopyaladığı tabloyla hesaplanan adım sayısı, 6 aktif talebin 6'sında
+`onayToplam` ile ve makam sırası `DB.purchaseApprovals` ile birebir tutuyor — **şu an** doğru.
+Borç, doğruluğun kopyaya bağlı olması.
+
+**Çözüm (kapanış fazında):** `DB.approvalFlows` koleksiyonu açılacak (akış türü × eşik × makam
+sırası); `app-ayar-onay.html` ve form ekranları aynı kaynaktan okuyacak. `canon.js`'e
+"bir talebin `onayToplam`'ı akış tablosundan hesaplananla aynıdır" ekseni girecek.
+
+---
+
+## VB-11 · `butceKodu` bir koleksiyona bağlı değil
+
+**Nerede:** `DB.purchases[].butceKodu` yalnız serbest string. `DB.budgets` diye koleksiyon yok;
+`app-butce.html` de proje bütçesini `DB.projects`'ten türetiyor, bütçe kodu ekseninden değil.
+
+**Sorun:** `app-satinalma-form.html` select seçeneklerini veride **geçen** dört koddan türetmek
+zorunda kaldı (`BTC-DONANIM-2026` · `BTC-IDARI-2026` · `BTC-PRJ-002` · `BTC-YAZILIM-2026`).
+Kod uydurulmadı ama sonuç şu: **yeni bir bütçe kodu forma girilemiyor** ve bütçe kalemi bazında
+harcama toplamı hiçbir ekranda okunamıyor.
+
+**Çözüm (kapanış fazında):** `DB.budgets` açılacak (kod · ad · yıl · limit · sahip departman);
+satın alma talebi ve `app-butce.html` aynı koleksiyondan beslenecek.
+
+---
+
+## UID-20 · Form ekranlarına düzenleme modundan bağlantı yok
+
+**Nerede:** `app-lead.html` · `app-musteri.html` · `app-satinalma.html` ve detay ekranları.
+
+**Sorun:** Liste ekranlarının "Yeni kayıt" butonu forma gidiyor, ama **düzenleme moduna**
+(`app-x-form.html?id=KOD`) hiçbir yerden bağlantı yok. Form iki modu da destekliyor; ikinci mod
+kullanıcı için erişilemez durumda. Kalan 33 form ekranı üretildikçe aynı boşluk her ekranda
+tekrarlanacak.
+
+**Kök neden:** Bağlantıyı kaynak liste/detay ekranı kurar, formu yazan ajan değil (ajan tek
+dosyaya dokunur). Orkestratörün adımı olarak `handoff.md` bölüm 3'e yazılmalı.
+
+**Çözüm:** `GV.list` `rowActions`'a "Düzenle" (`perm:'duzenle'`, `show(row)` ile arşivli/kilitli
+kayıtta gizli) ve detay ekranlarının `GV.pageHead` aksiyonlarına "Düzenle" **tek turda**, tüm
+form ekranları bittikten sonra eklenecek — parça parça eklemek `links.js` kuyruğunu yanıltır.

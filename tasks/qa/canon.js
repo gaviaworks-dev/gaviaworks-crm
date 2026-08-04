@@ -316,6 +316,28 @@ DB.orders.forEach(o => {
       o.kod + ' demirbaş grubunda siparişten farklı tedarikçi var');
 });
 
+/* ---- 16. Satın alma onay sayacı ekseni (ops.js DB.purchases başlığı) ------
+   `onayAdim` = BULUNULAN adım sırası (1 tabanlı), onaylanan adım sayısı değil.
+   Taslak → 0 · süreçte → onaylanan+1 · tamamlandı → onayToplam. */
+head('16) Satın alma onay sayacı');
+DB.purchases.forEach(p => {
+  const ad = DB.purchaseApprovals.filter(a => a.talep === p.kod);
+  const onayli = ad.filter(a => a.durum === 'Onaylandı').length;
+  if (p.durum === 'Taslak') {
+    say(p.onayAdim === 0, p.kod + ' Taslak ama onayAdim=' + p.onayAdim + ' (0 olmalı)');
+  } else if (ad.length) {
+    say(p.onayAdim === onayli + 1,
+        p.kod + ' onayAdim=' + p.onayAdim + ' ≠ onaylanan(' + onayli + ')+1');
+    say(ad.length === p.onayToplam,
+        p.kod + ' zincir kaydı=' + ad.length + ' ≠ onayToplam=' + p.onayToplam);
+  } else {
+    say(p.onayAdim === p.onayToplam,
+        p.kod + ' adım dökümü yok (süreç bitmiş sayılır) ama onayAdim=' + p.onayAdim +
+        ' ≠ onayToplam=' + p.onayToplam);
+  }
+  say(p.onayAdim <= p.onayToplam, p.kod + ' onayAdim=' + p.onayAdim + ' > onayToplam=' + p.onayToplam);
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
