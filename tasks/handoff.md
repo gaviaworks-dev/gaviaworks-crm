@@ -127,9 +127,14 @@ ekranı "kırık" sayıyordu). Güncel set `components.md` §10'da.
   ikinci liste örneği kurulamıyor, bu yüzden `app-egitim` matrisi elle yazıldı.
 - **UID-07** — toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor, yalnız toast basıyor.
 
-**Son tam tarama (bu oturum):** `gate.js` 355 sayfa yüklemesi (71 ekran × 5 rol) —
+**Oturum sonu tam tarama:** `gate.js` 370 sayfa yüklemesi (74 ekran × 5 rol) —
 konsol hatası 0, boş sayfa 0, kırık istek 0. `canon.js` 227 kontrol temiz.
-`dbref.js` ve `links.js` temiz.
+`dbref.js` ve `links.js` temiz. Dört yeni ekranın hepsi canlıda (HTTP 200).
+
+**Ölçü:** 74 ekran · 30.294 satır (ortalama 409 satır/ekran).
+Ortak katman: `tokens.css` 199 · `shell.css` 414 · `ui.css` 1.237 · `shell.js` 855 ·
+`ui.js` 1.897 satır. Ekran başına düşen satır, ortak bileşen katmanının taşıdığı yükün
+ölçüsüdür — referans projede tek bir liste ekranı 1.134 satırdı (lessons L-05).
 
 
 ### VERİ BORCU — bilinçli olarak devredildi (3. oturum)
