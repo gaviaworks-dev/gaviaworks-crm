@@ -125,7 +125,10 @@
     'Ödendi':'ok', 'Kısmi':'warn', 'Ödenmedi':'danger', 'İletildi':'purple',
     'Serviste':'warn', 'Tahsisli':'info', 'Ortak kullanım':'accent', 'Kiralık':'info',
     'Zimmetli':'info', 'Depoda':'neutral', 'Hurda':'neutral', 'Onarımda':'warn',
-    'Onay bekliyor ':'warn', 'Sipariş verildi':'info', 'Teslim alındı':'ok', 'İptal':'neutral',
+    /* 'Onay bekliyor' yukarıda (görev durumları) tanımlı — satın alma ekseninde de aynı
+       anlamı taşır, tek ton kullanılır. Sonunda boşluklu ikinci bir anahtar vardı, hiç
+       eşleşmiyordu; silindi. Farklı vurgu gerekiyorsa GV.badge(v,'is-warn') ile açık ton geçilir. */
+    'Sipariş verildi':'info', 'Teslim alındı':'ok', 'İptal':'neutral',
     /* proje sağlığı — §11 */
     'İyi':'ok', 'Dikkat':'warn', 'Kritik':'danger', 'Sağlıklı':'ok',
     /* finans */
