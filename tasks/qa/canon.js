@@ -200,6 +200,23 @@ DB.sprints.forEach(s => {
       s.kod + ' gorevSayisi=' + s.gorevSayisi + ' < DB.tasks kaydı=' + n);
 });
 
+/* ---- 13. Teslim ↔ milestone bağı (lessons L-13) ---- */
+head('13) Teslim ↔ milestone');
+{
+  const seen = {};
+  DB.deliveries.forEach(d => {
+    say(!!d.milestone, d.kod + ' milestone bağı yok');
+    if (!d.milestone) return;
+    const m = DB.milestones.find(m => m.kod === d.milestone);
+    say(!!m, d.kod + ' → ' + d.milestone + ' milestone kaydı yok');
+    if (m) say(m.proje === d.proje, d.kod + ' projesi=' + d.proje + ' milestone projesi=' + m.proje);
+    say(!seen[d.milestone], d.kod + ' ile ' + seen[d.milestone] + " aynı milestone'a bağlı");
+    seen[d.milestone] = d.kod;
+    say(['Onaylandı','Bekliyor','Revizyon istendi'].indexOf(d.musteriOnay) !== -1,
+        d.kod + " musteriOnay='" + d.musteriOnay + "' geçerli durum değil");
+  });
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

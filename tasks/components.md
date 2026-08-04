@@ -213,6 +213,8 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.supportPackages` | `ops.js` | Kota aritmetiği sabit: `kullanilan + kalan = aylikSaat × dönem ayı`. `kalan`, o müşterinin taleplerindeki `kalanDestek` ile **birebir aynı**. `sozlesme` → `DB.contracts`, `yenileme` / `yenilemeTarihi` yenileme işareti |
 | `DB.surveys` | `ops.js` | Bir müşterinin **yanıtlanmış** anketlerinin `puan` ortalaması = `DB.customers[].memnuniyet` (arşivli anketler dahil). `tur:'Destek talebi'` anketin puanı = `DB.tickets[].memnuniyet`. `durum:'Bekliyor'` → `puan`/`tavsiye` null, ortalamaya girmez. `tavsiye` 0-10 NPS: 9-10 destekleyici · 7-8 nötr · 0-6 kötüleyici |
 | `DB.decisions` | `misc.js` | Yalnız `durum:'Tamamlandı'` toplantılara bağlanır. `gorev` doluysa `DB.tasks`'ta karşılığı vardır |
+| `DB.bugs[].siddet` | `work.js` | **`DB.priorities` kümesidir** (`Kritik/Yüksek/Orta/Düşük`), `DB.impacts` (`Çok yüksek/…`) **değildir**. Hatadan görev üretilirken eşleme: şiddet `Kritik` → görev `etki` `Çok yüksek`, diğer üçü birebir |
+| `DB.deliveries[].milestone` | `work.js` | Teslimin karşılık geldiği taksit — **veride yazılı tekil bağ**, tarih yakınlığından türetilmez (L-13). Bir milestone'a en fazla bir teslim. `musteriOnay` durum değeridir: `Onaylandı` / `Bekliyor` / `Revizyon istendi`; `'—'` sentinel'i kullanılmaz |
 
 ---
 

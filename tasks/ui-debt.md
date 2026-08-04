@@ -198,3 +198,61 @@ bileşeninde **tek yerde**.
 **Ek (aynı fazda):**
 - Para alanlarında **birim eki yok**.
 - **Filtre uygula** butonu seçili filtre sayısını göstermiyor.
+
+---
+
+## UID-11 · Finans yetkisi yokken KPI "₺0" gösteriyor, maskeli göstermiyor
+
+**Nerede:** `GV.list` / `GV.report` KPI şeridi — para KPI'ı olan **tüm** ekranlar
+(`app-sozlesme`, `app-proje-milestone`, `app-butce`, `app-fatura`, rapor ekranları…).
+
+**Sorun:** Yerleşik desen `calc:function(a){ return canFinans ? toplam : 0; }`. Finans yetkisi
+olmayan rol KPI'da **"₺0"** görüyor — tablo hücreleri doğru şekilde `••••••` maskeleniyor ama
+KPI "sıfır para var" diye **yanlış bilgi** veriyor. Ölçüldü: `app-proje-milestone` `qa` rolüyle
+20 hücre maskeli ama "Bekleyen taksit tutarı ₺0".
+
+**Kök neden:** KPI'da maskeleme kavramı yok; her ekran yetkisizliği "0 döndür" diye çözüyor,
+bu yüzden aynı yanlış üç ekranda birden doğdu.
+
+**Çözüm (kapanış fazında):** `kpis[]`'e `mask:function(){ return !GV.perm.can('finans'); }`
+(veya `perm:'finans'`) sözleşmesi eklenecek; maskeliyken `.kpi-num` sayı yerine `••••••` basacak
+ve `meta` satırı gizlenecek. Ekranlardaki `canFinans ? x : 0` deseni silinecek. Nokta yaması yok.
+
+---
+
+## UID-12 · `app-gorev.html`'de "Tümü" sekmesi yok — dış bağlantılar kayıt gizliyor
+
+**Nerede:** `app-gorev.html` sekme seti; ona link veren **tüm** ekranlar (sprint, hata, proje,
+milestone, sohbet, toplantı).
+
+**Sorun:** Varsayılan sekme `havuz`, ve tüm görevleri gösteren bir sekme yok. Dışarıdan
+`app-gorev.html?f_sprint=SPR-2026-020` gibi bir bağlantıyla gelen kullanıcı, filtre doğru
+uygulansa bile **sekmenin süzdüğü** alt kümeyi görüyor: sprintin tamamlanmış görevleri
+görünmüyor, kanban'ın "Tamamlandı" kolonu boş kalıyor. Bağlantı çalışıyor ama **eksik sonuç**
+veriyor — sahte buton değil, sessiz veri kaybı, bu yüzden daha tehlikeli.
+
+**Ek bulgu:** `search.fields` içinde `sprint` yok ve `search.extra` tanımlı değil; bu yüzden
+`?q=SPR-2026-020` **0 kayıt** döndürür. Link veren ekranlar `f_sprint` kullanmak zorunda kaldı.
+
+**Çözüm (kapanış fazında):** `app-gorev.html`'e `tumu` sekmesi eklenecek ve dış bağlantıların
+hedefi o olacak; ayrıca `search.extra` ile sprint/modül kodları arama metnine katılacak.
+Genel kural olarak: **bir liste ekranına dışarıdan filtreli link veriliyorsa, o ekranda
+filtreyi kısıtlamayan bir "Tümü" sekmesi bulunmalıdır.**
+
+---
+
+## UID-13 · `GV.list` toplu işlemlerinde `show` / yetki kapısı yok
+
+**Nerede:** `GV.list` `bulk:[...]` — toplu işlem barı olan **tüm** liste ekranları.
+
+**Sorun:** `rowActions[]` `show(row)` sözleşmesine sahip (satıra uymayan aksiyon hiç basılmaz),
+ama `bulk[]` maddelerinin karşılığı **yok**. Sonuç: "Müşteri onayını işaretle", "Kapandı işaretle",
+"Onayla" gibi yetki isteyen toplu işlemler **her rolde** basılıyor; yetki kontrolü ancak `run`
+içinde çalışıp `GV.toast('yetkiniz yok')` diyor. Kullanıcı basana kadar yapamayacağını bilmiyor —
+`rowActions` tarafında yasakladığımız "ölü buton" deseni, toplu işlem tarafında hâlâ yaşıyor.
+En az üç ekranda aynı desen tekrarlandı (`app-proje-teslim`, `app-proje-test`, `app-proje-hata`).
+
+**Çözüm (kapanış fazında):** `bulk[]`'e `show()` (ve/veya `perm:'onay'|'duzenle'|'sil'`) sözleşmesi
+eklenecek; koşulu sağlamayan madde toplu işlem barına **hiç basılmayacak**. Ekranlardaki
+`run` içi yetki toastları ikinci savunma hattı olarak kalacak ama birincil kapı bileşende olacak.
+`rowActions[].show` ile aynı sözleşme adı kullanılacak — iki farklı isim öğrenilmesin.
