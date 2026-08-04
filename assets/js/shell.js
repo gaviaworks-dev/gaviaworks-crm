@@ -682,7 +682,11 @@
     'app-toplanti.html',
     'app-toplanti-detay.html',
     'app-panel-bildirimler.html',
-    'app-panel-onaylar.html'
+    'app-panel-onaylar.html',
+    /* Form ekranları (Wave 12b) */
+    'app-lead-form.html',
+    'app-musteri-form.html',
+    'app-satinalma-form.html'
   ];
   GV.built = BUILT;
 
