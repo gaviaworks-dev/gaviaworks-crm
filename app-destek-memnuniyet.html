@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Memnuniyet — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="destek" data-screen="memnuniyet">
+<div id="grafik"></div>
+<div id="liste" class="u-mt-8"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  var L = null;
+
+  /* =================================================================
+     TÜRETİLMİŞ ÖLÇÜTLER — canonical kurallar (assets/data/ops.js §18)
+     · Yanıt bekleyen anketin puanı null'dır ve hiçbir ortalamaya girmez.
+     · Bir müşterinin yanıtlanmış anket puan ortalaması =
+       DB.customers[].memnuniyet (musteriOrt ile birebir doğrulanır).
+     · tur 'Destek talebi' olan anketin puanı = DB.tickets[].memnuniyet.
+     · NPS: tavsiye 9-10 destekleyici · 7-8 nötr · 0-6 kötüleyici.
+     ================================================================= */
+  function cust(kod){ return DB.customers.filter(function(c){ return c.kod === kod; })[0] || null; }
+  function custName(kod){ var c = cust(kod); return c ? c.kisa : (kod || '—'); }
+  function yanit(x){ return x.durum === 'Yanıtlandı' && x.puan != null; }
+  function arsivli(x){ return x.arsiv === true || x.aktif === false; }
+  function dusuk(x){ return yanit(x) && x.puan < 3; }
+
+  function musteriOrt(kod){
+    var l = DB.surveys.filter(function(s){ return s.musteri === kod && yanit(s); });
+    if(!l.length) return null;
+    return l.reduce(function(a,s){ return a + s.puan; }, 0) / l.length;
+  }
+  function ortPuan(list){
+    var l = list.filter(yanit);
+    return l.length ? l.reduce(function(a,s){ return a + s.puan; }, 0) / l.length : null;
+  }
+  function npsSinif(t){ return t == null ? null : (t >= 9 ? 'Destekleyici' : t >= 7 ? 'Nötr' : 'Kötüleyici'); }
+  function npsTon(t){ return t >= 9 ? 'is-ok' : t >= 7 ? 'is-warn' : 'is-danger'; }
+  function puanTon(p){ return p >= 4 ? 'is-ok' : p >= 3 ? 'is-warn' : 'is-danger'; }
+  function npsSkor(list){
+    var l = list.filter(function(x){ return x.tavsiye != null; });
+    if(!l.length) return 0;
+    var d = l.filter(function(x){ return x.tavsiye >= 9; }).length;
+    var k = l.filter(function(x){ return x.tavsiye <= 6; }).length;
+    return Math.round((d - k) / l.length * 100);
+  }
+  /* Ondalıklı puanlar 1-5 yıldız kovasına en yakın tam yıldıza yuvarlanır */
+  function yildiz(p){ return Math.min(5, Math.max(1, Math.round(p))); }
+  function imzali(v){ return (v > 0 ? '+' : '') + v; }
+  function kisaYorum(t, n){
+    if(!t) return null;
+    n = n || 68;
+    return t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t;
+  }
+  /* İlgili kayıt hedefi — yayında olmayan ekranlar shell.markWip ile data-wip'e döner */
+  function ilgiliHref(x){
+    if(!x.ilgili) return null;
+    if(x.tur === 'Destek talebi') return 'app-destek.html?q=' + encodeURIComponent(x.ilgili);
+    if(String(x.ilgili).indexOf('PRJ-') === 0) return 'app-proje-detay.html?id=' + x.ilgili;
+    if(String(x.ilgili).indexOf('BKP-') === 0) return 'app-destek-paket.html?id=' + x.ilgili;
+    return null;
+  }
+  function musteriHref(kod){ return 'app-musteri.html?q=' + encodeURIComponent(custName(kod)); }
+  function yetkililer(kod){ return DB.contacts.filter(function(y){ return y.musteri === kod && y.aktif !== false; }); }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({ eyebrow:'Destek ve Bakım', title:'Memnuniyet',
+    sub:'Anket puanı, tavsiye skoru (NPS), yanıt oranı ve düşük puanlı geri bildirim takibi',
+    actions:[{ label:'Destek Talepleri', icon:'i-support', href:'app-destek.html' },
+             { label:'Anket Gönder', icon:'i-send', cls:'btn-acc', run:anketGonder }] });
+
+  /* =================================================================
+     ANKET GÖNDER — çalışan akış (modal + bağımlı yetkili seçimi + toast)
+     ================================================================= */
+  function anketGonder(){
+    var musteriler = DB.customers.filter(function(c){ return c.aktif !== false; });
+    function ytkOpts(kod){
+      var l = yetkililer(kod);
+      if(!l.length) return '<option value="">Kayıtlı yetkili yok</option>';
+      return l.map(function(y){
+        return '<option value="' + esc(y.ad) + '"' + (y.birincil ? ' selected' : '') + '>' +
+               esc(y.ad + ' · ' + y.pozisyon) + '</option>';
+      }).join('');
+    }
+    function sel(id, label, opts, cols){
+      return '<div class="field ' + cols + '"><label for="' + id + '">' + esc(label) + '</label>' +
+             '<select class="inp" id="' + id + '">' + opts + '</select></div>';
+    }
+    var ilk = musteriler[0] ? musteriler[0].kod : null;
+
+    var m = GV.modal({
+      title:'Memnuniyet Anketi Gönder', icon:'i-send', size:'sm',
+      text:'Anket seçilen müşteri yetkilisine iletilir; yanıt gelene kadar kayıt "Bekliyor" durumunda listelenir.',
+      body:'<div class="gv-fields">' +
+        sel('akMus','Müşteri', musteriler.map(function(c){
+          return '<option value="' + c.kod + '">' + esc(c.kisa) + '</option>'; }).join(''), 'f-col-12') +
+        sel('akYtk','Anketi yanıtlayacak yetkili', ytkOpts(ilk), 'f-col-12') +
+        sel('akTur','Anket türü', ['Destek talebi','Proje teslimi','Dönemsel'].map(function(t){
+          return '<option value="' + t + '"' + (t === 'Dönemsel' ? ' selected' : '') + '>' + t + '</option>'; }).join(''), 'f-col-6') +
+        sel('akKanal','Kanal', ['E-posta anketi','Telefon','Yüz yüze'].map(function(k){
+          return '<option value="' + k + '">' + k + '</option>'; }).join(''), 'f-col-6') +
+      '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Gönder', cls:'btn-acc', onClick:function(close, el){
+            var kod = el.querySelector('#akMus').value;
+            var ytk = el.querySelector('#akYtk').value;
+            var seri = ('00' + (40 + DB.surveys.length)).slice(-3);
+            DB.surveys.unshift({
+              kod:'ANK-2026-' + seri, musteri:kod, tur:el.querySelector('#akTur').value, ilgili:null,
+              tarih:DB.today, kanal:el.querySelector('#akKanal').value,
+              yanitlayan:ytk || '—', durum:'Bekliyor', puan:null, tavsiye:null, yorum:null, aktif:true
+            });
+            GV.toast('ANK-2026-' + seri + ' · ' + custName(kod) + ' anketi gönderildi', 'ok');
+            if(L) L.refresh();
+            cizGrafik();
+          } }
+      ]
+    });
+    var ms = m.el.querySelector('#akMus');
+    if(ms) ms.addEventListener('change', function(){
+      m.el.querySelector('#akYtk').innerHTML = ytkOpts(ms.value);
+    });
+  }
+
+  /* =================================================================
+     GRAFİK ALANI — ortak .gv-charts / .gv-chartcard bileşeni
+     ================================================================= */
+  function cizGrafik(){
+    var host = document.getElementById('grafik');
+    if(!host) return;
+    var hepsi = DB.surveys.filter(function(s){ return !arsivli(s); });
+    var cevap = hepsi.filter(yanit);
+
+    var barData = [1,2,3,4,5].map(function(n){
+      return { label:n + ' yıldız',
+               value:cevap.filter(function(s){ return yildiz(s.puan) === n; }).length,
+               tone:n >= 4 ? 'ok' : n === 3 ? 'warn' : 'danger' };
+    });
+    var ort = ortPuan(cevap);
+
+    var npsData = [
+      { label:'Destekleyici (9-10)', color:'var(--ok)',
+        value:cevap.filter(function(s){ return s.tavsiye >= 9; }).length },
+      { label:'Nötr (7-8)', color:'var(--warn)',
+        value:cevap.filter(function(s){ return s.tavsiye >= 7 && s.tavsiye <= 8; }).length },
+      { label:'Kötüleyici (0-6)', color:'var(--danger)',
+        value:cevap.filter(function(s){ return s.tavsiye <= 6; }).length }
+    ];
+    var skor = npsSkor(cevap);
+
+    host.innerHTML = '<div class="gv-charts">' +
+      '<div class="gv-chartcard">' +
+        '<h3>Puan dağılımı</h3>' +
+        '<span class="gv-ch-sub">Yanıtlanmış ' + cevap.length + ' anket · arşiv hariç · ortalama ' +
+          (ort == null ? '—' : F.num(ort, 1) + ' / 5') + ' · puanlar en yakın tam yıldıza yuvarlanır</span>' +
+        GV.chart.bar(barData, { height:230, label:'Memnuniyet puanlarının yıldız dağılımı' }) +
+      '</div>' +
+      '<div class="gv-chartcard">' +
+        '<h3>Tavsiye skoru kırılımı</h3>' +
+        '<span class="gv-ch-sub">NPS = %destekleyici − %kötüleyici · yanıt bekleyen anketler hesaba girmez</span>' +
+        GV.chart.donut(npsData, { size:220, thickness:28, center:imzali(skor), centerSub:'NPS skoru',
+                                  label:'Tavsiye skorunun NPS sınıflarına dağılımı' }) +
+        GV.chart.legend(npsData) +
+      '</div>' +
+    '</div>';
+  }
+  cizGrafik();
+
+  /* =================================================================
+     YORUM PANELİ — GV.drawer
+     ================================================================= */
+  function yorumAc(x){
+    var ort = musteriOrt(x.musteri);
+    var hedef = ilgiliHref(x);
+    var satir = function(l, v){ return '<tr><td style="width:42%"><b>' + esc(l) + '</b></td><td>' + v + '</td></tr>'; };
+    var body =
+      '<div class="gv-tablewrap"><table class="gtable"><tbody>' +
+        satir('Anket kodu', '<span class="cell-code">' + esc(x.kod) + '</span>') +
+        satir('Müşteri', '<a class="cell-main" href="' + musteriHref(x.musteri) + '">' + esc(custName(x.musteri)) + '</a>') +
+        satir('Müşteri ortalaması', ort == null ? '<span class="u-faint">—</span>'
+              : '<span class="badge ' + puanTon(ort) + '">' + F.num(ort, 1) + ' / 5</span>') +
+        satir('Anket türü', '<span class="tag">' + esc(x.tur) + '</span>') +
+        satir('İlgili kayıt', !x.ilgili ? '<span class="u-faint">Belirli bir kayda bağlı değil</span>'
+              : (hedef ? '<a class="cell-main" href="' + hedef + '">' + esc(x.ilgili) + '</a>'
+                       : '<span class="cell-code">' + esc(x.ilgili) + '</span>')) +
+        satir('Tarih', '<span class="cell-date">' + F.date(x.tarih) + '</span>') +
+        satir('Kanal', esc(x.kanal)) +
+        satir('Yanıtlayan', esc(x.yanitlayan)) +
+        satir('Puan', x.puan == null ? '<span class="u-faint">—</span>'
+              : '<span class="badge ' + puanTon(x.puan) + '">' + F.num(x.puan, 1) + ' / 5</span>') +
+        satir('Tavsiye skoru', x.tavsiye == null ? '<span class="u-faint">—</span>'
+              : '<span class="badge ' + npsTon(x.tavsiye) + ' no-dot">' + x.tavsiye + ' / 10</span> ' +
+                '<span class="u-xs u-faint">' + esc(npsSinif(x.tavsiye)) + '</span>') +
+        satir('Durum', GV.badge(x.durum, x.durum === 'Yanıtlandı' ? 'is-ok' : null)) +
+      '</tbody></table></div>' +
+      (x.yorum
+        ? '<p class="u-mt-8">' + esc(x.yorum) + '</p>'
+        : GV.notice({ tone:'warn', title:'Yanıt bekleniyor',
+            text:'Anket ' + F.date(x.tarih) + ' tarihinde gönderildi, müşteri henüz yanıtlamadı. Puan ve tavsiye skoru ortalamalara dahil edilmez.' })) +
+      (dusuk(x) ? GV.notice({ tone:'danger', title:'Düşük puanlı geri bildirim',
+            text:'3 puan altındaki her geri bildirim için müşteri sorumlusuna takip görevi açılması beklenir.' }) : '');
+
+    GV.drawer({ title:'Anket Yorumu · ' + x.kod, body:body, actions:[{ label:'Kapat', cls:'btn-line' }] });
+  }
+
+  /* =================================================================
+     TAKİP GÖREVİ — GV.confirm + GV.toast
+     ================================================================= */
+  function takipAc(x){
+    if(x.puan == null){
+      GV.toast('Anket henüz yanıtlanmadı; takip görevi için önce yanıt bekleniyor.', 'info');
+      return;
+    }
+    if(!dusuk(x)){
+      GV.toast(x.kod + ' puanı ' + F.num(x.puan, 1) + ' / 5 — takip görevi yalnız 3 puan altı geri bildirimler için önerilir.', 'info');
+      return;
+    }
+    GV.confirm({ title:'Takip görevi aç', tone:'warn',
+      text:custName(x.musteri) + ' · ' + x.kod + ' (' + F.num(x.puan, 1) + ' / 5) için müşteri sorumlusuna geri bildirim takip görevi açılacak.',
+      okLabel:'Görevi Aç' })
+      .then(function(ok){
+        if(ok) GV.toast(custName(x.musteri) + ' için takip görevi açıldı', 'ok');
+      });
+  }
+
+  /* =================================================================
+     LİSTE
+     ================================================================= */
+  L = GV.list({
+    mount:'#liste', id:'memnuniyet', key:'kod', source:function(){ return DB.surveys; },
+    exportName:'memnuniyet-anketleri', exportTitle:'Memnuniyet Anketleri', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Anket kodu, müşteri, yanıtlayan, ilgili kayıt veya yorum ara',
+             fields:['kod','tur','ilgili','kanal','yanitlayan','durum','yorum'],
+             extra:function(x){ return custName(x.musteri); } },
+    defaultSort:'tarih', defaultDir:'desc',
+    kpis:[
+      { label:'Ortalama puan', icon:'i-star', tone:'ok',
+        format:function(v){ return v === '—' ? '—' : v + ' / 5'; },
+        calc:function(a){ var o = ortPuan(a); return o == null ? '—' : F.num(o, 1); } },
+      { label:'Tavsiye skoru (NPS)', icon:'i-trend-up', tone:'info',
+        format:function(v){ return imzali(v); },
+        calc:function(a){ return npsSkor(a.filter(yanit)); } },
+      { label:'Yanıt oranı', icon:'i-percent',
+        format:function(v){ return '%' + v; },
+        calc:function(a){ return a.length ? Math.round(a.filter(yanit).length / a.length * 100) : 0; } },
+      { label:'Yanıt bekleyen anket', icon:'i-hourglass', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return x.durum === 'Bekliyor'; }).length; } },
+      { label:'3 puan altı geri bildirim', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(dusuk).length; } }
+    ],
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'yanit', label:'Yanıtlandı', icon:'i-check-circle', filter:yanit },
+      { key:'bekleyen', label:'Yanıt Bekliyor', icon:'i-hourglass', filter:function(x){ return x.durum === 'Bekliyor'; } },
+      { key:'dusuk', label:'Düşük Puan', icon:'i-alert', filter:dusuk },
+      { key:'destekci', label:'Destekleyiciler', icon:'i-star', filter:function(x){ return x.tavsiye != null && x.tavsiye >= 9; } }
+    ],
+    columns:[
+      { key:'kod', label:'Anket', width:'14%', locked:true, render:function(x){
+          return '<span class="cell-main">' + esc(x.kod) + '</span>' +
+                 '<span class="cell-sub">' + esc(x.kanal) + '</span>'; } },
+      { key:'musteri', label:'Müşteri', width:'17%', render:function(x){
+          var o = musteriOrt(x.musteri);
+          return '<a class="cell-main" href="' + musteriHref(x.musteri) + '">' + esc(custName(x.musteri)) + '</a>' +
+                 '<span class="cell-sub">Müşteri ortalaması ' + (o == null ? '—' : F.num(o, 1) + ' / 5') + '</span>'; },
+        sortValue:function(x){ return custName(x.musteri); },
+        exportValue:function(x){ return custName(x.musteri); } },
+      { key:'tur', label:'Tür', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
+      { key:'ilgili', label:'İlgili kayıt', render:function(x){
+          if(!x.ilgili) return '<span class="u-faint">—</span>';
+          var h = ilgiliHref(x);
+          return h ? '<a class="cell-code" href="' + h + '">' + esc(x.ilgili) + '</a>'
+                   : '<span class="cell-code">' + esc(x.ilgili) + '</span>'; },
+        exportValue:function(x){ return x.ilgili || ''; } },
+      { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
+      { key:'kanal', label:'Kanal', visible:false, render:function(x){ return '<span class="tag">' + esc(x.kanal) + '</span>'; } },
+      { key:'yanitlayan', label:'Yanıtlayan', visible:false },
+      { key:'puan', label:'Puan', cellClass:'num', render:function(x){
+          if(x.puan == null) return '<span class="u-faint">—</span>';
+          return '<span class="badge ' + puanTon(x.puan) + '">' + F.num(x.puan, 1) + ' / 5</span>'; },
+        sortValue:function(x){ return x.puan == null ? -1 : x.puan; },
+        exportValue:function(x){ return x.puan; } },
+      { key:'tavsiye', label:'Tavsiye skoru', render:function(x){
+          if(x.tavsiye == null) return '<span class="u-faint">—</span>';
+          return '<span class="badge ' + npsTon(x.tavsiye) + ' no-dot">' + x.tavsiye + ' / 10</span>' +
+                 '<span class="cell-sub">' + esc(npsSinif(x.tavsiye)) + '</span>'; },
+        sortValue:function(x){ return x.tavsiye == null ? -1 : x.tavsiye; },
+        exportValue:function(x){ return x.tavsiye == null ? '' : x.tavsiye + ' — ' + npsSinif(x.tavsiye); } },
+      { key:'durum', label:'Durum', render:function(x){
+          return GV.badge(x.durum, x.durum === 'Yanıtlandı' ? 'is-ok' : null); } },
+      { key:'yorum', label:'Yorum', width:'22%', cellClass:'cell-wrap', sortable:false, render:function(x){
+          return x.yorum ? '<span class="u-sm">' + esc(kisaYorum(x.yorum)) + '</span>'
+                         : '<span class="u-faint">Yanıt bekleniyor</span>'; },
+        exportValue:function(x){ return x.yorum || ''; } }
+    ],
+    filters:[
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'tur', label:'Anket türü', type:'multi', options:['Destek talebi','Proje teslimi','Dönemsel'] },
+      { key:'kanal', label:'Kanal', type:'multi', options:['E-posta anketi','Telefon','Yüz yüze'] },
+      { key:'durum', label:'Yanıt durumu', type:'select', options:['Yanıtlandı','Bekliyor'] },
+      { key:'puanAralik', label:'Puan aralığı', type:'select',
+        options:[{ value:'yuksek', label:'4 ve üzeri' }, { value:'orta', label:'3 – 3,9' },
+                 { value:'dusuk', label:'3 puan altı' }, { value:'yok', label:'Puansız (yanıt bekleyen)' }],
+        test:function(x, v){
+          if(v === 'yok') return x.puan == null;
+          if(x.puan == null) return false;
+          if(v === 'yuksek') return x.puan >= 4;
+          if(v === 'orta') return x.puan >= 3 && x.puan < 4;
+          return x.puan < 3;
+        } },
+      { key:'tarih', label:'Anket tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return dusuk(x) ? 'is-late' : (arsivli(x) ? 'is-passive' : ''); },
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><span class="cell-main">' + esc(x.kod) + '</span>' +
+        '<div class="cell-code">' + esc(custName(x.musteri)) + ' · ' + esc(x.tur) + '</div></div>' +
+        (x.puan == null ? GV.badge(x.durum) : '<span class="badge ' + puanTon(x.puan) + '">' + F.num(x.puan, 1) + ' / 5</span>') +
+        '</div>' +
+        '<div class="gv-rcard-meta"><span>' + F.date(x.tarih) + '</span><span>' + esc(x.kanal) + '</span>' +
+        (x.tavsiye == null ? '' : '<span>Tavsiye ' + x.tavsiye + ' / 10 · ' + esc(npsSinif(x.tavsiye)) + '</span>') + '</div>' +
+        '<div class="gv-rcard-foot"><span class="u-xs u-faint">' +
+        (x.yorum ? esc(kisaYorum(x.yorum, 52)) : 'Yanıt bekleniyor') + '</span>' +
+        '<a class="u-xs" href="' + musteriHref(x.musteri) + '">Müşteriyi aç</a></div>';
+    },
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(custName(x.musteri)) + '</span>' +
+        (x.puan == null ? GV.badge(x.durum) : '<span class="badge ' + puanTon(x.puan) + '">' + F.num(x.puan, 1) + ' / 5</span>') +
+        '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.kod) + ' · ' + esc(x.tur) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-calendar','ic-sm') + F.date(x.tarih) + '</span>' +
+        (x.tavsiye == null ? '' : '<span>' + GV.ico('i-trend-up','ic-sm') + x.tavsiye + ' / 10 · ' + esc(npsSinif(x.tavsiye)) + '</span>') +
+        '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+        GV.badge(x.durum, x.durum === 'Yanıtlandı' ? 'is-ok' : null) + '</span></div>';
+    },
+    rowActions:[
+      { key:'yorum', icon:'i-quote', label:'Yorumu oku', run:function(x){ yorumAc(x); } },
+      { key:'musteri', icon:'i-building', label:'Müşteriyi aç', href:function(x){ return musteriHref(x.musteri); } },
+      { key:'ilgili', icon:'i-external', label:'İlgili kaydı aç', href:function(x){ return ilgiliHref(x); },
+        run:function(x){ GV.toast(x.kod + ' belirli bir kayda bağlı değil — dönemsel genel memnuniyet anketi.', 'info'); } },
+      { key:'takip', icon:'i-flag', label:'Takip görevi aç', run:function(x){ takipAc(x); } }
+    ],
+    bulk:[
+      { key:'hatirlat', label:'Hatırlatma gönder', icon:'i-send' },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+    emptyState:{ icon:'i-star', title:'Bu görünümde memnuniyet anketi yok',
+      desc:'Destek kaydı kapandığında, proje teslim edildiğinde ve dönemsel olarak müşteriye anket gönderilir; yanıtlar burada toplanır.',
+      action:'<button type="button" class="btn btn-acc" data-anket><svg class="ic"><use href="#i-send"></use></svg> Anket Gönder</button>' },
+    onRender:function(){
+      var b = document.querySelector('[data-anket]');
+      if(b) b.addEventListener('click', anketGonder);
+    }
+  });
+
+});
+</script>
+</body>
+</html>

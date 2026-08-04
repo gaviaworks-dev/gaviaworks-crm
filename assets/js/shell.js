@@ -594,6 +594,7 @@
     'app-istalebi.html',
     'app-destek.html',
     'app-destek-paket.html',
+    'app-destek-memnuniyet.html',
     'app-izin.html',
     'app-zaman.html',
     'app-kapasite.html',
