@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sözleşme Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="finans" data-screen="sozlesme">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today
+     crm.js  → DB.customers, DB.quotes
+     work.js → DB.projects, DB.milestones, DB.activities, DB.proj
+     misc.js → DB.contracts, DB.invoices -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.contracts.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Finans', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen sözleşme kaydı sistemde yok.',
+      actions:[{ label:'Sözleşme listesine dön', cls:'btn-line', href:'app-sozlesme.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Sözleşme bulunamadı',
+      desc:'“' + esc(id) + '” numaralı sözleşme bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-sozlesme.html">Sözleşme listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Sözleşme';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPILARI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+
+     Bu ekranın TAMAMI finans eksenindedir: sözleşme kaydının her alanı
+     (bedel, KDV, genel toplam, ödeme planı, garanti) ticari bedelin
+     parçasıdır. Bu yüzden finans yetkisi olmayan role tek tek alan
+     gizlemek yerine sayfa seviyesinde 403 basılır — yarısı maskeli bir
+     sözleşme formu ölü kontrol olurdu.
+     ================================================================= */
+  var canFinans = GV.perm.can('finans');
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+
+  if(!canFinans || !canYaz){
+    var neden = !canFinans
+      ? 'Sözleşme kaydının tamamı finansal bedeldir; rolünüzde (' + GV.session.rolAd + ') ' +
+        'finansal tutar yetkisi tanımlı değil. Sözleşmeleri listede görebilir, tutarları ' +
+        'maskeli okuyabilirsiniz — ama sözleşme kaydı oluşturamaz veya değiştiremezsiniz.'
+      : (duzenle ? 'Sözleşme düzenleme' : 'Sözleşme oluşturma') +
+        ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+        'Sözleşmeleri görüntüleyebilir ama değiştiremezsiniz.';
+
+    GV.pageHead({
+      eyebrow:'Finans', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Sözleşme listesine dön', cls:'btn-line', href:'app-sozlesme.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok', desc:neden }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-sozlesme.html">Sözleşme listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-sozlesme-detay.html?id=' + esc(kayit.kod) +
+                   '">Sözleşme kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     PARA KONVANSİYONU — components.md §9b, TEK EKSEN
+       tutar   = sözleşme bedeli, NET (KDV hariç)  → formda girilen tek bedel
+       kdvOran = yüzde · kdv = tutar × kdvOran/100 → HESAPLANIR, girilmez
+       toplam  = tutar + kdv, BRÜT (KDV dahil)     → HESAPLANIR, girilmez
+     Etikette eksen daima yazılır; net ve brüt aynı alanda karışmaz.
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function kurSim(d){ return (!d || d === 'TRY') ? '₺' : d; }
+  function kdvZinciri(tutar, oran){
+    var net = sayi(tutar);
+    var kdv = Math.round(net * sayi(oran) / 100);
+    return { net:net, kdv:kdv, brut:net + kdv };
+  }
+  /* Teklifin net tutarı: araToplam − indirim (components.md §9b teklif zinciri). */
+  function teklifNet(q){ return sayi(q.araToplam) - sayi(q.indirim); }
+
+  /* =================================================================
+     ÖDEME PLANI — taksitler DB.milestones'ta, bağ `sozlesme` alanında
+     Bu form taksit YAZMAZ; yalnız dengeyi ölçer ve bozulacaksa uyarır.
+     ================================================================= */
+  function taksitleriOf(kod){
+    return DB.milestones.filter(function(m){ return m.sozlesme === kod; })
+                        .sort(function(a, b){ return a.taksit - b.taksit; });
+  }
+  function taksitToplam(list){
+    return list.reduce(function(s, m){ return s + sayi(m.odeme); }, 0);
+  }
+  function siraBoslugu(list){
+    var eksik = [];
+    list.forEach(function(m, i){ if(m.taksit !== i + 1) eksik.push(m.kod + ' (taksit ' + m.taksit + ')'); });
+    return eksik;
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamSozlesme = DB.contracts.length;
+  var projeliSayi    = DB.contracts.filter(function(c){ return !!c.proje; }).length;
+  var teklifliSayi   = DB.contracts.filter(function(c){ return !!c.teklif; }).length;
+  var yenilemeliSayi = DB.contracts.filter(function(c){ return c.yenileme === true; }).length;
+
+  /* net + KDV = brüt kaç kayıtta tutuyor */
+  var kdvTutan = DB.contracts.filter(function(c){
+    return sayi(c.tutar) + sayi(c.kdv) === sayi(c.toplam) &&
+           sayi(c.kdv) === Math.round(sayi(c.tutar) * sayi(c.kdvOran) / 100);
+  }).length;
+
+  /* projeli sözleşmelerde Σ taksit = net bedel ve sıra 1..N boşluksuz mu */
+  var projeliSozlesmeler = DB.contracts.filter(function(c){ return !!c.proje; });
+  var planTamSayi = projeliSozlesmeler.filter(function(c){
+    var ms = taksitleriOf(c.kod);
+    return ms.length > 0 && taksitToplam(ms) === sayi(c.tutar) && siraBoslugu(ms).length === 0;
+  }).length;
+  var toplamTaksit = DB.milestones.filter(function(m){ return !!m.sozlesme; }).length;
+
+  /* teklif → sözleşme para ekseni: sözleşme neti teklifin NETİNE mi BRÜTÜNE mi eşit */
+  var teklifliSozlesmeler = DB.contracts.filter(function(c){ return !!c.teklif; });
+  function teklifBul(k){ return k ? DB.quotes.filter(function(q){ return q.kod === k; })[0] || null : null; }
+  var brutEsit = teklifliSozlesmeler.filter(function(c){
+    var q = teklifBul(c.teklif);
+    return q && sayi(c.tutar) === sayi(q.toplam) && sayi(c.tutar) !== teklifNet(q);
+  }).length;
+  var netEsit = teklifliSozlesmeler.filter(function(c){
+    var q = teklifBul(c.teklif);
+    return q && sayi(c.tutar) === teklifNet(q);
+  }).length;
+
+  /* proje kaydındaki sözleşme tutarı ile sözleşme neti kaç projede birebir */
+  var projeEsit = projeliSozlesmeler.filter(function(c){
+    var p = DB.proj(c.proje);
+    return p && sayi(p.sozlesmeTutari) === sayi(c.tutar);
+  }).length;
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI — hepsi veride yazılı tekil bağdan
+     ================================================================= */
+  function musteriBul(k){ return k ? DB.customers.filter(function(c){ return c.kod === k; })[0] || null : null; }
+
+  var taksitler = duzenle ? taksitleriOf(kayit.kod) : [];
+  var taksitKod = taksitler.map(function(m){ return m.kod; });
+  var faturalar = duzenle
+    ? DB.invoices.filter(function(i){
+        return i.sozlesme === kayit.kod || (i.milestone && taksitKod.indexOf(i.milestone) !== -1); })
+    : [];
+  var faturaNet = faturalar.reduce(function(s, i){ return s + sayi(i.tutar); }, 0);   /* NET */
+
+  var kayitTeklif  = duzenle ? teklifBul(kayit.teklif) : null;
+  var kayitProje   = duzenle && kayit.proje ? DB.proj(kayit.proje) : null;
+  var kayitMusteri = duzenle ? musteriBul(kayit.musteri) : null;
+
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     SÖZLÜKLER
+       · Sözleşme durumu: veride Aktif · Tamamlandı · Gecikti geçiyor;
+         'İptal' değerini app-sozlesme-detay.html'in kapanış ve yenileme
+         mantığı okuyor (bitmis / yenilenebilir kontrolleri). Veri
+         katmanında sözleşme durumu sözlüğü olan bir koleksiyon YOK.
+       · Para birimi: 7 sözleşmenin 7'si TRY; küme teklif formuyla aynı.
+     ================================================================= */
+  var DURUMLAR = ['Aktif','Tamamlandı','Gecikti','İptal'];
+  if(duzenle && kayit.durum && DURUMLAR.indexOf(kayit.durum) === -1) DURUMLAR.push(kayit.durum);
+  var DOVIZ = ['TRY','USD','EUR','GBP'];
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden
+     ================================================================= */
+  var MUSTERILER = DB.customers
+    .filter(function(c){ return c.aktif !== false || (duzenle && c.kod === kayit.musteri); })
+    .map(function(c){ return { value:c.kod, label:c.unvan + ' · ' + c.kod + ' · ' + c.sektor +
+      (c.aktif === false ? ' · pasif' : '') }; });
+
+  var TEKLIFLER = DB.quotes
+    .filter(function(q){ return q.aktif !== false || (duzenle && q.kod === kayit.teklif); })
+    .map(function(q){ return { value:q.kod, label:q.kod + ' · ' + q.firma + ' · v' + q.versiyon +
+      ' · ' + q.durum + ' · net ' + F.money(teklifNet(q), kurSim(q.doviz)) + ' (KDV hariç)' }; });
+
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){ return { value:p.kod, label:p.ad + ' · ' + p.kod + ' · ' + p.durum +
+      ' · ' + p.musteriAd }; });
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    ['teklif','proje','yenilemeTarihi'].forEach(function(k){ formRec[k] = kayit[k] || ''; });
+    /* Veride garanti alanında '—' sentinel'i “garanti yok” anlamında geçiyor
+       (7 kaydın 1'inde). Formda boş metin karşılığıdır; sentinel yeniden yazılmaz. */
+    formRec.garanti = (kayit.garanti && kayit.garanti !== '—') ? kayit.garanti : '';
+    formRec.yenileme = kayit.yenileme === true;
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    formRec = {
+      ad:'', musteri:'', teklif:'', proje:'',
+      tutar:0, kdvOran:20, doviz:'TRY',
+      imzaTarihi:DB.today, baslangic:'', bitis:'',
+      yenileme:false, yenilemeTarihi:'',
+      odemePlani:'', garanti:'',
+      durum:'Aktif', aktif:true
+    };
+  }
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     `dt` escape EDİLMEZ (sabit etiket işaretlemesi — para ekseni notu
+     <span class="u-faint"> ile yazılıyor), `dd` çağıran tarafta
+     esc()'lenmiş gelir (ders L-14).
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function para(v, kur){ return '<span class="cell-money">' + F.money(v, kur) + '</span>'; }
+  function kart(baslik, ikon, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var ust = '';
+
+  /* Teklif → sözleşme para ekseni kanaryası: sözleşmenin NET bedeli teklifin
+     BRÜT toplamına eşitse, teklifin KDV'si sözleşmede bir kez daha uygulanır. */
+  if(brutEsit){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', icon:'i-alert', title:'Teklif → sözleşme aktarımında para ekseni kayması var',
+      text:'Teklifi yazılı ' + teklifliSozlesmeler.length + ' sözleşmenin ' + brutEsit +
+           ' tanesinde sözleşme bedeli (KDV hariç, net) teklifin KDV DAHİL toplamına eşit; ' +
+           'yalnız ' + netEsit + ' tanesinde teklifin netine eşit. Bu forma girdiğiniz sözleşme ' +
+           'bedeli net eksendedir ve KDV onun üzerine eklenir — teklifin brüt toplamını buraya ' +
+           'yazarsanız KDV ikinci kez uygulanır. Aşağıdaki para zinciri kartı seçtiğiniz teklifle ' +
+           'karşılaştırmayı canlı gösterir.',
+      actions:[{ label:'Teklif listesi', href:'app-teklif.html' }] }) + '</div></section>';
+  }
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı: ödeme planı bütünlüğü (components.md §9b) ---- */
+    var mevcutToplam = taksitToplam(taksitler);
+    var mevcutBosluk = siraBoslugu(taksitler);
+    var planAksiyon = [{ label:'Ödeme planı ekranı', href:'app-odemeplani.html' },
+                       { label:'Sözleşme kartını aç', href:'app-sozlesme-detay.html?id=' + kayit.kod }];
+
+    if(taksitler.length){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:(mevcutToplam === sayi(kayit.tutar) && !mevcutBosluk.length) ? 'ok' : 'warn',
+        title:(mevcutToplam === sayi(kayit.tutar) && !mevcutBosluk.length)
+          ? 'Ödeme planı tam — taksitler bu formdan değiştirilmez'
+          : 'Ödeme planı dengesi şu an bozuk',
+        text:'Bu sözleşmenin ' + taksitler.length + ' taksiti ödeme planında yazılı ve toplamları ' +
+             F.money(mevcutToplam, kurSim(kayit.doviz)) + ' (KDV hariç); sözleşme bedeli ' +
+             F.money(sayi(kayit.tutar), kurSim(kayit.doviz)) + ' (KDV hariç). ' +
+             (mevcutBosluk.length ? 'Taksit sırasında boşluk var: ' + mevcutBosluk.join(' · ') + '. ' : '') +
+             'Taksitler bu formda düzenlenmez — sözleşme bedelini değiştirirseniz denge bozulur ve ' +
+             'kaydetmeden önce onayınız istenir. Ölçüm: projeli ' + projeliSozlesmeler.length +
+             ' sözleşmenin ' + planTamSayi + ' tanesinde ' + toplamTaksit +
+             ' taksitin toplamı sözleşme netine eşit ve sıra 1..N boşluksuz.',
+        actions:planAksiyon }) + '</div></section>';
+    }else{
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(kayit.proje
+        ? { tone:'warn', icon:'i-alert', title:'Projeli sözleşmenin taksit seti boş',
+            text:kayit.kod + ' sözleşmesi ' + kayit.proje + ' projesine bağlı ama ödeme planında hiç ' +
+                 'taksit tanımlı değil. Projeli her sözleşmenin taksit toplamı sözleşme bedeline ' +
+                 'eşit olmalıdır; taksitler bu formdan değil ödeme planı ekranından yazılır.',
+            actions:planAksiyon }
+        : { tone:'neutral', icon:'i-info', title:'Taksitsiz sözleşme',
+            text:kayit.kod + ' bir projeye bağlı değil; ödeme planı “' + kayit.odemePlani +
+                 '” olarak yürür ve taksit yerine dönemsel fatura kesilir. Bu sözleşmenin ' +
+                 faturalar.length + ' faturası var.',
+            actions:planAksiyon }) + '</div></section>';
+    }
+
+    /* ---- Bu kaydın teklif ekseni ---- */
+    if(kayitTeklif){
+      var kNet = teklifNet(kayitTeklif), kKur = kurSim(kayit.doviz);
+      var kayma = sayi(kayit.tutar) === sayi(kayitTeklif.toplam) && sayi(kayit.tutar) !== kNet;
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:kayma ? 'danger' : (sayi(kayit.tutar) === kNet ? 'ok' : 'warn'),
+        title:kayma ? 'Bu sözleşmenin bedeli teklifin BRÜT toplamına eşit'
+                    : (sayi(kayit.tutar) === kNet ? 'Sözleşme bedeli teklifin netiyle birebir'
+                                                  : 'Sözleşme bedeli teklifin hiçbir eksenine eşit değil'),
+        text:kayitTeklif.kod + ' teklifinin net tutarı ' + F.money(kNet, kurSim(kayitTeklif.doviz)) +
+             ' (KDV hariç), genel toplamı ' + F.money(sayi(kayitTeklif.toplam), kurSim(kayitTeklif.doviz)) +
+             ' (KDV dahil). Bu sözleşmenin bedeli ' + F.money(sayi(kayit.tutar), kKur) + ' (KDV hariç), ' +
+             'genel toplamı ' + F.money(sayi(kayit.toplam), kKur) + ' (KDV dahil). ' +
+             (kayma ? 'Sözleşmenin NET alanına teklifin BRÜT değeri yazılmış; KDV bu kayıtta ikinci ' +
+                      'kez uygulanıyor. Bedeli düzeltirseniz taksit–fatura zinciri de dengelenmelidir.'
+                    : 'İki eksen de KDV hariç okunmalıdır.'),
+        actions:[{ label:'Teklifi aç', href:'app-teklif-detay.html?id=' + kayitTeklif.kod }] }) + '</div></section>';
+    }
+
+    /* ---- Kayıt özeti ---- */
+    var son = acts[0];
+    var kalanGun = kayit.bitis ? F.days(kayit.bitis) : null;
+    var bitmis = kayit.durum === 'Tamamlandı' || kayit.durum === 'İptal';
+    var kurK = kurSim(kayit.doviz);
+
+    ust += kart('Kayıt Özeti', 'i-info',
+      '<div class="gc-body">' + dl([
+        ['Sözleşme no', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Sözleşme adı', esc(kayit.ad)],
+        ['Müşteri', kayitMusteri
+          ? '<a href="app-musteri-detay.html?id=' + esc(kayitMusteri.kod) + '">' + esc(kayitMusteri.unvan) + '</a>' +
+            sub(kayitMusteri.kod + ' · ' + kayitMusteri.sektor)
+          : esc(kayit.musteriAd)],
+        ['Bağlı teklif', kayitTeklif
+          ? '<a href="app-teklif-detay.html?id=' + esc(kayitTeklif.kod) + '">' + esc(kayitTeklif.kod) + '</a>' +
+            sub(kayitTeklif.firma + ' · v' + kayitTeklif.versiyon + ' · ' + kayitTeklif.durum)
+          : null],
+        ['Bağlı proje', kayitProje
+          ? '<a href="app-proje-detay.html?id=' + esc(kayitProje.kod) + '">' + esc(kayitProje.ad) + '</a>' +
+            sub(kayitProje.kod + ' · ' + kayitProje.durum)
+          : null],
+        ['Sözleşme durumu', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Sözleşme bedeli <span class="u-faint">(KDV hariç)</span>', '<b>' + para(kayit.tutar, kurK) + '</b>'],
+        ['KDV <span class="u-faint">(%' + esc(String(kayit.kdvOran)) + ')</span>', para(kayit.kdv, kurK)],
+        ['Genel toplam <span class="u-faint">(KDV dahil)</span>', '<b>' + para(kayit.toplam, kurK) + '</b>'],
+        ['İmza tarihi', F.date(kayit.imzaTarihi)],
+        ['Dönem', F.date(kayit.baslangic) + ' – ' + F.date(kayit.bitis)],
+        ['Bitişe kalan', bitmis ? '<span class="u-faint">Sözleşme kapandı</span>'
+          : (kalanGun == null ? null
+            : (kalanGun < 0 ? '<b class="u-danger">' + Math.abs(kalanGun) + ' gün önce doldu</b>'
+                            : '<b class="u-num">' + kalanGun + ' gün kaldı</b>'))],
+        ['Yenileme', kayit.yenileme
+          ? '<span class="badge is-info no-dot">Yenilenecek</span>' +
+            (kayit.yenilemeTarihi ? sub(F.date(kayit.yenilemeTarihi)) : '')
+          : '<span class="u-faint">Yenilemesiz</span>'],
+        ['Ödeme planı taksiti', taksitler.length
+          ? '<b class="u-num">' + taksitler.length + '</b> taksit' +
+            sub('toplam ' + F.money(taksitToplam(taksitler), kurK) + ' (KDV hariç)')
+          : '<span class="u-faint">Taksit tanımlı değil</span>'],
+        ['Kesilmiş fatura', faturalar.length
+          ? '<b class="u-num">' + faturalar.length + '</b> fatura' +
+            sub('net ' + F.money(faturaNet, kurK) + ' (KDV hariç)')
+          : '<span class="u-faint">Fatura kesilmedi</span>'],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-sozlesme-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Sözleşme kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni sözleşme kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki sözleşme numarası atanır, KDV ve genel toplam girdiğiniz ' +
+             'net bedelden hesaplanır, aktivite geçmişine “Sözleşme oluşturuldu” satırı düşer ve ' +
+             'sözleşme listesine dönülür. Bu form ödeme planı TAKSİTİ yazmaz: projeli sözleşmenin ' +
+             'taksitleri ödeme planı ekranından girilir ve toplamları sözleşme bedeline eşit olmalıdır. ' +
+             'Fatura ve tahsilat kayıtları da bu formdan doğmaz.',
+        actions:[{ label:'Sözleşme listesi', href:'app-sozlesme.html' },
+                 { label:'Ödeme planı ekranı', href:'app-odemeplani.html' },
+                 { label:'Faturalar', href:'app-fatura.html' }] }) + '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-file-check') + 'Sözleşme Bilgileri</h2>' +
+        '<div class="gc-sub">Bedel KDV hariç girilir; KDV ve genel toplam hesaplanır · ' +
+          'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-wallet') + 'Para Zinciri</h2>' +
+        '<div class="gc-sub">Net bedel → KDV → genel toplam. Alanları değiştirdikçe güncellenir.</div></div></div>' +
+      '<div class="gc-body" id="tutarOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-milestone') + 'Ödeme Planı Dengesi</h2>' +
+        '<div class="gc-sub">Taksitler DB kaydında ayrı tutulur; bu form onları değiştirmez, ' +
+          'yalnız dengeyi ölçer.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-odemeplani.html">' + ico('i-external','ic-sm') +
+            ' Ödeme planı ekranı</a></div></div>' +
+      '<div class="gc-body" id="planOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' +
+        GV.notice({ tone:'neutral', icon:'i-paperclip',
+          title:'Sözleşme metni, e-imza ve fesih akışı bu formda yok',
+          text:'Sözleşme kaydı imzalı metnin kendisini tutmaz; belgeler Doküman Yönetimi ekranında ' +
+               'izlenir. E-imza ve dijital onay entegrasyonu bu prototipin kapsamı dışındadır. ' +
+               'Bir yıl uzatma (yenileme) akışı sözleşme kartındaki “Yenile” aksiyonundadır; ' +
+               'bu form bitiş tarihini elle düzeltmek içindir.',
+          actions:[{ label:'Doküman yönetimi', href:'app-dokuman.html' }].concat(
+            duzenle ? [{ label:'Sözleşme kartını aç', href:'app-sozlesme-detay.html?id=' + kayit.kod }] : []) }) +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-sozlesme.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Sözleşme kimliği ve taraflar',
+    desc:'Sözleşmenin konusu, müşterisi ve hangi tekliften doğup hangi projeyi karşıladığı. ' +
+         'Sözleşme numarası kaydederken sistem tarafından atanır, elle girilmez. Müşterinin ' +
+         'resmi unvanı kayda müşteri kartından yazılır; ayrı bir “müşteri adı” alanı açılmaz.',
+    fields:[
+      { key:'ad', label:'Sözleşme adı / konusu', type:'text', required:true, cols:12,
+        placeholder:'Örn. Hasta Randevu Mobil Uygulama Sözleşmesi',
+        hint:'Sözleşme metninin başlığı; listede ve kartta bu ad görünür.',
+        validate:function(v, d){
+          var ayni = DB.contracts.filter(function(c){
+            return (!duzenle || c.kod !== kayit.kod) && c.musteri === d.musteri &&
+                   String(c.ad).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+          return ayni ? 'Aynı müşteriye aynı adla kayıtlı bir sözleşme var (' + ayni.kod +
+                        '). Ad ayırt edici olmalı ya da mevcut sözleşme güncellenmeli.' : '';
+        } },
+
+      { key:'musteri', label:'Müşteri', type:'select', options:MUSTERILER, required:true, cols:6,
+        placeholder:'Müşteri seçin',
+        hint:'Sözleşmenin karşı tarafı. Seçilen kartın resmi unvanı kayda yazılır ve bedel ' +
+             'müşterinin ciro/alacak eksenine bu kayıttan geçer.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(!musteriBul(v)) return 'Seçilen müşteri kaydı bulunamadı.';
+          var p = d.proje ? DB.proj(d.proje) : null;
+          if(p && p.musteri !== v)
+            return 'Seçilen proje ' + p.musteriAd + ' müşterisine ait; müşteri alanıyla çelişiyor.';
+          var q = teklifBul(d.teklif);
+          if(q && q.musteri && q.musteri !== v)
+            return 'Seçilen teklif ' + q.firma + ' müşteri kartına bağlı; müşteri alanıyla çelişiyor.';
+          return '';
+        } },
+
+      { key:'teklif', label:'Bağlı teklif', type:'select', options:TEKLIFLER, cols:6,
+        placeholder:'Teklifsiz sözleşme',
+        hint:'Sözleşmenin doğduğu teklif. Ölçüm: ' + toplamSozlesme + ' sözleşmenin ' + teklifliSayi +
+             ' tanesi bir teklife bağlı. Bağ tahmin edilmez; teklifi bilinmiyorsa boş bırakılır.',
+        validate:function(v, d){
+          if(!v) return '';
+          var q = teklifBul(v);
+          if(!q) return 'Seçilen teklif kaydı bulunamadı.';
+          if(q.durum === 'Kaybedildi')
+            return q.kod + ' teklifi “Kaybedildi” durumunda; kaybedilen tekliften sözleşme doğmaz.';
+          var baska = DB.contracts.filter(function(c){
+            return c.teklif === v && (!duzenle || c.kod !== kayit.kod); })[0];
+          if(baska) return q.kod + ' teklifi zaten ' + baska.kod + ' sözleşmesine bağlı.';
+          if(d.musteri && q.musteri && q.musteri !== d.musteri)
+            return 'Teklif ' + q.firma + ' müşteri kartına bağlı; sözleşmenin müşterisiyle uyuşmuyor.';
+          return '';
+        } },
+
+      { key:'proje', label:'Bağlı proje', type:'select', options:PROJELER, cols:12,
+        placeholder:'Projeye bağlı değil — dönemsel hizmet sözleşmesi',
+        hint:'Ölçüm: ' + toplamSozlesme + ' sözleşmenin ' + projeliSayi + ' tanesi bir projeye bağlı. ' +
+             'Projesiz sözleşme (bakım / dönemsel hizmet) taksit tutmaz, aylık fatura olarak yürür. ' +
+             'Proje kaydındaki sözleşme tutarı da KDV hariç eksendedir — ' + projeliSozlesmeler.length +
+             ' projeli sözleşmenin ' + projeEsit + ' tanesinde birebir aynı.',
+        validate:function(v, d){
+          if(!v){
+            return (duzenle && taksitler.length)
+              ? 'Bu sözleşmenin ödeme planında ' + taksitler.length + ' taksit yazılı ve taksitler ' +
+                'projeye bağlı; proje bağı bu formdan kaldırılamaz.' : '';
+          }
+          var p = DB.proj(v);
+          if(!p) return 'Seçilen proje kaydı bulunamadı.';
+          if(d.musteri && p.musteri !== d.musteri)
+            return 'Proje ' + p.musteriAd + ' müşterisine ait; sözleşmenin müşterisiyle uyuşmuyor.';
+          var baska = DB.contracts.filter(function(c){
+            return c.proje === v && (!duzenle || c.kod !== kayit.kod); })[0];
+          if(baska) return p.kod + ' projesi zaten ' + baska.kod + ' sözleşmesine bağlı.';
+          if(duzenle && taksitler.length){
+            var yabanci = taksitler.filter(function(m){ return m.proje !== v; });
+            if(yabanci.length)
+              return 'Bu sözleşmenin ' + taksitler.length + ' taksitinden ' + yabanci.length +
+                     ' tanesi ' + (taksitler[0].proje || '—') + ' projesine yazılı; taksitler bu ' +
+                     'formdan güncellenmediği için proje bağı değiştirilemez.';
+          }
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Bedel ve vergi',
+    desc:'Sözleşme bedeli KDV HARİÇ (net) girilir — proje genelindeki tek eksen budur. ' +
+         'KDV tutarı ve genel toplam bu iki alandan hesaplanır, ayrıca girilmez; ölçüm: ' +
+         toplamSozlesme + ' sözleşmenin ' + kdvTutan + ' tanesinde net + KDV = brüt zinciri tutuyor.',
+    fields:[
+      { key:'tutar', label:'Sözleşme bedeli (KDV hariç)', type:'money', required:true, min:0, cols:6,
+        hint:'Müşteriye taahhüt edilen net bedel. Teklifin KDV DAHİL toplamı buraya yazılmaz — ' +
+             'yazılırsa KDV ikinci kez uygulanır.',
+        validate:function(v){
+          return sayi(v) <= 0 ? 'Sözleşme bedeli sıfırdan büyük olmalıdır.' : '';
+        } },
+      { key:'kdvOran', label:'KDV oranı', type:'percent', required:true, min:0, max:100, cols:6,
+        hint:'KDV tutarı net bedel üzerinden bu oranla hesaplanır. Ölçüm: ' + toplamSozlesme +
+             ' sözleşmenin tamamı %20 oranında.' },
+      { key:'doviz', label:'Para birimi', type:'select', options:DOVIZ, required:true, cols:6,
+        hint:'Sözleşmelerin tamamı TRY ekseninde; farklı bir birim seçilirse tutarlar o birimde okunur.' }
+    ]});
+
+  sections.push({ title:'Süre ve tarihler',
+    desc:'Gün farkları sistem saatinden değil veri ekseninden (' + F.date(DB.today) + ') ölçülür. ' +
+         'İmza başlangıçtan, başlangıç bitişten önce olmalıdır.',
+    fields:[
+      { key:'imzaTarihi', label:'İmza tarihi', type:'date', required:true, cols:4,
+        hint:'Sözleşmenin imzalandığı gün. Ölçüm: ' + toplamSozlesme +
+             ' sözleşmenin tamamında imza tarihi başlangıçtan önce.',
+        validate:function(v, d){
+          return (v && d.baslangic && v > d.baslangic)
+            ? 'İmza tarihi sözleşme başlangıcından sonra olamaz.' : '';
+        } },
+      { key:'baslangic', label:'Başlangıç tarihi', type:'date', required:true, cols:4,
+        hint:'Sözleşme süresinin başladığı gün.',
+        validate:function(v, d){
+          return (v && d.bitis && v >= d.bitis)
+            ? 'Başlangıç tarihi bitiş tarihinden önce olmalıdır.' : '';
+        } },
+      { key:'bitis', label:'Bitiş tarihi', type:'date', required:true, cols:4,
+        hint:'Sözleşmenin sona erdiği gün; yenileme ve gecikme takibi bu tarihi okur.',
+        validate:function(v, d){
+          return (v && d.baslangic && v <= d.baslangic)
+            ? 'Bitiş tarihi başlangıçtan sonra olmalıdır.' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Yenileme koşulu',
+    desc:'Yenilemeye açık sözleşme bitişte bir yıl uzatılabilir; uzatma akışı sözleşme kartındadır. ' +
+         'Ölçüm: ' + toplamSozlesme + ' sözleşmenin ' + yenilemeliSayi + ' tanesi yenilemeye açık.',
+    fields:[
+      { key:'yenileme', label:'Yenileme koşulu', type:'switch', cols:12,
+        onLabel:'Sözleşme yenilemeye açık — bitiş yaklaşınca yenileme takibine girer',
+        hint:'Kapalıysa süre bitiminde yeni sözleşme gerekir.' },
+      { key:'yenilemeTarihi', label:'Yenileme tarihi', type:'date', cols:6,
+        hint:'Yenileme kararının verilmesi gereken gün. Ölçüm: yenilemeye açık ' + yenilemeliSayi +
+             ' sözleşmenin tamamında yenileme tarihi bitiş tarihiyle aynı.',
+        validate:function(v, d){
+          if(d.yenileme && !v) return 'Yenilemeye açık sözleşmede yenileme tarihi zorunludur.';
+          if(!d.yenileme && v) return 'Yenileme tarihi yalnız yenilemeye açık sözleşmede yazılır.';
+          if(v && d.baslangic && v < d.baslangic) return 'Yenileme tarihi başlangıçtan önce olamaz.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Ticari koşullar',
+    desc:'Sözleşme metnine yazılan ödeme ve garanti koşulları. Ödeme planı metni taksitlerin ' +
+         'kendisi değildir: taksit kayıtları ödeme planı ekranında tutulur ve bu form onları yazmaz.',
+    fields:[
+      { key:'odemePlani', label:'Ödeme planı (sözleşme metni)', type:'text', required:true, cols:6,
+        placeholder:'Örn. %30 · %30 · %40',
+        hint:'Metindeki ifade. Taksit tutarları ödeme planı ekranından girilir ve toplamları ' +
+             'sözleşme bedeline (KDV hariç) eşit olmalıdır.' },
+      { key:'garanti', label:'Garanti süresi', type:'text', cols:6,
+        placeholder:'Örn. 12 ay',
+        hint:'Garanti verilmiyorsa boş bırakılır. Veride bu durum için “—” işareti kullanılmış bir ' +
+             'kayıt var; form boş metin yazar, işareti çoğaltmaz.' }
+    ]});
+
+  sections.push({ title:'Durum',
+    desc:'Sözleşme durumu yürürlük eksenidir, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'durum', label:'Sözleşme durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. Veri katmanında sözleşme durumu sözlüğü olan bir ' +
+             'koleksiyon yok; küme mevcut kayıtlardan ve sözleşme kartının kapanış mantığından alındı.',
+        validate:function(v, d){
+          if(v === 'Aktif' && d.bitis && d.bitis < DB.today)
+            return 'Bitiş tarihi geçmiş sözleşme “Aktif” kalamaz — durumu “Gecikti” ya da ' +
+                   '“Tamamlandı” yapın veya bitiş tarihini güncelleyin.';
+          return '';
+        } },
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — sözleşme listelerinde, sayaçlarda ve fatura seçimlerinde görünür',
+        hint:'Kapatılırsa sözleşme arşive düşer; bağlı taksit, fatura ve tahsilat kayıtları silinmez.',
+        validate:function(v, d){
+          return (!v && d.durum === 'Aktif')
+            ? 'Yürürlükteki sözleşme arşivlenemez — önce durumu “Tamamlandı” ya da “İptal” yapın.' : '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'sozlesme', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER — para zinciri ve ödeme planı dengesi
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function tutarOzetiCiz(){
+    var hedef = document.getElementById('tutarOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var kur = kurSim(v.doviz);
+    var z = kdvZinciri(v.tutar, v.kdvOran);
+    var q = teklifBul(v.teklif);
+
+    var uyari = '';
+    if(q){
+      var qNet = teklifNet(q), qBrut = sayi(q.toplam), qKur = kurSim(q.doviz);
+      if(z.net === qBrut && qNet !== qBrut){
+        uyari = GV.notice({ tone:'danger', icon:'i-alert',
+          title:'Girilen bedel teklifin KDV DAHİL toplamına eşit',
+          text:'Sözleşme bedeli alanı KDV hariç (net) eksendedir. ' + q.kod + ' teklifinin neti ' +
+               F.money(qNet, qKur) + ', brütü ' + F.money(qBrut, qKur) + '. Şu an brüt değer net ' +
+               'alana yazılı; kaydedilirse genel toplam ' + F.money(z.brut, kur) +
+               ' olur ve KDV ikinci kez uygulanır.' });
+      }else if(z.net !== qNet){
+        uyari = GV.notice({ tone:'warn', icon:'i-alert',
+          title:'Sözleşme bedeli teklifin netinden farklı',
+          text:q.kod + ' teklifinin net tutarı ' + F.money(qNet, qKur) + ' (KDV hariç); girilen ' +
+               'sözleşme bedeli ' + F.money(z.net, kur) + '. Fark ' +
+               F.money(Math.abs(z.net - qNet), kur) + '. Görüşmede değişmişse sorun yok; ' +
+               'değişmediyse teklif ekseni kaymış demektir.' });
+      }else{
+        uyari = GV.notice({ tone:'ok', icon:'i-check-circle',
+          title:'Sözleşme bedeli teklifin netiyle birebir',
+          text:q.kod + ' teklifinin net tutarı ile sözleşme bedeli aynı: ' + F.money(qNet, qKur) +
+               ' (ikisi de KDV hariç).' });
+      }
+    }else{
+      uyari = GV.notice({ tone:'neutral', icon:'i-info', title:'Teklif bağı yok',
+        text:'Bu sözleşme bir teklife bağlanmadı; bedel karşılaştırması yapılamıyor. Ölçüm: ' +
+             toplamSozlesme + ' sözleşmenin ' + teklifliSayi + ' tanesi teklife bağlı.' });
+    }
+
+    hedef.innerHTML = uyari + ozetListe([
+      ['Sözleşme bedeli <span class="u-faint">(KDV hariç)</span>', para(z.net, kur)],
+      ['KDV oranı', '<b class="u-num">%' + F.num(sayi(v.kdvOran)) + '</b>'],
+      ['KDV tutarı <span class="u-faint">(hesaplanır)</span>', para(z.kdv, kur)],
+      ['Genel toplam <span class="u-faint">(KDV dahil — hesaplanır)</span>', '<b>' + para(z.brut, kur) + '</b>'],
+      q ? ['Teklif net tutarı <span class="u-faint">(KDV hariç)</span>',
+        '<span class="u-num">' + F.money(teklifNet(q), kurSim(q.doviz)) + '</span>' + sub(q.kod)] : null,
+      q ? ['Teklif genel toplamı <span class="u-faint">(KDV dahil)</span>',
+        '<span class="u-num">' + F.money(sayi(q.toplam), kurSim(q.doviz)) + '</span>' + sub(q.kod)] : null,
+      ['Para birimi', esc(v.doviz || 'TRY')]
+    ]);
+  }
+
+  function planOzetiCiz(){
+    var hedef = document.getElementById('planOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var kur = kurSim(v.doviz);
+    var net = sayi(v.tutar);
+    var p = v.proje ? DB.proj(v.proje) : null;
+
+    /* Taksitler yalnız KAYITLI sözleşmede olur; yeni kayıtta henüz taksit yoktur. */
+    if(!taksitler.length){
+      hedef.innerHTML = GV.notice(v.proje
+        ? { tone:'warn', icon:'i-alert', title:'Projeli sözleşmenin taksitleri henüz yazılmamış',
+            text:'Projeli her sözleşmenin taksit seti ödeme planında TAM tutulur: taksitlerin ' +
+                 'toplamı sözleşme bedeline (KDV hariç) eşit ve taksit numaraları 1..N boşluksuz ' +
+                 'olmalıdır. Şu an bu sözleşmede taksit yok; ' + F.money(net, kur) +
+                 ' tutarındaki bedel ödeme planı ekranından taksitlere bölünmelidir. Ölçüm: projeli ' +
+                 projeliSozlesmeler.length + ' sözleşmenin ' + planTamSayi + ' tanesinde bu denge tutuyor.' }
+        : { tone:'neutral', icon:'i-info', title:'Projesiz sözleşme taksit tutmaz',
+            text:'Proje bağı olmayan sözleşme (bakım / dönemsel hizmet) ödeme planı taksiti tutmaz; ' +
+                 '“' + (String(v.odemePlani || '').trim() || 'ödeme planı metni') + '” koşuluna göre ' +
+                 'dönemsel fatura kesilir. Ölçüm: ' + toplamSozlesme + ' sözleşmenin ' +
+                 (toplamSozlesme - projeliSayi) + ' tanesi projesiz.' }) +
+        (p ? ozetListe([
+          ['Proje kaydındaki sözleşme tutarı <span class="u-faint">(KDV hariç)</span>',
+            '<span class="u-num">' + F.money(sayi(p.sozlesmeTutari), kur) + '</span>' + sub(p.kod)],
+          ['Forma girilen bedel <span class="u-faint">(KDV hariç)</span>', para(net, kur)],
+          ['Fark', sayi(p.sozlesmeTutari) === net
+            ? '<span class="badge is-ok no-dot">Yok</span>'
+            : '<b class="u-danger">' + F.money(Math.abs(sayi(p.sozlesmeTutari) - net), kur) + '</b>']
+        ]) : '');
+      return;
+    }
+
+    var toplam = taksitToplam(taksitler);
+    var bosluk = siraBoslugu(taksitler);
+    var dengede = toplam === net && !bosluk.length;
+
+    hedef.innerHTML = GV.notice({
+      tone:dengede ? 'ok' : 'warn',
+      icon:dengede ? 'i-check-circle' : 'i-alert',
+      title:dengede ? 'Ödeme planı dengede' : 'Ödeme planı dengesi bozuluyor',
+      text:dengede
+        ? 'Taksitlerin toplamı sözleşme bedeline eşit ve taksit numaraları 1..' + taksitler.length +
+          ' boşluksuz. Bedeli değiştirirseniz bu denge bozulur; taksitler bu formdan yazılmaz.'
+        : 'Taksitlerin toplamı ' + F.money(toplam, kur) + ', forma girilen sözleşme bedeli ' +
+          F.money(net, kur) + ' (ikisi de KDV hariç). Fark ' + F.money(Math.abs(toplam - net), kur) + '. ' +
+          (bosluk.length ? 'Ayrıca taksit sırasında boşluk var: ' + bosluk.join(' · ') + '. ' : '') +
+          'Bu form taksitleri değiştirmez — kaydetmeden önce onayınız istenir ve denge ödeme planı ' +
+          'ekranından düzeltilmelidir.' }) +
+
+    ozetListe([
+      ['Taksit sayısı', '<b class="u-num">' + taksitler.length + '</b> taksit' +
+        sub(bosluk.length ? 'sıra boşluklu' : 'sıra 1..' + taksitler.length + ' tam')],
+      ['Taksit toplamı <span class="u-faint">(KDV hariç)</span>', para(toplam, kur)],
+      ['Forma girilen bedel <span class="u-faint">(KDV hariç)</span>', para(net, kur)],
+      ['Fark <span class="u-faint">(KDV hariç)</span>', toplam === net
+        ? '<span class="badge is-ok no-dot">Yok</span>'
+        : '<b class="u-danger">' + F.money(Math.abs(toplam - net), kur) + '</b>'],
+      ['Kesilmiş fatura neti <span class="u-faint">(KDV hariç)</span>',
+        faturalar.length ? para(faturaNet, kur) + sub(faturalar.length + ' fatura')
+                         : '<span class="u-faint">Fatura kesilmedi</span>'],
+      p ? ['Proje kaydındaki sözleşme tutarı <span class="u-faint">(KDV hariç)</span>',
+        '<span class="u-num">' + F.money(sayi(p.sozlesmeTutari), kur) + '</span>' + sub(p.kod)] : null
+    ]) +
+
+    '<div class="gv-summary">' + taksitler.map(function(m){
+      return '<div class="gv-summary-row">' +
+        '<span class="gv-summary-lbl">' + m.taksit + '. taksit · ' + esc(m.ad) + '</span>' +
+        '<span class="gv-summary-val"><span class="u-num">' + F.money(sayi(m.odeme), kur) + '</span>' +
+          sub(m.kod + ' · ' + m.tarih) + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  function ozetleriCiz(){ tutarOzetiCiz(); planOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    ad:'Sözleşme adı', musteri:'Müşteri', musteriAd:'Müşteri unvanı', teklif:'Bağlı teklif',
+    proje:'Bağlı proje', tutar:'Sözleşme bedeli', kdvOran:'KDV oranı', kdv:'KDV tutarı',
+    toplam:'Genel toplam', doviz:'Para birimi', imzaTarihi:'İmza tarihi',
+    baslangic:'Başlangıç tarihi', bitis:'Bitiş tarihi', durum:'Sözleşme durumu',
+    odemePlani:'Ödeme planı', garanti:'Garanti süresi', yenileme:'Yenileme koşulu',
+    yenilemeTarihi:'Yenileme tarihi', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.contracts.forEach(function(x){
+      var m = /^SZL-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    var n = String(max + 1);
+    while(n.length < 3) n = '0' + n;
+    return 'SZL-' + String(DB.today).slice(0,4) + '-' + n;
+  }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')    return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'yenileme') return v ? 'Yenilemeye açık' : 'Yenilemesiz';
+    if(k === 'kdvOran')  return '%' + v;
+    if(k === 'musteri'){ var c = musteriBul(v); return c ? c.unvan : String(v); }
+    if(k === 'proje')    return DB.projName(v) + ' (' + v + ')';
+    if(['tutar','kdv','toplam'].indexOf(k) !== -1) return F.money(v);
+    if(['imzaTarihi','baslangic','bitis','yenilemeTarihi'].indexOf(k) !== -1) return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.ad         = String(v.ad || '').trim();
+    v.odemePlani = String(v.odemePlani || '').trim();
+    v.garanti    = String(v.garanti || '').trim();
+    v.teklif     = v.teklif || null;
+    v.proje      = v.proje || null;
+    v.doviz      = v.doviz || 'TRY';
+
+    /* Müşteri unvanı kayda müşteri kartından YAZILIR; ikinci bir eksen açılmaz. */
+    var mus = musteriBul(v.musteri);
+    v.musteriAd = mus ? mus.unvan : (duzenle ? kayit.musteriAd : '');
+
+    /* Para zinciri: net girilir, KDV ve brüt hesaplanır (components.md §9b). */
+    v.tutar   = sayi(v.tutar);
+    v.kdvOran = sayi(v.kdvOran);
+    var z = kdvZinciri(v.tutar, v.kdvOran);
+    v.kdv     = z.kdv;
+    v.toplam  = z.brut;
+
+    v.yenileme       = !!v.yenileme;
+    v.yenilemeTarihi = v.yenileme ? (v.yenilemeTarihi || null) : null;
+    v.aktif          = !!v.aktif;
+    return v;
+  }
+
+  /* Bu form taksit, fatura ve proje kaydı YAZMAZ. Girilen bedel bağlı kayıtlarla
+     çelişiyorsa kullanıcı kaydetmeden önce açıkça uyarılır (components.md §9b). */
+  function dengeUyarilari(v){
+    var kur = kurSim(v.doviz);
+    var out = [];
+
+    if(taksitler.length){
+      var toplam = taksitToplam(taksitler);
+      if(toplam !== v.tutar){
+        out.push('Ödeme planı: ' + taksitler.length + ' taksitin toplamı ' + F.money(toplam, kur) +
+                 ', yeni sözleşme bedeli ' + F.money(v.tutar, kur) + ' (ikisi de KDV hariç); fark ' +
+                 F.money(Math.abs(toplam - v.tutar), kur) + '. Taksitler bu formdan güncellenmez.');
+      }
+    }
+    if(faturalar.length && faturaNet > v.tutar){
+      out.push('Faturalama: bu sözleşmeye kesilmiş ' + faturalar.length + ' faturanın net toplamı ' +
+               F.money(faturaNet, kur) + ', yeni bedelin (' + F.money(v.tutar, kur) + ') üstünde.');
+    }
+    var p = v.proje ? DB.proj(v.proje) : null;
+    if(p && sayi(p.sozlesmeTutari) !== v.tutar){
+      out.push('Proje kaydı: ' + p.kod + ' kaydındaki sözleşme tutarı ' +
+               F.money(sayi(p.sozlesmeTutari), kur) + ', yeni bedel ' + F.money(v.tutar, kur) +
+               ' (ikisi de KDV hariç). Proje kaydı bu formdan güncellenmez.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. `yenilemeTarihi`
+         yalnız yenilemeye açık kayıtta doğar — veride de öyle (yenilemesiz
+         kayıtlarda anahtar hiç yok). */
+      var yeni = {
+        kod:kod, musteri:v.musteri, musteriAd:v.musteriAd, teklif:v.teklif, proje:v.proje,
+        ad:v.ad, tutar:v.tutar, kdvOran:v.kdvOran, kdv:v.kdv, toplam:v.toplam, doviz:v.doviz,
+        imzaTarihi:v.imzaTarihi, baslangic:v.baslangic, bitis:v.bitis, durum:v.durum,
+        odemePlani:v.odemePlani, garanti:v.garanti, yenileme:v.yenileme, aktif:v.aktif
+      };
+      if(v.yenileme) yeni.yenilemeTarihi = v.yenilemeTarihi;
+
+      DB.contracts.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Sözleşme oluşturuldu — ' + v.musteriAd + ' · ' +
+              F.money(v.tutar, kurSim(v.doviz)) + ' (KDV hariç)',
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-sozlesme.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Bağlı kayıtlarla denge bozulacak',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz sözleşme yeni bedelle yazılır, bağlı kayıtlar olduğu ' +
+           'gibi kalır ve dengeyi ilgili ekranlardan düzeltmeniz gerekir.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — bağlı kayıtlarla denge korundu', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Finans',
+    title:basligi,
+    sub: duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-sozlesme.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
