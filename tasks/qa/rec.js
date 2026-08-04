@@ -67,6 +67,9 @@ const MAP = {
   'app-personel-form.html': 'employees',
   'app-izin-form.html': 'leaves',
   'app-sozlesme-form.html': 'contracts',
+  'app-fatura-form.html': 'invoices',
+  'app-siparis-form.html': 'orders',
+  'app-tedarikci-form.html': 'suppliers',
 };
 
 /* Kaydın GERÇEKTEN yüklendiğinin ölçütü.
