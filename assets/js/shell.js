@@ -641,6 +641,7 @@
     'app-fatura.html',
     'app-fatura-detay.html',
     'app-tahsilat.html',
+    'app-tahsilat-detay.html',
     'app-butce.html',
     'app-sohbet.html',
     'app-ajanda.html',
