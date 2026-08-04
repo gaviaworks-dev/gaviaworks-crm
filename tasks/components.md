@@ -116,14 +116,46 @@ yüzde olarak inline `style` ile verilir (tek istisna; renk yine token'dan gelir
 ## 4. Form Bileşeni — `GV.form(config)`
 
 ```js
-GV.form({ sections:[{title, fields:[{key,label,type,required,hint,validate,cols}]}],
-          record, onSubmit, submitLabel })
+var form = GV.form({
+  mount:'#formMount',
+  id:'lead',                                   // beforeunload anahtarı — aynı sayfada iki form varsa şart
+  record: kayit || {},                         // boş/atlanmış = yeni kayıt modu
+  sections:[{ title, desc, fields:[
+    { key, label, type, required, hint, placeholder, cols,   // cols: 12'lik ızgarada genişlik (varsayılan 6)
+      options,                                               // select / radio: ['A','B'] ya da [{value,label}]
+      min, max, rows, currency, multiple,
+      validate:function(value, data){ return 'hata metni' || ''; } }   // çapraz alan doğrulaması
+  ]}]
+});
 ```
-- Alan tipleri: text, textarea, select, multiselect, date, daterange, number, money,
-  percent, switch, radio, checkbox, file, user, customer, project, tags, richtext
-- Doğrulama: zorunlu, tip, aralık, tarih mantığı (bitiş ≥ başlangıç), çapraz alan
-- Hata özeti + alan altı mesaj + ilk hatalı alana odak
-- Kaydetmeden çıkışta uyarı
+
+**⚠️ `onSubmit` ve `submitLabel` diye seçenek YOKTUR.** Bileşen kaydet butonu **basmaz** —
+butonu sayfa `GV.pageHead` aksiyonlarına ya da form altına kendisi koyar ve dönüş nesnesini çağırır:
+
+| Dönüş | Ne yapar |
+|---|---|
+| `form.submit()` | Doğrular; hata varsa `null` döner + toast basar + **ilk hatalı alana odaklanır**. Temizse `dirty`'yi düşürür ve **alan değerlerini nesne olarak** döndürür |
+| `form.validate()` | Yalnız doğrular, hata dizisi döner |
+| `form.read()` | Doğrulamadan ham değerleri okur |
+| `form.isDirty()` | Kaydedilmemiş değişiklik var mı |
+| `form.setDirty(false)` | Kaydettikten sonra uyarıyı kapatmak için |
+| `form.el` | Mount düğümü |
+
+**Gerçekten çalışan alan tipleri:** `text` · `textarea` · `select` · `radio` · `checkbox` ·
+`switch` · `file` · `money` (₺ soneki) · `percent` (% soneki) · `date` · `number` · `email` ·
+`tel` · `url`. **Tanımsız bir tip verilirse sessizce `text` olur** — `multiselect`, `daterange`,
+`tags`, `user`, `customer`, `project`, `richtext` **yoktur**; çoklu seçim gerekiyorsa `select`
++ çip listesi ya da `checkbox` grubu kurulur ve eksik bileşen rapor edilir.
+
+**Yerleşik doğrulama:** zorunlu alan · e-posta · telefon (≥10 hane) · url (http/https) ·
+`min`/`max` sayı aralığı · alan bazlı `validate(value, data)`. Tarih mantığı (bitiş ≥ başlangıç)
+**yerleşik değildir**, `validate` ile kurulur.
+
+**Hata sunumu:** form üstünde özet kutusu (`.form-err-summary`) + alan altı mesaj (`.f-err`) +
+ilk hatalı alana odak + özet kutusuna kaydırma. Hepsi bileşende, sayfada yeniden yazılmaz.
+
+**Kaydetmeden çıkış uyarısı** `beforeunload` ile bileşende kurulur ve `GV.on` üzerinden
+**tekil anahtarla** bağlanır (`cfg.id`) — `GV.refresh()` sonrası dinleyici birikmez (ders L-16).
 
 ---
 
