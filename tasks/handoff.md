@@ -131,8 +131,10 @@ ekranı "kırık" sayıyordu). Güncel set `components.md` §10'da.
   ikinci liste örneği kurulamıyor, bu yüzden `app-egitim` matrisi elle yazıldı.
 - **UID-07** — toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor, yalnız toast basıyor.
 
-**Oturum sonu tam tarama:** `gate.js` 370 sayfa yüklemesi (74 ekran × 5 rol) —
-konsol hatası 0, boş sayfa 0, kırık istek 0. `canon.js` 227 kontrol temiz.
+**Oturum sonu tam tarama (koşuldu, sonuç ölçüldü):**
+`gate.js` 370 sayfa yüklemesi (74 ekran × 5 rol: sahip 74 açık · pm 44 · destek 24 ·
+muhasebe 45 · stajyer 14) — konsol hatası 0, boş sayfa 0, kırık istek 0, boş sayfa 0.
+Ek olarak `idari` rolüyle 74 ekran daha tarandı (36 açık / 38 → 403), yine temiz. `canon.js` 227 kontrol temiz.
 `dbref.js` ve `links.js` temiz. Dört yeni ekranın hepsi canlıda (HTTP 200).
 
 **Ölçü:** 74 ekran · 30.294 satır (ortalama 409 satır/ekran).
