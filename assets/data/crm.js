@@ -40,7 +40,20 @@ DB.pipelineStages = [
 DB.lostReasons = ['Bütçe yetersiz','Rakip tercih edildi','Proje ertelendi','İhtiyaç değişti',
   'İç kaynakla yapıldı','Zamanlama uymadı','İletişim kesildi','Kapsam uyuşmazlığı'];
 
-/* ---- Yönlendiren kişiler (PROMPT.md §9) ------------------------------ */
+/* ---- Yönlendiren kişiler (PROMPT.md §9) ------------------------------
+   EKSENLER — üçü de ölçülerek doğrulandı (8 kaydın 8'i):
+   · `hakedis` = Σ DB.commissions[referans].tutar · `odenen` = Σ durum:'Ödendi'
+     · `bekleyen` = hakedis − odenen. Üçü de komisyon kayıtlarından TÜRETİLİR (L-08),
+       burada yazılı olmaları ömür boyu kart sayacı olduklarındandır.
+   · `donusum` = round(kazanilan / yonlendirme × 100).
+   · `yonlendirme` · `kazanilan` · `kaybedilen` · `ciro` **ÖMÜR BOYU** sayaçlardır:
+     CRM'deki bağlı kayıt sayısından küçük olamaz, büyük olabilir (sistem öncesi
+     yönlendirmeler). Ölçüldü: Σ yonlendirme 45, `DB.leads[].referans` bağı olan
+     aday 10; `ciro` 8 kaydın 4'ünde bağlı müşterilerin `toplamCiro` toplamından
+     büyük, hiçbirinde küçük değil.
+   · `ciro` **NET** eksendedir (KDV hariç) — `DB.customers[].toplamCiro` ile aynı.
+     Doğrulama: REF-002 ciro 2.080.000 = bağlı müşterilerin toplamCiro'su;
+     KOM-2026-001 = 640.000 × %5 = 32.000. `sabitBedel` de NET. */
 DB.referrers = [
   { kod:'REF-001', ad:'Hakan Demirtaş', tur:'Mevcut müşteri', firma:'Deniz Lojistik A.Ş.', pozisyon:'Bilgi İşlem Müdürü',
     tel:'+90 533 100 00 01', eposta:'hakan@denizlojistik.com', sorumlu:'EMP-002',
