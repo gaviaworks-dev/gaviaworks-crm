@@ -16,6 +16,7 @@
 | L-10 | Yüzeye yapışık bir öğeye kendi rengini vermek dikiş yaratır | Bir öğe komşu yüzeyin **uzantısı** gibi görünecekse rengi o yüzeyin token'ından alır ve yüzeyin kenarlığını **örtecek kadar** içeri taşar. Yüzey duruma göre değişiyorsa (menü açık/kapalı) renk kuralı da her durum için yazılır | 2026-08-04 |
 | L-11 | Aç/kapa butonu sınıf varlığına göre karar veriyordu; 981–1180 px aralığında varsayılan kapalı olduğu için ilk tıklama boşa gidiyordu | Aç/kapa mantığı **sınıf varlığına değil, o kırılımdaki gerçek duruma** bakar (`matchMedia` + kırılıma özgü sınıf). `aria-expanded` bu durumdan türetilir ve `resize`'da yeniden senkronlanır | 2026-08-04 |
 | L-12 | Ekran config'i `DB.priorities` okuyordu ama sayfa `work.js`'i yüklemiyordu; gelişmiş filtre **açılınca** patlıyordu, sayfa açılışında değil | Ekranın okuduğu her `DB.<koleksiyon>` için o koleksiyonun tanımlı olduğu veri dosyası sayfada yüklü olmalı. Sayfa açılışına bakan QA bunu göremez — statik tarayıcı her wave sonunda koşulur (`dbref.js`) | 2026-08-04 |
+| L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
 
@@ -123,3 +124,17 @@ her wave sonunda taranır (`scratchpad/dbref.js` — koleksiyon → dosya sahipl
 `assets/data/*.js`'ten çıkarır, her ekranın yüklediğiyle karşılaştırır).
 (c) Daha genel ders: **açılış QA'si yeterli değil.** Bir ekranın gelişmiş filtresi, satır
 aksiyonu, toplu işlemi ve modalı en az bir kez tetiklenmeden "temiz" denmez.
+
+## L-13 · Bağlantı alanı tekilse taranır, para alanı net mi brüt mü yazılır
+**Olay:** `DB.invoices[].milestone` ile ödeme planı zinciri kurulurken iki fatura
+(`FTR-2026-024` ve `FTR-2026-025`) aynı `MS-002`'ye bağlı çıktı. FTR-024'ün tarihi ve
+tutarı aslında `MS-001`e aitti; sonuç olarak tamamlanmış bir milestone "faturası kesilmemiş"
+görünüyordu — ekranda gerçek bir finans riski gibi okunacaktı.
+İkinci hata: `DB.milestones[].odeme` beş kayıtta faturanın **brüt** (KDV dahil), dört kayıtta
+**net** tutarıydı. Aynı alanda iki konvansiyon.
+**Kural:** (a) Bir kaydı diğerine bağlayan alan mantıken tekilse (bir milestone = bir fatura)
+bu **tarama script'inde doğrulanır**, yorumda "tekil olmalı" demek yetmez.
+(b) Para alanının net mi brüt mü olduğu koleksiyonun başındaki yorumda **yazılı** olur;
+yazılı değilse ilk yeni ekran iki farklı yorumla iki farklı sayı gösterir.
+(c) Bu çelişkiyi bulan şey yine yeni bir ekranın eski veriyi sorgulamasıydı — L-08 tekrar
+doğrulandı: **ekran değil veri düzeltilir.**
