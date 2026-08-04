@@ -373,15 +373,21 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 durumda** — subagent'a doğrudan verilebilir.
 
 ### Sıradaki kuyruk (öncelik sırasıyla)
-1. **Wave 9 kalanı:** `app-destek-sla` · `app-destek-paket` · `app-destek-memnuniyet`
-2. **Wave 10 kalanı:** `app-dokuman-sure` · `app-toplanti-karar`
-3. **İK/satın alma kalanı:** `app-zaman-onay` · `app-egitim` · `app-satinalma-teklif` · `app-odemeplani`
-4. **Proje alt ekranları:** `app-proje-milestone` · `-sprint` · `-test` · `-hata` · `-degisiklik` · `-teslim`
-5. **Detay ekranları** — kalıp `app-gorev-detay.html`. Öncelik: müşteri (15 sekme), proje (22 sekme),
-   lead, teklif, personel, araç, satın alma, destek. **Gantt CSS'i (`.gv-gantt`) burada kullanılacak.**
-6. **Form ekranları** — `GV.form({sections:[...]})` hazır; her liste ekranının `-form.html` karşılığı.
-7. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının doğrulanması ·
-   canonical tarama · 1440/768/390 tam tarama · kapanış raporu.
+`node tasks/qa/links.js` çıktısındaki "henüz üretilmemiş hedefler" listesi **canlı kuyruktur** —
+her zaman güncel, elle sayılmaz. Bu oturum sonunda 62 hedef bekliyordu.
+
+1. **İK / satın alma kalanı:** `app-odemeplani`
+2. **Proje alt ekranları:** `app-proje-milestone` · `-sprint` · `-test` · `-hata` ·
+   `-degisiklik` · `-teslim`
+3. **Detay ekranları** — kalıp `app-gorev-detay.html`. Öncelik: müşteri (15 sekme),
+   proje (22 sekme), lead, teklif, personel, araç, satın alma, destek.
+   **Gantt CSS'i (`.gv-gantt`) hâlâ kullanan ekran bekliyor** — proje detayının Gantt sekmesi.
+4. **Form ekranları** — `GV.form({sections:[...]})` hazır; her liste ekranının `-form.html` karşılığı.
+   Kuyruğun en kalabalık bölümü (30+ ekran), en şablonlaşabilir olanı da bu.
+5. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının
+   doğrulanması · canonical tarama · 1440/768/390 tam tarama · kapanış raporu.
+6. **FAZ: UI ve UX KALİTE GEÇİŞİ** — `ui-debt.md`'deki UID-02 · UID-03 · UID-04 · UID-05.
+   UID-01 kapandı. **Ekran üretimi bitmeden bu faza başlanmaz.**
 
 ### Bir sonraki oturuma özel uyarılar
 - Rapor ekranı yazdıracaksan subagent'a `scratchpad/rp-example.html` **veya** yayındaki
