@@ -2,13 +2,15 @@
    Kullanım: node tabs.js "app-x.html,app-y.html" [rol1,rol2]
    Açılış QA'si sekme içi hatayı göremez (lessons L-12 sınıfı). */
 const { chromium } = require('playwright');
+const LIB = require('./qa-lib');
 const BASE = 'http://127.0.0.1:8791/';
 
 (async () => {
-  const files = (process.argv[2] || '').split(',').map(s => s.trim()).filter(Boolean);
+  /* Hedef verilmezse rec.js'in doğruladığı gerçek kayıt kodları kullanılır (L-17) */
+  const files = LIB.expand(process.argv[2], 'detail');
   const roles = (process.argv[3] || 'sahip,stajyer').split(',').map(s => s.trim()).filter(Boolean);
   const browser = await chromium.launch();
-  let bad = 0, tabsTotal = 0;
+  let bad = 0, tabsTotal = 0, recOk = 0, recNeed = 0;
 
   for (const f of files) {
     for (const role of roles) {
@@ -23,6 +25,14 @@ const BASE = 'http://127.0.0.1:8791/';
 
       const denied = await page.evaluate(() => !!document.querySelector('.gv-403, [data-403]') ||
         /403|yetkiniz yok|erişim/i.test((document.querySelector('.gv-page') || {}).textContent || ''));
+
+      /* Kayıt gerçekten yüklendi mi? Yüklenmediyse ölçüm boş durum ekranınadır (L-17) */
+      const rc = await LIB.recCheck(page, f);
+      if (rc.need && !denied) {
+        recNeed++;
+        if (rc.ok) recOk++;
+        else errs.push('KAYIT YÜKLENMEDİ — ' + rc.why + ' (tarama bu ekranda geçersiz)');
+      }
 
       const tabs = await page.$$('[role="tab"], .gv-tabs button, .gv-tabs a');
       for (let i = 0; i < tabs.length; i++) {
@@ -39,11 +49,14 @@ const BASE = 'http://127.0.0.1:8791/';
 
       const tag = f + ' [' + role + ']';
       if (errs.length) { bad++; console.log('HATA ' + tag + ' (' + tabs.length + ' sekme)'); errs.slice(0, 6).forEach(e => console.log('   ' + e)); }
-      else console.log('ok   ' + tag + ' — ' + tabs.length + ' sekme' + (denied ? ' (403)' : ''));
+      else console.log('ok   ' + tag + ' — ' + tabs.length + ' sekme' + (denied ? ' (403)' : '') + (rc.need ? ' · kayıt ' + rc.why : ''));
       await ctx.close();
     }
   }
   await browser.close();
-  console.log(bad ? '\nHATALI: ' + bad : '\nTEMİZ — ' + tabsTotal + ' sekme tıklaması, hata yok');
+  console.log('\nTaranan ekran: ' + files.length + ' · yüklenen kayıt: ' + recOk + '/' + recNeed +
+              ' · sekme tıklaması: ' + tabsTotal);
+  if (recNeed && recOk < recNeed) console.log('UYARI — kayıt yüklenmeyen ekran var, tarama o ekranlarda GEÇERSİZ');
+  console.log(bad ? 'HATALI: ' + bad : 'TEMİZ — ' + tabsTotal + ' sekme tıklaması, hata yok');
   process.exit(bad ? 1 : 0);
 })();

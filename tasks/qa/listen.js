@@ -12,13 +12,14 @@
  * Kullanım: node listen.js "app-x.html,app-y.html" [rol]
  */
 const { chromium } = require('playwright');
+const LIB = require('./qa-lib');
 const BASE = 'http://127.0.0.1:8791/';
 
 (async () => {
-  const files = (process.argv[2] || '').split(',').map(s => s.trim()).filter(Boolean);
+  const files = LIB.expand(process.argv[2], 'all');
   const role = process.argv[3] || 'sahip';
   const browser = await chromium.launch();
-  let bad = 0;
+  let bad = 0, recOk = 0, recNeed = 0;
 
   for (const f of files) {
     const page = await browser.newPage();
@@ -46,6 +47,13 @@ const BASE = 'http://127.0.0.1:8791/';
     page.on('pageerror', e => errs.push(e.message));
     await page.goto(BASE + f + (f.indexOf('?') === -1 ? '?' : '&') + 'role=' + role, { waitUntil: 'networkidle' });
     await page.waitForTimeout(300);
+    const rc = await LIB.recCheck(page, f);
+    if (rc.need) {
+      recNeed++;
+      if (rc.ok) recOk++;
+      else { bad++; console.log('KAYIT YOK ' + f + ' — ' + rc.why + ' (tarama bu ekranda geçersiz)'); await page.close(); continue; }
+    }
+
     const before = await page.evaluate(() => ({ ...window.__cnt }));
 
     for (let i = 0; i < 3; i++) { await page.evaluate(() => GV.refresh()); await page.waitForTimeout(180); }
@@ -64,11 +72,12 @@ const BASE = 'http://127.0.0.1:8791/';
       console.log('HATA ' + f + ' — document dinleyici ' + before.document + ' → ' + after.document +
         (errs.length ? ' · ' + errs[0] : '') + (live === false ? ' · mount boş' : ''));
     } else {
-      console.log('ok   ' + f + ' — document ' + before.document + ' sabit, mount her turda taze');
+      console.log('ok   ' + f + ' — document ' + before.document + ' sabit, mount her turda taze' + (rc.need ? ' · kayıt ' + rc.why : ''));
     }
     await page.close();
   }
   await browser.close();
-  console.log(bad ? '\nSORUN — ' + bad + ' ekran' : '\nTEMİZ — ' + files.length + ' ekran, dinleyici birikmiyor');
+  console.log('\nTaranan ekran: ' + files.length + ' · yüklenen kayıt: ' + recOk + '/' + recNeed);
+  console.log(bad ? 'SORUN — ' + bad + ' ekran' : 'TEMİZ — ' + files.length + ' ekran, dinleyici birikmiyor');
   process.exit(bad ? 1 : 0);
 })();

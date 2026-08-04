@@ -9,13 +9,14 @@
  * Kullanım: node mut.js "app-x.html,app-y.html" [rol]
  */
 const { chromium } = require('playwright');
+const LIB = require('./qa-lib');
 const BASE = 'http://127.0.0.1:8791/';
 
 (async () => {
-  const files = (process.argv[2] || '').split(',').map(s => s.trim()).filter(Boolean);
+  const files = LIB.expand(process.argv[2], 'all');
   const role = process.argv[3] || 'sahip';
   const browser = await chromium.launch();
-  let bad = 0;
+  let bad = 0, recOk = 0, recNeed = 0;
 
   for (const f of files) {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -33,6 +34,13 @@ const BASE = 'http://127.0.0.1:8791/';
       apps: document.querySelectorAll('.gv-app').length,
       hasRefresh: typeof (window.GV || {}).refresh === 'function',
     }));
+
+    const rc = await LIB.recCheck(page, f);
+    if (rc.need) {
+      recNeed++;
+      if (rc.ok) recOk++;
+      else { bad++; console.log('KAYIT YOK ' + f + ' — ' + rc.why + ' (tarama bu ekranda geçersiz)'); await ctx.close(); continue; }
+    }
 
     if (!before.hasRefresh) {
       console.log('HATA ' + f + ' — GV.refresh tanımlı değil');
@@ -52,7 +60,11 @@ const BASE = 'http://127.0.0.1:8791/';
       recEmpty: (() => { const r = document.getElementById('rec'); return r ? r.innerHTML.trim().length < 40 : null; })(),
     }));
 
+    /* Tazeleme kaydı düşürmemeli — düşerse ekran refresh sonrası boş duruma iner */
+    const rcAfter = await LIB.recCheck(page, f);
+
     const probs = [];
+    if (rc.need && !rcAfter.ok) probs.push('2× refresh sonrası kayıt kayboldu (' + rcAfter.why + ')');
     if (after.heads > 1) probs.push('sayfa başlığı çoğaldı (' + after.heads + ')');
     if (after.apps > 1) probs.push('.gv-app çoğaldı (' + after.apps + ')');
     if (after.recEmpty === true) probs.push('#rec boşaldı');
@@ -64,6 +76,7 @@ const BASE = 'http://127.0.0.1:8791/';
     await ctx.close();
   }
   await browser.close();
-  console.log(bad ? '\nSORUN — ' + bad + ' ekran' : '\nTEMİZ — ' + files.length + ' ekran, GV.refresh idempotent');
+  console.log('\nTaranan ekran: ' + files.length + ' · yüklenen kayıt: ' + recOk + '/' + recNeed);
+  console.log(bad ? 'SORUN — ' + bad + ' ekran' : 'TEMİZ — ' + files.length + ' ekran, GV.refresh idempotent');
   process.exit(bad ? 1 : 0);
 })();
