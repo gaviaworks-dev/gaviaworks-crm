@@ -7,7 +7,7 @@
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
 > ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
-**Güncelleme:** 2026-08-04 (3. oturum) · **68 ekran canlıda** · **Wave 1, 9, 11, 12 TAMAM.**
+**Güncelleme:** 2026-08-04 (3. oturum) · **74 ekran canlıda** · **Wave 1, 9, 10, 11, 12 TAMAM.**
 
 ---
 
@@ -79,8 +79,10 @@ değil `matchMedia` ile gerçek duruma bakıyor — 981–1180 px'teki "ilk tık
 hatası da böyle düzeldi. Ölçüm: `scratchpad/grip-qa.js`. Canlıda doğrulandı.
 Dersler: **L-09 · L-10 · L-11**.
 
-**Wave 9 destek modülü tamamlandı (3 ekran):**
-`app-destek-sla.html` · `app-destek-paket.html` · `app-destek-memnuniyet.html`
+**Bu oturumda üretilen ekranlar (9):**
+`app-destek-sla` · `app-destek-paket` · `app-destek-memnuniyet` (Wave 9 TAMAM) ·
+`app-toplanti-karar` · `app-dokuman-sure` (Wave 10 TAMAM) ·
+`app-zaman-onay` · `app-egitim` · `app-satinalma-teklif` · `app-odemeplani`
 
 **Ortak katmana eklenenler:**
 - `DB.slaPolicies` — kategori × öncelik SLA matrisi (dakika hedefleri). `DB.tickets[].sla`
@@ -91,6 +93,12 @@ Dersler: **L-09 · L-10 · L-11**.
   (yenilemesi yaklaşan ve süresi dolmuş durumlarını gerçekten üreten kayıtlar).
 - `DB.meetings` → 4 tamamlanmış geçmiş toplantı · `DB.decisions` → 9 yeni karar.
 - `GV.badge` sözlüğüne destek ve bakım durumları (8 değer).
+- **`GV.list` → `rowActions[].show(row)`** — satıra uymayan aksiyon hiç basılmaz
+  (iki ajan aynı boşluğu bildirdi; `onRender`'da DOM'dan buton silme deseni artık gereksiz).
+- `DB.timelogs` 2026-W31 haftası tamamlandı (14 → 45 kayıt): her timesheet'in `toplam` ve
+  `faturalanabilir` alanı artık kendi satırlarının toplamına **birebir** eşit.
+- `DB.supplierQuotes` 2 → 9 teklif (4 talebe yayılmış, biri teknik uygunsuz, biri tercihsiz).
+- `DB.documents` süresi dolmuş 2 kayıt · `DB.milestones` başına net/brüt sözleşmesi yazıldı.
 
 **Düzeltilen gerçek hatalar:**
 1. **Etkileşimde patlayan latent bug — 5 ekran.** Ekran config'i `DB.priorities` /
@@ -100,13 +108,28 @@ Dersler: **L-09 · L-10 · L-11**.
 2. **Canonical:** `DST-2026-120` `kalanDestek` 26 ↔ paket kalanı 62 çelişkisi.
 3. **Canonical:** 5 talepte `slaDurum` hesapla çelişiyordu; zaman damgaları gerçekçi
    hale getirildi ve `slaDurum` "iki eksenin kötüsü" kuralıyla yeniden yazıldı.
+4. **Canonical:** `FTR-2026-024` yanlış milestone'a bağlıydı → iki fatura tek milestone'a
+   düşüyor, tamamlanmış bir milestone "faturasız" görünüyordu. `DB.milestones[].odeme`
+   beş kayıtta brüt dört kayıtta netti; net'e sabitlendi (ders **L-13**).
+5. **Canonical:** timesheet'ler kendi zaman kayıtlarının toplamını tutmuyordu
+   (42 saatin yalnız 11'i kayıtlıydı).
+6. `app-toplanti.html` yeni görev kodunu dizi uzunluğundan türetiyordu (GRV-2026-325'e
+   atlıyordu); gerçek maksimum+1'e çevrildi.
 
 **QA script'leri yeniden kuruldu** (eskiler scratchpad silinince kaybolmuştu, ayrıca
 `qa-links.js` hatalıydı — kendi hardcode ettiği 8 sayfalık listeye göre yayındaki her
 ekranı "kırık" sayıyordu). Güncel set `components.md` §10'da.
 
-**Yeni borç kaydı:** UID-05 — `GV.perm.scope('gor')` liste ekranlarında uygulanmıyor
-(65+ ekran, ortak katmanda `GV.list` `scopeField` sözleşmesiyle çözülecek).
+**Yeni borç kayıtları:**
+- **UID-05** — `GV.perm.scope('gor')` liste ekranlarında uygulanmıyor (65+ ekran;
+  `GV.list` `scopeField` sözleşmesiyle çözülecek).
+- **UID-06** — `GV.list` sayfa başlığı sayacı global (`[data-listcount]`); aynı sayfada
+  ikinci liste örneği kurulamıyor, bu yüzden `app-egitim` matrisi elle yazıldı.
+- **UID-07** — toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor, yalnız toast basıyor.
+
+**Son tam tarama (bu oturum):** `gate.js` 355 sayfa yüklemesi (71 ekran × 5 rol) —
+konsol hatası 0, boş sayfa 0, kırık istek 0. `canon.js` 227 kontrol temiz.
+`dbref.js` ve `links.js` temiz.
 
 ## 2. ORTAK KATMANIN MEVCUT DURUMU
 
