@@ -353,7 +353,7 @@ yerde `.is-empty` + `—` alır. Dokuz ekranın yerel `dl()` fonksiyonu silinip 
 
 ---
 
-## VB-05 · Destek talebi → görev / hata / değişiklik bağ alanı veride yok
+## ✅ VB-05 · Destek talebi → görev / hata / değişiklik bağ alanı — ÇÖZÜLDÜ (2026-08-04)
 
 **Nerede:** `DB.tasks` · `DB.bugs` · `DB.changeRequests` — hiçbirinde `talep` (DST-*) alanı yok.
 
@@ -404,7 +404,7 @@ ekseni eklenecek. **Nokta yaması yok** — dördü tek turda.
 
 ---
 
-## VB-07 · Sipariş → demirbaş aktarım bağı veride yok
+## ✅ VB-07 · Sipariş → demirbaş aktarım bağı — ÇÖZÜLDÜ (2026-08-04)
 
 **Nerede:** `DB.assets` — sipariş bağı alanı (`siparis`) hiçbir kayıtta yok, yalnız
 `tedarikci` var.
@@ -447,7 +447,7 @@ yeniden ölçülecek. **Nokta yaması yok.**
 
 ---
 
-## VB-08 · Kalite zincirinin hiçbir halkasında yazılı bağ yok
+## ✅ VB-08 · Kalite zincirinin yazılı bağları — ÇÖZÜLDÜ (2026-08-04)
 
 **Nerede:** `DB.tests` ↔ `DB.bugs` ↔ `DB.deliveries` ↔ `DB.projectModules` ↔ `DB.sprints`.
 
@@ -501,3 +501,56 @@ açıkça yasaklıyor: aynı kelimeler öncelik, etki ve müşteri riski eksenle
 sözlüğe konursa riski yüksek müşteri ile önceliği yüksek görev aynı rengi alır.
 Bu değerlerde `GV.badge(v,'is-danger')` ile **açık ton geçmek doğru kullanımdır**.
 Kayıt buraya, aynı öneri tekrar gelirse hızlı reddedilebilsin diye düşüldü.
+
+---
+
+## ÇÖZÜM KAYDI · VB-05 / VB-07 / VB-08 — 6. oturum, tek turda kapandı
+
+Üçü de aynı sınıftı: **modüller arası bağ veride yazılı değildi, ekranlar tahminle kuruyordu.**
+Ders **L-13** gereği bağ alanları veriye açık alan olarak yazıldı; çözüm ekranda değil veri
+katmanında yapıldı ve `canon.js`'e **eksen 15** olarak alındı (445 → **521 kontrol**, temiz).
+
+### Açılan bağ alanları
+| Alan | Yön | Not |
+|---|---|---|
+| `DB.tasks[].destek` · `DB.bugs[].destek` · `DB.changeRequests[].destek` | doğan kayıt → talep | Ad `talep` **olamazdı**: `changeRequests.talep` zaten "talebi açan taraf" ekseniydi (assumptions V-28) |
+| `DB.bugs[].test` · `DB.bugs[].sprint` | hata → koşum / sprint | `sprint` = hatanın **ele alındığı** sprint (V-32) |
+| `DB.tests[].moduller` · `DB.tests[].sprint` | koşum → kapsam | `moduller` **dizidir**, tekil `modul` değil (V-31) |
+| `DB.deliveries[].moduller` · `DB.deliveries[].test` | teslim → kapsam / kabul koşumu | Zincir artık test → hata → teslim → taksit olarak uçtan uca okunuyor |
+| `DB.assets[].siparis` | demirbaş → sipariş | Tek yön; siparişte ayna alan yok. `alisFiyati` **NET** ekseni yazıldı |
+
+### Bilinçli olarak AÇILMAYAN alan
+`DB.tasks[].hata` — ters yön (`DB.bugs[].gorev`) zaten yazılıydı. İki yönlü bağ ayrışır;
+`canon.js` bu alanın **doğmadığını** ayrıca kontrol eder (assumptions V-29).
+
+### Yan bulgular
+- **Şiddet→etki ihlali düzeltildi:** bağ yazılı olunca ölçülebildi — `HTA-2026-071` şiddet
+  `Kritik` iken `GRV-2026-101` etkisi `Yüksek`ti, `Çok yüksek` oldu (components.md §9 kuralı).
+- **Üç yeni demirbaş kaydı:** `SIP-2026-008` teslim alınmıştı ama envanter karşılığı yoktu
+  (`DMB-2026-013/014/015`, Σ net 28.500 = siparişin neti — assumptions V-33).
+- **Bağsız bırakılan 9 küme uydurulmadı**, gerekçeleri assumptions **V-30**'da tablo hâlinde.
+
+### Güncellenen ekranlar
+`app-destek-detay` (dönüşüm etiket eşleşmesi → `destek` alanı; üretilen görev de alanı yazar) ·
+`app-proje-hata-detay` (aday listeleri → yazılı kaynak koşum + kaynak talep) ·
+`app-proje-test-detay` (aday hata / tarihe en yakın teslim → yazılı bağ; kapsam modülleri) ·
+`app-proje-teslim-detay` (proje modül listesi → teslimin yazılı kapsamı + kabul koşumu) ·
+`app-siparis-detay` · `app-demirbas-detay` (tedarikçi eşleşmesi → yazılı sipariş bağı).
+
+---
+
+## VB-09 · `MOD-009` adı yasak inşaat terimi taşıyor
+
+**Nerede:** `assets/data/work.js` → `DB.projectModules`, `MOD-009` = **"Saha ekip yönetimi"**.
+
+**Sorun:** CLAUDE.md ve PROMPT.md §1 "saha" terimini açıkça yasaklıyor. Terim `app-proje-detay`,
+`app-proje-test-detay`, `app-proje-teslim-detay` ve proje raporlarında **modül adı olarak
+ekranda görünüyor**.
+
+**Neden şimdi düzeltilmedi:** VB-04 (`hakedis` → `komisyon` alan adı rename'i) ile **aynı sınıf**
+ve aynı turda yapılmalı; ikisi de canonical taramaya ve ekran metinlerine dokunuyor, parça
+parça yapılırsa tarama iki kez yanılır.
+
+**Çözüm (VB-04 ile aynı turda):** Modül adı yazılım terminolojisine çevrilecek
+("Mobil ekip yönetimi" / "Ekip operasyon yönetimi"); `DB.projectModules` dışında bu adı **metin
+olarak** taşıyan yer var mı diye tam metin taraması yapılacak.

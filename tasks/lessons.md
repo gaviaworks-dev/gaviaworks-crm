@@ -16,6 +16,7 @@
 | L-10 | Yüzeye yapışık bir öğeye kendi rengini vermek dikiş yaratır | Bir öğe komşu yüzeyin **uzantısı** gibi görünecekse rengi o yüzeyin token'ından alır ve yüzeyin kenarlığını **örtecek kadar** içeri taşar. Yüzey duruma göre değişiyorsa (menü açık/kapalı) renk kuralı da her durum için yazılır | 2026-08-04 |
 | L-11 | Aç/kapa butonu sınıf varlığına göre karar veriyordu; 981–1180 px aralığında varsayılan kapalı olduğu için ilk tıklama boşa gidiyordu | Aç/kapa mantığı **sınıf varlığına değil, o kırılımdaki gerçek duruma** bakar (`matchMedia` + kırılıma özgü sınıf). `aria-expanded` bu durumdan türetilir ve `resize`'da yeniden senkronlanır | 2026-08-04 |
 | L-12 | Ekran config'i `DB.priorities` okuyordu ama sayfa `work.js`'i yüklemiyordu; gelişmiş filtre **açılınca** patlıyordu, sayfa açılışında değil | Ekranın okuduğu her `DB.<koleksiyon>` için o koleksiyonun tanımlı olduğu veri dosyası sayfada yüklü olmalı. Sayfa açılışına bakan QA bunu göremez — statik tarayıcı her wave sonunda koşulur (`dbref.js`) | 2026-08-04 |
+| L-17 | Beş QA script'i `?id=KOD` olan hedefe `?role=` ekleyince adres bozuluyordu; detay ekranları "kayıt yok" durumunda ölçülmüş, sonuç yine de "TEMİZ" çıkmıştı | Araç hedefe parametre eklerken ayracı duruma göre seçer (`?` / `&`). Genel kural: **test aracının "temiz" demesi doğru şeyi ölçtüğü anlamına gelmez** — araç, sonucu önceden bilinen bir kayıtla bir kez sınanır | 2026-08-04 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -196,3 +197,21 @@ add − remove farkını sayar; 20 detay ekranında sabit kalması doğrulandı.
 (d) Genel ders: **bir hatanın çözümü yeni bir hata sınıfı açabilir.** L-15'i kapatan
 değişiklik ölçülmeden "tamam" denmedi — ölçüm bu ikinci hatayı ortaya çıkardı.
 
+
+## L-17 · QA script'i hedefe kendi parametresini eklerken var olan sorguyu bozabilir
+**Olay:** Beş QA script'i (`tabs.js` · `esc.js` · `mut.js` · `listen.js` · `gate.js`) hedef
+adresi `BASE + f + '?role=' + role` diye kuruyordu. Detay ekranları `app-x-detay.html?id=KOD`
+biçiminde çağrıldığı için adres `?id=KOD?role=sahip` oluyordu: ikinci `?` ayraç sayılmaz,
+`id` parametresinin **değeri** `KOD?role=sahip` olarak okunuyordu. Kayıt bulunamıyor, sayfa
+"kayıt yok" durumunu basıyor ve script bunu **temiz** sayıyordu.
+**Ölçüm:** `app-destek-detay.html?id=DST-2026-118` düzeltmeden önce **2 sekme**, düzeltmeden
+sonra **6 sekme** raporladı. Yani 25 detay ekranının sekme, escape, mutasyon ve dinleyici
+testlerinin bir bölümü aslında **boş durum ekranını** ölçmüştü.
+**Neden fark edilmedi:** Script hata vermiyordu — "TEMİZ" yazıyordu. 5. oturumun handoff
+kaydındaki "25 detay ekranının hepsi tabs.js'ten geçti" cümlesi bu yüzden yanıltıcıydı.
+**Kural:** (a) Bir araç hedef adrese parametre ekliyorsa ayracı **duruma göre** seçer:
+`f.indexOf('?') === -1 ? '?' : '&'`. (b) Daha genel ve önemlisi: **bir test aracının "temiz"
+demesi, doğru şeyi ölçtüğü anlamına gelmez.** Araç en az bir kez, sonucu **önceden bilinen**
+bir kayıtla sınanır — "6 sekme görmeliyim, 6 gördüm mü?" Bu, L-14 ("konsol temiz ≠ ekran
+doğru") ve L-15 ("toast çıktı ≠ işlem oldu") kuralının **araç tarafındaki üçüncü ikizidir**:
+ölçüm aracının kendisi de ölçülmeden güvenilmez.

@@ -227,3 +227,58 @@ evrenini değil 25 temsili görevi tutar; `gorevSayisi` sprintin gerçek görev 
 **Kural:** `gorevSayisi >= o sprinte bağlı DB.tasks kaydı` — `canon.js` eksen 12 doğrular.
 Ekranlar iki sayıyı aynı kolonda göstermez; modellenmiş kayıt "kayıtlı görev" diye ayrı
 etiketlenir. Görev evreni genişletilirse bu istisna kalkar.
+
+## V-28 · Destek dönüşüm bağının adı `destek`, `talep` değil (VB-05)
+**Sorun:** `DB.changeRequests[].talep` alanı **zaten vardı** ve başka bir ekseni tutuyordu —
+talebi açan taraf (`'Müşteri'` | `'İç ekip'`). Aynı ada destek talebi kodu yazmak, tek alanda
+iki konvansiyon demek olurdu (ders L-13 doğrudan bunu yasaklıyor).
+**Karar:** Destek talebi bağının adı projenin her yerinde **`destek`**tir:
+`DB.tasks[].destek` · `DB.bugs[].destek` · `DB.changeRequests[].destek`. Bağ **doğan kaydın**
+üstünde tutulur, talepte ayna alan yoktur; dönüşümler `X.filter(r => r.destek === kod)` ile okunur.
+
+## V-29 · Hata ↔ görev bağı tek yönlüdür — `DB.tasks[].hata` açılmadı
+**Durum:** `ui-debt.md` VB-05 "`DB.tasks[].hata` hiçbir kayıtta yazılı değil" diyordu; ölçüldü,
+ters yön **zaten yazılıydı**: `DB.bugs[].gorev = 'GRV-2026-101'`.
+**Karar:** Ayna alan **açılmadı**. İki yönlü bağ zamanla ayrışır ve hangisinin doğru olduğu
+belirsizleşir; tek kaynak `DB.bugs[].gorev`'dir. `canon.js` eksen 15 `DB.tasks[].hata`
+alanının **doğmadığını** ayrıca kontrol eder — kural yazıyla değil taramayla korunur.
+**Yan düzeltme:** Bağ yazılı olduğu için şiddet→etki eşlemesi ihlali ölçülebilir hâle geldi ve
+düzeltildi: `HTA-2026-071` şiddet `Kritik` iken `GRV-2026-101` etkisi `Yüksek`ti, `Çok yüksek` oldu.
+
+## V-30 · Bağsız bırakılan kayıtlar — uydurulmadı, gerekçesi burada
+**Kural:** Bağ alanı açıldı diye her kayda bir bağ yazılmaz. Aşağıdakiler **bilinçli olarak boş**:
+
+| Kayıt | Neden bağsız |
+|---|---|
+| `DST-2026-119` → hata | "Test ortamında bildirimler gelmiyor" ile `HTA-2026-073` "Bildirim zamanı yanlış saat diliminde" **farklı belirtiler**; hata talepten iki gün **önce** ve başka bir kişi tarafından bulundu. Aynı olay olabilir ama kanıt yok |
+| `DST-2026-120` → görev / değişiklik | Ücretli geliştirme talebi, durumu "Müşteri bekleniyor" — ek teklif onayı bekliyor. Karşılık gelen görev ya da değişiklik talebi henüz **doğmadı**; `PRJ-2025-008` için kayıt yok |
+| `DST-2026-117` · `121` · `123` → hiçbiri | Bilgi talebi ve kullanım sorusu kategorileri kayıt doğurmaz |
+| `HTA-2026-076` → test | `TST-2026-021` ile aynı gün ve aynı modül, ama koşumu **EMP-009** yaptı, hatayı **EMP-016** buldu. Tarih+modül yakınlığı bağ değildir |
+| `TST-2026-019` · `TST-2026-021` → hata | İkisinin de başarısız senaryosu var (2 ve 3) ama karşılık gelen hata kaydı veride yok. Her düşen senaryo hata kaydı doğurmak zorunda değildir; sözleşme `bağlı hata ≤ basarisiz` |
+| `TST-2026-020` · `TST-2026-022` → sprint | Koşum tarihleri (2026-07-26 ve 2026-08-20) **hiçbir** sprint aralığına düşmüyor. En yakın sprinte yuvarlamak tarihten türetme olurdu |
+| `SIP-2026-007` · `SIP-2026-009` → demirbaş | Biri OpenAI API kredi paketi, diğeri ofis sarf malzemesi — ikisi de envanter kaydı doğurmaz. `DMB-2025-010` (AWS hesabı) aynı tedarikçiden ama **2025-01-01 alımı**, bu siparişten gelmiyor |
+| 2024–2025 demirbaşları → sipariş | Sipariş kayıtları 2026'dan başlıyor; eski alımların sipariş karşılığı prototipte modellenmedi |
+| `TSL-2026-032` → modül | `PRJ-2026-004`'ün modül kırılımı veride yok; kapsam boş dizi, proje ekseninde okunur |
+
+## V-31 · Teslim ve koşum kapsamı `moduller` **dizisidir**, tekil `modul` değil
+**Karar:** `ui-debt.md` VB-08 `DB.tests[].modul` (tekil) yazıyordu. Ölçüldü: `TST-2026-018`
+mobil regresyon koşumu **üç modülü birden** tarıyor (açtığı üç hata MOD-001/002/003'te).
+Tekil alan bu koşumu temsil edemezdi. Alan `moduller` **dizisi** olarak açıldı; aynı gerekçeyle
+`DB.deliveries[].moduller` de dizidir. Boş dizi "kapsam bilinmiyor" değil, **"projenin modül
+kırılımı yok, kapsam proje ekseninde"** demektir.
+
+## V-32 · `DB.bugs[].sprint` = hatanın **ele alındığı** sprint
+**Karar:** Alan iki türlü okunabilirdi (açıldığı sprint / düzeltildiği sprint). Tek eksen seçildi:
+**ele alındığı** sprint. Kapanmış hatada düzeltmenin yapıldığı, açık hatada içinde bulunulan sprint.
+Bu seçim `HTA-2026-075` ile zorunlu oldu: hata 2026-07-18'de bulundu, o tarih **hiçbir** sprint
+aralığında değil; 2026-07-24'te `SPR-2026-020` içinde çözüldü. "Açıldığı sprint" ekseni bu kaydı
+bağsız bırakırdı. Eksen `work.js` → `DB.bugs` başlığında yazılıdır.
+
+## V-33 · Yeni demirbaş kayıtları — `SIP-2026-008` karşılığı (VB-07)
+**Karar:** `SAT-2026-012` (3 adet ergonomik sandalye) → `SIP-2026-008` 2026-07-30'da "Tam"
+teslim kontrolüyle kapanmıştı ama envanter karşılığı **yoktu**. Üç demirbaş eklendi:
+`DMB-2026-013/014/015`, kategori "Ofis mobilyası", tedarikçi TDR-005.
+**Para ekseni ölçüldü ve yazıldı:** `alisFiyati` **NET**tir — 3 × 9.500 = 28.500 = siparişin
+`tutar` alanı (brüt 34.200 **değil**). `canon.js` eksen 15 bu toplamı her turda doğrular.
+İkisi zimmetli (EMP-011, EMP-012), biri depoda — üç sandalyenin üçünü de zimmetlemek
+zimmet sayısını gerçek dışı şişirirdi.

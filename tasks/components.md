@@ -251,6 +251,9 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.surveys` | `ops.js` | Bir müşterinin **yanıtlanmış** anketlerinin `puan` ortalaması = `DB.customers[].memnuniyet` (arşivli anketler dahil). `tur:'Destek talebi'` anketin puanı = `DB.tickets[].memnuniyet`. `durum:'Bekliyor'` → `puan`/`tavsiye` null, ortalamaya girmez. `tavsiye` 0-10 NPS: 9-10 destekleyici · 7-8 nötr · 0-6 kötüleyici |
 | `DB.decisions` | `misc.js` | Yalnız `durum:'Tamamlandı'` toplantılara bağlanır. `gorev` doluysa `DB.tasks`'ta karşılığı vardır |
 | `DB.bugs[].siddet` | `work.js` | **`DB.priorities` kümesidir** (`Kritik/Yüksek/Orta/Düşük`), `DB.impacts` (`Çok yüksek/…`) **değildir**. Hatadan görev üretilirken eşleme: şiddet `Kritik` → görev `etki` `Çok yüksek`, diğer üçü birebir |
+| `DB.deliveries[].moduller` · `.test` | `work.js` | `moduller` **dizidir** (bir teslim çok modül kapsar); boş dizi = projenin modül kırılımı yok, kapsam proje ekseninde. `test` = teslimi kabule bağlayan koşum |
+| `DB.tests[].moduller` · `.sprint` | `work.js` | Koşumun kapsadığı modüller (**dizi**) ve düştüğü sprint. `sprint` null = koşum tarihi hiçbir sprint aralığına girmiyor — en yakına yuvarlanmaz |
+| `DB.bugs[].test` · `.sprint` · `.destek` · `.gorev` | `work.js` | Dördü de **tekil** bağ. `sprint` = hatanın **ele alındığı** sprint. `gorev` hata↔görev bağının **tek yönüdür** — `DB.tasks[].hata` ayna alanı **yoktur** ve doğmadığı `canon.js` eksen 15'te kontrol edilir |
 | `DB.deliveries[].milestone` | `work.js` | Teslimin karşılık geldiği taksit — **veride yazılı tekil bağ**, tarih yakınlığından türetilmez (L-13). Bir milestone'a en fazla bir teslim. `musteriOnay` durum değeridir: `Onaylandı` / `Bekliyor` / `Revizyon istendi`; `'—'` sentinel'i kullanılmaz |
 
 ---
@@ -324,3 +327,37 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 > `canon2.js` / `canon3.js` / `ref.js` **artık yok** — üçü de `canon.js` içinde birleşti.
 > Eski `qa-links.js` kendi hardcode ettiği 8 sayfalık listeye göre karar veriyordu ve
 > yayındaki her ekranı "kırık" sayıyordu; yerini `links.js` aldı.
+
+---
+
+## 9d. Modüller Arası Bağ Alanı Sözleşmesi (VB-05 / VB-07 / VB-08 — kapandı)
+
+> **Tek kural (ders L-13):** Bir kaydı başka bir kayda bağlayan bilgi **veride yazılı olur**.
+> Tarih yakınlığı, tedarikçi eşleşmesi, kategori benzerliği ve etiket metni **bağ değildir**.
+> Bağı olmayan kayıt **bağsız bırakılır** ve gerekçesi `assumptions.md`'ye yazılır.
+
+**Yön kuralı:** Bağ **doğan / bağımlı** kaydın üstünde tutulur, hedefte ayna alan **açılmaz**.
+İki yönlü bağ zamanla ayrışır ve hangisinin doğru olduğu belirsizleşir.
+
+| Bağ | Alan | Ters yönde okuma |
+|---|---|---|
+| destek talebi → görev | `DB.tasks[].destek` | `DB.tasks.filter(t => t.destek === kod)` |
+| destek talebi → hata | `DB.bugs[].destek` | `DB.bugs.filter(b => b.destek === kod)` |
+| destek talebi → değişiklik | `DB.changeRequests[].destek` | ⚠️ `.talep` **başka eksendir** (talebi açan taraf) |
+| hata → görev | `DB.bugs[].gorev` | `DB.bugs.filter(b => b.gorev === kod)` — görevde ayna alan **yok** |
+| hata → test koşumu | `DB.bugs[].test` | `DB.bugs.filter(b => b.test === kod)` — bir hata **en fazla bir** koşuma bağlanır |
+| hata → sprint | `DB.bugs[].sprint` | ele alındığı sprint (açıldığı değil) |
+| koşum → modül / sprint | `DB.tests[].moduller` (dizi) · `.sprint` | |
+| teslim → modül / kabul koşumu | `DB.deliveries[].moduller` (dizi) · `.test` | |
+| teslim → taksit | `DB.deliveries[].milestone` | tekil |
+| demirbaş → sipariş | `DB.assets[].siparis` | `DB.assets.filter(a => a.siparis === kod)` — siparişte ayna alan **yok** |
+
+**Ekranda gösterim kuralı:** Bağ varsa `tone:'ok'` bir `GV.notice` ile "bağ veride yazılı"
+denir ve kaynak kayıt adıyla gösterilir. Bağ yoksa aynı projenin kayıtları **bağlam listesi**
+olarak gösterilebilir ama **"bağ değildir"** diye açıkça etiketlenir ve satır rozeti
+`Aynı proje` olur — `Aday` / `Güçlü aday` gibi bir eşleşme iması **kullanılmaz**.
+
+`canon.js` **eksen 15** her turda doğrular: bağ hedefi gerçekten var mı · bağ verilen
+sprint/modül/koşum **aynı projede** mi · bir koşuma bağlı hata sayısı `basarisiz`i aşıyor mu ·
+bir siparişin demirbaş grubunun Σ `alisFiyati`'ı siparişin **netine** eşit mi ·
+`DB.tasks[].hata` ayna alanı doğmuş mu.
