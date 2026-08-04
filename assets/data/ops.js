@@ -473,8 +473,9 @@ DB.supportPackages = [
 ];
 
 /* ---- SLA politikaları (PROMPT.md §18) -----------------------------------
-   Kategori × öncelik matrisi. DB.tickets[].sla alanı bu tablonun `cozum`
-   değeriyle birebir aynıdır — tek doğru kaynak burasıdır.
+   Kategori × öncelik matrisi. DB.tickets[].sla alanı bu tablonun `etiket`
+   değeriyle birebir aynıdır (7 talebin 7'sinde ölçüldü) — `cozum` DEĞİL, o
+   dakika sayısıdır. Tek doğru kaynak burasıdır.
    Süreler dakika cinsinden tutulur; `etiket` ekranda gösterilen metindir. */
 DB.slaPolicies = [
   { kod:'SLA-01', kategori:'Hata',              oncelik:'Kritik', ilkYanit:60,   cozum:240,   etiket:'4 saat',
