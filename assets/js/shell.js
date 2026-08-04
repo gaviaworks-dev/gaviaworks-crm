@@ -596,6 +596,7 @@
     'app-teklif.html',
     'app-teklif-detay.html',
     'app-personel.html',
+    'app-personel-detay.html',
     'app-pipeline.html',
     'app-referans.html',
     'app-komisyon.html',

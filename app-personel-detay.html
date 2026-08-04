@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Personel Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="personel">
+<a class="gv-skip" href="#gvMain">İçeriğe atla</a>
+
+<div class="gv-app">
+  <aside class="gv-rail" id="gvRail"></aside>
+  <nav class="gv-menu" id="gvMenu"></nav>
+  <button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">
+    <span><svg class="ic ic-sm" aria-hidden="true"><use href="#i-chev-left"></use></svg></span>
+  </button>
+  <div class="gv-overlay" id="gvOverlay"></div>
+  <header class="gv-top" id="gvTop"></header>
+
+  <main class="gv-main" id="gvMain">
+    <div class="gv-page">
+      <nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>
+      <div id="gvPageHead"></div>
+      <div id="rec"></div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* Maaş/ücret alan bazlı yetkiye tabidir (KVKK — tasks/assumptions.md V-12).
+     Eğitim maliyeti şirket gideridir, 'finans' yetkisiyle maskelenir. */
+  var canMaas   = GV.perm.can('maas');
+  var canFinans = GV.perm.can('finans');
+  var canEkle   = GV.perm.can('ekle');
+
+  var id = new URLSearchParams(location.search).get('id') || DB.employees[0].kod;
+  var e = DB.employees.filter(function(x){ return x.kod === id; })[0];
+
+  if(!e){
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Personel bulunamadı',
+      desc:'“' + esc(id) + '” numaralı personel kaydı sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-personel.html">Personel listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  var kod = e.kod;
+  GV.shell.crumb(kod);
+  document.title = e.ad + ' — GaviaWorks CRM';
+
+  /* ---- Kayda bağlı veri dilimleri (hepsi canonical `personel` alanından) ---- */
+  function byDateDesc(a, b){ return String(b.tarih || '').localeCompare(String(a.tarih || '')); }
+  var KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+
+  var gorevler = DB.tasks.filter(function(t){
+    return t.sorumlu === kod || (t.yardimci || []).indexOf(kod) !== -1;
+  });
+  var acikGorev = gorevler.filter(function(t){ return KAPALI.indexOf(t.durum) === -1; });
+  var gecikenGorev = acikGorev.filter(function(t){ return t.termin && F.days(t.termin) < 0; });
+
+  /* Proje bağı: ekip listesi + rol alanları + görevlerin projeleri birleşimi */
+  var projeler = DB.projects.filter(function(p){
+    if((p.ekip || []).indexOf(kod) !== -1) return true;
+    if(p.pm === kod || p.teknikSorumlu === kod || p.musteriSorumlu === kod) return true;
+    return gorevler.some(function(t){ return t.proje === p.kod; });
+  });
+  function projeRol(p){
+    var r = [];
+    if(p.pm === kod) r.push('Proje yöneticisi');
+    if(p.teknikSorumlu === kod) r.push('Teknik sorumlu');
+    if(p.musteriSorumlu === kod) r.push('Müşteri sorumlusu');
+    if((p.ekip || []).indexOf(kod) !== -1) r.push('Ekip üyesi');
+    if(!r.length) r.push('Görev sorumlusu');
+    return r;
+  }
+
+  var loglar = DB.timelogs.filter(function(l){ return l.personel === kod; }).sort(byDateDesc);
+  var logToplam = loglar.reduce(function(a, l){ return a + l.sure; }, 0);
+  var logFatura = loglar.filter(function(l){ return l.faturalanabilir; })
+                        .reduce(function(a, l){ return a + l.sure; }, 0);
+  var logOran = logToplam ? Math.round(logFatura / logToplam * 100) : 0;
+
+  var tsheets = DB.timesheets.filter(function(t){ return t.personel === kod; });
+  var izinler = DB.leaves.filter(function(l){ return l.personel === kod; });
+  var vekillik = DB.leaves.filter(function(l){ return l.vekil === kod; });
+  var izinOnayli = izinler.filter(function(l){ return l.durum === 'Onaylandı'; });
+  var izinKullanilan = izinOnayli.reduce(function(a, l){ return a + l.gun; }, 0);
+  var izinBekleyen = izinler.filter(function(l){ return l.durum === 'Onay bekliyor'; });
+
+  var kap = DB.capacity.filter(function(c){ return c.personel === kod; })[0] || null;
+  var perf = DB.performance.filter(function(p){ return p.personel === kod; });
+  var egitimler = DB.trainings.filter(function(t){ return (t.katilimci || []).indexOf(kod) !== -1; });
+  var zimmetler = DB.assignments.filter(function(z){ return z.personel === kod; });
+  var araclar = DB.vehicles.filter(function(v){ return v.anaSurucu === kod || v.yedekSurucu === kod; });
+  var acts = DB.activities.filter(function(a){ return a.kayit === kod; });
+
+  var yonetici = DB.emp(e.yonetici);
+  var astlar = DB.employees.filter(function(x){ return x.yonetici === kod; });
+  var yonettigi = DB.departments.filter(function(d){ return d.yonetici === kod; });
+
+  /* Doluluk: kapasite kaydı varsa oradan, yoksa personel kartındaki değerden */
+  var doluluk = kap ? kap.doluluk : e.doluluk;
+  var asiriYuklu = doluluk >= 95;
+
+  /* Kıdem — tarih ekseni DB.today (sistem saati kullanılmaz) */
+  var kidemGun = -F.days(e.girisTarihi);
+  var kidemYil = Math.floor(kidemGun / 365);
+  var kidemAy  = Math.floor((kidemGun % 365) / 30.44);
+  var kidem = (kidemYil ? kidemYil + ' yıl ' : '') + kidemAy + ' ay';
+
+  /* ---- Maskeleme yardımcıları ---- */
+  function mask(){ return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>'; }
+  function ucret(){
+    if(!canMaas) return mask();
+    if(e.maas) return '<span class="cell-money">' + F.money(e.maas) + '</span>';
+    if(e.saatlikUcret) return '<span class="cell-money">' + F.money(e.saatlikUcret) + '</span>';
+    return null;
+  }
+  function ucretEksen(){
+    if(e.maas) return 'Aylık brüt maaş';
+    if(e.saatlikUcret) return 'Saatlik ücret';
+    return 'Ücret';
+  }
+  function para(v){
+    if(!canFinans) return mask();
+    return '<span class="cell-money">' + F.money(v) + '</span>';
+  }
+  var maasNot = canMaas ? '' : GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Ücret bilgisi gizli',
+    text:'Rolünüzde ücret görüntüleme yetkisi yok. Alan listelenir, tutar maskelenir.' });
+
+  /* ---- Ortak markup yardımcıları ---- */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows, foot){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>' + (foot || '');
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function link(href, metin, altMetin){
+    return '<a class="cell-main" href="' + href + '">' + esc(metin) + '</a>' +
+      (altMetin ? '<span class="cell-code">' + esc(altMetin) + '</span>' : '');
+  }
+  function tags(list, bos){
+    return (list && list.length)
+      ? list.map(function(x){ return '<span class="tag">' + esc(x) + '</span>'; }).join(' ')
+      : (bos || null);
+  }
+
+  /* ---- Sayfa başlığı — aksiyonlar gerçekten çalışır ---- */
+  var phActions = [
+    { label:'Personel listesi', icon:'i-users', href:'app-personel.html' },
+    { label:'Kapasite planı', icon:'i-gauge', href:'app-kapasite.html' }
+  ];
+  if(canEkle) phActions.push({ label:'Görev ata', icon:'i-tasks', cls:'btn-acc', run:function(){ gorevAtaModal(); } });
+
+  GV.pageHead({
+    eyebrow:'Personel & İK',
+    title:e.ad,
+    sub:e.pozisyon + ' · ' + e.depAd + ' · ' + kod,
+    actions:phActions
+  });
+
+  /* ---- Kayıt başlığı ----
+     Ad, çift <h1> oluşmaması için GV.pageHead başlığında tutulur; kayıt başlığı
+     kod + durum + unvan/rol + kimlik meta'sını taşır. */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id">' +
+        '<span class="gv-user-ava is-lg">' + esc(e.ini) + '</span>' +
+        '<span class="gv-rec-code">' + kod + '</span>' +
+        GV.badge(e.aktif ? 'Aktif' : 'Pasif') +
+        '<span class="tag">' + esc(e.pozisyon) + '</span>' +
+        '<span class="tag">' + esc(DB.roleName(e.rol)) + '</span>' +
+        '<span class="tag">' + esc(e.calismaTuru) + '</span>' +
+        (asiriYuklu ? '<span class="badge is-danger">Aşırı yüklü</span>' : '') +
+        (gecikenGorev.length ? '<span class="badge is-warn">' + gecikenGorev.length + ' geciken görev</span>' : '') +
+      '</div>' +
+      '<div class="gv-rec-meta">' +
+        '<span>' + ico('i-users','ic-sm') + esc(DB.depName(e.dep)) + '</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + 'Yönetici ' + esc(yonetici ? yonetici.ad : '—') + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + 'İşe giriş ' + F.date(e.girisTarihi) + ' · ' + esc(kidem) + '</span>' +
+        '<span>' + ico('i-home','ic-sm') + esc(e.lokasyon) + '</span>' +
+        '<span>' + ico('i-mail','ic-sm') + '<a href="mailto:' + esc(e.eposta) + '">' + esc(e.eposta) + '</a></span>' +
+        '<span>' + ico('i-phone','ic-sm') + '<a href="tel:' + esc(e.tel.replace(/\s/g,'')) + '">' + esc(e.tel) + '</a></span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* ---- Sekmeler ---- */
+  var tabs = [
+    { key:'genel',      lbl:'Genel',              ic:'i-info' },
+    { key:'gorev',      lbl:'Görevler',           ic:'i-tasks',          cnt:gorevler.length },
+    { key:'proje',      lbl:'Projeler',           ic:'i-briefcase',      cnt:projeler.length },
+    { key:'zaman',      lbl:'Zaman Kayıtları',    ic:'i-timer',          cnt:loglar.length },
+    { key:'timesheet',  lbl:'Timesheet',          ic:'i-sheet',          cnt:tsheets.length },
+    { key:'izin',       lbl:'İzinler',            ic:'i-calendar-check', cnt:izinler.length },
+    { key:'kapasite',   lbl:'Kapasite',           ic:'i-gauge' },
+    { key:'performans', lbl:'Performans',         ic:'i-star',           cnt:perf.length },
+    { key:'egitim',     lbl:'Eğitim & Yetkinlik', ic:'i-graduation',     cnt:egitimler.length },
+    { key:'zimmet',     lbl:'Zimmetler',          ic:'i-package',        cnt:zimmetler.length + araclar.length },
+    { key:'aktivite',   lbl:'Aktivite Geçmişi',   ic:'i-activity',       cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL — DB.employees alanlarının tamamı
+     ================================================================= */
+  var pGenel =
+    '<div class="gc-body">' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Kimlik</h3></div>' +
+        dl([
+          ['Personel kodu', '<span class="u-num">' + esc(kod) + '</span>'],
+          ['Ad soyad', esc(e.ad)],
+          ['Baş harfler', '<span class="gv-user-ava is-sm">' + esc(e.ini) + '</span>'],
+          ['Doğum tarihi', F.date(e.dogum)],
+          ['Kan grubu', e.kanGrubu && e.kanGrubu !== '—' ? esc(e.kanGrubu) : null],
+          ['Öğrenim', esc(e.egitim)],
+          ['Lokasyon', esc(e.lokasyon)],
+          ['Durum', GV.badge(e.aktif ? 'Aktif' : 'Pasif')]
+        ]) +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Unvan ve Organizasyon</h3></div>' +
+        dl([
+          ['Unvan / pozisyon', esc(e.pozisyon)],
+          ['Sistem rolü', '<span class="tag">' + esc(DB.roleName(e.rol)) + '</span>'],
+          ['Tanımlı diğer roller', tags((e.roller || []).filter(function(r){ return r !== e.rol; }).map(DB.roleName))],
+          ['Departman', '<a href="app-ayar-departman.html">' + esc(DB.depName(e.dep)) + '</a>' +
+            '<span class="cell-code">' + esc(e.dep) + '</span>'],
+          ['Yöneticisi', yonetici
+            ? '<a class="cell-main" href="app-personel-detay.html?id=' + yonetici.kod + '">' + esc(yonetici.ad) + '</a>' +
+              '<span class="cell-sub">' + esc(yonetici.pozisyon) + '</span>'
+            : null],
+          ['Yönettiği departmanlar', tags(yonettigi.map(function(d){ return d.ad; }))],
+          ['Bağlı personel', astlar.length
+            ? astlar.map(function(a){
+                return '<a href="app-personel-detay.html?id=' + a.kod + '">' + esc(a.ad) + '</a>';
+              }).join(', ')
+            : null]
+        ]) +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Çalışma ve Özlük</h3></div>' +
+        dl([
+          ['Çalışma türü', esc(e.calismaTuru)],
+          ['Sözleşme türü', esc(e.sozlesme)],
+          ['İşe giriş tarihi', F.date(e.girisTarihi)],
+          ['Kıdem', '<b>' + esc(kidem) + '</b>'],
+          [ucretEksen(), ucret()],
+          ['İzin bakiyesi', '<b class="u-num">' + e.izinBakiye + ' gün</b>'],
+          ['Haftalık doluluk', GV.progress(doluluk, { tone:asiriYuklu ? 'danger' : doluluk >= 85 ? 'warn' : '' })]
+        ]) +
+        (maasNot ? '<div class="u-mt-4">' + maasNot + '</div>' : '') +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>İletişim</h3></div>' +
+        dl([
+          ['E-posta', '<a href="mailto:' + esc(e.eposta) + '">' + esc(e.eposta) + '</a>'],
+          ['Telefon', '<a href="tel:' + esc(e.tel.replace(/\s/g,'')) + '">' + esc(e.tel) + '</a>'],
+          ['Acil durumda aranacak kişi', e.acilKisi && e.acilKisi !== '—' ? esc(e.acilKisi) : null]
+        ]) +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Yetkinlik ve Uzmanlık</h3></div>' +
+        dl([
+          ['Yetkinlikler', tags(e.yetkinlik)],
+          ['Teknolojiler', tags(e.teknoloji)],
+          ['Sertifikalar', tags(e.sertifika)],
+          ['Tamamlanan eğitim', '<b>' + egitimler.filter(function(t){ return t.durum === 'Tamamlandı'; }).length +
+            '</b> / ' + egitimler.length]
+        ]) +
+      '</div>' +
+    '</div>';
+
+  /* =================================================================
+     2. GÖREVLER
+     ================================================================= */
+  var pGorev = '<div class="gc-body flush">' +
+    (gorevler.length
+      ? tbl('<th>Görev</th><th>Rol</th><th>Proje</th><th>Durum</th><th>Öncelik</th><th>Termin</th><th>İlerleme</th>',
+          gorevler.map(function(t){
+            return '<tr><td class="cell-wrap">' + link('app-gorev-detay.html?id=' + t.kod, t.baslik, t.kod) + '</td>' +
+              '<td><span class="tag">' + (t.sorumlu === kod ? 'Sorumlu' : 'Yardımcı') + '</span></td>' +
+              '<td>' + (t.proje
+                ? '<a href="app-proje-detay.html?id=' + t.proje + '">' + esc(DB.projName(t.proje)) + '</a>'
+                : '<span class="u-faint">Projesiz</span>') + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td>' +
+              '<td>' + GV.pri(t.oncelik) + '</td>' +
+              '<td>' + GV.dateCell(t.termin, { done:t.durum === 'Tamamlandı' }) + '</td>' +
+              '<td>' + GV.progress(t.ilerleme) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + gorevler.length + '</b> görev · açık <b>' + acikGorev.length + '</b>' +
+            (gecikenGorev.length ? ' · geciken <b>' + gecikenGorev.length + '</b>' : ''),
+            '<a class="btn btn-line btn-sm" href="app-gorev.html?t=tumu&f_sorumlu=' + kod + '">' +
+              ico('i-tasks','ic-sm') + ' Görev listesinde aç</a>'))
+      : GV.empty({ icon:'i-tasks', title:'Atanmış görev yok',
+          desc:'Bu personele sorumlu veya yardımcı olarak atanmış bir görev bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-gorev.html">Görev listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     3. PROJELER
+     ================================================================= */
+  var pProje = '<div class="gc-body flush">' +
+    (projeler.length
+      ? tbl('<th>Proje</th><th>Roller</th><th>Durum</th><th>Sağlık</th><th class="num">Görev</th><th>Planlanan bitiş</th><th>İlerleme</th>',
+          projeler.map(function(p){
+            var pg = gorevler.filter(function(t){ return t.proje === p.kod; });
+            return '<tr><td class="cell-wrap">' + link('app-proje-detay.html?id=' + p.kod, p.ad, p.kod + ' · ' + p.musteriAd) + '</td>' +
+              '<td>' + projeRol(p).map(function(r){ return '<span class="tag">' + esc(r) + '</span>'; }).join(' ') + '</td>' +
+              '<td>' + GV.badge(p.durum) + '</td>' +
+              '<td>' + GV.badge(p.saglik) + '</td>' +
+              '<td class="num"><b class="u-num">' + pg.length + '</b></td>' +
+              '<td>' + GV.dateCell(p.planlananBitis, { done:p.ilerleme === 100 }) + '</td>' +
+              '<td>' + GV.progress(p.ilerleme) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + projeler.length + '</b> proje · devam eden ' +
+            projeler.filter(function(p){ return p.ilerleme < 100; }).length,
+            '<a class="btn btn-line btn-sm" href="app-proje.html">' + ico('i-briefcase','ic-sm') + ' Proje listesi</a>'))
+      : GV.empty({ icon:'i-briefcase', title:'Proje bağı yok',
+          desc:'Bu personel hiçbir proje ekibinde yer almıyor ve projeye bağlı görevi bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-proje.html">Proje listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     4. ZAMAN KAYITLARI
+     ================================================================= */
+  var pZaman = '<div class="gc-body flush">' +
+    (loglar.length
+      ? tbl('<th>Tarih</th><th>Proje</th><th>Görev</th><th>Açıklama</th><th class="num">Süre</th><th>Faturalanabilir</th><th>Onay</th>',
+          loglar.map(function(l){
+            return '<tr><td><span class="cell-date">' + F.date(l.tarih) + '</span></td>' +
+              '<td>' + (l.proje
+                ? '<a href="app-proje-detay.html?id=' + l.proje + '">' + esc(DB.projName(l.proje)) + '</a>'
+                : '<span class="u-faint">Projesiz</span>') + '</td>' +
+              '<td>' + (l.gorev
+                ? '<a href="app-gorev-detay.html?id=' + l.gorev + '">' + esc(l.gorev) + '</a>'
+                : '<span class="u-faint">—</span>') + '</td>' +
+              '<td class="cell-wrap">' + esc(l.aciklama) + '</td>' +
+              '<td class="num"><b class="u-num">' + F.hours(l.sure) + '</b></td>' +
+              '<td>' + (l.faturalanabilir ? '<span class="badge is-ok">Evet</span>' : '<span class="tag">Hayır</span>') + '</td>' +
+              '<td>' + GV.badge(l.onay) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + loglar.length + '</b> kayıt · toplam <b>' + F.hours(logToplam) + '</b> · ' +
+            'faturalanabilir <b>' + F.hours(logFatura) + '</b> (%' + logOran + ')',
+            '<a class="btn btn-line btn-sm" href="app-zaman.html?f_personel=' + kod + '">' +
+              ico('i-timer','ic-sm') + ' Zaman kayıtları</a>'))
+      : GV.empty({ icon:'i-timer', title:'Zaman kaydı yok',
+          desc:'Bu personel henüz hiçbir göreve süre girmemiş.',
+          action:'<a class="btn btn-acc" href="app-zaman.html">Zaman kayıtlarına git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     5. TIMESHEET
+     ================================================================= */
+  var tsToplam = tsheets.reduce(function(a, t){ return a + t.toplam; }, 0);
+  var tsFatura = tsheets.reduce(function(a, t){ return a + t.faturalanabilir; }, 0);
+  var pTimesheet = '<div class="gc-body flush">' +
+    (tsheets.length
+      ? tbl('<th>Timesheet</th><th>Hafta</th><th>Dönem</th><th class="num">Toplam</th><th class="num">Faturalanabilir</th><th class="num">Eksik / fazla</th><th>Onaylayan</th><th>Durum</th>',
+          tsheets.map(function(t){
+            return '<tr><td><span class="cell-code">' + esc(t.kod) + '</span></td>' +
+              '<td><b>' + esc(t.hafta) + '</b></td>' +
+              '<td><span class="cell-date">' + F.dateShort(t.baslangic) + ' – ' + F.dateShort(t.bitis) + '</span></td>' +
+              '<td class="num"><b class="u-num">' + F.hours(t.toplam) + '</b></td>' +
+              '<td class="num">' + F.hours(t.faturalanabilir) + '</td>' +
+              '<td class="num">' + (t.eksik ? '<span class="u-danger">−' + t.eksik + '</span>' : '') +
+                (t.eksik && t.fazla ? ' / ' : '') +
+                (t.fazla ? '<span class="u-ok">+' + t.fazla + '</span>' : '') +
+                (!t.eksik && !t.fazla ? '<span class="u-faint">—</span>' : '') + '</td>' +
+              '<td>' + GV.user(t.onaylayan, { sm:true }) + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + tsheets.length + '</b> hafta · toplam <b>' + F.hours(tsToplam) + '</b> · ' +
+            'faturalanabilir ' + F.hours(tsFatura),
+            '<a class="btn btn-line btn-sm" href="app-zaman-onay.html">' + ico('i-stamp','ic-sm') + ' Zaman onayları</a>'))
+      : GV.empty({ icon:'i-sheet', title:'Timesheet kaydı yok',
+          desc:'Bu personel için haftalık timesheet özeti oluşturulmamış.',
+          action:'<a class="btn btn-acc" href="app-zaman-onay.html">Zaman onaylarına git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     6. İZİNLER
+     ================================================================= */
+  var izinOzet = '<div class="gc-body"><div class="gv-form-sec u-mb-0">' +
+    '<div class="gv-form-sec-head"><h3>İzin Bakiyesi</h3></div>' +
+    dl([
+      ['Kalan bakiye', '<b class="u-num">' + e.izinBakiye + ' gün</b>'],
+      ['Onaylı kullanılan', '<b class="u-num">' + izinKullanilan + ' gün</b>'],
+      ['Onay bekleyen talep', '<b>' + izinBekleyen.length + '</b>'],
+      ['Vekâlet ettiği izin', '<b>' + vekillik.length + '</b>']
+    ]) + '</div></div>';
+
+  var pIzin = izinOzet + '<div class="gc-body flush">' +
+    (izinler.length
+      ? tbl('<th>Talep</th><th>Tür</th><th>Başlangıç</th><th>Bitiş</th><th class="num">Gün</th><th>Vekil</th><th>Onaylayan</th><th>Durum</th>',
+          izinler.map(function(l){
+            return '<tr><td><span class="cell-code">' + esc(l.kod) + '</span>' +
+                (l.cakisma ? '<span class="cell-sub">Takvim çakışması</span>' : '') + '</td>' +
+              '<td><span class="tag">' + esc(l.tur) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(l.baslangic) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(l.bitis) + '</span></td>' +
+              '<td class="num"><b class="u-num">' + l.gun + '</b></td>' +
+              '<td>' + (l.vekil ? GV.user(l.vekil, { sm:true }) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.user(l.onaylayan, { sm:true }) + '</td>' +
+              '<td>' + GV.badge(l.durum) +
+                (l.ret ? '<span class="cell-sub">' + esc(l.ret) + '</span>' : '') + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + izinler.length + '</b> izin talebi · onaylı ' + izinOnayli.length +
+            ' · bekleyen ' + izinBekleyen.length,
+            '<a class="btn btn-line btn-sm" href="app-izin.html?f_personel=' + kod + '">' +
+              ico('i-calendar-check','ic-sm') + ' İzin listesi</a>'))
+      : GV.empty({ icon:'i-calendar-check', title:'İzin kaydı yok',
+          desc:'Bu personelin sistemde kayıtlı bir izin talebi bulunmuyor. Kalan bakiyesi ' +
+            e.izinBakiye + ' gün.',
+          action:'<a class="btn btn-acc" href="app-izin.html">İzin listesine git</a>' })) +
+    '</div>' +
+    (vekillik.length
+      ? '<div class="gc-body"><div class="gv-form-sec u-mb-0">' +
+        '<div class="gv-form-sec-head"><h3>Vekâlet Ettiği İzinler</h3></div>' +
+        tbl('<th>Talep</th><th>Personel</th><th>Dönem</th><th class="num">Gün</th><th>Durum</th>',
+          vekillik.map(function(l){
+            return '<tr><td><span class="cell-code">' + esc(l.kod) + '</span></td>' +
+              '<td><a href="app-personel-detay.html?id=' + l.personel + '">' + esc(DB.empName(l.personel)) + '</a></td>' +
+              '<td><span class="cell-date">' + F.dateShort(l.baslangic) + ' – ' + F.dateShort(l.bitis) + '</span></td>' +
+              '<td class="num">' + l.gun + '</td>' +
+              '<td>' + GV.badge(l.durum) + '</td></tr>';
+          }).join('')) + '</div></div>'
+      : '');
+
+  /* =================================================================
+     7. KAPASİTE
+     ================================================================= */
+  var pKapasite = '<div class="gc-body">' +
+    (kap
+      ? '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Haftalık Doluluk</h3>' +
+          '<p>Planlanan iş yükünün haftalık kapasiteye oranı. %95 ve üzeri aşırı yük sayılır.</p></div>' +
+          GV.progress(kap.doluluk, { tone:kap.doluluk >= 95 ? 'danger' : kap.doluluk >= 85 ? 'warn' : '' }) +
+          dl([
+            ['Haftalık kapasite', '<b class="u-num">' + F.hours(kap.kapasite) + '</b>'],
+            ['Planlanan iş yükü', '<b class="u-num">' + F.hours(kap.planlanan) + '</b>'],
+            ['Boşta kalan', '<span class="u-num">' + F.hours(Math.max(0, kap.kapasite - kap.planlanan - kap.izin)) + '</span>'],
+            ['Bu hafta izin', kap.izin ? '<b class="u-num">' + F.hours(kap.izin) + '</b>' : null],
+            ['Doluluk', '<b>%' + kap.doluluk + '</b>'],
+            ['Değerlendirme', kap.doluluk >= 95
+              ? GV.badge('Aşırı yüklü', 'is-danger')
+              : kap.doluluk >= 75 ? GV.badge('Dengeli', 'is-ok') : GV.badge('Müsait', 'is-info')]
+          ]) +
+        '</div>' +
+        '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Yükün Kaynağı</h3></div>' +
+          (acikGorev.length
+            ? tbl('<th>Görev</th><th>Proje</th><th class="num">Tahmini</th><th class="num">Gerçekleşen</th><th>Termin</th>',
+                acikGorev.map(function(t){
+                  return '<tr><td class="cell-wrap">' + link('app-gorev-detay.html?id=' + t.kod, t.baslik, t.kod) + '</td>' +
+                    '<td>' + (t.proje ? esc(DB.projName(t.proje)) : '<span class="u-faint">Projesiz</span>') + '</td>' +
+                    '<td class="num">' + F.hours(t.tahminiSure) + '</td>' +
+                    '<td class="num">' + F.hours(t.gercekSure) + '</td>' +
+                    '<td>' + GV.dateCell(t.termin) + '</td></tr>';
+                }).join(''))
+            : '<p class="u-sm u-faint">Açık görev yok — planlanan yük başka kalemlerden geliyor.</p>') +
+        '</div>'
+      : GV.empty({ icon:'i-gauge', title:'Kapasite kaydı yok',
+          desc:'Bu personel haftalık kapasite planına dahil edilmemiş. Personel kartındaki doluluk değeri %' +
+            e.doluluk + '.',
+          action:'<a class="btn btn-acc" href="app-kapasite.html">Kapasite planına git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     8. PERFORMANS
+     ================================================================= */
+  function puan(v){ return v == null ? '<span class="u-faint">—</span>' : '<b class="u-num">' + F.num(v, 1) + ' / 5</b>'; }
+  var perfSon = perf.filter(function(p){ return p.durum === 'Tamamlandı'; })[0];
+  var pPerformans = '<div class="gc-body flush">' +
+    (perf.length
+      ? tbl('<th>Dönem</th><th>Durum</th><th>Öz</th><th>Yönetici</th><th>Proje yön.</th><th class="num">Zamanında teslim</th><th class="num">Görev</th><th>Gelişim planı</th>',
+          perf.map(function(p){
+            return '<tr><td><b>' + esc(p.donem) + '</b><span class="cell-code">' + esc(p.kod) + '</span></td>' +
+              '<td>' + GV.badge(p.durum) + '</td>' +
+              '<td>' + puan(p.ozDegerlendirme) + '</td>' +
+              '<td>' + puan(p.yoneticiDegerlendirme) + '</td>' +
+              '<td>' + puan(p.pmDegerlendirme) + '</td>' +
+              '<td class="num">' + (p.zamanindaTeslim == null ? '<span class="u-faint">—</span>' : '%' + p.zamanindaTeslim) + '</td>' +
+              '<td class="num">' + (p.gorevSayisi == null ? '<span class="u-faint">—</span>' : p.gorevSayisi) + '</td>' +
+              '<td class="cell-wrap">' + (p.gelisimPlani && p.gelisimPlani !== '—' ? esc(p.gelisimPlani) : '<span class="u-faint">—</span>') +
+                ((p.egitimIhtiyaci || []).length
+                  ? '<span class="cell-sub">Eğitim ihtiyacı: ' + esc(p.egitimIhtiyaci.join(', ')) + '</span>' : '') + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + perf.length + '</b> değerlendirme dönemi',
+            '<a class="btn btn-line btn-sm" href="app-performans.html">' + ico('i-star','ic-sm') + ' Performans listesi</a>'))
+      : GV.empty({ icon:'i-star', title:'Performans değerlendirmesi yok',
+          desc:'Bu personel için tamamlanmış veya açık bir değerlendirme dönemi bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-performans.html">Performans listesine git</a>' })) +
+    '</div>' +
+    (perfSon
+      ? '<div class="gc-body"><div class="gv-form-sec u-mb-0">' +
+        '<div class="gv-form-sec-head"><h3>Son Tamamlanan Değerlendirme — ' + esc(perfSon.donem) + '</h3>' +
+        '<p>Yetkinlik puanları 5 üzerinden. Karar desteği amaçlıdır, otomatik karar üretmez.</p></div>' +
+        dl([
+          ['Kalite sonucu', puan(perfSon.kaliteSonucu)],
+          ['Problem çözme', puan(perfSon.problemCozme)],
+          ['Teknik gelişim', puan(perfSon.teknikGelisim)],
+          ['Ekip çalışması', puan(perfSon.ekipCalismasi)],
+          ['İletişim', puan(perfSon.iletisim)],
+          ['Müşteri geri bildirimi', puan(perfSon.musteriGeriBildirim)],
+          ['Zamanında teslim oranı', '<b>%' + perfSon.zamanindaTeslim + '</b>'],
+          ['Revizyon oranı', '<b>%' + perfSon.revizyonOrani + '</b>'],
+          ['Değerlendirilen görev', '<b>' + perfSon.gorevSayisi + '</b>'],
+          ['Gelişim planı', esc(perfSon.gelisimPlani)]
+        ]) + '</div></div>'
+      : '');
+
+  /* =================================================================
+     9. EĞİTİM VE YETKİNLİK
+     ================================================================= */
+  var egitimSaat = egitimler.reduce(function(a, t){ return a + t.sure; }, 0);
+  var pEgitim =
+    '<div class="gc-body"><div class="gv-form-sec u-mb-0">' +
+      '<div class="gv-form-sec-head"><h3>Yetkinlik Profili</h3></div>' +
+      dl([
+        ['Yetkinlikler', tags(e.yetkinlik)],
+        ['Teknolojiler', tags(e.teknoloji)],
+        ['Sertifikalar', tags(e.sertifika)],
+        ['Toplam eğitim süresi', '<b class="u-num">' + F.hours(egitimSaat) + '</b>']
+      ]) +
+    '</div></div>' +
+    '<div class="gc-body flush">' +
+    (egitimler.length
+      ? tbl('<th>Eğitim</th><th>Tür</th><th>Sağlayıcı</th><th>Dönem</th><th class="num">Süre</th><th class="num">Maliyet</th><th>Sertifika</th><th>Durum</th>',
+          egitimler.map(function(t){
+            return '<tr><td class="cell-wrap">' + link('app-egitim.html', t.ad, t.kod) + '</td>' +
+              '<td><span class="tag">' + esc(t.tur) + '</span></td>' +
+              '<td>' + esc(t.saglayici) + '</td>' +
+              '<td><span class="cell-date">' + F.dateShort(t.baslangic) + ' – ' + F.dateShort(t.bitis) + '</span></td>' +
+              '<td class="num">' + F.hours(t.sure) + '</td>' +
+              '<td class="num">' + para(t.maliyet) + '</td>' +
+              '<td>' + (t.sertifika ? '<span class="badge is-ok">Var</span>' : '<span class="tag">Yok</span>') + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + egitimler.length + '</b> eğitim · tamamlanan ' +
+            egitimler.filter(function(t){ return t.durum === 'Tamamlandı'; }).length +
+            ' · toplam ' + F.hours(egitimSaat),
+            '<a class="btn btn-line btn-sm" href="app-egitim.html">' + ico('i-graduation','ic-sm') + ' Eğitim listesi</a>'))
+      : GV.empty({ icon:'i-graduation', title:'Eğitim kaydı yok',
+          desc:'Bu personel planlanmış veya tamamlanmış bir eğitime katılmamış.',
+          action:'<a class="btn btn-acc" href="app-egitim.html">Eğitim listesine git</a>' })) +
+    '</div>' +
+    (canFinans ? '' : '<div class="gc-body">' + GV.notice({
+      tone:'neutral', icon:'i-lock', title:'Eğitim maliyeti gizli',
+      text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Eğitim kayıtları listelenir, maliyet maskelenir.' }) + '</div>');
+
+  /* =================================================================
+     10. ZİMMETLER
+     ================================================================= */
+  var pZimmet = '<div class="gc-body flush">' +
+    (zimmetler.length
+      ? tbl('<th>Zimmet</th><th>Demirbaş</th><th>Kategori</th><th>Teslim</th><th>İade</th><th>Personel onayı</th><th>Durum</th>',
+          zimmetler.map(function(z){
+            var d = DB.assets.filter(function(x){ return x.kod === z.demirbas; })[0];
+            return '<tr><td><span class="cell-code">' + esc(z.kod) + '</span>' +
+                (z.hasar ? '<span class="cell-sub">' + esc(z.hasar) + '</span>' : '') + '</td>' +
+              '<td class="cell-wrap">' + (d
+                ? link('app-demirbas.html', d.marka + ' ' + d.model, d.kod + ' · ' + d.seri)
+                : '<span class="u-faint">' + esc(z.demirbas) + '</span>') + '</td>' +
+              '<td>' + (d ? esc(d.kategori) + ' <span class="cell-sub">' + esc(d.altKategori) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td><span class="cell-date">' + F.date(z.teslimTarihi) + '</span></td>' +
+              '<td>' + (z.iadeTarihi ? '<span class="cell-date">' + F.date(z.iadeTarihi) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(z.personelOnay) + '</td>' +
+              '<td>' + (z.durum === 'Aktif' ? GV.badge(z.durum) : GV.badge(z.durum, 'is-neutral')) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + zimmetler.length + '</b> zimmet kaydı · aktif ' +
+            zimmetler.filter(function(z){ return z.durum === 'Aktif'; }).length,
+            '<a class="btn btn-line btn-sm" href="app-zimmet.html">' + ico('i-package','ic-sm') + ' Zimmet listesi</a>'))
+      : GV.empty({ icon:'i-package', title:'Zimmetli demirbaş yok',
+          desc:'Bu personele teslim edilmiş bir demirbaş kaydı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-zimmet.html">Zimmet listesine git</a>' })) +
+    '</div>' +
+    (araclar.length
+      ? '<div class="gc-body"><div class="gv-form-sec u-mb-0">' +
+        '<div class="gv-form-sec-head"><h3>Tahsisli Araçlar</h3></div>' +
+        tbl('<th>Plaka</th><th>Araç</th><th>Sürücü rolü</th><th class="num">Güncel km</th><th>Sonraki bakım</th><th>Durum</th>',
+          araclar.map(function(v){
+            return '<tr><td>' + link('app-arac.html', v.plaka, v.kod) + '</td>' +
+              '<td>' + esc(v.marka + ' ' + v.model) + '</td>' +
+              '<td><span class="tag">' + (v.anaSurucu === kod ? 'Ana sürücü' : 'Yedek sürücü') + '</span></td>' +
+              '<td class="num"><span class="u-num">' + F.num(v.guncelKm) + '</span></td>' +
+              '<td>' + GV.dateCell(v.sonrakiBakimTarihi) + '</td>' +
+              '<td>' + GV.badge(v.durum) + '</td></tr>';
+          }).join('')) + '</div></div>'
+      : '');
+
+  /* =================================================================
+     11. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body">' + GV.activity(acts) + '</div>';
+
+  var panels = {
+    genel:pGenel, gorev:pGorev, proje:pProje, zaman:pZaman, timesheet:pTimesheet,
+    izin:pIzin, kapasite:pKapasite, performans:pPerformans, egitim:pEgitim,
+    zimmet:pZimmet, aktivite:pAktivite
+  };
+
+  /* ---- Sağ özet paneli ---- */
+  var ozet = [
+    ['Durum', GV.badge(e.aktif ? 'Aktif' : 'Pasif')],
+    ['Departman', esc(DB.depName(e.dep))],
+    ['Yönetici', yonetici ? GV.user(yonetici.kod, { sm:true }) : '<span class="u-faint">—</span>'],
+    ['İşe giriş', F.date(e.girisTarihi)],
+    ['Kıdem', '<b>' + esc(kidem) + '</b>'],
+    ['Açık görev', '<b class="u-num">' + acikGorev.length + '</b>' +
+      (gecikenGorev.length ? ' <span class="u-danger">(' + gecikenGorev.length + ' geciken)</span>' : '')],
+    ['İzin bakiyesi', '<b class="u-num">' + e.izinBakiye + ' gün</b>'],
+    ['Bekleyen izin talebi', '<b>' + izinBekleyen.length + '</b>'],
+    ['Bu hafta kayıtlı süre', '<b>' + F.hours(logToplam) + '</b>'],
+    [ucretEksen(), ucret() || '<span class="u-faint">—</span>']
+  ];
+
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body">' +
+      '<span class="gv-user">' +
+        '<span class="gv-user-ava is-lg">' + esc(e.ini) + '</span>' +
+        '<span><span class="cell-main">' + esc(e.ad) + '</span>' +
+        '<span class="cell-sub">' + esc(e.pozisyon) + '</span></span></span>' +
+      '<div class="gv-summary u-mt-4">' + ozet.map(function(p){
+        return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span><span class="gv-summary-val">' + p[1] + '</span></div>';
+      }).join('') + '</div></div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-gauge') + 'Kapasite</h2></div>' +
+    '<div class="gc-body">' +
+      GV.progress(doluluk, { tone:asiriYuklu ? 'danger' : doluluk >= 85 ? 'warn' : '' }) +
+      (kap
+        ? '<div class="gv-summary u-mt-4">' +
+            '<div class="gv-summary-row"><span class="gv-summary-lbl">Haftalık kapasite</span><span class="gv-summary-val">' + F.hours(kap.kapasite) + '</span></div>' +
+            '<div class="gv-summary-row"><span class="gv-summary-lbl">Planlanan</span><span class="gv-summary-val"><b>' + F.hours(kap.planlanan) + '</b></span></div>' +
+            '<div class="gv-summary-row"><span class="gv-summary-lbl">Bu hafta izin</span><span class="gv-summary-val">' + F.hours(kap.izin) + '</span></div>' +
+          '</div>'
+        : '<p class="u-sm u-faint u-mt-4">Haftalık kapasite planında kaydı yok; oran personel kartındaki doluluk değeridir.</p>') +
+      (asiriYuklu ? '<div class="u-mt-4">' + GV.notice({ tone:'warn', title:'Aşırı yük',
+        text:'Doluluk %95 ve üzerinde. Yeni görev atamadan önce mevcut yük dengelenmeli.' }) + '</div>' : '') +
+    '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-briefcase') + 'Aktif Projeler</h2></div>' +
+    '<div class="gc-body">' +
+      (projeler.length
+        ? projeler.filter(function(p){ return p.ilerleme < 100; }).slice(0, 3).map(function(p){
+            return '<div class="u-mb-4"><a class="cell-main" href="app-proje-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
+              '<div class="cell-sub u-mb-4">' + esc(p.musteriAd) + '</div>' + GV.progress(p.ilerleme) + '</div>';
+          }).join('') || '<p class="u-sm u-faint">Devam eden proje yok — tüm projeleri tamamlanmış.</p>'
+        : '<p class="u-sm u-faint">Bu personel hiçbir proje ekibinde yer almıyor.</p>') +
+    '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
+      '<p class="u-sm u-faint">Bu personel kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* ---- Görev atama — gerçekten kayıt üretir ---- */
+  function gorevAtaModal(){
+    GV.modal({
+      title:'Görev Ata', text:kod + ' · ' + e.ad, icon:'i-tasks', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="gBaslik">Görev başlığı</label>' +
+          '<input type="text" class="inp" id="gBaslik" placeholder="Ne yapılacak?"></div>' +
+        '<div class="field f-col-6"><label for="gProje">Proje</label><select id="gProje">' +
+          '<option value="">Projesiz</option>' +
+          DB.projects.filter(function(p){ return p.ilerleme < 100; }).map(function(p){
+            return '<option value="' + esc(p.kod) + '">' + esc(p.ad) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field f-col-6"><label for="gTur">Görev türü</label><select id="gTur">' +
+          DB.taskTypes.map(function(t){
+            return '<option value="' + esc(t) + '"' + (t === 'Proje görevi' ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') +
+          '</select></div>' +
+        '<div class="field f-col-6"><label for="gOncelik">Öncelik</label><select id="gOncelik">' +
+          DB.priorities.map(function(p){
+            return '<option value="' + esc(p) + '"' + (p === 'Orta' ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('') +
+          '</select></div>' +
+        '<div class="field f-col-6"><label for="gTermin">Termin</label>' +
+          '<input type="date" class="inp" id="gTermin" value="' + DB.today + '"></div>' +
+        '<div class="field f-col-6"><label for="gSure">Tahmini süre (saat)</label>' +
+          '<input type="number" class="inp" id="gSure" min="0.5" step="0.5" value="4"></div>' +
+        '<div class="field f-col-12"><label for="gAcik">Açıklama</label>' +
+          '<textarea id="gAcik" rows="2" placeholder="Görevin kapsamı"></textarea></div>' +
+        '</div>' +
+        (asiriYuklu ? '<div class="u-mt-4">' + GV.notice({ tone:'warn', title:'Doluluk %' + doluluk,
+          text:e.ad + ' zaten aşırı yüklü görünüyor. Atama yine de yapılabilir, yük dengesini kontrol edin.' }) + '</div>' : ''),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Görevi ata', cls:'btn-acc', onClick:function(close, el){
+            var baslik = el.querySelector('#gBaslik').value.trim();
+            var termin = el.querySelector('#gTermin').value;
+            if(!baslik){ GV.toast('Görev başlığı zorunludur', 'danger'); return false; }
+            if(!termin){ GV.toast('Termin tarihi zorunludur', 'danger'); return false; }
+            if(termin < DB.today){ GV.toast('Termin bugünden önce olamaz', 'danger'); return false; }
+            var proje = el.querySelector('#gProje').value;
+            var p = proje ? DB.proj(proje) : null;
+            var yeni = 'GRV-2026-' + (100 + DB.tasks.length + 1);
+            DB.tasks.unshift({
+              kod:yeni, baslik:baslik, tur:el.querySelector('#gTur').value,
+              proje:proje || null, modul:null, sprint:null, musteri:p ? p.musteri : null, dep:e.dep,
+              olusturan:GV.session.emp, veren:GV.session.emp, sorumlu:kod, yardimci:[], izleyiciler:[],
+              kontrolEden:e.yonetici, onaylayan:e.yonetici,
+              oncelik:el.querySelector('#gOncelik').value, etki:'Orta', aciliyet:'Orta',
+              durum:'Atandı', baslangic:DB.today, termin:termin, tamamlanma:null,
+              tahminiSure:parseFloat(el.querySelector('#gSure').value) || 0,
+              gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
+              aciklama:el.querySelector('#gAcik').value.trim() || '—',
+              amac:'—', kabulKriteri:'—', beklenenCikti:'—', etiketler:[], aktif:true
+            });
+            DB.activities.unshift({ kayit:kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
+              kisi:GV.session.ad, metin:'Görev atandı — ' + baslik, eski:null, yeni:yeni,
+              tone:'info', icon:'i-tasks' });
+            GV.toast(yeni + ' görevi ' + e.ad + ' kişisine atandı', 'ok');
+            setTimeout(function(){ location.reload(); }, 700);
+          } }
+      ]
+    });
+  }
+});
+</script>
+</body>
+</html>
