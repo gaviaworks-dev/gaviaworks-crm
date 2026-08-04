@@ -58,6 +58,9 @@ const MAP = {
   'app-proje-form.html': 'projects',
   'app-gorev-form.html': 'tasks',
   'app-destek-form.html': 'tickets',
+  'app-proje-sprint-form.html': 'sprints',
+  'app-proje-test-form.html': 'tests',
+  'app-proje-hata-form.html': 'bugs',
 };
 
 /* Kaydın GERÇEKTEN yüklendiğinin ölçütü.
