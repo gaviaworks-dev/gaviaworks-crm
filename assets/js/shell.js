@@ -621,6 +621,7 @@
     'app-demirbas.html',
     'app-zimmet.html',
     'app-arac.html',
+    'app-arac-detay.html',
     'app-arac-bakim.html',
     'app-arac-muayene.html',
     'app-arac-sigorta.html',

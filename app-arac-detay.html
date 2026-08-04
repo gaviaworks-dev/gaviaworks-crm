@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Araç Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="arac">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+  var canEkle = GV.perm.can('ekle');
+  var ilk = (DB.vehicles && DB.vehicles[0]) ? DB.vehicles[0].kod : null;
+  var id = new URLSearchParams(location.search).get('id') || ilk;
+  var v = DB.vehicles.filter(function(x){ return x.kod === id; })[0];
+
+  if(!v){
+    GV.pageHead({ eyebrow:'Demirbaş & Filo', title:'Araç Kartı',
+      sub:'Kayıt bulunamadı',
+      actions:[{ label:'Araç Listesi', icon:'i-car', href:'app-arac.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Araç bulunamadı',
+      desc:'“' + esc(id || '') + '” kodlu araç filo kaydında yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-arac.html">Araç listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  var kod = v.kod;
+  GV.shell.crumb(v.plaka);
+  document.title = v.plaka + ' — GaviaWorks CRM';
+
+  /* =====================================================================
+     Kayda bağlı veri dilimleri — hepsi canonical `arac` alanından
+     ===================================================================== */
+  function ofArac(list){ return (list || []).filter(function(x){ return x.arac === kod; }); }
+  function byTarihDesc(a, b){ return String(b.tarih || '').localeCompare(String(a.tarih || '')); }
+
+  /* DB.assignments araç değil demirbaş zimmeti tutar (`demirbas` alanı).
+     Araç için yazılmış zimmet kaydı olursa `arac` alanıyla da yakalanır. */
+  var zimmetler  = (DB.assignments || []).filter(function(x){ return x.arac === kod || x.demirbas === kod; });
+  var bakimlar   = ofArac(DB.maintenance).sort(function(a, b){ return String(b.planTarihi).localeCompare(String(a.planTarihi)); });
+  var muayeneler = ofArac(DB.inspections).sort(function(a, b){ return String(a.sonrakiTarih).localeCompare(String(b.sonrakiTarih)); });
+  var policeler  = ofArac(DB.policies);
+  var yakitlar   = ofArac(DB.fuelLogs).sort(byTarihDesc);
+  var giderler   = ofArac(DB.vehicleExpenses).sort(byTarihDesc);
+  var kazalar    = ofArac(DB.accidents).sort(byTarihDesc);
+  var cezalar    = ofArac(DB.fines).sort(byTarihDesc);
+  var acts       = (DB.activities || []).filter(function(a){ return a.kayit === kod; });
+
+  var trafik  = policeler.filter(function(p){ return p.tur === 'Trafik Sigortası'; })[0];
+  var kasko   = policeler.filter(function(p){ return p.tur === 'Kasko'; })[0];
+  var muayene = muayeneler[0];
+  var acikBakim = bakimlar.filter(function(b){ return b.durum !== 'Tamam'; })
+                          .sort(function(a, b){ return String(a.planTarihi).localeCompare(String(b.planTarihi)); })[0];
+
+  /* =====================================================================
+     Ortak yardımcılar
+     ===================================================================== */
+  function para(n){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    if(n == null) return '<span class="u-faint">—</span>';
+    return '<span class="cell-money">' + F.money(n) + '</span>';
+  }
+  function paraBirim(n, birim){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    if(n == null) return '<span class="u-faint">—</span>';
+    return '<span class="cell-money">' + F.num(n, 2) + ' ' + esc(birim) + '</span>';
+  }
+  var finansNot = canFinans ? '' : '<div class="gc-body">' + GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Kayıtlar listelenir, para alanları maskelenir.' }) + '</div>';
+
+  /* Yenileme eşikleri — DB.today'e göre: süresi doldu · 7 · 15 · 30 · 60 gün.
+     Ton sözlükte yok (sayısal eşik), bu yüzden GV.badge'e açık ton geçiliyor. */
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0) return 'is-danger';
+    if(d <= 7) return 'is-danger';
+    if(d <= 15) return 'is-warn';
+    if(d <= 30) return 'is-warn';
+    if(d <= 60) return 'is-info';
+    return 'is-ok';
+  }
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return '<span class="u-faint">—</span>';
+    var metin = d < 0 ? 'Süresi doldu · ' + (-d) + ' gün' : d === 0 ? 'Bugün' : d + ' gün kaldı';
+    return GV.badge(metin, kalanTon(iso));
+  }
+  function tarihKalan(iso){
+    if(!iso) return null;
+    return '<span class="cell-date">' + F.date(iso) + '</span> ' + kalanBadge(iso);
+  }
+  function notTonu(iso){
+    var t = kalanTon(iso);
+    return t === 'is-danger' ? 'danger' : t === 'is-warn' ? 'warn' : t === 'is-info' ? 'info' : 'ok';
+  }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows, foot){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>' + (foot || '');
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function sec(baslik, icerik, aciklama){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3>' +
+      (aciklama ? '<p>' + esc(aciklama) + '</p>' : '') + '</div>' + icerik + '</div>';
+  }
+  function km(n){ return n == null ? '<span class="u-faint">—</span>' : '<span class="u-num">' + F.num(n) + ' km</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function surucu(k){ return k ? GV.user(k, { sm:true }) : '<span class="u-faint">Atanmamış</span>'; }
+
+  /* =====================================================================
+     Maliyet türetimi — veriye yazılı toplam yok, kayıtlardan hesaplanır.
+     Çift sayım önlemi: DB.vehicleExpenses içindeki Yakıt/Bakım/Sigorta/Kasko
+     kalemleri kendi koleksiyonlarından sayıldığı için "diğer" toplamına girmez.
+     ===================================================================== */
+  var TUREV_KALEM = ['Yakıt','Bakım','Sigorta','Kasko'];
+  var digerGiderler = giderler.filter(function(g){ return TUREV_KALEM.indexOf(g.tur) === -1; });
+  var yakitToplam = yakitlar.reduce(function(a, x){ return a + (x.tutar || 0); }, 0);
+  var bakimToplam = bakimlar.reduce(function(a, x){ return a + (x.maliyet || 0); }, 0);
+  var primToplam  = policeler.reduce(function(a, x){ return a + (x.prim || 0); }, 0);
+  var digerToplam = digerGiderler.reduce(function(a, x){ return a + (x.tutar || 0); }, 0);
+  var toplamMaliyet = yakitToplam + bakimToplam + primToplam + digerToplam;
+
+  var donemBas = v.mulkiyet === 'Kiralık' ? v.sozlesmeBas : v.alisTarihi;
+  var donemGun = donemBas ? Math.max(1, -F.days(donemBas)) : null;
+  var donemAy  = donemGun ? donemGun / 30.44 : null;
+  var aylikMaliyet = donemAy ? toplamMaliyet / donemAy : null;
+  var yillikMaliyet = aylikMaliyet == null ? null : aylikMaliyet * 12;
+  var kmBasi = v.guncelKm > 0 ? toplamMaliyet / v.guncelKm : null;
+
+  /* Ödenmemiş cezalar gider kaydına işlenmemiş olabilir — toplama katılmaz, ayrıca uyarılır. */
+  var acikCeza = cezalar.filter(function(c){ return c.durum !== 'Ödendi'; })
+                        .reduce(function(a, c){ return a + (c.tutar || 0); }, 0);
+
+  /* Yakıt tüketimi — ilk dolum referans alınır (tam depo yöntemi) */
+  var yakitAsc = yakitlar.slice().sort(function(a, b){ return (a.km || 0) - (b.km || 0); });
+  var toplamLitre = yakitlar.reduce(function(a, x){ return a + (x.litre || 0); }, 0);
+  var ortBirim = toplamLitre > 0 ? yakitToplam / toplamLitre : null;
+  var tuketim = null, tuketimKm = null;
+  if(yakitAsc.length >= 2){
+    tuketimKm = yakitAsc[yakitAsc.length - 1].km - yakitAsc[0].km;
+    if(tuketimKm > 0){
+      var litreSonrasi = yakitAsc.slice(1).reduce(function(a, x){ return a + (x.litre || 0); }, 0);
+      tuketim = litreSonrasi / tuketimKm * 100;
+    }
+  }
+
+  /* =====================================================================
+     Sayfa başlığı
+     ===================================================================== */
+  var phActions = [{ label:'Araç Listesi', icon:'i-car', href:'app-arac.html' }];
+  if(canEkle) phActions.push({ label:'Bakım Kaydı Ekle', icon:'i-plus', cls:'btn-acc', run:function(){ bakimModal(); } });
+  GV.pageHead({
+    eyebrow:'Demirbaş & Filo', title:'Araç Kartı',
+    sub:'Bakım, muayene, sigorta, yakıt ve maliyet takibi tek kayıtta toplanır.',
+    actions:phActions });
+
+  /* =====================================================================
+     Kayıt başlığı
+     ===================================================================== */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(kod) + '</span>' +
+        GV.badge(v.durum) + tagOf(v.tip) + tagOf(v.mulkiyet) + tagOf(v.yakit) +
+        (v.aktif ? '' : '<span class="tag">Pasif kayıt</span>') + '</div>' +
+      '<h1>' + esc(v.plaka) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        '<span>' + ico('i-car','ic-sm') + esc(v.marka + ' ' + v.model + ' · ' + v.modelYili) + '</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + (v.anaSurucu ? esc(DB.empName(v.anaSurucu)) : esc(v.kullanim)) + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + esc(DB.depName(v.dep)) + '</span>' +
+        '<span>' + ico('i-gauge','ic-sm') + F.num(v.guncelKm) + ' km</span>' +
+        '<span>' + ico('i-wrench','ic-sm') + 'Sonraki bakım ' + F.date(v.sonrakiBakimTarihi) + '</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* =====================================================================
+     Sekmeler
+     ===================================================================== */
+  var tabs = [
+    { key:'genel',    lbl:'Genel',            ic:'i-info' },
+    { key:'zimmet',   lbl:'Zimmet',           ic:'i-user-check', cnt:zimmetler.length },
+    { key:'bakim',    lbl:'Bakım',            ic:'i-wrench',     cnt:bakimlar.length },
+    { key:'muayene',  lbl:'Muayene',          ic:'i-clipboard',  cnt:muayeneler.length },
+    { key:'sigorta',  lbl:'Sigorta ve Kasko', ic:'i-shield',     cnt:policeler.length },
+    { key:'yakit',    lbl:'Yakıt',            ic:'i-fuel',       cnt:yakitlar.length },
+    { key:'gider',    lbl:'Giderler',         ic:'i-receipt',    cnt:giderler.length },
+    { key:'kaza',     lbl:'Kaza ve Ceza',     ic:'i-alert',      cnt:kazalar.length + cezalar.length },
+    { key:'maliyet',  lbl:'Maliyet Özeti',    ic:'i-chart-bar' },
+    { key:'aktivite', lbl:'Aktivite Geçmişi', ic:'i-activity',   cnt:acts.length }
+  ];
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =====================================================================
+     1. GENEL — DB.vehicles alanlarının tamamı
+     ===================================================================== */
+  var kiralik = v.mulkiyet === 'Kiralık';
+  var pGenel = '<div class="gc-body">' +
+    sec('Araç Kimliği', dl([
+      ['Plaka', '<b class="u-num">' + esc(v.plaka) + '</b>'],
+      ['Araç kodu', '<span class="u-num">' + esc(kod) + '</span>'],
+      ['Marka', esc(v.marka)],
+      ['Model', esc(v.model)],
+      ['Model yılı', '<span class="u-num">' + esc(v.modelYili) + '</span>'],
+      ['Araç tipi', tagOf(v.tip)],
+      ['Renk', esc(v.renk)],
+      ['Durum', GV.badge(v.durum)]
+    ])) +
+    sec('Teknik Bilgiler', dl([
+      ['Yakıt türü', esc(v.yakit)],
+      ['Şanzıman', esc(v.vites)],
+      ['Motor hacmi', v.motorHacmi ? '<span class="u-num">' + F.num(v.motorHacmi) + ' cc</span>' : null],
+      ['Motor numarası', '<span class="u-num">' + esc(v.motorNo) + '</span>'],
+      ['Şasi numarası', '<span class="u-num">' + esc(v.sasi) + '</span>']
+    ])) +
+    sec('Mülkiyet ve Edinim', dl([
+      ['Mülkiyet', tagOf(v.mulkiyet)],
+      ['Satın alma tarihi', v.alisTarihi ? F.date(v.alisTarihi) : null],
+      ['Satın alma bedeli', v.alisBedeli != null ? para(v.alisBedeli) : null],
+      ['Satıcı', v.satici ? esc(v.satici) : null],
+      kiralik ? ['Kiralama firması', esc(v.kiralamaFirmasi)] : null,
+      kiralik ? ['Kiralama sözleşmesi', F.date(v.sozlesmeBas) + ' – ' + F.date(v.sozlesmeBit)] : null,
+      kiralik ? ['Sözleşme bitişine kalan', kalanBadge(v.sozlesmeBit)] : null,
+      kiralik ? ['Aylık kira bedeli', para(v.aylikKira)] : null,
+      kiralik ? ['Yıllık km sınırı', km(v.kmSiniri)] : null,
+      kiralik ? ['Depozito', para(v.depozito)] : null
+    ])) +
+    sec('Kullanım ve Sorumluluk', dl([
+      ['Kullanım şekli', esc(v.kullanim)],
+      ['Ana sürücü', v.anaSurucu ? GV.user(v.anaSurucu, { sm:true }) : null],
+      ['Yedek sürücü', v.yedekSurucu ? GV.user(v.yedekSurucu, { sm:true }) : null],
+      ['Departman', esc(DB.depName(v.dep))],
+      ['Bağlı proje', v.proje ? esc(v.proje) : null],
+      ['Kayıt durumu', v.aktif ? GV.badge('Aktif') : GV.badge('Pasif')]
+    ])) +
+    sec('Kilometre ve Bakım', dl([
+      ['Güncel kilometre', '<b class="u-num">' + F.num(v.guncelKm) + ' km</b>'],
+      ['Son bakım tarihi', v.sonBakimTarihi ? F.date(v.sonBakimTarihi) : null],
+      ['Son bakım kilometresi', km(v.sonBakimKm)],
+      ['Sonraki bakım tarihi', tarihKalan(v.sonrakiBakimTarihi)],
+      ['Sonraki bakım kilometresi', km(v.sonrakiBakimKm) +
+        (v.guncelKm >= v.sonrakiBakimKm ? ' ' + GV.badge('Km eşiği aşıldı', 'is-danger') :
+          ' <span class="cell-sub">' + F.num(v.sonrakiBakimKm - v.guncelKm) + ' km kaldı</span>')]
+    ])) +
+    '</div>';
+
+  /* =====================================================================
+     2. ZİMMET
+     ===================================================================== */
+  var pZimmet = '<div class="gc-body">' +
+    sec('Güncel Tahsis', dl([
+      ['Kullanım şekli', esc(v.kullanim)],
+      ['Ana sürücü', v.anaSurucu ? GV.user(v.anaSurucu, { sm:true }) : null],
+      ['Yedek sürücü', v.yedekSurucu ? GV.user(v.yedekSurucu, { sm:true }) : null],
+      ['Departman', esc(DB.depName(v.dep))],
+      ['Araç durumu', GV.badge(v.durum)]
+    ]), 'Tahsis bilgisi araç kartında tutulur; imzalı zimmet tutanakları aşağıdaki listede izlenir.') +
+    '</div>' +
+    '<div class="gc-body flush">' +
+    (zimmetler.length
+      ? tbl('<th>Zimmet no</th><th>Personel</th><th>Teslim</th><th>İade</th><th>Personel onayı</th><th>Hasar notu</th><th>Durum</th>',
+          zimmetler.map(function(z){
+            return '<tr><td><span class="cell-main">' + esc(z.kod) + '</span>' +
+              (z.tutanak ? '<span class="cell-code">' + esc(z.tutanak) + '</span>' : '') + '</td>' +
+              '<td>' + surucu(z.personel) + '</td>' +
+              '<td><span class="cell-date">' + F.date(z.teslimTarihi) + '</span></td>' +
+              '<td>' + (z.iadeTarihi ? '<span class="cell-date">' + F.date(z.iadeTarihi) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(z.personelOnay) + (z.onayTarihi ? '<span class="cell-sub">' + F.date(z.onayTarihi) + '</span>' : '') + '</td>' +
+              '<td class="cell-wrap">' + (z.hasar ? esc(z.hasar) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(z.durum, z.durum === 'İade edildi' ? 'is-neutral' : null) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + zimmetler.length + '</b> zimmet kaydı',
+            '<a class="btn btn-line btn-sm" href="app-zimmet.html">' + ico('i-external','ic-sm') + ' Zimmet listesi</a>'))
+      : GV.empty({ icon:'i-user-check', title:'Zimmet tutanağı yok',
+          desc:'Bu araç için imzalı zimmet kaydı bulunmuyor. Araç ' + (v.anaSurucu ? DB.empName(v.anaSurucu) + ' adına tahsisli' : v.kullanim.toLowerCase() + 'da') + ', tutanak zimmet modülünden oluşturulur.',
+          action:'<a class="btn btn-acc" href="app-zimmet.html">Zimmet listesine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     3. BAKIM
+     ===================================================================== */
+  var bakimUyari = acikBakim
+    ? '<div class="gc-body">' + GV.notice({
+        tone:notTonu(acikBakim.planTarihi), icon:'i-wrench',
+        title:'Sonraki bakım — ' + F.date(acikBakim.planTarihi) + ' · ' + F.num(acikBakim.planKm) + ' km',
+        text:acikBakim.tur + ' · ' + acikBakim.servis + ' · ' + F.rel(acikBakim.planTarihi) +
+             (v.guncelKm >= acikBakim.planKm ? ' · kilometre eşiği aşıldı, bakım öne alınmalı.' : ' · güncel km ' + F.num(v.guncelKm) + '.'),
+        actions:[{ label:'Bakım takibi', href:'app-arac-bakim.html?f_arac=' + kod }] }) + '</div>'
+    : '';
+  var bakimMaliyetli = bakimlar.filter(function(b){ return b.maliyet != null; }).length;
+  var pBakim = bakimUyari + finansNot + '<div class="gc-body flush">' +
+    (bakimlar.length
+      ? tbl('<th>Bakım no</th><th>Tür</th><th>Planlanan</th><th class="num">Bakım km</th><th>Gerçekleşen</th><th>Servis</th><th>İşlemler</th><th class="num">Maliyet</th><th>Durum</th>',
+          bakimlar.map(function(b){
+            return '<tr><td><span class="cell-main">' + esc(b.kod) + '</span></td>' +
+              '<td>' + tagOf(b.tur) + '</td>' +
+              '<td>' + GV.dateCell(b.planTarihi, { done:b.durum === 'Tamam' }) + '</td>' +
+              '<td class="num">' + km(b.planKm) + '</td>' +
+              '<td>' + (b.gercekTarihi ? '<span class="cell-date">' + F.date(b.gercekTarihi) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + esc(b.servis) + '</td>' +
+              '<td class="cell-wrap">' + (b.islemler || []).map(function(i){ return '<span class="tag">' + esc(i) + '</span>'; }).join(' ') + '</td>' +
+              '<td class="num">' + para(b.maliyet) + '</td>' +
+              '<td>' + GV.badge(b.durum) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + bakimlar.length + '</b> bakım kaydı · tamamlanan ' +
+            bakimlar.filter(function(b){ return b.durum === 'Tamam'; }).length +
+            ' · maliyetli kayıt ' + bakimMaliyetli + ' · toplam ' + para(bakimToplam),
+            '<a class="btn btn-line btn-sm" href="app-arac-bakim.html?f_arac=' + kod + '">' + ico('i-wrench','ic-sm') + ' Bakım listesi</a>'))
+      : GV.empty({ icon:'i-wrench', title:'Bakım kaydı yok',
+          desc:'Bu araç için planlanmış veya tamamlanmış bir bakım kaydı bulunmuyor.',
+          action:canEkle ? '<button type="button" class="btn btn-acc" id="btnBakim2">Bakım kaydı ekle</button>'
+                         : '<a class="btn btn-acc" href="app-arac-bakim.html">Bakım listesine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     4. MUAYENE
+     ===================================================================== */
+  var muayeneUyari = muayene
+    ? '<div class="gc-body">' + GV.notice({
+        tone:notTonu(muayene.sonrakiTarih), icon:'i-clipboard',
+        title:'Muayene geçerliliği — ' + F.date(muayene.gecerlilik),
+        text:'Sonraki muayene ' + F.date(muayene.sonrakiTarih) + ' · ' + F.rel(muayene.sonrakiTarih) +
+             ' · ' + muayene.istasyon + (muayene.kusur ? ' · son muayenede: ' + muayene.kusur : ''),
+        actions:[{ label:'Muayene takvimi', href:'app-arac-muayene.html' }] }) + '</div>'
+    : '';
+  var pMuayene = muayeneUyari + '<div class="gc-body flush">' +
+    (muayeneler.length
+      ? tbl('<th>Muayene no</th><th>Muayene tarihi</th><th>Geçerlilik bitişi</th><th>Sonraki muayene</th><th>Kalan</th><th>Sonuç</th><th>Kusur</th><th>İstasyon</th><th>Durum</th>',
+          muayeneler.map(function(m){
+            return '<tr><td><span class="cell-main">' + esc(m.kod) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(m.sonTarih) + '</span></td>' +
+              '<td>' + GV.dateCell(m.gecerlilik) + '</td>' +
+              '<td>' + GV.dateCell(m.sonrakiTarih) + '</td>' +
+              '<td>' + kalanBadge(m.sonrakiTarih) + '</td>' +
+              '<td>' + GV.badge(m.sonuc, m.sonuc === 'Geçti' ? 'is-ok' : 'is-danger') + '</td>' +
+              '<td class="cell-wrap">' + (m.kusur ? esc(m.kusur) : '<span class="u-faint">Kusursuz</span>') + '</td>' +
+              '<td>' + esc(m.istasyon) + '</td>' +
+              '<td>' + GV.badge(m.durum) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + muayeneler.length + '</b> muayene kaydı · geçerlilik ' + F.date(muayene.gecerlilik),
+            '<a class="btn btn-line btn-sm" href="app-arac-muayene.html">' + ico('i-clipboard','ic-sm') + ' Muayene listesi</a>'))
+      : GV.empty({ icon:'i-clipboard', title:'Muayene kaydı yok',
+          desc:'Bu araç için araç muayene kaydı girilmemiş. Muayene geçerliliği dolan araçlar trafiğe çıkamaz.',
+          action:'<a class="btn btn-acc" href="app-arac-muayene.html">Muayene listesine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     5. SİGORTA VE KASKO
+     ===================================================================== */
+  function policeTablo(tur){
+    var liste = policeler.filter(function(p){ return p.tur === tur; });
+    if(!liste.length){
+      return GV.empty({ icon:'i-shield', title:tur + ' poliçesi yok',
+        desc:tur === 'Trafik Sigortası'
+          ? 'Zorunlu trafik sigortası kaydı bulunmuyor — poliçesiz araç trafiğe çıkamaz.'
+          : 'Bu araç için kasko poliçesi tanımlanmamış.',
+        action:'<a class="btn btn-acc" href="app-arac-sigorta.html">Poliçe listesine git</a>' });
+    }
+    return tbl('<th>Poliçe no</th><th>Şirket</th><th>Acente</th><th>Başlangıç</th><th>Bitiş</th><th>Kalan</th><th class="num">Prim</th><th>Ödeme</th><th>Yenileme</th>',
+      liste.map(function(p){
+        return '<tr><td><span class="cell-main">' + esc(p.police) + '</span><span class="cell-code">' + esc(p.kod) + '</span></td>' +
+          '<td>' + esc(p.sirket) + '</td>' +
+          '<td>' + esc(p.acente) + '</td>' +
+          '<td><span class="cell-date">' + F.date(p.baslangic) + '</span></td>' +
+          '<td>' + GV.dateCell(p.bitis) + '</td>' +
+          '<td>' + kalanBadge(p.bitis) + '</td>' +
+          '<td class="num">' + para(p.prim) + '</td>' +
+          '<td>' + GV.badge(p.odeme, p.odeme === 'Ödendi' ? null : 'is-info') + '</td>' +
+          '<td>' + (p.yenileme && p.yenileme !== '—'
+            ? GV.badge(p.yenileme, p.yenileme === 'Bekliyor' ? null : 'is-info')
+            : '<span class="u-faint">—</span>') + '</td></tr>';
+      }).join(''));
+  }
+  var sigortaUyari = '';
+  [trafik, kasko].forEach(function(p){
+    if(!p) return;
+    var d = F.days(p.bitis);
+    if(d != null && d <= 60){
+      sigortaUyari += GV.notice({
+        tone:notTonu(p.bitis), icon:'i-shield',
+        title:p.tur + ' — ' + (d < 0 ? 'süresi doldu' : d + ' gün içinde bitiyor'),
+        text:p.sirket + ' · poliçe ' + p.police + ' · bitiş ' + F.date(p.bitis) +
+             ' · yenileme durumu: ' + (p.yenileme && p.yenileme !== '—' ? p.yenileme : 'başlatılmadı'),
+        actions:[{ label:'Poliçe listesi', href:'app-arac-sigorta.html' }] });
+    }
+  });
+  var pSigorta = (sigortaUyari ? '<div class="gc-body u-col">' + sigortaUyari + '</div>' : '') + finansNot +
+    '<div class="gc-body">' +
+      sec('Zorunlu Trafik Sigortası', policeTablo('Trafik Sigortası')) +
+      sec('Kasko', policeTablo('Kasko') +
+        (kasko ? '<div class="u-mt-4">' + dl([
+          ['Kasko bedeli', para(kasko.kaskoBedeli)],
+          ['Teminat kapsamı', esc(kasko.teminat)],
+          ['Muafiyet', esc(kasko.muafiyet)],
+          ['İkame araç', kasko.ikameArac ? GV.badge('Var', 'is-ok') : GV.badge('Yok', 'is-neutral')],
+          ['Mini onarım', kasko.miniOnarim ? GV.badge('Var', 'is-ok') : GV.badge('Yok', 'is-neutral')],
+          ['Hasarsızlık indirimi', esc(kasko.hasarsizlik)]
+        ]) + '</div>' : '')) +
+      (trafik ? sec('Trafik Poliçesi Teminatı', dl([
+        ['Teminat kapsamı', esc(trafik.teminat)],
+        ['Ödeme durumu', GV.badge(trafik.odeme, trafik.odeme === 'Ödendi' ? null : 'is-info')],
+        ['Yenileme durumu', trafik.yenileme && trafik.yenileme !== '—' ? GV.badge(trafik.yenileme, trafik.yenileme === 'Bekliyor' ? null : 'is-info') : null]
+      ])) : '') +
+    '</div>';
+
+  /* =====================================================================
+     6. YAKIT
+     ===================================================================== */
+  var pYakit = finansNot + '<div class="gc-body">' +
+    sec('Tüketim Özeti', dl([
+      ['Dolum sayısı', '<b>' + yakitlar.length + '</b>'],
+      ['Toplam yakıt', toplamLitre ? '<b class="u-num">' + F.num(toplamLitre, 1) + ' lt</b>' : null],
+      ['Toplam yakıt gideri', para(yakitToplam)],
+      ['Ortalama birim fiyat', ortBirim == null ? null : paraBirim(ortBirim, '₺/lt')],
+      ['Ortalama tüketim', tuketim == null
+        ? null
+        : '<b class="u-num">' + F.num(tuketim, 1) + ' lt / 100 km</b> <span class="cell-sub">' + F.num(tuketimKm) + ' km ölçüm aralığı</span>'],
+      ['Son dolum', yakitlar.length ? F.date(yakitlar[0].tarih) + ' <span class="cell-sub">' + F.num(yakitlar[0].km) + ' km</span>' : null]
+    ]), tuketim == null ? 'Ortalama tüketim en az iki dolum kaydı ve artan kilometre gerektirir.' : null) +
+    '</div>' +
+    '<div class="gc-body flush">' +
+    (yakitlar.length
+      ? tbl('<th>Fiş no</th><th>Tarih</th><th>İstasyon</th><th class="num">Kilometre</th><th class="num">Litre</th><th class="num">Birim fiyat</th><th class="num">Tutar</th><th>Sürücü</th>',
+          yakitlar.map(function(y){
+            return '<tr><td><span class="cell-main">' + esc(y.kod) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(y.tarih) + '</span></td>' +
+              '<td>' + esc(y.istasyon) + '</td>' +
+              '<td class="num">' + km(y.km) + '</td>' +
+              '<td class="num"><span class="u-num">' + F.num(y.litre, 1) + ' lt</span></td>' +
+              '<td class="num">' + paraBirim(y.birimFiyat, '₺') + '</td>' +
+              '<td class="num">' + para(y.tutar) + '</td>' +
+              '<td>' + surucu(y.surucu) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + yakitlar.length + '</b> dolum · ' + F.num(toplamLitre, 1) + ' lt · toplam ' + para(yakitToplam),
+            '<a class="btn btn-line btn-sm" href="app-arac-yakit.html">' + ico('i-fuel','ic-sm') + ' Yakıt listesi</a>'))
+      : GV.empty({ icon:'i-fuel', title:'Yakıt kaydı yok',
+          desc:'Bu araca ait yakıt fişi girilmemiş. Tüketim ortalaması dolum kayıtlarından hesaplanır.',
+          action:'<a class="btn btn-acc" href="app-arac-yakit.html">Yakıt listesine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     7. GİDERLER
+     ===================================================================== */
+  var giderToplam = giderler.reduce(function(a, g){ return a + (g.tutar || 0); }, 0);
+  var pGider = finansNot + '<div class="gc-body flush">' +
+    (giderler.length
+      ? tbl('<th>Gider no</th><th>Tarih</th><th>Kalem</th><th>Açıklama</th><th>Belge</th><th class="num">Tutar</th>',
+          giderler.map(function(g){
+            return '<tr><td><span class="cell-main">' + esc(g.kod) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(g.tarih) + '</span></td>' +
+              '<td>' + tagOf(g.tur) + '</td>' +
+              '<td class="cell-wrap">' + esc(g.aciklama) + '</td>' +
+              '<td><span class="cell-code">' + esc(g.belge) + '</span></td>' +
+              '<td class="num">' + para(g.tutar) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + giderler.length + '</b> gider kaydı · toplam ' + para(giderToplam),
+            '<a class="btn btn-line btn-sm" href="app-arac-gider.html">' + ico('i-receipt','ic-sm') + ' Gider listesi</a>'))
+      : GV.empty({ icon:'i-receipt', title:'Gider kaydı yok',
+          desc:'Bu araca ait yakıt dışı gider kalemi (HGS, lastik, kira, ceza) girilmemiş.',
+          action:'<a class="btn btn-acc" href="app-arac-gider.html">Gider listesine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     8. KAZA VE CEZA
+     ===================================================================== */
+  var kazaTablo = kazalar.length
+    ? tbl('<th>Kaza no</th><th>Tarih</th><th>Konum</th><th>Sürücü</th><th>Karşı araç</th><th class="num">Kusur</th><th>Ekspertiz</th><th>Sigorta dosyası</th><th>Onarım servisi</th><th class="num">Onarım maliyeti</th><th>Durum</th>',
+        kazalar.map(function(k){
+          return '<tr><td><span class="cell-main">' + esc(k.kod) + '</span>' +
+            (k.tutanak ? '<span class="cell-code">' + esc(k.tutanak) + '</span>' : '') + '</td>' +
+            '<td><span class="cell-date">' + F.date(k.tarih) + '</span></td>' +
+            '<td class="cell-wrap">' + esc(k.konum) + '<span class="cell-sub">' + esc(k.aciklama) + '</span></td>' +
+            '<td>' + surucu(k.surucu) + '</td>' +
+            '<td><span class="u-num">' + esc(k.karsiArac || '—') + '</span></td>' +
+            '<td class="num">' + (k.kusurOrani === 0
+              ? GV.badge('Kusursuz', 'is-ok')
+              : GV.badge('%' + k.kusurOrani, k.kusurOrani >= 50 ? 'is-danger' : 'is-warn')) + '</td>' +
+            '<td>' + tagOf(k.ekspertiz) + '</td>' +
+            '<td><span class="u-num">' + esc(k.sigortaDosya || '—') + '</span></td>' +
+            '<td>' + esc(k.onarimServis || '—') + '</td>' +
+            '<td class="num">' + para(k.onarimMaliyet) + '</td>' +
+            '<td>' + GV.badge(k.durum) + '</td></tr>';
+        }).join(''),
+        sayac('<b>' + kazalar.length + '</b> kaza kaydı',
+          '<a class="btn btn-line btn-sm" href="app-arac-kaza.html">' + ico('i-alert','ic-sm') + ' Kaza ve ceza listesi</a>'))
+    : GV.empty({ icon:'i-shield-check', title:'Kaza kaydı yok',
+        desc:'Bu araç için kayıtlı kaza, hasar veya ekspertiz dosyası bulunmuyor.' });
+
+  var cezaToplam = cezalar.reduce(function(a, c){ return a + (c.tutar || 0); }, 0);
+  var cezaTablo = cezalar.length
+    ? tbl('<th>Ceza no</th><th>Tarih</th><th>Ceza türü</th><th>Sürücü</th><th>Son ödeme</th><th class="num">Tutar</th><th>Durum</th><th>Belge</th>',
+        cezalar.map(function(c){
+          return '<tr><td><span class="cell-main">' + esc(c.kod) + '</span></td>' +
+            '<td><span class="cell-date">' + F.date(c.tarih) + '</span></td>' +
+            '<td>' + tagOf(c.tur) + '</td>' +
+            '<td>' + surucu(c.surucu) + '</td>' +
+            '<td>' + GV.dateCell(c.sonOdeme, { done:c.durum === 'Ödendi' }) + '</td>' +
+            '<td class="num">' + para(c.tutar) + '</td>' +
+            '<td>' + GV.badge(c.durum) + '</td>' +
+            '<td><span class="cell-code">' + esc(c.belge) + '</span></td></tr>';
+        }).join(''),
+        sayac('<b>' + cezalar.length + '</b> ceza kaydı · toplam ' + para(cezaToplam) +
+          ' · ödenmemiş ' + para(acikCeza)))
+    : GV.empty({ icon:'i-check-circle', title:'Ceza kaydı yok',
+        desc:'Bu araç için trafik cezası kaydı bulunmuyor.' });
+
+  var pKaza = finansNot +
+    '<div class="gc-body">' + sec('Kaza ve Hasar Dosyaları', kazaTablo) +
+      sec('Trafik Cezaları', cezaTablo) + '</div>';
+
+  /* =====================================================================
+     9. MALİYET ÖZETİ — tamamı finans yetkisine tabi, veriden türetilir
+     ===================================================================== */
+  function kpi(label, deger, icon, tone, meta){
+    return '<div class="kpi' + (tone ? ' is-' + tone : '') + '">' +
+      '<div class="kpi-ico">' + ico(icon, 'ic-lg') + '</div>' +
+      '<div class="kpi-body"><div class="kpi-num">' + deger + '</div>' +
+      '<div class="kpi-lbl">' + esc(label) + '</div>' +
+      (meta ? '<div class="kpi-meta is-flat">' + meta + '</div>' : '') + '</div></div>';
+  }
+  function kpiPara(n){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    return n == null ? '—' : F.moneyK(n);
+  }
+  var kalemler = [
+    ['Yakıt', yakitlar.length, yakitToplam, 'DB.fuelLogs'],
+    ['Bakım ve onarım', bakimMaliyetli, bakimToplam, 'DB.maintenance'],
+    ['Sigorta ve kasko primi', policeler.length, primToplam, 'DB.policies'],
+    ['Diğer giderler', digerGiderler.length, digerToplam, 'DB.vehicleExpenses']
+  ];
+  var pMaliyet = '<div class="gc-body">' +
+    GV.notice({ tone:canFinans ? 'info' : 'neutral', icon:canFinans ? 'i-info' : 'i-lock',
+      title:canFinans ? 'Maliyet nasıl hesaplanıyor?' : 'Maliyet tutarları gizli',
+      text:canFinans
+        ? 'Toplam maliyet yakıt fişleri, bakım kayıtları, poliçe primleri ve yakıt/bakım/sigorta dışı gider kalemlerinin toplamıdır. ' +
+          'Gider listesindeki yakıt, bakım, sigorta ve kasko satırları kendi koleksiyonlarından sayıldığı için ikinci kez eklenmez. ' +
+          'Dönem, ' + (v.mulkiyet === 'Kiralık' ? 'kiralama sözleşmesi başlangıcından' : 'satın alma tarihinden') + ' bugüne kadardır.'
+        : 'Rolünüzde finansal tutar görüntüleme yetkisi yok. Maliyet kırılımı listelenir, tutarlar maskelenir.' }) +
+    '<div class="u-mt-8">' +
+      '<div class="kpi-grid">' +
+        kpi('Toplam kayıtlı maliyet', kpiPara(toplamMaliyet), 'i-wallet', 'accent',
+            donemGun ? F.num(donemGun) + ' günlük dönem' : null) +
+        kpi('Aylık ortalama maliyet', kpiPara(aylikMaliyet), 'i-calendar', 'info',
+            donemAy ? F.num(donemAy, 1) + ' ay üzerinden' : null) +
+        kpi('Yıllık maliyet projeksiyonu', kpiPara(yillikMaliyet), 'i-trend-up', 'warn',
+            'Aylık ortalama × 12') +
+        kpi('Kilometre başına maliyet',
+            canFinans ? (kmBasi == null ? '—' : F.num(kmBasi, 2) + '<small>₺/km</small>') : '<span class="cell-mask">••••••</span>',
+            'i-gauge', 'ok', F.num(v.guncelKm) + ' km üzerinden') +
+      '</div>' +
+    '</div>' +
+    sec('Maliyet Kırılımı',
+      tbl('<th>Kalem</th><th>Kaynak</th><th class="num">Kayıt</th><th class="num">Tutar</th><th class="num">Pay</th>',
+        kalemler.map(function(k){
+          var pay = toplamMaliyet > 0 ? Math.round(k[2] / toplamMaliyet * 100) : 0;
+          return '<tr><td><span class="cell-main">' + esc(k[0]) + '</span></td>' +
+            '<td><span class="cell-code">' + esc(k[3]) + '</span></td>' +
+            '<td class="num"><span class="u-num">' + k[1] + '</span></td>' +
+            '<td class="num">' + para(k[2]) + '</td>' +
+            '<td class="num">' + GV.progress(pay) + '</td></tr>';
+        }).join(''),
+        sayac('Toplam <b>' + (canFinans ? F.money(toplamMaliyet) : '••••••') + '</b>' +
+          (acikCeza > 0 ? ' · gidere işlenmemiş ödenmemiş ceza ' + para(acikCeza) : ''),
+          '<a class="btn btn-line btn-sm" href="app-rapor-filo.html">' + ico('i-chart-bar','ic-sm') + ' Filo raporları</a>'))) +
+    sec('Dönem ve Esaslar', dl([
+      ['Dönem başlangıcı', donemBas ? F.date(donemBas) + ' <span class="cell-sub">' +
+        (v.mulkiyet === 'Kiralık' ? 'kiralama sözleşmesi' : 'satın alma') + '</span>' : null],
+      ['Dönem uzunluğu', donemAy ? '<b class="u-num">' + F.num(donemAy, 1) + ' ay</b>' : null],
+      ['Güncel kilometre', '<b class="u-num">' + F.num(v.guncelKm) + ' km</b>'],
+      ['Toplam yakıt', toplamLitre ? '<span class="u-num">' + F.num(toplamLitre, 1) + ' lt</span>' : null],
+      ['Ortalama tüketim', tuketim == null ? null : '<span class="u-num">' + F.num(tuketim, 1) + ' lt / 100 km</span>'],
+      ['Kayıt sayısı', '<b>' + (yakitlar.length + bakimlar.length + policeler.length + giderler.length) + '</b> maliyet kaydı']
+    ])) +
+    '</div>';
+
+  /* =====================================================================
+     10. AKTİVİTE GEÇMİŞİ
+     ===================================================================== */
+  var pAktivite = '<div class="gc-body">' +
+    (acts.length ? GV.activity(acts)
+      : GV.empty({ icon:'i-activity', title:'Araç kartında hareket yok',
+          desc:'Bu araç üzerinde kayıtlı durum, kilometre veya zimmet değişikliği bulunmuyor. Yapılan her değişiklik burada listelenir.' })) +
+    '</div>';
+
+  var panels = {
+    genel:pGenel, zimmet:pZimmet, bakim:pBakim, muayene:pMuayene, sigorta:pSigorta,
+    yakit:pYakit, gider:pGider, kaza:pKaza, maliyet:pMaliyet, aktivite:pAktivite
+  };
+
+  /* =====================================================================
+     Sağ özet paneli
+     ===================================================================== */
+  var ozet = [
+    ['Durum', GV.badge(v.durum)],
+    ['Zimmetli personel', v.anaSurucu ? GV.user(v.anaSurucu, { sm:true }) : '<span class="u-faint">' + esc(v.kullanim) + '</span>'],
+    ['Departman', esc(DB.depName(v.dep))],
+    ['Mülkiyet', tagOf(v.mulkiyet)],
+    ['Güncel kilometre', '<b class="u-num">' + F.num(v.guncelKm) + ' km</b>'],
+    ['Sonraki bakım', tarihKalan(v.sonrakiBakimTarihi) || '<span class="u-faint">—</span>'],
+    ['Muayene bitiş', muayene ? tarihKalan(muayene.sonrakiTarih) : '<span class="u-faint">Kayıt yok</span>'],
+    ['Trafik sigortası bitiş', trafik ? tarihKalan(trafik.bitis) : '<span class="u-faint">Poliçe yok</span>'],
+    ['Kasko bitiş', kasko ? tarihKalan(kasko.bitis) : '<span class="u-faint">Poliçe yok</span>'],
+    ['Toplam kayıtlı maliyet', para(toplamMaliyet)]
+  ];
+
+  /* Yenileme takvimi — kalan güne göre sıralı */
+  var takvim = [
+    v.sonrakiBakimTarihi ? { ad:'Periyodik bakım', ic:'i-wrench', tarih:v.sonrakiBakimTarihi, not:F.num(v.sonrakiBakimKm) + ' km' } : null,
+    muayene ? { ad:'Araç muayenesi', ic:'i-clipboard', tarih:muayene.sonrakiTarih, not:muayene.istasyon } : null,
+    trafik ? { ad:'Trafik sigortası', ic:'i-shield', tarih:trafik.bitis, not:trafik.sirket } : null,
+    kasko ? { ad:'Kasko', ic:'i-shield-check', tarih:kasko.bitis, not:kasko.sirket } : null,
+    (kiralik && v.sozlesmeBit) ? { ad:'Kiralama sözleşmesi', ic:'i-receipt', tarih:v.sozlesmeBit, not:v.kiralamaFirmasi } : null
+  ].filter(Boolean).sort(function(a, b){ return String(a.tarih).localeCompare(String(b.tarih)); });
+
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body"><div class="gv-summary">' + ozet.map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span><span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div></div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-calendar') + 'Yenileme Takvimi</h2></div>' +
+    '<div class="gc-body">' + (takvim.length
+      ? '<div class="gv-summary">' + takvim.map(function(t){
+          return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + ico(t.ic,'ic-sm') + ' ' + esc(t.ad) +
+            '<span class="cell-sub">' + esc(t.not) + '</span></span>' +
+            '<span class="gv-summary-val"><span class="cell-date">' + F.dateShort(t.tarih) + '</span><br>' + kalanBadge(t.tarih) + '</span></div>';
+        }).join('') + '</div>'
+      : '<p class="u-sm u-faint">Bu araç için takip edilen bir yenileme tarihi yok.</p>') + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3))
+      : '<p class="u-sm u-faint">Bu araç kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* =====================================================================
+     Bakım kaydı ekleme — gerçekten çalışır
+     ===================================================================== */
+  function bakimModal(){
+    var turler = ['Periyodik bakım','Ağır bakım','Onarım','Lastik değişimi'];
+    GV.modal({
+      title:'Bakım Kaydı Ekle', text:v.plaka + ' · ' + v.marka + ' ' + v.model, icon:'i-wrench', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="bTur">Bakım türü</label><select id="bTur">' +
+          turler.map(function(t){ return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field f-col-6"><label for="bTarih">Planlanan tarih</label>' +
+          '<input type="date" class="inp" id="bTarih" value="' + DB.today + '"></div>' +
+        '<div class="field f-col-6"><label for="bKm">Bakım kilometresi</label>' +
+          '<input type="number" class="inp" id="bKm" min="' + v.guncelKm + '" value="' + (v.sonrakiBakimKm || v.guncelKm) + '"></div>' +
+        '<div class="field f-col-12"><label for="bServis">Servis</label>' +
+          '<input type="text" class="inp" id="bServis" placeholder="Yetkili servis adı"></div>' +
+        '<div class="field f-col-12"><label for="bIslem">Yapılacak işlemler</label>' +
+          '<input type="text" class="inp" id="bIslem" placeholder="Virgülle ayırın: Yağ değişimi, Filtre değişimi"></div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Kaydet', cls:'btn-acc', onClick:function(close, el){
+            var servis = el.querySelector('#bServis').value.trim();
+            var tarih = el.querySelector('#bTarih').value;
+            var bkm = parseInt(el.querySelector('#bKm').value, 10);
+            if(!servis){ GV.toast('Servis adı zorunludur', 'danger'); return false; }
+            if(!tarih){ GV.toast('Planlanan tarih zorunludur', 'danger'); return false; }
+            if(!bkm || bkm < v.guncelKm){ GV.toast('Bakım kilometresi güncel kilometreden küçük olamaz', 'danger'); return false; }
+            var gun = F.days(tarih);
+            var yeni = {
+              kod:'BKM-' + tarih.slice(0, 4) + '-' + String(DB.maintenance.length + 22).padStart(3, '0'),
+              arac:kod, tur:el.querySelector('#bTur').value, planTarihi:tarih, planKm:bkm,
+              gercekTarihi:null, servis:servis, maliyet:null,
+              durum:gun <= 30 ? 'Yaklaşıyor' : 'Planlandı', kalanGun:gun,
+              islemler:el.querySelector('#bIslem').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean),
+              aktif:true
+            };
+            DB.maintenance.unshift(yeni);
+            if(!v.sonrakiBakimTarihi || tarih < v.sonrakiBakimTarihi){
+              v.sonrakiBakimTarihi = tarih;
+              v.sonrakiBakimKm = bkm;
+            }
+            DB.activities.unshift({ kayit:kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0, 5),
+              kisi:GV.session.ad, metin:'Bakım kaydı eklendi — ' + yeni.tur + ' · ' + servis,
+              eski:null, yeni:yeni.kod, tone:'info', icon:'i-wrench' });
+            GV.toast(yeni.kod + ' bakım kaydı oluşturuldu', 'ok');
+            setTimeout(function(){ location.reload(); }, 700);
+          } }
+      ]
+    });
+  }
+  document.addEventListener('click', function(e){ if(e.target.closest('#btnBakim2')) bakimModal(); });
+});
+</script>
+</body>
+</html>
