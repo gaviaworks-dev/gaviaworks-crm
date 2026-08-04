@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sipariş Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satinalma" data-screen="siparis">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.emp
+     ops.js  → DB.orders, DB.purchases, DB.suppliers, DB.supplierQuotes,
+               DB.purchaseApprovals, DB.assets
+     work.js → DB.activities, DB.projName -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.orders.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Tedarik', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen sipariş kaydı sistemde yok.',
+      actions:[{ label:'Sipariş listesine dön', cls:'btn-line', href:'app-siparis.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Sipariş bulunamadı',
+      desc:'“' + esc(id) + '” numaralı sipariş bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-siparis.html">Sipariş listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Sipariş';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Sayfa seviyesinde 403; menü gizlemek tek başına yetmez.
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Tedarik', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Sipariş listesine dön', cls:'btn-line', href:'app-siparis.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Sipariş düzenleme' : 'Sipariş oluşturma') + ' yetkisi rolünüzde (' +
+           GV.session.rolAd + ') tanımlı değil. Siparişleri listede görüntüleyebilir, ' +
+           'kartını açabilirsiniz — ama kayıt oluşturamaz veya değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-siparis.html">Sipariş listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-siparis-detay.html?id=' + esc(kayit.kod) +
+                   '">Sipariş kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     PARA KONVANSİYONU — components.md §9b, TEK EKSEN
+       tutar  = NET (KDV hariç)   → formda girilen tek bedel
+       vergi  = KDV tutarı        → HESAPLANIR, ayrıca girilmez
+       toplam = BRÜT (KDV dahil)  → HESAPLANIR (tutar + vergi)
+     Siparişin neti, doğduğu talebin `tahminiMaliyet`i ve tedarikçi teklifinin
+     `fiyat`ı ile AYNI eksendedir. Net ve brüt aynı alanda karışmaz.
+
+     KDV ORANI sipariş kaydında yazılı DEĞİLDİR: koleksiyonda `vergi` tutarı
+     tutulur. Form oranı yalnız hesap aracı olarak alır ve kayda yazmaz;
+     düzenleme modunda oran vergi/tutar'dan geri hesaplanır (sipariş kartı da
+     böyle yapıyor).
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function kurSim(d){ return (!d || d === 'TRY') ? '₺' : d; }
+  function kdvZinciri(net, oran){
+    var n = sayi(net), k = Math.round(n * sayi(oran) / 100);
+    return { net:n, kdv:k, brut:n + k };
+  }
+  function oranHesapla(o){
+    return (o && sayi(o.tutar)) ? Math.round(sayi(o.vergi) / sayi(o.tutar) * 100) : null;
+  }
+
+  /* =================================================================
+     BAĞ OKUMALARI — hepsi veride yazılı tekil bağdan
+       DB.orders[].talep     → DB.purchases
+       DB.orders[].tedarikci → DB.suppliers
+       talep                 → DB.supplierQuotes · DB.purchaseApprovals
+       DB.assets[].siparis   → demirbaş bağı, TEK YÖNLÜ (components.md §9d):
+                               siparişte ayna alan YOKTUR, bu form demirbaş yazmaz.
+     ================================================================= */
+  function ted(k){ return k ? DB.suppliers.filter(function(s){ return s.kod === k; })[0] || null : null; }
+  function tedAd(k){ var s = ted(k); return s ? s.unvan : (k || '—'); }
+  function talepBul(k){ return k ? DB.purchases.filter(function(p){ return p.kod === k; })[0] || null : null; }
+  function tekliflerOf(k){
+    return k ? DB.supplierQuotes.filter(function(q){ return q.talep === k; })
+                                .sort(function(a, b){ return a.fiyat - b.fiyat; }) : [];
+  }
+  function teklifOf(talepKod, tedKod){
+    return tekliflerOf(talepKod).filter(function(q){ return q.tedarikci === tedKod; })[0] || null;
+  }
+  function tercihOf(k){ return tekliflerOf(k).filter(function(q){ return q.tercih; })[0] || null; }
+  function adimlarOf(k){
+    return k ? DB.purchaseApprovals.filter(function(a){ return a.talep === k; })
+                                   .sort(function(a, b){ return a.sira - b.sira; }) : [];
+  }
+  function siparisiOf(talepKod, haric){
+    return DB.orders.filter(function(o){
+      return o.talep === talepKod && (!haric || o.kod !== haric); })[0] || null;
+  }
+  function varliklarOf(k){ return DB.assets.filter(function(a){ return a.siparis === k; }); }
+  function varlikNet(list){ return list.reduce(function(s, a){ return s + sayi(a.alisFiyati); }, 0); }
+
+  /* Onay süreci tamam mı? `onayAdim` BULUNULAN adım sırasıdır, onaylanan adım
+     SAYISI değildir (ops.js). Zincir kaydı olan talepte karar zincirden verilir;
+     tamamlanmış taleplerde zincir modellenmemiştir, orada onayAdim === onayToplam
+     yeterlidir. */
+  function onayTamam(p){
+    if(!p) return false;
+    var ad = adimlarOf(p.kod);
+    if(ad.length) return ad.filter(function(a){ return a.durum !== 'Onaylandı'; }).length === 0;
+    return sayi(p.onayToplam) > 0 && sayi(p.onayAdim) >= sayi(p.onayToplam);
+  }
+  function onayMetni(p){
+    if(!p) return '—';
+    if(sayi(p.onayAdim) === 0) return 'Taslak — onaya gönderilmemiş';
+    if(onayTamam(p)) return 'Onay süreci tamamlandı (' + p.onayToplam + ' adım)';
+    return 'Onay sürecinde — bulunulan adım ' + p.onayAdim + ' / ' + p.onayToplam;
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamSiparis = DB.orders.length;
+  var kdvTutan = DB.orders.filter(function(o){
+    return sayi(o.tutar) + sayi(o.vergi) === sayi(o.toplam); }).length;
+  var kdv20 = DB.orders.filter(function(o){
+    return sayi(o.vergi) === Math.round(sayi(o.tutar) * 20 / 100); }).length;
+  var talepliSiparis = DB.orders.filter(function(o){ return !!talepBul(o.talep); }).length;
+  var talepEsit = DB.orders.filter(function(o){
+    var p = talepBul(o.talep);
+    return p && sayi(o.tutar) === sayi(p.tahminiMaliyet); }).length;
+  var durumAyna = DB.orders.filter(function(o){
+    var p = talepBul(o.talep);
+    return p && p.durum === o.durum; }).length;
+  var trySayisi = DB.orders.filter(function(o){ return (o.doviz || 'TRY') === 'TRY'; }).length;
+  var teslimAlinanSayi = DB.orders.filter(function(o){ return o.durum === 'Teslim alındı'; }).length;
+  var faturaliTeslim = DB.orders.filter(function(o){
+    return o.durum === 'Teslim alındı' && o.fatura; }).length;
+  var tamKontrol = DB.orders.filter(function(o){ return o.teslimKontrol === 'Tam'; }).length;
+  var demirbasliSiparis = DB.orders.filter(function(o){ return varliklarOf(o.kod).length > 0; }).length;
+  var demirbasDenk = DB.orders.filter(function(o){
+    var v = varliklarOf(o.kod);
+    return v.length > 0 && varlikNet(v) === sayi(o.tutar); }).length;
+  var VARSAYILAN_KDV = 20;
+
+  /* =================================================================
+     ÖN DOLDURMA — adres ?talep=SAT-... ile gelirse
+     ================================================================= */
+  var onTalepKod  = duzenle ? null : qs.get('talep');
+  var onTalep     = onTalepKod ? talepBul(onTalepKod) : null;
+  var onTalepSip  = onTalepKod ? siparisiOf(onTalepKod) : null;
+  var onTeklif    = (onTalep && !onTalepSip) ? tercihOf(onTalep.kod) : null;
+  var onDoldur    = !!(onTalep && !onTalepSip);
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI
+     ================================================================= */
+  var kTalep     = duzenle ? talepBul(kayit.talep) : null;
+  var kTedarikci = duzenle ? ted(kayit.tedarikci) : null;
+  var kTeklifler = duzenle && kTalep ? tekliflerOf(kTalep.kod) : [];
+  var kAdimlar   = duzenle && kTalep ? adimlarOf(kTalep.kod) : [];
+  var kVarliklar = duzenle ? varliklarOf(kayit.kod) : [];
+  var kVarlikNet = varlikNet(kVarliklar);
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     SÖZLÜKLER
+       · Sipariş durumu: veride Sipariş verildi · Teslim alındı geçiyor;
+         'İptal' değerini sipariş listesi (teslim alma modali) ve sipariş
+         kartının iptal mantığı okuyor. Sipariş durumu sözlüğü olan bir
+         koleksiyon veri katmanında YOK.
+       · Teslim kontrolü: veride yalnız 'Tam' geçiyor; 'Eksik' ve 'İade'
+         değerlerini app-siparis.html'in teslim alma modali yazıyor.
+       · Para birimi: siparişlerin tamamı TRY.
+     ================================================================= */
+  var DURUMLAR = ['Sipariş verildi','Teslim alındı','İptal'];
+  if(duzenle && kayit.durum && DURUMLAR.indexOf(kayit.durum) === -1) DURUMLAR.push(kayit.durum);
+  var KONTROLLER = ['Tam','Eksik','İade'];
+  if(duzenle && kayit.teslimKontrol && KONTROLLER.indexOf(kayit.teslimKontrol) === -1)
+    KONTROLLER.push(kayit.teslimKontrol);
+  var DOVIZ = ['TRY','USD','EUR','GBP'];
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden
+     Bir talepten tek sipariş doğar: siparişi olan talep listede yer almaz
+     (düzenlenen kaydın kendi talebi hariç).
+     ================================================================= */
+  var TALEPLER = DB.purchases.filter(function(p){
+    if(duzenle && p.kod === kayit.talep) return true;
+    if(p.aktif === false) return false;
+    return !siparisiOf(p.kod);
+  }).map(function(p){
+    var q = tercihOf(p.kod);
+    return { value:p.kod, label:p.kod + ' · ' + p.urun + ' · ' + p.miktar + ' adet · ' + p.durum +
+      (canFinans ? ' · tahmin ' + F.money(sayi(p.tahminiMaliyet)) + ' (KDV hariç)' : '') +
+      (q ? ' · tercih ' + tedAd(q.tedarikci) : '') };
+  });
+
+  var TEDARIKCILER = DB.suppliers.filter(function(s){
+    return s.aktif !== false || (duzenle && s.kod === kayit.tedarikci);
+  }).map(function(s){
+    return { value:s.kod, label:s.unvan + ' · ' + s.kod + ' · ' + s.kategori +
+      ' · genel puan ' + F.num(s.puan, 1) + '/5 · vade ' + s.odemeVadesi };
+  });
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {
+      talep:kayit.talep || '', tedarikci:kayit.tedarikci || '',
+      tutar:sayi(kayit.tutar), kdvOran:oranHesapla(kayit) == null ? VARSAYILAN_KDV : oranHesapla(kayit),
+      doviz:kayit.doviz || 'TRY',
+      tarih:kayit.tarih || '', teslimTarihi:kayit.teslimTarihi || '',
+      durum:kayit.durum || 'Sipariş verildi',
+      teslimKontrol:kayit.teslimKontrol || '',
+      /* Veride '—' sentinel'i “irsaliye yok” anlamında geçiyor; formda boş metin
+         karşılığıdır, sentinel yeniden yazılmaz. */
+      fatura:(kayit.fatura && kayit.fatura !== '—') ? kayit.fatura : '',
+      irsaliye:(kayit.irsaliye && kayit.irsaliye !== '—') ? kayit.irsaliye : '',
+      aktif:kayit.aktif !== false
+    };
+  }else{
+    formRec = {
+      talep:onDoldur ? onTalep.kod : '',
+      tedarikci:(onDoldur && onTeklif) ? onTeklif.tedarikci : '',
+      tutar:onDoldur ? sayi(onTeklif ? onTeklif.fiyat : onTalep.tahminiMaliyet) : 0,
+      kdvOran:VARSAYILAN_KDV, doviz:'TRY',
+      tarih:DB.today,
+      teslimTarihi:(onDoldur && onTalep.ihtiyacTarihi) ? onTalep.ihtiyacTarihi : '',
+      durum:'Sipariş verildi', teslimKontrol:'',
+      fatura:'', irsaliye:'', aktif:true
+    };
+  }
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     `dt` yazar tarafından yazılan sabit dizedir (eksen etiketi <span> içerir)
+     → escape EDİLMEZ. `dd` çağıran tarafta esc()'lenmiş gelir (ders L-14).
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function maske(){ return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>'; }
+  function para(v, kur){
+    return canFinans ? '<span class="cell-money">' + F.money(sayi(v), kur) + '</span>' : maske();
+  }
+  function paraSade(v, kur){
+    return canFinans ? '<span class="u-num">' + F.money(sayi(v), kur) + '</span>' : maske();
+  }
+  function kart(baslik, ikon, govde, ustAksiyon, altBaslik){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+  function notKart(cfg){
+    return '<section class="gv-card"><div class="gc-body">' + GV.notice(cfg) + '</div></section>';
+  }
+  /* Puan rozeti — TONE sözlüğü sayısal puan tanımaz, ton AÇIKÇA geçilir. */
+  function puanRozet(v){
+    if(v == null) return '<span class="u-faint">—</span>';
+    var t = v >= 4.5 ? 'is-ok' : v >= 4 ? 'is-info' : v >= 3.5 ? 'is-warn' : 'is-danger';
+    return GV.badge(F.num(v, 1) + ' / 5', t);
+  }
+  function kontrolRozet(v){
+    if(!v) return '<span class="u-faint">—</span>';
+    if(v === 'Tam')   return GV.badge('Tam');
+    if(v === 'Eksik') return GV.badge('Eksik', 'is-warn');
+    if(v === 'İade')  return GV.badge('İade', 'is-danger');
+    return GV.badge(v, 'is-neutral');
+  }
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var ust = '';
+
+  if(!canFinans){
+    ust += notKart({ tone:'neutral', icon:'i-lock', title:'Tutar alanları rolünüzde gizli',
+      text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar yetkisi yok; sipariş tutarı, KDV ' +
+           've genel toplam alanları forma HİÇ basılmaz. ' +
+           (duzenle
+             ? 'Kaydettiğinizde mevcut tutar, KDV ve genel toplam olduğu gibi korunur — bu form ' +
+               'onlara dokunmaz.'
+             : 'Kaydettiğinizde siparişin net tutarı, seçtiğiniz tedarikçinin o talebe verdiği ' +
+               'teklifin fiyatından, teklif yoksa talebin tahmini net bedelinden yazılır; KDV %' +
+               VARSAYILAN_KDV + ' oranıyla hesaplanır (ölçüm: ' + toplamSiparis + ' siparişin ' +
+               kdv20 + ' tanesi bu oranda).') });
+  }
+
+  if(!duzenle){
+    if(onTalepKod && !onTalep){
+      ust += notKart({ tone:'warn', icon:'i-alert', title:'Adresteki talep bulunamadı',
+        text:'“' + onTalepKod + '” numaralı satın alma talebi sistemde yok; form boş açıldı. ' +
+             'Kaynak talebi aşağıdan seçebilirsiniz.',
+        actions:[{ label:'Satın alma talepleri', href:'app-satinalma.html' }] });
+    }else if(onTalepKod && onTalepSip){
+      ust += notKart({ tone:'warn', icon:'i-alert', title:'Bu talebin siparişi zaten var',
+        text:onTalep.kod + ' talebi ' + onTalepSip.kod + ' siparişine bağlı (' +
+             tedAd(onTalepSip.tedarikci) + ' · ' + onTalepSip.durum + '). Bir talepten tek sipariş ' +
+             'doğar, bu yüzden ön doldurma yapılmadı ve talep aşağıdaki listede yer almıyor. ' +
+             'Mevcut siparişi düzenlemek istiyorsanız kartından devam edin.',
+        actions:[{ label:'Siparişi aç', href:'app-siparis-detay.html?id=' + onTalepSip.kod },
+                 { label:'Talebi aç', href:'app-satinalma-detay.html?id=' + onTalep.kod }] });
+    }else if(onDoldur){
+      ust += notKart({ tone:'ok', icon:'i-check-circle', title:'Form kaynak talepten ön dolduruldu',
+        text:onTalep.kod + ' · ' + onTalep.urun + ' (' + onTalep.miktar + ' adet) talebinden ' +
+             'geliniyor. Tedarikçi ' + (onTeklif
+               ? 'talebin TERCİH EDİLEN teklifinden (' + tedAd(onTeklif.tedarikci) + ') geldi'
+               : 'boş bırakıldı — bu talepte tercih edilmiş teklif yok') + '; ' +
+             (canFinans
+               ? 'net tutar ' + (onTeklif ? 'tercih edilen teklifin fiyatından' : 'talebin tahmini bedelinden') +
+                 ' geldi (' + F.money(sayi(onTeklif ? onTeklif.fiyat : onTalep.tahminiMaliyet)) + ', KDV hariç); '
+               : 'tutar alanları rolünüzde gizli; ') +
+             'planlanan teslim tarihi talebin ihtiyaç tarihidir. ' + onayMetni(onTalep) + '. ' +
+             'Ön doldurulan her alanı kaydetmeden önce değiştirebilirsiniz.',
+        actions:[{ label:'Talebi aç', href:'app-satinalma-detay.html?id=' + onTalep.kod },
+                 { label:'Teklif karşılaştırması', href:'app-satinalma-teklif.html' }] });
+    }
+
+    ust += notKart({ tone:'info', title:'Yeni sipariş kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki sipariş numarası atanır, KDV ve genel toplam girdiğiniz net ' +
+           'bedelden hesaplanır, kaynak talebin durumu siparişin durumuna eşitlenir (ölçüm: ' +
+           talepliSiparis + ' siparişin ' + durumAyna + ' tanesinde talep ve sipariş durumu aynı) ve ' +
+           'aktivite geçmişine “Sipariş oluşturuldu” satırı düşer. Bu form DEMİRBAŞ kaydı yazmaz: ' +
+           'sipariş ↔ demirbaş bağı tek yönlüdür ve demirbaş kaydının üstünde tutulur, siparişte ' +
+           'ayna alan yoktur. Fatura ve ödeme kaydı da bu formdan doğmaz.',
+      actions:[{ label:'Sipariş listesi', href:'app-siparis.html' },
+               { label:'Satın alma talepleri', href:'app-satinalma.html' },
+               { label:'Demirbaş envanteri', href:'app-demirbas.html' }] });
+  }
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı: demirbaş bağı (components.md §9d) ---- */
+    var tedVarlik = DB.assets.filter(function(a){ return a.tedarikci === kayit.tedarikci; }).length;
+    if(kVarliklar.length){
+      var denk = kVarlikNet === sayi(kayit.tutar);
+      ust += notKart({
+        tone:denk ? 'ok' : 'warn', icon:denk ? 'i-check-circle' : 'i-alert',
+        title:denk ? 'Demirbaş bağı veride yazılı ve net tutarla denk'
+                   : 'Demirbaş bağı veride yazılı ama net tutarla denk değil',
+        text:kVarliklar.length + ' demirbaş bu siparişe bağlı (' +
+             kVarliklar.map(function(a){ return a.kod; }).join(' · ') + '). ' +
+             (canFinans
+               ? 'Alış fiyatları toplamı ' + F.money(kVarlikNet, kurSim(kayit.doviz)) +
+                 ' (KDV hariç), siparişin neti ' + F.money(sayi(kayit.tutar), kurSim(kayit.doviz)) +
+                 ' (KDV hariç). Ölçüm: demirbaş doğuran ' + demirbasliSiparis + ' siparişin ' +
+                 demirbasDenk + ' tanesinde bu toplam siparişin netine eşit. Net tutarı ' +
+                 'değiştirirseniz denge bozulur ve kaydetmeden önce onayınız istenir. '
+               : 'Tutar karşılaştırması rolünüzde gizli. ') +
+             'Bağ TEK YÖNLÜDÜR: demirbaş kaydının sipariş alanında tutulur, siparişte ayna alan ' +
+             'yoktur ve bu form demirbaş kaydı yazmaz. Aynı tedarikçinin toplam ' + tedVarlik +
+             ' demirbaşı var — tedarikçi eşleşmesi bağ DEĞİLDİR.',
+        actions:[{ label:'Demirbaş envanteri', href:'app-demirbas.html' },
+                 { label:'Demirbaş kartını aç', href:'app-demirbas-detay.html?id=' + kVarliklar[0].kod }] });
+    }else{
+      ust += notKart(kayit.durum === 'Teslim alındı'
+        ? { tone:'neutral', icon:'i-package', title:'Bu siparişten demirbaş doğmamış',
+            text:kayit.kod + ' teslim alınmış ama envanterde bu siparişe bağlı demirbaş yok. ' +
+                 'Sarf malzemesi, kredi paketi ve abonelik gibi kalemler demirbaş doğurmaz; ' +
+                 'ekipman alımıysa demirbaş kaydı demirbaş modülünden açılır ve bağ orada ' +
+                 'yazılır. Bu form demirbaş kaydı oluşturmaz. Aynı tedarikçinin ' + tedVarlik +
+                 ' demirbaşı var — bu bir sipariş bağı DEĞİLDİR.',
+            actions:[{ label:'Demirbaş envanteri', href:'app-demirbas.html' }] }
+        : { tone:'info', icon:'i-package', title:'Teslim alınmadan demirbaş doğmaz',
+            text:'Sipariş henüz “' + kayit.durum + '” durumunda; envanterde bu siparişe bağlı ' +
+                 'demirbaş yok. Teslim alındığında ekipman demirbaş, araç ise filo modülüne ' +
+                 'kaydedilir; bağ demirbaş kaydının üstünde yazılır, bu form onu yazmaz.',
+            actions:[{ label:'Demirbaş envanteri', href:'app-demirbas.html' },
+                     { label:'Araç ve filo', href:'app-arac.html' }] });
+    }
+
+    /* ---- İlişkili kayıt uyarısı: kaynak talep ---- */
+    if(kTalep){
+      var aynaVar = kTalep.durum === kayit.durum;
+      ust += notKart({
+        tone:aynaVar ? 'ok' : 'warn',
+        title:aynaVar ? 'Kaynak talebin durumu siparişle aynı'
+                      : 'Kaynak talebin durumu siparişten farklı',
+        text:kTalep.kod + ' · ' + kTalep.urun + ' talebinin durumu “' + kTalep.durum +
+             '”, siparişin durumu “' + kayit.durum + '”. ' + onayMetni(kTalep) + '. ' +
+             'Sipariş durumunu değiştirirseniz talebin durumu da eşitlenir (ölçüm: ' +
+             talepliSiparis + ' siparişin ' + durumAyna + ' tanesinde iki durum birebir aynı); ' +
+             'iptal durumu için ölçülmüş bir ayna yok, o durumda talep olduğu gibi bırakılır.',
+        actions:[{ label:'Talebi aç', href:'app-satinalma-detay.html?id=' + kTalep.kod }] });
+    }else{
+      ust += notKart({ tone:'warn', icon:'i-alert', title:'Siparişin kaynak talebi bulunamadı',
+        text:'Kayıtta yazılı talep (' + (kayit.talep || '—') + ') satın alma taleplerinde yok. ' +
+             'Tahmin edilmez; aşağıdan doğru talebi seçin.',
+        actions:[{ label:'Satın alma talepleri', href:'app-satinalma.html' }] });
+    }
+
+    /* ---- Kayıt özeti ---- */
+    var son = acts[0];
+    var kurK = kurSim(kayit.doviz);
+    var teslimAlindi = kayit.durum === 'Teslim alındı';
+    var iptal = kayit.durum === 'İptal';
+    var kalanGun = kayit.teslimTarihi ? F.days(kayit.teslimTarihi) : null;
+    var kOran = oranHesapla(kayit);
+
+    ust += kart('Kayıt Özeti', 'i-info',
+      '<div class="gc-body">' + dl([
+        ['Sipariş no', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Sipariş durumu', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Kaynak talep', kTalep
+          ? '<a href="app-satinalma-detay.html?id=' + esc(kTalep.kod) + '">' + esc(kTalep.kod) + '</a>' +
+            sub(kTalep.urun + ' · ' + kTalep.miktar + ' adet · ' + kTalep.durum)
+          : esc(kayit.talep || '')],
+        ['Talep eden', kTalep && DB.emp(kTalep.talepEden)
+          ? esc(DB.emp(kTalep.talepEden).ad) + sub(kTalep.dep + ' · ' + onayMetni(kTalep)) : null],
+        ['Talebin projesi', kTalep && kTalep.proje
+          ? '<a href="app-proje-detay.html?id=' + esc(kTalep.proje) + '">' +
+            esc(DB.projName(kTalep.proje)) + '</a>' + sub(kTalep.proje)
+          : null],
+        ['Tedarikçi', kTedarikci
+          ? '<a href="app-tedarikci-detay.html?id=' + esc(kTedarikci.kod) + '">' + esc(kTedarikci.unvan) + '</a>' +
+            sub(kTedarikci.kod + ' · ' + kTedarikci.kategori + ' · vade ' + kTedarikci.odemeVadesi)
+          : esc(kayit.tedarikci || '')],
+        ['Tedarikçi genel puanı', kTedarikci ? puanRozet(kTedarikci.puan) : null],
+        ['Sipariş tutarı <span class="u-faint">(KDV hariç)</span>', '<b>' + para(kayit.tutar, kurK) + '</b>'],
+        ['KDV' + (canFinans && kOran != null ? ' <span class="u-faint">(%' + esc(String(kOran)) + ')</span>' : ''),
+          para(kayit.vergi, kurK)],
+        ['Genel toplam <span class="u-faint">(KDV dahil)</span>', '<b>' + para(kayit.toplam, kurK) + '</b>'],
+        ['Sipariş tarihi', F.date(kayit.tarih)],
+        [teslimAlindi ? 'Gerçekleşen teslim tarihi' : 'Planlanan teslim tarihi', F.date(kayit.teslimTarihi)],
+        ['Teslime kalan', iptal ? '<span class="u-faint">Sipariş iptal edildi</span>'
+          : teslimAlindi ? '<span class="u-faint">Teslim alındı</span>'
+          : (kalanGun == null ? null
+            : (kalanGun < 0 ? '<b class="u-danger">' + Math.abs(kalanGun) + ' gün gecikti</b>'
+                            : '<b class="u-num">' + kalanGun + ' gün kaldı</b>'))],
+        ['Teslim kontrolü', kontrolRozet(kayit.teslimKontrol)],
+        ['Fatura no', kayit.fatura ? '<span class="u-num">' + esc(kayit.fatura) + '</span>' : null],
+        ['İrsaliye no', (kayit.irsaliye && kayit.irsaliye !== '—')
+          ? '<span class="u-num">' + esc(kayit.irsaliye) + '</span>' : null],
+        ['Bağlı demirbaş', kVarliklar.length
+          ? '<b class="u-num">' + kVarliklar.length + '</b> kayıt' +
+            sub(canFinans ? 'alış toplamı ' + F.money(kVarlikNet, kurK) + ' (KDV hariç)'
+                          : kVarliklar.map(function(a){ return a.kod; }).join(' · '))
+          : '<span class="u-faint">Demirbaş doğmamış</span>'],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-siparis-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Sipariş kartını aç</a>');
+
+    /* ---- Kaynak talebin onay zinciri (varsa) ---- */
+    if(kAdimlar.length){
+      ust += kart('Kaynak Talebin Onay Zinciri', 'i-stamp',
+        '<div class="gc-body">' + GV.chain(kAdimlar.map(function(a){
+          var e = DB.emp(a.kisi);
+          return { rol:a.rol, kisi:e ? e.ad : (a.kisi || ''), durum:a.durum, tarih:a.tarih, not:a.not };
+        })) + '</div>',
+        '<a class="btn btn-line btn-sm" href="app-satinalma-detay.html?id=' + esc(kTalep.kod) + '">' +
+          ico('i-external','ic-sm') + ' Talebi aç</a>',
+        'Onay adımları talebin üstünde tutulur; bu form onay zincirini değiştirmez.');
+    }
+  }
+
+  /* =================================================================
+     ALANLAR
+     Finans alanları yetki yoksa forma HİÇ basılmaz (ölü kontrol yasak).
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Kaynak talep ve tedarikçi',
+    desc:'Sipariş bir satın alma talebinden doğar ve talebin tercih edilen teklifini veren ' +
+         'tedarikçiye açılır. Sipariş numarası kaydederken sistem tarafından atanır, elle girilmez. ' +
+         'Ürün, miktar ve teknik özellik talebin üstünde tutulur; sipariş kaydında ikinci kez ' +
+         'yazılmaz.',
+    fields:[
+      { key:'talep', label:'Kaynak satın alma talebi', type:'select', options:TALEPLER,
+        required:true, cols:6, placeholder:'Talep seçin',
+        hint:'Bir talepten tek sipariş doğar; siparişi olan talepler listede yer almaz. Ölçüm: ' +
+             toplamSiparis + ' siparişin ' + talepliSiparis + ' tanesi mevcut bir talebe bağlı.',
+        validate:function(v){
+          if(!v) return '';
+          var p = talepBul(v);
+          if(!p) return 'Seçilen satın alma talebi bulunamadı.';
+          var baska = siparisiOf(v, duzenle ? kayit.kod : null);
+          if(baska) return p.kod + ' talebi zaten ' + baska.kod + ' siparişine bağlı; bir talepten ' +
+                           'tek sipariş doğar.';
+          return '';
+        } },
+
+      { key:'tedarikci', label:'Tedarikçi', type:'select', options:TEDARIKCILER,
+        required:true, cols:6, placeholder:'Tedarikçi seçin',
+        hint:'Listedeki puan “Tedarikçi genel puanı”dır: tedarikçinin tüm sipariş geçmişini ölçer. ' +
+             'Teklif puanı ayrı bir eksendir ve aşağıdaki teklif karşılaştırmasında gösterilir.',
+        validate:function(v, d){
+          if(!v) return '';
+          var s = ted(v);
+          if(!s) return 'Seçilen tedarikçi kaydı bulunamadı.';
+          if(s.aktif === false) return s.unvan + ' pasif kayıt; pasif tedarikçiye sipariş açılmaz.';
+          var p = talepBul(d.talep);
+          var q = p ? teklifOf(p.kod, v) : null;
+          if(q && q.teknikUygun === false)
+            return s.unvan + ' teklifi ' + p.kod + ' talebinde “teknik uygun değil” işaretli (' +
+                   q.gerekce + '); teknik uygun olmayan teklife sipariş verilmez.';
+          return '';
+        } }
+    ]});
+
+  if(canFinans){
+    sections.push({ title:'Bedel ve vergi',
+      desc:'Sipariş tutarı KDV HARİÇ (net) girilir — talebin tahmini bedeli ve tedarikçi teklifi de ' +
+           'aynı eksendedir. KDV tutarı ve genel toplam bu alanlardan hesaplanır, ayrıca girilmez. ' +
+           'Ölçüm: ' + toplamSiparis + ' siparişin ' + kdvTutan + ' tanesinde net + KDV = brüt ' +
+           'zinciri tutuyor, ' + kdv20 + ' tanesi %' + VARSAYILAN_KDV + ' oranında.',
+      fields:[
+        { key:'tutar', label:'Sipariş tutarı (KDV hariç)', type:'money', required:true, min:0, cols:4,
+          hint:'Tedarikçiye verilen net bedel. Teklifin KDV dahil karşılığı buraya yazılmaz — ' +
+               'yazılırsa KDV ikinci kez uygulanır. Ölçüm: ' + talepliSiparis + ' talepli siparişin ' +
+               talepEsit + ' tanesinde net tutar talebin tahmini net bedeliyle birebir aynı.',
+          validate:function(v){
+            return sayi(v) <= 0 ? 'Sipariş tutarı sıfırdan büyük olmalıdır.' : '';
+          } },
+        { key:'kdvOran', label:'KDV oranı (hesap için)', type:'percent', required:true, min:0, max:100, cols:4,
+          hint:'Sipariş kaydında KDV ORANI tutulmaz, KDV TUTARI tutulur; bu alan yalnız tutarı ' +
+               'hesaplamak içindir ve kayda yazılmaz. Düzenleme modunda oran mevcut vergi ve net ' +
+               'tutardan geri hesaplanır.' },
+        { key:'doviz', label:'Para birimi', type:'select', options:DOVIZ, required:true, cols:4,
+          hint:'Ölçüm: ' + toplamSiparis + ' siparişin ' + trySayisi + ' tanesi TRY ekseninde.' }
+      ]});
+  }
+
+  sections.push({ title:'Tarihler',
+    desc:'Gün farkları sistem saatinden değil veri ekseninden (' + F.date(DB.today) + ') ölçülür. ' +
+         'Teslim tarihi çift anlamlıdır: sipariş henüz teslim alınmadıysa PLANLANAN, teslim ' +
+         'alındıysa GERÇEKLEŞEN tarihtir — durum alanı bunu belirler.',
+    fields:[
+      { key:'tarih', label:'Sipariş tarihi', type:'date', required:true, cols:6,
+        hint:'Siparişin tedarikçiye verildiği gün.',
+        validate:function(v, d){
+          return (v && d.teslimTarihi && v > d.teslimTarihi)
+            ? 'Sipariş tarihi teslim tarihinden sonra olamaz.' : '';
+        } },
+      { key:'teslimTarihi', label:'Teslim tarihi', type:'date', required:true, cols:6,
+        hint:'Sipariş verildi durumunda planlanan, teslim alındı durumunda gerçekleşen teslim günü.',
+        validate:function(v, d){
+          if(v && d.tarih && v < d.tarih) return 'Teslim tarihi sipariş tarihinden önce olamaz.';
+          if(v && d.durum === 'Teslim alındı' && v > DB.today)
+            return 'Gerçekleşen teslim tarihi bugünden (' + F.date(DB.today) + ') sonra olamaz.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Durum, teslimat ve belgeler',
+    desc:'Teslim kontrolü yalnız teslim alınmış ya da iptal edilmiş siparişte yazılır. Ölçüm: ' +
+         teslimAlinanSayi + ' teslim alınan siparişin ' + tamKontrol + ' tanesi “Tam” kontrolüyle, ' +
+         faturaliTeslim + ' tanesi fatura numarasıyla kapanmış.',
+    fields:[
+      { key:'durum', label:'Sipariş durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. Sipariş durumu sözlüğü olan bir koleksiyon veri ' +
+             'katmanında yok; küme mevcut kayıtlardan ve sipariş listesindeki teslim alma akışından ' +
+             'alındı. Kaydedince kaynak talebin durumu da eşitlenir.' },
+      { key:'teslimKontrol', label:'Teslim kontrolü', type:'select', options:KONTROLLER, cols:6,
+        placeholder:'Kontrol yapılmadı',
+        hint:'Veride yalnız “Tam” geçiyor; “Eksik” ve “İade” değerlerini sipariş listesinin teslim ' +
+             'alma akışı yazıyor. Eksik teslim MİKTARI ve iade kaydı için veri katmanında ayrı alan ' +
+             'yok — bu form onları uydurmaz.',
+        validate:function(v, d){
+          if(d.durum === 'Teslim alındı' && !v)
+            return 'Teslim alınan siparişte teslim kontrolü sonucu zorunludur.';
+          if(v && d.durum === 'Sipariş verildi')
+            return 'Teslim kontrolü yalnız teslim alınmış ya da iptal edilmiş siparişte yazılır.';
+          return '';
+        } },
+      { key:'fatura', label:'Fatura no', type:'text', cols:6, placeholder:'Örn. FTR-TDR-1188',
+        hint:'Tedarikçi faturası. Fatura ve ödeme kaydı bu formdan doğmaz; burada yalnız belge ' +
+             'numarası tutulur.' },
+      { key:'irsaliye', label:'İrsaliye no', type:'text', cols:6, placeholder:'Örn. IRS-4471',
+        hint:'Fiziksel teslimatı olmayan kalemlerde (kredi paketi, lisans) boş bırakılır. Veride bu ' +
+             'durum için “—” işareti kullanılmış bir kayıt var; form boş bırakır, işareti çoğaltmaz.' }
+    ]});
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Sipariş durumu tedarik eksenidir, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — sipariş listelerinde, sayaçlarda ve tedarikçi geçmişinde görünür',
+        hint:'Kapatılırsa sipariş arşive düşer; bağlı demirbaş kayıtları ve kaynak talep silinmez.',
+        validate:function(v, d){
+          return (!v && d.durum === 'Sipariş verildi')
+            ? 'Açık sipariş arşivlenemez — önce teslim alın ya da iptal edin.' : '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunluSayisi = sections.reduce(function(n, s){
+    return n + (s.fields || []).filter(function(f){ return f.required; }).length; }, 0);
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-truck') + 'Sipariş Bilgileri</h2>' +
+        '<div class="gc-sub">' +
+          (canFinans ? 'Tutar KDV hariç girilir; KDV ve genel toplam hesaplanır · '
+                     : 'Tutar alanları rolünüzde gizli · ') +
+          'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-wallet') + 'Para Zinciri ve Teklif Karşılaştırması</h2>' +
+        '<div class="gc-sub">Net bedel → KDV → genel toplam; talebin tahmini bedeli ve tedarikçi ' +
+          'teklifleri aynı net eksende karşılaştırılır. Alanları değiştirdikçe güncellenir.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-satinalma-teklif.html">' + ico('i-external','ic-sm') +
+            ' Teklif karşılaştırma ekranı</a></div></div>' +
+      '<div class="gc-body" id="tutarOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-package') + 'Teslimat ve Demirbaş Aktarımı</h2>' +
+        '<div class="gc-sub">Teslim ekseni ve siparişin demirbaş karşılığı. Demirbaş bağı demirbaş ' +
+          'kaydının üstünde tutulur; bu form demirbaş yazmaz.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-demirbas.html">' + ico('i-external','ic-sm') +
+            ' Demirbaş envanteri</a></div></div>' +
+      '<div class="gc-body" id="teslimOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' +
+        GV.notice({ tone:'neutral', icon:'i-paperclip',
+          title:'Kalem kırılımı, eksik teslim ve iade bu formda yok',
+          text:'Sipariş kaydı tek kalem olarak modellenmiştir: ürün, miktar, teknik özellik ve birim ' +
+               'fiyat kaynak talebin üstünde tutulur, sipariş kaydında ayrı alanları yoktur. Eksik ' +
+               'teslim edilen MİKTAR, iade kaydı ve sipariş ödeme planı için de veri katmanında alan ' +
+               'yok — uydurulmadı. Teslim alınan kalemin demirbaşa ya da araca aktarımı ilgili ' +
+               'modülden yapılır, personele zimmetleme ise zimmet ekranından.',
+          actions:[{ label:'Satın alma talepleri', href:'app-satinalma.html' },
+                   { label:'Zimmet kayıtları', href:'app-zimmet.html' }].concat(
+            duzenle ? [{ label:'Sipariş kartını aç', href:'app-siparis-detay.html?id=' + kayit.kod }] : []) }) +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-siparis.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  var form = GV.form({
+    mount:'#formMount', id:'siparis', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     PARA DEĞERLERİ
+     Finans yetkisi yoksa alanlar forma basılmadığı için değerler
+     düzenlemede mevcut kayıttan, yeni kayıtta teklif/talep ekseninden gelir.
+     ================================================================= */
+  function paraDegerleri(v){
+    if(canFinans){
+      var z = kdvZinciri(v.tutar, v.kdvOran);
+      return { net:z.net, kdv:z.kdv, brut:z.brut, oran:sayi(v.kdvOran),
+               doviz:v.doviz || 'TRY', turetilmis:false };
+    }
+    if(duzenle){
+      var o = oranHesapla(kayit);
+      return { net:sayi(kayit.tutar), kdv:sayi(kayit.vergi), brut:sayi(kayit.toplam),
+               oran:o == null ? VARSAYILAN_KDV : o, doviz:kayit.doviz || 'TRY', turetilmis:false };
+    }
+    var p = talepBul(v.talep);
+    var q = p && v.tedarikci ? teklifOf(p.kod, v.tedarikci) : null;
+    var net = q ? sayi(q.fiyat) : (p ? sayi(p.tahminiMaliyet) : 0);
+    var z2 = kdvZinciri(net, VARSAYILAN_KDV);
+    return { net:z2.net, kdv:z2.kdv, brut:z2.brut, oran:VARSAYILAN_KDV,
+             doviz:'TRY', turetilmis:true };
+  }
+
+  /* =================================================================
+     CANLI ÖZETLER
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze
+     kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function tutarOzetiCiz(){
+    var hedef = document.getElementById('tutarOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var pd = paraDegerleri(v);
+    var kur = kurSim(pd.doviz);
+    var p = talepBul(v.talep);
+    var teklifler = p ? tekliflerOf(p.kod) : [];
+    var benim = p && v.tedarikci ? teklifOf(p.kod, v.tedarikci) : null;
+    var tercih = p ? tercihOf(p.kod) : null;
+    var enDusuk = teklifler.length ? Math.min.apply(null, teklifler.map(function(q){ return sayi(q.fiyat); })) : null;
+
+    var uyari = '';
+    if(!canFinans){
+      uyari = GV.notice({ tone:'neutral', icon:'i-lock', title:'Tutarlar rolünüzde gizli',
+        text:duzenle
+          ? 'Bu siparişin net tutarı, KDV\'si ve genel toplamı olduğu gibi korunur; form onlara ' +
+            'dokunmaz. Teklif karşılaştırması da tutar içerdiği için gizlidir.'
+          : 'Sipariş neti seçtiğiniz tedarikçinin bu talebe verdiği teklif fiyatından, teklif yoksa ' +
+            'talebin tahmini net bedelinden yazılacak; KDV %' + VARSAYILAN_KDV + ' oranıyla ' +
+            'hesaplanacak. Değerler size gösterilmez.' });
+    }else if(!p){
+      uyari = GV.notice({ tone:'info', icon:'i-info', title:'Kaynak talep seçilmedi',
+        text:'Sipariş neti ile talebin tahmini bedeli karşılaştırılamıyor. Ölçüm: ' + talepliSiparis +
+             ' talepli siparişin ' + talepEsit + ' tanesinde ikisi birebir aynı (ikisi de KDV hariç).' });
+    }else{
+      var tahmin = sayi(p.tahminiMaliyet);
+      var fark = pd.net - tahmin;
+      var teklifBrut = benim ? Math.round(sayi(benim.fiyat) * (100 + pd.oran) / 100) : null;
+      if(benim && pd.net === teklifBrut && sayi(benim.fiyat) !== pd.net){
+        uyari = GV.notice({ tone:'danger', icon:'i-alert',
+          title:'Girilen tutar teklifin KDV DAHİL karşılığına eşit',
+          text:'Sipariş tutarı alanı KDV hariç (net) eksendedir. ' + tedAd(benim.tedarikci) +
+               ' teklifinin neti ' + F.money(sayi(benim.fiyat), kur) + '; girilen değer bunun %' +
+               F.num(pd.oran) + ' KDV eklenmiş karşılığı. Kaydedilirse genel toplam ' +
+               F.money(pd.brut, kur) + ' olur ve KDV ikinci kez uygulanır.' });
+      }else if(fark === 0){
+        uyari = GV.notice({ tone:'ok', icon:'i-check-circle',
+          title:'Sipariş neti talebin tahmini bedeliyle birebir',
+          text:p.kod + ' talebinin tahmini bedeli ile sipariş tutarı aynı: ' + F.money(tahmin, kur) +
+               ' (ikisi de KDV hariç). Ölçüm: ' + talepliSiparis + ' talepli siparişin ' + talepEsit +
+               ' tanesinde bu eşitlik tutuyor.' });
+      }else{
+        uyari = GV.notice({ tone:'warn', icon:'i-alert',
+          title:fark > 0 ? 'Sipariş neti talebin tahminini aşıyor' : 'Sipariş neti tahminin altında',
+          text:p.kod + ' talebinin tahmini bedeli ' + F.money(tahmin, kur) + ', girilen sipariş ' +
+               'tutarı ' + F.money(pd.net, kur) + ' (ikisi de KDV hariç). Fark ' +
+               F.money(Math.abs(fark), kur) + ' (%' + (tahmin ? Math.abs(Math.round(fark / tahmin * 100)) : 0) +
+               '). Teklif görüşmesinde değiştiyse sorun yok; değişmediyse tahmin ekseni kaymış demektir.' });
+      }
+
+      if(benim && sayi(benim.fiyat) !== pd.net && pd.net !== teklifBrut){
+        uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Sipariş tutarı tedarikçinin teklifinden farklı',
+          text:tedAd(benim.tedarikci) + ' bu talebe ' + F.money(sayi(benim.fiyat), kur) +
+               ' (KDV hariç) teklif verdi; forma girilen tutar ' + F.money(pd.net, kur) + '.' });
+      }
+      if(v.tedarikci && !benim && teklifler.length){
+        uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Seçilen tedarikçinin bu talebe teklifi yok',
+          text:p.kod + ' talebine ' + teklifler.length + ' teklif verilmiş ama ' + tedAd(v.tedarikci) +
+               ' bunların arasında değil. Teklifsiz tedarikçiye sipariş açmak mümkündür; karşılaştırma ' +
+               'yapılamaz.' });
+      }
+      if(tercih && v.tedarikci && tercih.tedarikci !== v.tedarikci){
+        uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Tercih edilen teklif başka tedarikçide',
+          text:p.kod + ' talebinde tercih edilen teklif ' + tedAd(tercih.tedarikci) + ' (' +
+               F.money(sayi(tercih.fiyat), kur) + ', KDV hariç · gerekçe: ' + tercih.gerekce +
+               '). Siparişi başka tedarikçiye açıyorsunuz.' });
+      }
+    }
+
+    var satirlar = canFinans ? [
+      ['Sipariş tutarı <span class="u-faint">(KDV hariç)</span>', para(pd.net, kur)],
+      ['KDV oranı', '<b class="u-num">%' + F.num(pd.oran) + '</b>'],
+      ['KDV tutarı <span class="u-faint">(hesaplanır — kayda vergi olarak yazılır)</span>', para(pd.kdv, kur)],
+      ['Genel toplam <span class="u-faint">(KDV dahil — hesaplanır)</span>', '<b>' + para(pd.brut, kur) + '</b>'],
+      p ? ['Talebin tahmini bedeli <span class="u-faint">(KDV hariç)</span>',
+        paraSade(p.tahminiMaliyet, kur) + sub(p.kod + ' · ' + p.urun)] : null,
+      benim ? ['Seçilen tedarikçinin teklifi <span class="u-faint">(KDV hariç)</span>',
+        paraSade(benim.fiyat, kur) + sub(benim.teslimSuresi + ' · garanti ' + benim.garanti +
+          ' · ödeme ' + benim.odeme)] : null,
+      benim ? ['Teklif puanı', puanRozet(benim.puan) + sub('yalnız bu teklifi ölçer')] : null,
+      v.tedarikci && ted(v.tedarikci)
+        ? ['Tedarikçi genel puanı', puanRozet(ted(v.tedarikci).puan) +
+            sub('tüm sipariş geçmişini ölçer · ' + ted(v.tedarikci).siparisSayisi + ' sipariş')] : null,
+      enDusuk != null ? ['Talebin en düşük teklifi <span class="u-faint">(KDV hariç)</span>',
+        paraSade(enDusuk, kur) + sub(teklifler.length + ' teklif')] : null,
+      ['Para birimi', esc(pd.doviz || 'TRY')]
+    ] : [
+      ['Sipariş tutarı <span class="u-faint">(KDV hariç)</span>', maske()],
+      ['KDV tutarı', maske()],
+      ['Genel toplam <span class="u-faint">(KDV dahil)</span>', maske()],
+      p ? ['Kaynak talep', esc(p.kod) + sub(p.urun + ' · ' + p.miktar + ' adet')] : null,
+      v.tedarikci && ted(v.tedarikci)
+        ? ['Tedarikçi genel puanı', puanRozet(ted(v.tedarikci).puan)] : null
+    ];
+
+    hedef.innerHTML = uyari + ozetListe(satirlar);
+  }
+
+  function teslimOzetiCiz(){
+    var hedef = document.getElementById('teslimOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var pd = paraDegerleri(v);
+    var kur = kurSim(pd.doviz);
+    var p = talepBul(v.talep);
+    var alindi = v.durum === 'Teslim alındı';
+    var iptal  = v.durum === 'İptal';
+    var gun = v.teslimTarihi ? F.days(v.teslimTarihi) : null;
+
+    var teslimSatir;
+    if(iptal) teslimSatir = '<span class="u-faint">Sipariş iptal edildi</span>';
+    else if(alindi) teslimSatir = '<b class="u-ok">' + F.date(v.teslimTarihi) + ' tarihinde teslim alındı</b>';
+    else if(gun == null) teslimSatir = '<span class="u-faint">Planlanan teslim tarihi girilmedi</span>';
+    else if(gun < 0)  teslimSatir = '<b class="u-danger">Planlanan teslim ' + Math.abs(gun) + ' gün gecikti</b>';
+    else if(gun === 0) teslimSatir = '<b class="u-danger">Planlanan teslim bugün</b>';
+    else teslimSatir = '<b class="u-num">Planlanan teslime ' + gun + ' gün var</b>';
+
+    var uyari = '';
+    if(kVarliklar.length){
+      var denk2 = kVarlikNet === pd.net;
+      uyari += GV.notice({
+        tone:denk2 ? 'ok' : 'warn', icon:denk2 ? 'i-check-circle' : 'i-alert',
+        title:denk2 ? 'Bağlı demirbaşların alış toplamı sipariş netiyle denk'
+                    : 'Bağlı demirbaşların alış toplamı sipariş netinden farklı',
+        text:kVarliklar.length + ' demirbaş bu siparişe bağlı. ' +
+             (canFinans
+               ? 'Alış toplamı ' + F.money(kVarlikNet, kur) + ', forma girilen net ' +
+                 F.money(pd.net, kur) + ' (ikisi de KDV hariç)' +
+                 (denk2 ? '. ' : '; fark ' + F.money(Math.abs(kVarlikNet - pd.net), kur) + '. ')
+               : 'Tutar karşılaştırması rolünüzde gizli. ') +
+             'Demirbaş kayıtları bu formdan güncellenmez; bağ demirbaşın üstünde tutulur.' });
+    }else if(alindi){
+      uyari += GV.notice({ tone:'neutral', icon:'i-package', title:'Teslim alınan siparişin demirbaş karşılığı yok',
+        text:'Bu siparişe bağlı demirbaş kaydı bulunmuyor. Sarf malzemesi, kredi paketi ve abonelik ' +
+             'demirbaş doğurmaz; ekipman alımıysa demirbaş kaydı demirbaş modülünden açılır ve bağ ' +
+             'orada yazılır. Ölçüm: ' + toplamSiparis + ' siparişin ' + demirbasliSiparis +
+             ' tanesinin demirbaş karşılığı var.' });
+    }else{
+      uyari += GV.notice({ tone:'info', icon:'i-package', title:'Demirbaş kaydı teslim alındıktan sonra açılır',
+        text:'Sipariş “' + (v.durum || '—') + '” durumunda. Teslim alındığında ekipman demirbaş, araç ' +
+             'ise filo modülüne kaydedilir; kayıt bu formdan değil ilgili modülden açılır ve sipariş ' +
+             'bağı demirbaşın üstünde yazılır (siparişte ayna alan yoktur).' });
+    }
+
+    if(p && p.durum !== v.durum && (v.durum === 'Sipariş verildi' || v.durum === 'Teslim alındı')){
+      uyari += GV.notice({ tone:'info', icon:'i-info', title:'Kaynak talebin durumu eşitlenecek',
+        text:p.kod + ' talebinin durumu şu an “' + p.durum + '”; kaydedince “' + v.durum +
+             '” olarak güncellenir ve talebin aktivite geçmişine yazılır. Ölçüm: ' + talepliSiparis +
+             ' talepli siparişin ' + durumAyna + ' tanesinde iki durum birebir aynı.' });
+    }
+    if(v.durum === 'İptal' && p){
+      uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'İptalde talep durumu değiştirilmez',
+        text:'İptal edilen sipariş için ölçülmüş bir talep-durum aynası yok; ' + p.kod +
+             ' talebi “' + p.durum + '” durumunda bırakılır ve gerekiyorsa talep ekranından ' +
+             'güncellenir.',
+        actions:[{ label:'Talebi aç', href:'app-satinalma-detay.html?id=' + p.kod }] });
+    }
+
+    hedef.innerHTML = uyari + ozetListe([
+      ['Sipariş durumu', v.durum ? GV.badge(v.durum) : '<span class="u-faint">—</span>'],
+      [alindi ? 'Gerçekleşen teslim tarihi' : 'Planlanan teslim tarihi',
+        v.teslimTarihi ? F.date(v.teslimTarihi) : '<span class="u-faint">—</span>'],
+      ['Teslim ekseni', teslimSatir],
+      p && p.ihtiyacTarihi ? ['Talebin ihtiyaç tarihi', F.date(p.ihtiyacTarihi) +
+        (v.teslimTarihi ? sub(v.teslimTarihi > p.ihtiyacTarihi
+          ? 'teslim ihtiyaç tarihinden sonra' : 'teslim ihtiyaç tarihinde ya da öncesinde') : '')] : null,
+      ['Teslim kontrolü', kontrolRozet(v.teslimKontrol)],
+      ['Fatura no', String(v.fatura || '').trim()
+        ? '<span class="u-num">' + esc(String(v.fatura).trim()) + '</span>'
+        : '<span class="u-faint">Girilmedi</span>'],
+      ['İrsaliye no', String(v.irsaliye || '').trim()
+        ? '<span class="u-num">' + esc(String(v.irsaliye).trim()) + '</span>'
+        : '<span class="u-faint">Girilmedi</span>'],
+      ['Bağlı demirbaş', kVarliklar.length
+        ? '<b class="u-num">' + kVarliklar.length + '</b> kayıt' +
+          sub(kVarliklar.map(function(a){ return a.kod; }).join(' · '))
+        : '<span class="u-faint">Yok</span>'],
+      kVarliklar.length ? ['Demirbaş alış toplamı <span class="u-faint">(KDV hariç)</span>',
+        para(kVarlikNet, kur)] : null
+    ]);
+  }
+
+  function ozetleriCiz(){ tutarOzetiCiz(); teslimOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    talep:'Kaynak talep', tedarikci:'Tedarikçi', tarih:'Sipariş tarihi',
+    teslimTarihi:'Teslim tarihi', tutar:'Sipariş tutarı', vergi:'KDV tutarı',
+    toplam:'Genel toplam', doviz:'Para birimi', durum:'Sipariş durumu',
+    fatura:'Fatura no', irsaliye:'İrsaliye no', teslimKontrol:'Teslim kontrolü',
+    aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.orders.forEach(function(x){
+      var m = /^SIP-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    var n = String(max + 1);
+    while(n.length < 3) n = '0' + n;
+    return 'SIP-' + String(DB.today).slice(0,4) + '-' + n;
+  }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === '' || x === '—') return '';
+    if(x === false) return 'false';
+    return String(x);
+  }
+  function gorunur(k, val){
+    if(k === 'aktif') return val ? 'Aktif kayıt' : 'Arşivlendi';
+    if(val == null || val === '' || val === '—') return '—';
+    if(k === 'tedarikci') return tedAd(val) + ' (' + val + ')';
+    if(['tutar','vergi','toplam'].indexOf(k) !== -1) return canFinans ? F.money(val) : '••••••';
+    if(['tarih','teslimTarihi'].indexOf(k) !== -1) return F.date(val);
+    return String(val);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    var pd = paraDegerleri(v);
+    v.tutar  = pd.net;
+    v.vergi  = pd.kdv;
+    v.toplam = pd.brut;
+    v.doviz  = pd.doviz || 'TRY';
+    delete v.kdvOran;                     /* Sipariş kaydı KDV ORANI tutmaz — yalnız tutar. */
+
+    v.fatura        = String(v.fatura || '').trim() || null;
+    v.irsaliye      = String(v.irsaliye || '').trim() || null;
+    v.teslimKontrol = v.teslimKontrol || null;
+    v.aktif         = !!v.aktif;
+    return v;
+  }
+
+  /* Bu form talep, teklif ve demirbaş kaydı YAZMAZ (durum aynası hariç).
+     Girilen değerler bağlı kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce
+     açıkça uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var kur = kurSim(v.doviz);
+    var p = talepBul(v.talep);
+
+    if(p && !onayTamam(p)){
+      out.push('Onay: ' + p.kod + ' talebinin onay süreci tamamlanmadı (' + onayMetni(p) +
+               '). Onaysız talepten sipariş doğması olağan akış değildir.');
+    }
+    if(p && canFinans && sayi(p.tahminiMaliyet) !== v.tutar){
+      out.push('Talep tahmini: ' + p.kod + ' talebinin tahmini bedeli ' +
+               F.money(sayi(p.tahminiMaliyet), kur) + ', sipariş neti ' + F.money(v.tutar, kur) +
+               ' (ikisi de KDV hariç); fark ' + F.money(Math.abs(sayi(p.tahminiMaliyet) - v.tutar), kur) +
+               '. Talep kaydı bu formdan güncellenmez.');
+    }
+    if(p && canFinans){
+      var q = teklifOf(p.kod, v.tedarikci);
+      if(q && sayi(q.fiyat) !== v.tutar){
+        out.push('Teklif: ' + tedAd(v.tedarikci) + ' bu talebe ' + F.money(sayi(q.fiyat), kur) +
+                 ' (KDV hariç) teklif verdi, sipariş neti ' + F.money(v.tutar, kur) + '.');
+      }
+      var tr = tercihOf(p.kod);
+      if(tr && tr.tedarikci !== v.tedarikci){
+        out.push('Tercih: ' + p.kod + ' talebinde tercih edilen teklif ' + tedAd(tr.tedarikci) +
+                 ' tedarikçisine ait; sipariş ' + tedAd(v.tedarikci) + ' tedarikçisine açılıyor.');
+      }
+    }
+    if(v.durum === 'Teslim alındı' && !v.fatura){
+      out.push('Belge: teslim alınan siparişte fatura numarası boş. Ölçüm: teslim alınan ' +
+               teslimAlinanSayi + ' siparişin ' + faturaliTeslim + ' tanesinde fatura numarası var.');
+    }
+    if(kVarliklar.length){
+      if(canFinans && kVarlikNet !== v.tutar){
+        out.push('Demirbaş: bu siparişe bağlı ' + kVarliklar.length + ' demirbaşın alış toplamı ' +
+                 F.money(kVarlikNet, kur) + ', yeni sipariş neti ' + F.money(v.tutar, kur) +
+                 ' (ikisi de KDV hariç). Demirbaş kayıtları bu formdan güncellenmez.');
+      }
+      if(v.durum !== 'Teslim alındı'){
+        out.push('Demirbaş: bu siparişten doğmuş ' + kVarliklar.length + ' demirbaş kaydı var ama ' +
+                 'sipariş durumu “' + v.durum + '” yapılıyor. Demirbaşlar envanterde kalır.');
+      }
+    }
+    return out;
+  }
+
+  function yaz(v){
+    var p = talepBul(v.talep);
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+      durumAynala(p, kayit.kod, v.durum);
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. */
+      DB.orders.unshift({
+        kod:kod, talep:v.talep, tedarikci:v.tedarikci, tarih:v.tarih, teslimTarihi:v.teslimTarihi,
+        tutar:v.tutar, vergi:v.vergi, toplam:v.toplam, doviz:v.doviz, durum:v.durum,
+        fatura:v.fatura, irsaliye:v.irsaliye, teslimKontrol:v.teslimKontrol, aktif:v.aktif
+      });
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Sipariş oluşturuldu — ' + tedAd(v.tedarikci) +
+              (canFinans ? ' · net ' + F.money(v.tutar, kurSim(v.doviz)) + ' (KDV hariç)' : ''),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+      durumAynala(p, kod, v.durum);
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-siparis.html'; }, 700);
+  }
+
+  /* Talep durumu siparişin durumunu izler (ölçüm: talepli siparişlerin tamamında
+     iki durum aynı). İptal için ölçülmüş ayna yok — talep olduğu gibi bırakılır. */
+  function durumAynala(p, siparisKod, durum){
+    if(!p || !durum) return;
+    if(durum !== 'Sipariş verildi' && durum !== 'Teslim alındı') return;
+    if(p.durum === durum) return;
+    var eski = p.durum;
+    p.durum = durum;
+    DB.activities.unshift({
+      kayit:p.kod, tarih:simdi(), kisi:GV.session.ad,
+      metin:'Talep durumu ' + siparisKod + ' siparişiyle eşitlendi',
+      eski:eski, yeni:durum, tone:'accent', icon:'i-truck'
+    });
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Bağlı kayıtlarla denge bozulacak',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz sipariş girdiğiniz değerlerle yazılır, bağlı kayıtlar ' +
+           'olduğu gibi kalır ve dengeyi ilgili ekranlardan düzeltmeniz gerekir.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — bağlı kayıtlarla denge korundu', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Tedarik',
+    title:basligi,
+    sub: duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunluSayisi + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-siparis.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
