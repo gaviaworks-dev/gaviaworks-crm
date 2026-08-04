@@ -293,26 +293,30 @@ DB.orders = [
     irsaliye:'—', teslimKontrol:'Tam', aktif:true }
 ];
 
-/* ---- Destek talepleri (PROMPT.md §18) ----------------------------------- */
+/* ---- Destek talepleri (PROMPT.md §18) -----------------------------------
+   `slaDurum` iki eksenin KÖTÜSÜNÜ yansıtır: ilk yanıt ve çözüm.
+   Her eksende tüketim = geçen / hedef (hedefler DB.slaPolicies'ten gelir);
+   ≥1 → 'İhlal edildi' · ≥0,75 → 'Risk altında' · altı → 'Zamanında'.
+   Açık taleplerde geçen süre DB.today gününün başlangıcına göre ölçülür. */
 DB.tickets = [
   { kod:'DST-2026-118', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis', proje:'PRJ-2026-006',
     baslik:'Randevu formunda tarih seçici mobilde açılmıyor', kategori:'Hata', oncelik:'Kritik', etki:'Yüksek',
-    sla:'4 saat', sorumlu:'EMP-013', acan:'Yusuf Balaban', acilis:'2026-07-30T09:12',
-    ilkYanit:'2026-07-30T09:48', mudahaleSuresi:36, cozumSuresi:null, durum:'Devam ediyor',
+    sla:'4 saat', sorumlu:'EMP-013', acan:'Yusuf Balaban', acilis:'2026-08-02T20:15',
+    ilkYanit:'2026-08-02T20:51', mudahaleSuresi:36, cozumSuresi:null, durum:'Devam ediyor',
     harcananSure:3.5, ucretli:false, bakimPaketi:'Standart', kalanDestek:12, memnuniyet:null,
     slaDurum:'Risk altında', aktif:true },
   { kod:'DST-2026-119', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu', proje:'PRJ-2026-001',
     baslik:'Test ortamında bildirimler gelmiyor', kategori:'Hata', oncelik:'Yüksek', etki:'Orta',
-    sla:'8 saat', sorumlu:'EMP-013', acan:'Volkan Ateş', acilis:'2026-07-31T14:20',
-    ilkYanit:'2026-07-31T15:05', mudahaleSuresi:45, cozumSuresi:null, durum:'Devam ediyor',
+    sla:'8 saat', sorumlu:'EMP-013', acan:'Volkan Ateş', acilis:'2026-08-02T19:00',
+    ilkYanit:'2026-08-02T19:45', mudahaleSuresi:45, cozumSuresi:null, durum:'Devam ediyor',
     harcananSure:2, ucretli:false, bakimPaketi:'Kurumsal', kalanDestek:38, memnuniyet:null,
     slaDurum:'Zamanında', aktif:true },
   { kod:'DST-2026-120', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.', proje:'PRJ-2025-008',
     baslik:'Sevkiyat raporuna araç filtresi eklenmesi', kategori:'Geliştirme talebi', oncelik:'Orta', etki:'Düşük',
-    sla:'3 gün', sorumlu:'EMP-013', acan:'Sibel Yurtsever', acilis:'2026-07-29T11:00',
-    ilkYanit:'2026-07-29T13:30', mudahaleSuresi:150, cozumSuresi:null, durum:'Müşteri bekleniyor',
+    sla:'3 gün', sorumlu:'EMP-013', acan:'Sibel Yurtsever', acilis:'2026-07-30T13:00',
+    ilkYanit:'2026-07-30T15:30', mudahaleSuresi:150, cozumSuresi:null, durum:'Müşteri bekleniyor',
     harcananSure:1, ucretli:true, bakimPaketi:'Kurumsal', kalanDestek:62, memnuniyet:null,
-    slaDurum:'Zamanında', aktif:true },
+    slaDurum:'İhlal edildi', aktif:true },
   { kod:'DST-2026-121', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.', proje:'PRJ-2026-004',
     baslik:'Fire raporu Excel çıktısı nasıl alınır?', kategori:'Kullanım sorusu', oncelik:'Düşük', etki:'Düşük',
     sla:'2 gün', sorumlu:'EMP-013', acan:'Fadime Çetin', acilis:'2026-07-28T10:15',
@@ -322,12 +326,12 @@ DB.tickets = [
   { kod:'DST-2026-122', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', proje:'PRJ-2026-003',
     baslik:'İş emri listesinde tarih filtresi çalışmıyor', kategori:'Hata', oncelik:'Orta', etki:'Orta',
     sla:'8 saat', sorumlu:'EMP-013', acan:'Gülay Şen', acilis:'2026-07-18T09:00',
-    ilkYanit:'2026-07-18T09:22', mudahaleSuresi:22, cozumSuresi:8640, durum:'Kapandı',
+    ilkYanit:'2026-07-18T09:22', mudahaleSuresi:22, cozumSuresi:300, durum:'Kapandı',
     harcananSure:6, ucretli:false, bakimPaketi:'Kurumsal', kalanDestek:44, memnuniyet:4,
     slaDurum:'Zamanında', aktif:true },
   { kod:'DST-2026-123', musteri:'MUS-2026-007', musteriAd:'Nova Turizm Yatırımları', proje:'PRJ-2026-005',
     baslik:'Demo ortamına erişim talebi', kategori:'Bilgi talebi', oncelik:'Düşük', etki:'Düşük',
-    sla:'2 gün', sorumlu:'EMP-013', acan:'Barış Ekinci', acilis:'2026-08-01T16:40',
+    sla:'2 gün', sorumlu:'EMP-013', acan:'Barış Ekinci', acilis:'2026-08-02T21:00',
     ilkYanit:null, mudahaleSuresi:null, cozumSuresi:null, durum:'Açık',
     harcananSure:0, ucretli:false, bakimPaketi:'—', kalanDestek:0, memnuniyet:null,
     slaDurum:'Risk altında', aktif:true },
@@ -469,10 +473,10 @@ DB.surveys = [
     puan:3.5, tavsiye:7, yorum:'İhtiyacımız karşılandı, sonrasında iletişim koptu.', aktif:true, arsiv:true },
 
   { kod:'ANK-2026-060', musteri:'MUS-2026-010', tur:'Destek talebi', ilgili:'DST-2026-118',
-    tarih:'2026-08-01', kanal:'E-posta anketi', yanitlayan:'Yusuf Balaban', durum:'Bekliyor',
+    tarih:'2026-08-03', kanal:'E-posta anketi', yanitlayan:'Yusuf Balaban', durum:'Bekliyor',
     puan:null, tavsiye:null, yorum:null, aktif:true },
   { kod:'ANK-2026-061', musteri:'MUS-2024-002', tur:'Destek talebi', ilgili:'DST-2026-119',
-    tarih:'2026-08-02', kanal:'E-posta anketi', yanitlayan:'Volkan Ateş', durum:'Bekliyor',
+    tarih:'2026-08-03', kanal:'E-posta anketi', yanitlayan:'Volkan Ateş', durum:'Bekliyor',
     puan:null, tavsiye:null, yorum:null, aktif:true },
   { kod:'ANK-2026-062', musteri:'MUS-2026-007', tur:'Destek talebi', ilgili:'DST-2026-123',
     tarih:'2026-08-03', kanal:'E-posta anketi', yanitlayan:'Barış Ekinci', durum:'Bekliyor',
