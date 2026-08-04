@@ -689,7 +689,9 @@
     'app-satinalma-form.html',
     'app-musteri-yetkili-form.html',
     'app-musteri-iletisim-form.html',
-    'app-referans-form.html'
+    'app-referans-form.html',
+    'app-komisyon-form.html',
+    'app-onanaliz-form.html'
   ];
   GV.built = BUILT;
 
