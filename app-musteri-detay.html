@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Müşteri Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="musteri" data-screen="musteri">
+<a class="gv-skip" href="#gvMain">İçeriğe atla</a>
+
+<div class="gv-app">
+  <aside class="gv-rail" id="gvRail"></aside>
+  <nav class="gv-menu" id="gvMenu"></nav>
+  <button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">
+    <span><svg class="ic ic-sm" aria-hidden="true"><use href="#i-chev-left"></use></svg></span>
+  </button>
+  <div class="gv-overlay" id="gvOverlay"></div>
+  <header class="gv-top" id="gvTop"></header>
+
+  <main class="gv-main" id="gvMain">
+    <div class="gv-page">
+      <nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>
+      <div id="rec"></div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+  var id = new URLSearchParams(location.search).get('id') || 'MUS-2024-002';
+  var c = DB.customers.filter(function(x){ return x.kod === id; })[0];
+
+  if(!c){
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Müşteri bulunamadı',
+      desc:'“' + esc(id) + '” numaralı müşteri sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-musteri.html">Müşteri listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  var kod = c.kod;
+  GV.shell.crumb(kod);
+  document.title = c.kisa + ' — GaviaWorks CRM';
+
+  /* ---- Kayda bağlı veri dilimleri (hepsi canonical `musteri` alanından) ---- */
+  function byDateDesc(a, b){ return String(b.tarih || '').localeCompare(String(a.tarih || '')); }
+  function ofCust(list){ return (list || []).filter(function(x){ return x.musteri === kod; }); }
+
+  var yetkililer  = ofCust(DB.contacts);
+  var iletisimler = ofCust(DB.interactions).sort(byDateDesc);
+  var firsatlar   = ofCust(DB.leads);
+  var teklifler   = ofCust(DB.quotes).sort(byDateDesc);
+  var sozlesmeler = ofCust(DB.contracts);
+  var projeler    = ofCust(DB.projects);
+  var gorevler    = ofCust(DB.tasks);
+  var toplantilar = ofCust(DB.meetings).sort(byDateDesc);
+  var talepler    = ofCust(DB.tickets);
+  var paketler    = ofCust(DB.supportPackages);
+  var faturalar   = ofCust(DB.invoices).sort(byDateDesc);
+  var tahsilatlar = ofCust(DB.payments);
+  var dosyalar    = ofCust(DB.documents).sort(byDateDesc);
+  var anketler    = ofCust(DB.surveys);
+  var acts        = DB.activities.filter(function(a){ return a.kayit === kod; });
+  var yonlendiren = DB.referrers.filter(function(r){ return r.kod === c.referans; })[0];
+  var birincil    = yetkililer.filter(function(y){ return y.birincil; })[0] || yetkililer[0];
+
+  /* ---- Finans maskeleme — yetki yoksa tutar gizlenir, sekme gizlenmez ---- */
+  function para(v){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    return '<span class="cell-money">' + F.money(v) + '</span>';
+  }
+  function paraUyari(v){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    if(!v) return '<span class="u-faint">—</span>';
+    return '<span class="cell-money u-danger">' + F.money(v) + '</span>';
+  }
+  var finansNot = canFinans ? '' : '<div class="gc-body">' + GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Kayıtlar listelenir, para alanları maskelenir.' }) + '</div>';
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows, foot, mobilScroll){
+    return '<div class="gv-tablewrap' + (mobilScroll === false ? '' : ' is-mobilescroll') + '"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>' + (foot || '');
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function link(href, metin, altMetin){
+    return '<a class="cell-main" href="' + href + '">' + esc(metin) + '</a>' +
+      (altMetin ? '<span class="cell-code">' + esc(altMetin) + '</span>' : '');
+  }
+
+  /* Risk seviyesi ortak ton sözlüğünde yok — GV.badge'in belgeli `extra`
+     parametresiyle ton zorlanıyor (app-musteri.html ile aynı desen). */
+  var riskTon = c.risk === 'Yüksek' ? 'is-danger' : c.risk === 'Orta' ? 'is-warn' : 'is-ok';
+
+  /* ---- Başlık ---- */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + kod + '</span>' +
+        GV.badge(c.durum) + GV.badge('Risk: ' + c.risk, riskTon) +
+        (c.arsiv ? '<span class="tag">Arşiv</span>' : '') +
+        (c.aktif ? '' : '<span class="tag">Pasif kayıt</span>') + '</div>' +
+      '<h1>' + esc(c.unvan) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        '<span>' + ico('i-tag','ic-sm') + esc(c.sektor) + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + esc(c.buyukluk) + ' çalışan</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + 'Sorumlu ' + esc(DB.empName(c.sorumlu)) + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + 'İlk kayıt ' + F.date(c.ilkKayit) + '</span>' +
+        '<span>' + ico('i-phone','ic-sm') + 'Son iletişim ' + F.date(c.sonIletisim) + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="ph-actions">' +
+      '<a class="btn btn-line" href="app-destek.html">' + ico('i-support') + ' Destek Talebi</a>' +
+      '<a class="btn btn-line" href="app-teklif.html">' + ico('i-quote') + ' Teklif Oluştur</a>' +
+      '<a class="btn btn-acc" href="app-musteri-form.html?id=' + kod + '">' + ico('i-edit') + ' Düzenle</a>' +
+    '</div></div>';
+
+  /* ---- Sekmeler (PROMPT.md §8.3 — 15 sekme) ---- */
+  var tabs = [
+    { key:'genel',     lbl:'Genel Bilgiler',    ic:'i-info' },
+    { key:'yetkili',   lbl:'Yetkililer',        ic:'i-user',           cnt:yetkililer.length },
+    { key:'iletisim',  lbl:'İletişim Geçmişi',  ic:'i-phone',          cnt:iletisimler.length },
+    { key:'firsat',    lbl:'Satış Fırsatları',  ic:'i-funnel',         cnt:firsatlar.length },
+    { key:'teklif',    lbl:'Teklifler',         ic:'i-quote',          cnt:teklifler.length },
+    { key:'sozlesme',  lbl:'Sözleşmeler',       ic:'i-file-check',     cnt:sozlesmeler.length },
+    { key:'proje',     lbl:'Projeler',          ic:'i-briefcase',      cnt:projeler.length },
+    { key:'gorev',     lbl:'Görevler',          ic:'i-tasks',          cnt:gorevler.length },
+    { key:'toplanti',  lbl:'Toplantılar',       ic:'i-calendar-check', cnt:toplantilar.length },
+    { key:'destek',    lbl:'Destek Talepleri',  ic:'i-support',        cnt:talepler.length },
+    { key:'fatura',    lbl:'Faturalar',         ic:'i-receipt',        cnt:faturalar.length },
+    { key:'tahsilat',  lbl:'Tahsilatlar',       ic:'i-wallet',         cnt:tahsilatlar.length },
+    { key:'dosya',     lbl:'Dosyalar',          ic:'i-paperclip',      cnt:dosyalar.length },
+    { key:'rapor',     lbl:'Raporlar',          ic:'i-chart-bar' },
+    { key:'aktivite',  lbl:'Aktivite Geçmişi',  ic:'i-activity',       cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL BİLGİLER
+     ================================================================= */
+  var pGenel =
+    '<div class="gc-body">' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Kimlik</h3></div>' +
+        dl([
+          ['Ticari unvan', esc(c.unvan)],
+          ['Kısa ad', esc(c.kisa)],
+          ['Müşteri kodu', '<span class="u-num">' + esc(kod) + '</span>'],
+          ['Sektör', esc(c.sektor)],
+          ['Çalışan sayısı', esc(c.buyukluk)],
+          ['Durum', GV.badge(c.durum)],
+          ['Risk seviyesi', GV.badge(c.risk, riskTon)],
+          ['Etiketler', (c.etiketler || []).map(function(e){ return '<span class="tag">' + esc(e) + '</span>'; }).join(' ')]
+        ]) +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>İletişim</h3></div>' +
+        dl([
+          ['Telefon', c.tel && c.tel !== '—' ? '<a href="tel:' + esc(c.tel.replace(/\s/g,'')) + '">' + esc(c.tel) + '</a>' : null],
+          ['E-posta', c.eposta && c.eposta !== '—' ? '<a href="mailto:' + esc(c.eposta) + '">' + esc(c.eposta) + '</a>' : null],
+          ['Web sitesi', esc(c.web)],
+          ['Adres', esc(c.adres)],
+          ['Birincil yetkili', birincil ? esc(birincil.ad) + ' <span class="cell-sub">' + esc(birincil.pozisyon) + '</span>' : null]
+        ]) +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Ticari Bilgiler</h3></div>' +
+        dl([
+          ['Vergi numarası', '<span class="u-num">' + esc(c.vergiNo) + '</span>'],
+          ['Vergi dairesi', esc(c.vergiDairesi)],
+          ['Toplam ciro (KDV hariç)', para(c.toplamCiro)],
+          ['Bekleyen tahsilat (KDV dahil)', paraUyari(c.bekleyenTahsilat)],
+          ['Aktif sözleşme', '<b>' + sozlesmeler.filter(function(s){ return s.durum === 'Aktif'; }).length + '</b>'],
+          ['Açık fatura', '<b>' + faturalar.filter(function(f){ return f.durum !== 'Ödendi'; }).length + '</b>']
+        ]) +
+      '</div>' +
+      '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>İlişki Yönetimi</h3></div>' +
+        dl([
+          ['Müşteri sorumlusu', GV.user(c.sorumlu, { sm:true })],
+          ['İlk kayıt tarihi', F.date(c.ilkKayit)],
+          ['Kazanım kaynağı', esc(c.kaynak)],
+          ['Yönlendiren', yonlendiren
+            ? '<a href="app-referans.html">' + esc(yonlendiren.ad) + '</a> <span class="cell-sub">' + esc(yonlendiren.tur) + '</span>'
+            : null],
+          ['Son iletişim', F.date(c.sonIletisim) + ' <span class="cell-sub">' + esc(F.rel(c.sonIletisim)) + '</span>'],
+          ['Sonraki aksiyon', c.sonrakiAksiyon && c.sonrakiAksiyon !== '—' ? esc(c.sonrakiAksiyon) : null],
+          ['Sonraki aksiyon tarihi', c.sonrakiTarih ? GV.dateCell(c.sonrakiTarih) : null],
+          ['Toplam proje', '<b>' + c.projeSayisi + '</b>'],
+          ['Aktif proje', '<b>' + c.aktifProje + '</b>'],
+          ['Memnuniyet', c.memnuniyet == null ? null : '<b class="u-num">' + F.num(c.memnuniyet, 1) + ' / 5</b>' +
+            ' <span class="cell-sub">' + anketler.filter(function(a){ return a.durum === 'Yanıtlandı'; }).length + ' yanıtlı anket</span>']
+        ]) +
+      '</div>' +
+    '</div>';
+
+  /* =================================================================
+     2. YETKİLİLER
+     ================================================================= */
+  var pYetkili = '<div class="gc-body flush">' +
+    (yetkililer.length
+      ? tbl('<th>Ad soyad</th><th>Pozisyon</th><th>Telefon</th><th>E-posta</th><th>Rol</th><th>Durum</th>',
+          yetkililer.map(function(y){
+            return '<tr><td>' + link('app-musteri-yetkili.html', y.ad, y.kod) + '</td>' +
+              '<td>' + esc(y.pozisyon) + '</td>' +
+              '<td><a href="tel:' + esc(y.tel.replace(/\s/g,'')) + '">' + esc(y.tel) + '</a></td>' +
+              '<td><a href="mailto:' + esc(y.eposta) + '">' + esc(y.eposta) + '</a></td>' +
+              '<td>' + (y.birincil ? '<span class="tag">Birincil</span> ' : '') +
+                       (y.karar ? '<span class="tag">Karar verici</span>' : '') + '</td>' +
+              '<td>' + GV.badge(y.aktif ? 'Aktif' : 'Pasif') + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + yetkililer.length + '</b> yetkili kişi',
+            '<a class="btn btn-line btn-sm" href="app-musteri-yetkili.html">' + ico('i-external','ic-sm') + ' Yetkili listesi</a>'))
+      : GV.empty({ icon:'i-user', title:'Yetkili kişi yok',
+          desc:'Bu müşteri için henüz yetkili kişi tanımlanmamış.',
+          action:'<a class="btn btn-acc" href="app-musteri-yetkili.html">Yetkili listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     3. İLETİŞİM GEÇMİŞİ
+     ================================================================= */
+  function iletisimTablo(){
+    if(!iletisimler.length){
+      return GV.empty({ icon:'i-phone', title:'İletişim kaydı yok',
+        desc:'Bu müşteriyle yapılan görüşme, telefon ve e-posta kayıtları burada listelenir.',
+        action:'<button type="button" class="btn btn-acc" id="btnIletisim2">İletişim kaydı ekle</button>' });
+    }
+    return tbl('<th>Tarih</th><th>Tür</th><th>Kaydeden</th><th>Görüşülen</th><th>Konu</th><th>Sonuç</th>',
+      iletisimler.map(function(i){
+        return '<tr><td><span class="cell-date">' + F.dt(i.tarih) + '</span></td>' +
+          '<td><span class="tag">' + esc(i.tur) + '</span></td>' +
+          '<td>' + GV.user(i.kisi, { sm:true }) + '</td>' +
+          '<td>' + esc(i.kontak) + '</td>' +
+          '<td class="cell-wrap">' + esc(i.konu) + '<span class="cell-sub">' + esc(i.ozet) + '</span></td>' +
+          '<td>' + esc(i.sonuc) + '</td></tr>';
+      }).join(''),
+      sayac('<b>' + iletisimler.length + '</b> iletişim kaydı · son ' + F.date(c.sonIletisim),
+        '<button type="button" class="btn btn-line btn-sm" id="btnIletisim2">' + ico('i-plus','ic-sm') + ' İletişim kaydı ekle</button>'));
+  }
+  var pIletisim = '<div class="gc-body flush" id="pnlIletisim">' + iletisimTablo() + '</div>';
+
+  /* =================================================================
+     4. SATIŞ FIRSATLARI
+     ================================================================= */
+  var pFirsat = '<div class="gc-body flush">' +
+    (firsatlar.length
+      ? tbl('<th>Fırsat</th><th>Hizmet</th><th>Aşama</th><th>Sıcaklık</th><th class="num">Tahmini bütçe (KDV hariç)</th><th>Kapanış tahmini</th>',
+          firsatlar.map(function(l){
+            return '<tr><td>' + link('app-lead.html', l.ozet, l.kod) + '</td>' +
+              '<td>' + esc(l.hizmet) + '</td>' +
+              '<td>' + GV.badge(l.asama) + '</td>' +
+              '<td><span class="tag">' + esc(l.sicaklik) + '</span></td>' +
+              '<td class="num">' + para(l.butce) + '</td>' +
+              '<td>' + GV.dateCell(l.kapanisTahmini, { done:l.asama === 'Kazanıldı' }) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + firsatlar.length + '</b> satış fırsatı',
+            '<a class="btn btn-line btn-sm" href="app-pipeline.html">' + ico('i-funnel','ic-sm') + ' Satış hunisi</a>'))
+      : GV.empty({ icon:'i-funnel', title:'Satış fırsatı yok',
+          desc:'Bu müşteriye bağlanmış açık veya kapanmış bir satış fırsatı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-lead.html">Müşteri adaylarına git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     5. TEKLİFLER
+     ================================================================= */
+  var pTeklif = finansNot + '<div class="gc-body flush">' +
+    (teklifler.length
+      ? tbl('<th>Teklif</th><th>Tarih</th><th>Geçerlilik</th><th>Durum</th><th>Müşteri onayı</th><th class="num">Genel toplam (KDV dahil)</th>',
+          teklifler.map(function(t){
+            return '<tr><td>' + link('app-teklif.html', t.kod, 'v' + t.versiyon + ' · ' + t.kalemSayisi + ' kalem') + '</td>' +
+              '<td><span class="cell-date">' + F.date(t.tarih) + '</span></td>' +
+              '<td>' + GV.dateCell(t.gecerlilik, { done:t.durum === 'Kazanıldı' || t.durum === 'Kaybedildi' }) + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td>' +
+              '<td>' + (t.musteriOnay && t.musteriOnay !== '—' ? GV.badge(t.musteriOnay) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td class="num">' + para(t.toplam) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + teklifler.length + '</b> teklif · kazanılan ' +
+            teklifler.filter(function(t){ return t.durum === 'Kazanıldı'; }).length,
+            '<a class="btn btn-line btn-sm" href="app-teklif.html">' + ico('i-quote','ic-sm') + ' Teklif listesi</a>'))
+      : GV.empty({ icon:'i-quote', title:'Teklif yok',
+          desc:'Bu müşteriye henüz teklif hazırlanmamış.',
+          action:'<a class="btn btn-acc" href="app-teklif.html">Teklif oluştur</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     6. SÖZLEŞMELER  (tutar NET, toplam BRÜT — components.md §9b)
+     ================================================================= */
+  var netToplam = sozlesmeler.reduce(function(a, s){ return a + s.tutar; }, 0);
+  var pSozlesme = finansNot + '<div class="gc-body flush">' +
+    (sozlesmeler.length
+      ? tbl('<th>Sözleşme</th><th>Dönem</th><th>Durum</th><th class="num">Bedel (KDV hariç)</th><th class="num">Genel toplam (KDV dahil)</th><th>Yenileme</th>',
+          sozlesmeler.map(function(s){
+            return '<tr><td>' + link('app-sozlesme.html', s.ad, s.kod) + '</td>' +
+              '<td><span class="cell-date">' + F.dateShort(s.baslangic) + ' – ' + F.dateShort(s.bitis) + '</span></td>' +
+              '<td>' + GV.badge(s.durum) + '</td>' +
+              '<td class="num">' + para(s.tutar) + '</td>' +
+              '<td class="num">' + para(s.toplam) + '</td>' +
+              '<td>' + (s.yenileme ? '<span class="tag">' + F.date(s.yenilemeTarihi) + '</span>' : '<span class="u-faint">—</span>') + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + sozlesmeler.length + '</b> sözleşme · toplam bedel ' + para(netToplam) + ' <span class="u-faint">(KDV hariç)</span>',
+            '<a class="btn btn-line btn-sm" href="app-odemeplani.html">' + ico('i-milestone','ic-sm') + ' Ödeme planı</a>'))
+      : GV.empty({ icon:'i-file-check', title:'Sözleşme yok',
+          desc:'Bu müşteriyle imzalanmış bir sözleşme kaydı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-sozlesme.html">Sözleşme listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     7. PROJELER
+     ================================================================= */
+  var pProje = '<div class="gc-body flush">' +
+    (projeler.length
+      ? tbl('<th>Proje</th><th>Durum</th><th>Sağlık</th><th>Proje yöneticisi</th><th>Planlanan bitiş</th><th>İlerleme</th><th class="num">Sözleşme tutarı (KDV hariç)</th>',
+          projeler.map(function(p){
+            return '<tr><td>' + link('app-proje-detay.html?id=' + p.kod, p.ad, p.kod + ' · ' + p.tur) + '</td>' +
+              '<td>' + GV.badge(p.durum) + '</td>' +
+              '<td>' + GV.badge(p.saglik) + '</td>' +
+              '<td>' + GV.user(p.pm, { sm:true }) + '</td>' +
+              '<td>' + GV.dateCell(p.planlananBitis, { done:p.ilerleme === 100 }) + '</td>' +
+              '<td>' + GV.progress(p.ilerleme) + '</td>' +
+              '<td class="num">' + para(p.sozlesmeTutari) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + projeler.length + '</b> proje · devam eden ' +
+            projeler.filter(function(p){ return p.ilerleme < 100; }).length,
+            '<a class="btn btn-line btn-sm" href="app-proje.html">' + ico('i-briefcase','ic-sm') + ' Proje listesi</a>'))
+      : GV.empty({ icon:'i-briefcase', title:'Proje yok',
+          desc:'Bu müşteri için açılmış bir proje kaydı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-proje.html">Proje listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     8. GÖREVLER
+     ================================================================= */
+  var acikGorev = gorevler.filter(function(g){ return ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(g.durum) === -1; });
+  var pGorev = '<div class="gc-body flush">' +
+    (gorevler.length
+      ? tbl('<th>Görev</th><th>Tür</th><th>Durum</th><th>Öncelik</th><th>Sorumlu</th><th>Termin</th><th>İlerleme</th>',
+          gorevler.map(function(g){
+            return '<tr><td>' + link('app-gorev-detay.html?id=' + g.kod, g.baslik, g.kod) + '</td>' +
+              '<td>' + esc(g.tur) + '</td>' +
+              '<td>' + GV.badge(g.durum) + '</td>' +
+              '<td>' + GV.pri(g.oncelik) + '</td>' +
+              '<td>' + GV.user(g.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.dateCell(g.termin, { done:g.durum === 'Tamamlandı' }) + '</td>' +
+              '<td>' + GV.progress(g.ilerleme) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + gorevler.length + '</b> görev · açık <b>' + acikGorev.length + '</b>',
+            '<a class="btn btn-line btn-sm" href="app-gorev.html">' + ico('i-tasks','ic-sm') + ' Görev listesi</a>'))
+      : GV.empty({ icon:'i-tasks', title:'Görev yok',
+          desc:'Bu müşteriye bağlı bir görev kaydı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-gorev.html">Görev listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     9. TOPLANTILAR
+     ================================================================= */
+  var pToplanti = '<div class="gc-body flush">' +
+    (toplantilar.length
+      ? tbl('<th>Toplantı</th><th>Tür</th><th>Tarih</th><th class="num">Süre</th><th>Yer</th><th>Katılımcı</th><th>Durum</th>',
+          toplantilar.map(function(t){
+            return '<tr><td>' + link('app-toplanti.html', t.ad, t.kod) + '</td>' +
+              '<td>' + esc(t.tur) + '</td>' +
+              '<td><span class="cell-date">' + F.dt(t.tarih) + '</span></td>' +
+              '<td class="num">' + t.sure + ' dk</td>' +
+              '<td>' + esc(t.yer) + '</td>' +
+              '<td>' + (t.katilimci || []).length + ' iç · ' + (t.disKatilimci || []).length + ' dış</td>' +
+              '<td>' + GV.badge(t.durum) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + toplantilar.length + '</b> toplantı · planlanan ' +
+            toplantilar.filter(function(t){ return t.durum === 'Planlandı'; }).length,
+            '<a class="btn btn-line btn-sm" href="app-toplanti-karar.html">' + ico('i-clipboard-check','ic-sm') + ' Kararlar ve aksiyonlar</a>'))
+      : GV.empty({ icon:'i-calendar-check', title:'Toplantı yok',
+          desc:'Bu müşteriyle yapılan veya planlanan bir toplantı kaydı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-toplanti.html">Toplantı listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     10. DESTEK TALEPLERİ (+ bakım paketi)
+     ================================================================= */
+  var paketBlok = paketler.length
+    ? '<div class="gc-body"><div class="gv-form-sec u-mb-0"><div class="gv-form-sec-head"><h3>Bakım ve Destek Paketi</h3></div>' +
+        paketler.map(function(p){
+          return dl([
+            ['Paket', esc(p.ad)],
+            ['Dönem', F.date(p.baslangic) + ' – ' + F.date(p.bitis)],
+            ['Aylık kota', F.hours(p.aylikSaat)],
+            ['Kullanılan', '<b>' + F.hours(p.kullanilan) + '</b>'],
+            ['Kalan', '<b class="u-num">' + F.hours(p.kalan) + '</b>'],
+            ['Paket bedeli (KDV hariç)', para(p.tutar)],
+            ['Durum', GV.badge(p.durum)],
+            ['Yenileme', p.yenileme ? F.date(p.yenilemeTarihi) + ' <span class="cell-sub">' + esc(F.rel(p.yenilemeTarihi)) + '</span>' : null],
+            ['Bağlı sözleşme', p.sozlesme ? '<a href="app-sozlesme.html">' + esc(p.sozlesme) + '</a>' : null]
+          ]);
+        }).join('') + '</div></div>'
+    : '';
+
+  var pDestek = paketBlok + '<div class="gc-body flush">' +
+    (talepler.length
+      ? tbl('<th>Talep</th><th>Kategori</th><th>Öncelik</th><th>SLA</th><th>SLA durumu</th><th>Sorumlu</th><th>Durum</th><th>Memnuniyet</th>',
+          talepler.map(function(t){
+            return '<tr><td>' + link('app-destek.html', t.baslik, t.kod) + '</td>' +
+              '<td>' + esc(t.kategori) + '</td>' +
+              '<td>' + GV.pri(t.oncelik) + '</td>' +
+              '<td><span class="tag">' + esc(t.sla) + '</span></td>' +
+              '<td>' + GV.badge(t.slaDurum) + '</td>' +
+              '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td>' +
+              '<td>' + (t.memnuniyet == null ? '<span class="u-faint">—</span>' : '<b class="u-num">' + F.num(t.memnuniyet, 1) + ' / 5</b>') + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + talepler.length + '</b> destek talebi · açık ' +
+            talepler.filter(function(t){ return ['Açık','Devam ediyor','Müşteri bekleniyor'].indexOf(t.durum) !== -1; }).length,
+            '<a class="btn btn-line btn-sm" href="app-destek-paket.html">' + ico('i-support','ic-sm') + ' Bakım paketleri</a>'))
+      : GV.empty({ icon:'i-support', title:'Destek talebi yok',
+          desc:'Bu müşteriden gelen açık veya kapanmış bir destek talebi bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-destek.html">Destek listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     11. FATURALAR  (tutar NET, toplam BRÜT)
+     ================================================================= */
+  var fatNet = faturalar.reduce(function(a, f){ return a + f.tutar; }, 0);
+  var fatBrut = faturalar.reduce(function(a, f){ return a + f.toplam; }, 0);
+  var pFatura = finansNot + '<div class="gc-body flush">' +
+    (faturalar.length
+      ? tbl('<th>Fatura</th><th>Tarih</th><th>Vade</th><th>Durum</th><th class="num">Tutar (KDV hariç)</th><th class="num">KDV</th><th class="num">Genel toplam (KDV dahil)</th>',
+          faturalar.map(function(f){
+            return '<tr><td>' + link('app-fatura.html', f.kod, f.sozlesme || 'Sözleşmesiz') + '</td>' +
+              '<td><span class="cell-date">' + F.date(f.tarih) + '</span></td>' +
+              '<td>' + GV.dateCell(f.vade, { done:f.durum === 'Ödendi' }) + '</td>' +
+              '<td>' + GV.badge(f.durum) + '</td>' +
+              '<td class="num">' + para(f.tutar) + '</td>' +
+              '<td class="num">' + para(f.vergi) + '</td>' +
+              '<td class="num">' + para(f.toplam) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + faturalar.length + '</b> fatura · net ' + para(fatNet) +
+            ' <span class="u-faint">(KDV hariç)</span> · brüt ' + para(fatBrut) + ' <span class="u-faint">(KDV dahil)</span>',
+            '<a class="btn btn-line btn-sm" href="app-fatura.html">' + ico('i-receipt','ic-sm') + ' Fatura listesi</a>'))
+      : GV.empty({ icon:'i-receipt', title:'Fatura yok',
+          desc:'Bu müşteri adına kesilmiş bir fatura bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-fatura.html">Fatura listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     12. TAHSİLATLAR  (tutar BRÜT)
+     ================================================================= */
+  var thsBekleyen = tahsilatlar.filter(function(t){ return t.durum !== 'Ödendi'; })
+                               .reduce(function(a, t){ return a + t.tutar; }, 0);
+  var pTahsilat = finansNot + '<div class="gc-body flush">' +
+    (tahsilatlar.length
+      ? tbl('<th>Tahsilat</th><th>Fatura</th><th>Vade</th><th>Gecikme</th><th>Durum</th><th class="num">Tutar (KDV dahil)</th><th>Son aksiyon</th>',
+          tahsilatlar.map(function(t){
+            return '<tr><td>' + link('app-tahsilat.html', t.kod, null) + '</td>' +
+              '<td><a href="app-fatura.html">' + esc(t.fatura) + '</a></td>' +
+              '<td>' + GV.dateCell(t.vade, { done:t.durum === 'Ödendi' }) + '</td>' +
+              '<td>' + (t.gecikmeGun ? '<span class="badge is-danger">' + t.gecikmeGun + ' gün</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td>' +
+              '<td class="num">' + para(t.tutar) + '</td>' +
+              '<td class="cell-wrap">' + esc(t.sonAksiyon) + '<span class="cell-sub">' + F.date(t.sonAksiyonTarihi) + '</span></td></tr>';
+          }).join(''),
+          sayac('<b>' + tahsilatlar.length + '</b> tahsilat kaydı · bekleyen ' + para(thsBekleyen) + ' <span class="u-faint">(KDV dahil)</span>',
+            '<a class="btn btn-line btn-sm" href="app-tahsilat.html">' + ico('i-wallet','ic-sm') + ' Tahsilat listesi</a>'))
+      : GV.empty({ icon:'i-wallet', title:'Tahsilat kaydı yok',
+          desc:'Bu müşteri için takip edilen bir tahsilat kaydı bulunmuyor.',
+          action:'<a class="btn btn-acc" href="app-tahsilat.html">Tahsilat listesine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     13. DOSYALAR
+     ================================================================= */
+  var pDosya = '<div class="gc-body flush">' +
+    (dosyalar.length
+      ? tbl('<th>Doküman</th><th>Tür</th><th>Format</th><th>Boyut</th><th>Yükleyen</th><th>Tarih</th><th>Gizlilik</th><th>Onay</th>',
+          dosyalar.map(function(d){
+            return '<tr><td>' + link('app-dokuman.html', d.ad, d.kod + ' · v' + d.versiyon) + '</td>' +
+              '<td>' + esc(d.tur) + '</td>' +
+              '<td><span class="tag">' + esc(d.format) + '</span></td>' +
+              '<td>' + esc(d.boyut) + '</td>' +
+              '<td>' + GV.user(d.yukleyen, { sm:true }) + '</td>' +
+              '<td><span class="cell-date">' + F.date(d.tarih) + '</span></td>' +
+              '<td>' + esc(d.gizlilik) + '</td>' +
+              '<td>' + GV.badge(d.onay) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + dosyalar.length + '</b> doküman',
+            '<a class="btn btn-line btn-sm" href="app-dokuman.html">' + ico('i-folder','ic-sm') + ' Doküman merkezi</a>'))
+      : GV.empty({ icon:'i-paperclip', title:'Dosya yok',
+          desc:'Bu müşteriye bağlanmış bir doküman bulunmuyor. Sözleşme, teklif ve teknik belgeler burada toplanır.',
+          action:'<a class="btn btn-acc" href="app-dokuman.html">Doküman merkezine git</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     14. RAPORLAR
+     ================================================================= */
+  var raporlar = [
+    { href:'app-rapor-musteri.html', ic:'i-building', ad:'Müşteri Raporları',
+      desc:'Ciro, memnuniyet, proje dağılımı ve müşteri kârlılığı kırılımları.' },
+    { href:'app-rapor-finans.html', ic:'i-wallet', ad:'Finans Raporları',
+      desc:'Fatura, tahsilat, gecikme ve nakit akışı raporları — müşteri filtresiyle.' },
+    { href:'app-rapor-proje.html', ic:'i-briefcase', ad:'Proje Raporları',
+      desc:'Proje ilerlemesi, bütçe/maliyet sapması ve teslim performansı.' },
+    { href:'app-destek-memnuniyet.html', ic:'i-star', ad:'Memnuniyet Anketleri',
+      desc:'Anket puanları ve tavsiye skoru geçmişi — ' + anketler.length + ' anket kaydı.' }
+  ];
+  var pRapor = '<div class="gc-body">' +
+    '<p class="u-muted u-mb-4">Aşağıdaki rapor ekranları ' + esc(c.kisa) + ' filtresiyle açılabilir. ' +
+      'Rapor ekranlarında müşteri seçimi filtre şeridinden yapılır.</p>' +
+    '<div class="gv-cards">' + raporlar.map(function(r){
+      return '<a class="gv-rcard" href="' + r.href + '">' +
+        '<div class="gv-rcard-top"><span class="cell-main">' + ico(r.ic) + ' ' + esc(r.ad) + '</span>' +
+          ico('i-chev-right','ic-sm') + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(r.desc) + '</span></div></a>';
+    }).join('') + '</div>' +
+    (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock', title:'Kısıtlı rapor',
+      text:'Finans raporlarındaki tutar alanları rolünüzde maskelenir.' })) +
+    '</div>';
+
+  /* =================================================================
+     15. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body">' + GV.activity(acts) + '</div>';
+
+  var panels = {
+    genel:pGenel, yetkili:pYetkili, iletisim:pIletisim, firsat:pFirsat, teklif:pTeklif,
+    sozlesme:pSozlesme, proje:pProje, gorev:pGorev, toplanti:pToplanti, destek:pDestek,
+    fatura:pFatura, tahsilat:pTahsilat, dosya:pDosya, rapor:pRapor, aktivite:pAktivite
+  };
+
+  /* ---- Sağ özet paneli ---- */
+  var ozet = [
+    ['Durum', GV.badge(c.durum)],
+    ['Risk seviyesi', GV.badge(c.risk, riskTon)],
+    ['Toplam ciro <span class="u-faint">(KDV hariç)</span>', para(c.toplamCiro)],
+    ['Bekleyen tahsilat <span class="u-faint">(KDV dahil)</span>', paraUyari(c.bekleyenTahsilat)],
+    ['Aktif proje', '<b>' + c.aktifProje + '</b> / ' + c.projeSayisi],
+    ['Memnuniyet', c.memnuniyet == null ? '<span class="u-faint">Ölçülmedi</span>' : '<b class="u-num">' + F.num(c.memnuniyet, 1) + ' / 5</b>'],
+    ['Açık destek talebi', '<b>' + talepler.filter(function(t){ return ['Açık','Devam ediyor','Müşteri bekleniyor'].indexOf(t.durum) !== -1; }).length + '</b>'],
+    ['Son iletişim', F.date(c.sonIletisim) + ' <span class="cell-sub">' + esc(F.rel(c.sonIletisim)) + '</span>'],
+    ['Sonraki aksiyon', c.sonrakiAksiyon && c.sonrakiAksiyon !== '—' ? esc(c.sonrakiAksiyon) : '<span class="u-faint">Planlanmadı</span>'],
+    ['Sonraki tarih', c.sonrakiTarih ? GV.dateCell(c.sonrakiTarih) : '<span class="u-faint">—</span>'],
+    ['Müşteri sorumlusu', GV.user(c.sorumlu, { sm:true })]
+  ];
+
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body"><div class="gv-summary">' + ozet.map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span><span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div></div></section>' +
+
+    (birincil ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-user') + 'Birincil Yetkili</h2></div>' +
+      '<div class="gc-body"><span class="cell-main">' + esc(birincil.ad) + '</span>' +
+      '<div class="cell-sub u-mb-4">' + esc(birincil.pozisyon) + '</div>' +
+      '<div class="gv-summary">' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Telefon</span><span class="gv-summary-val">' +
+          '<a href="tel:' + esc(birincil.tel.replace(/\s/g,'')) + '">' + esc(birincil.tel) + '</a></span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">E-posta</span><span class="gv-summary-val">' +
+          '<a href="mailto:' + esc(birincil.eposta) + '">' + esc(birincil.eposta) + '</a></span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Karar verici</span><span class="gv-summary-val">' +
+          (birincil.karar ? '<span class="badge is-ok">Evet</span>' : '<span class="tag">Hayır</span>') + '</span></div>' +
+      '</div></div></section>' : '') +
+
+    (paketler.length ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-support') + 'Bakım Paketi</h2></div>' +
+      '<div class="gc-body"><span class="cell-main">' + esc(paketler[0].ad) + '</span>' +
+      '<div class="cell-sub u-mb-4">' + F.date(paketler[0].baslangic) + ' – ' + F.date(paketler[0].bitis) + '</div>' +
+      GV.progress(Math.round(paketler[0].kullanilan / Math.max(1, paketler[0].kullanilan + paketler[0].kalan) * 100)) +
+      '<div class="gv-summary u-mt-4">' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Kullanılan</span><span class="gv-summary-val">' + F.hours(paketler[0].kullanilan) + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Kalan</span><span class="gv-summary-val"><b>' + F.hours(paketler[0].kalan) + '</b></span></div>' +
+      '</div></div></section>' : '') +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
+      '<p class="u-sm u-faint">Bu müşteri kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* ---- İletişim kaydı ekleme — gerçekten çalışır ---- */
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('#btnIletisim2')) return;
+    GV.modal({
+      title:'İletişim Kaydı Ekle', text:kod + ' · ' + c.kisa, icon:'i-phone', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-6"><label for="iTur">Tür</label><select id="iTur">' +
+          ['Toplantı','Telefon','E-posta','Ziyaret','Mesaj'].map(function(t){
+            return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field f-col-6"><label for="iTarih">Tarih</label><input type="date" class="inp" id="iTarih" value="' + DB.today + '"></div>' +
+        '<div class="field f-col-12"><label for="iKontak">Görüşülen kişi</label><select id="iKontak">' +
+          (yetkililer.length
+            ? yetkililer.map(function(y){ return '<option value="' + esc(y.ad) + '">' + esc(y.ad) + ' — ' + esc(y.pozisyon) + '</option>'; }).join('')
+            : '<option value="">Tanımlı yetkili yok</option>') + '</select></div>' +
+        '<div class="field f-col-12"><label for="iKonu">Konu</label><input type="text" class="inp" id="iKonu" placeholder="Görüşmenin konusu"></div>' +
+        '<div class="field f-col-12"><label for="iOzet">Özet</label><textarea id="iOzet" rows="2" placeholder="Kısa görüşme notu"></textarea></div>' +
+        '<div class="field f-col-12"><label for="iSonuc">Sonuç</label><input type="text" class="inp" id="iSonuc" placeholder="Varılan sonuç veya sonraki adım"></div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Kaydet', cls:'btn-acc', onClick:function(close, el){
+            var konu = el.querySelector('#iKonu').value.trim();
+            var ozet = el.querySelector('#iOzet').value.trim();
+            if(!konu){ GV.toast('Konu zorunludur', 'danger'); return false; }
+            if(!ozet){ GV.toast('Görüşme özeti zorunludur', 'danger'); return false; }
+            var tarih = el.querySelector('#iTarih').value;
+            DB.interactions.unshift({
+              kod:'ILT-' + String(DB.interactions.length + 1).padStart(3, '0'),
+              musteri:kod, lead:null, tur:el.querySelector('#iTur').value,
+              tarih:tarih + 'T' + new Date().toTimeString().slice(0, 5),
+              kisi:GV.session.emp, kontak:el.querySelector('#iKontak').value,
+              konu:konu, ozet:ozet, sonuc:el.querySelector('#iSonuc').value.trim() || '—'
+            });
+            c.sonIletisim = tarih;
+            DB.activities.unshift({ kayit:kod, tarih:tarih + 'T' + new Date().toTimeString().slice(0, 5),
+              kisi:GV.session.ad, metin:'İletişim kaydı eklendi — ' + konu, eski:null, yeni:null,
+              tone:'info', icon:'i-phone' });
+            GV.toast('İletişim kaydı eklendi', 'ok');
+            setTimeout(function(){ location.reload(); }, 700);
+          } }
+      ]
+    });
+  });
+});
+</script>
+</body>
+</html>

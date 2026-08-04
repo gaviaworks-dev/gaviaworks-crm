@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Proje Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="proje">
+<a class="gv-skip" href="#gvMain">İçeriğe atla</a>
+
+<div class="gv-app">
+  <aside class="gv-rail" id="gvRail"></aside>
+  <nav class="gv-menu" id="gvMenu"></nav>
+  <button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">
+    <span><svg class="ic ic-sm" aria-hidden="true"><use href="#i-chev-left"></use></svg></span>
+  </button>
+  <div class="gv-overlay" id="gvOverlay"></div>
+  <header class="gv-top" id="gvTop"></header>
+
+  <main class="gv-main" id="gvMain">
+    <div class="gv-page">
+      <nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>
+      <div id="rec"></div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var id = new URLSearchParams(location.search).get('id') || 'PRJ-2026-001';
+  var p = DB.projects.filter(function(x){ return x.kod === id; })[0];
+
+  if(!p){
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Proje bulunamadı',
+      desc:'“' + esc(id) + '” numaralı proje sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje.html">Proje listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(p.kod);
+  document.title = p.ad + ' — GaviaWorks CRM';
+
+  /* ---- Yetki: finansal tutar maskeleme ---- */
+  var canFinans = GV.perm.can('finans');
+  function para(v){ return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
+  function paraK(v){ return canFinans ? '<span class="cell-money">' + F.moneyK(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
+
+  /* ---- İlişkili kayıtlar ---- */
+  function byProje(a){ return (a || []).filter(function(x){ return x.proje === p.kod; }); }
+
+  var musteri     = DB.customers.filter(function(c){ return c.kod === p.musteri; })[0];
+  var moduller    = byProje(DB.projectModules);
+  var msler       = byProje(DB.milestones).slice().sort(function(a,b){ return (a.taksit || 0) - (b.taksit || 0); });
+  var sprintler   = byProje(DB.sprints).slice().sort(function(a,b){ return a.baslangic < b.baslangic ? -1 : 1; });
+  var gorevler    = byProje(DB.tasks);
+  var loglar      = byProje(DB.timelogs);
+  var toplantilar = byProje(DB.meetings).slice().sort(function(a,b){ return a.tarih < b.tarih ? 1 : -1; });
+  var dokumanlar  = byProje(DB.documents);
+  var testler     = byProje(DB.tests);
+  var hatalar     = byProje(DB.bugs);
+  var teslimler   = byProje(DB.deliveries);
+  var degisiklik  = byProje(DB.changeRequests);
+  var faturalar   = byProje(DB.invoices);
+  var sozlesme    = DB.contracts.filter(function(c){ return c.proje === p.kod; })[0];
+  var revizyonlar = gorevler.filter(function(t){ return t.tur === 'Revizyon' || t.revizyon > 0 || t.yenidenAcilma > 0; });
+  var gorevKod    = gorevler.map(function(t){ return t.kod; });
+  var acts        = DB.activities.filter(function(a){ return a.kayit === p.kod || gorevKod.indexOf(a.kayit) !== -1; })
+                      .slice().sort(function(a,b){ return a.tarih < b.tarih ? 1 : -1; });
+  var kararlar    = DB.decisions.filter(function(d){
+                      return toplantilar.some(function(t){ return t.kod === d.toplanti; }); });
+
+  var bitisRef  = p.gercekBitis || p.planlananBitis;
+  var kalanGun  = F.days(p.planlananBitis);
+  var bitti     = ['Teslim'].indexOf(p.durum) !== -1 || !!p.gercekBitis || p.ilerleme === 100;
+  var gecikti   = kalanGun < 0 && !bitti;
+  var kalanButce = p.butce - p.gerceklesenMaliyet;
+  var butceKullanim = p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0;
+  var saatMaliyet = p.harcananSure ? Math.round(p.gerceklesenMaliyet / p.harcananSure) : null;
+
+  /* ---- Küçük yardımcılar ---- */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(x){
+      var bos = x[1] == null || x[1] === '' || x[1] === '—';
+      return '<div><dt>' + esc(x[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : x[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  /* Sekme içi tablolar mobilde kart listesine dönmez, yatay kaydırır —
+     ui.css'teki desteklenen istisna sınıfı (.is-mobilescroll). */
+  function tablo(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' + head +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function bos(icon, title, desc, action){
+    return GV.empty({ icon:icon, title:title, desc:desc, action:action });
+  }
+  function toD(iso){ return new Date(String(iso).slice(0,10) + 'T00:00:00'); }
+  function isoOf(d){
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function addDays(iso, n){ var d = toD(iso); d.setDate(d.getDate() + n); return isoOf(d); }
+  function uniq(a){ var o = []; a.forEach(function(x){ if(x && o.indexOf(x) === -1) o.push(x); }); return o; }
+  function link(href, text){ return '<a href="' + href + '">' + text + '</a>'; }
+
+  /* ===================================================================
+     BAŞLIK
+     =================================================================== */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + p.kod + '</span>' +
+        GV.badge(p.durum) + GV.badge(p.saglik) + GV.pri(p.oncelik) +
+        '<span class="tag">' + esc(p.tur) + '</span>' +
+        (gecikti ? '<span class="badge is-danger">' + Math.abs(kalanGun) + ' gün gecikti</span>' : '') + '</div>' +
+      '<h1>' + esc(p.ad) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        '<span>' + ico('i-building','ic-sm') +
+          (musteri ? link('app-musteri-detay.html?id=' + musteri.kod, esc(musteri.kisa || musteri.unvan)) : esc(p.musteriAd)) + '</span>' +
+        '<span>' + ico('i-user','ic-sm') + 'PM ' + esc(DB.empName(p.pm)) + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + (p.ekip || []).length + ' kişilik ekip</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + F.date(p.baslangic) + ' → ' + F.date(p.planlananBitis) + '</span>' +
+        '<span>' + ico('i-flag','ic-sm') + esc(p.faz) + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="ph-actions">' +
+      '<a class="btn btn-line" href="app-gorev.html">' + ico('i-tasks') + ' Görevler</a>' +
+      '<a class="btn btn-line" href="app-proje-milestone.html">' + ico('i-milestone') + ' Milestone</a>' +
+      '<a class="btn btn-acc" href="app-proje-form.html?id=' + p.kod + '">' + ico('i-edit') + ' Düzenle</a>' +
+    '</div></div>';
+
+  /* ===================================================================
+     1. GENEL BAKIŞ
+     =================================================================== */
+  var kritikIsler = gorevler.filter(function(t){
+    return ['Kritik','Yüksek'].indexOf(t.oncelik) !== -1 &&
+           ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1;
+  });
+
+  var pGenel = '<div class="gc-body">' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Proje Künyesi</h3></div>' +
+      dl([
+        ['Proje kodu', '<b>' + p.kod + '</b>'],
+        ['Proje adı', esc(p.ad)],
+        ['Müşteri', musteri ? link('app-musteri-detay.html?id=' + musteri.kod, esc(musteri.unvan)) : esc(p.musteriAd)],
+        ['Proje türü', esc(p.tur)],
+        ['Faz', esc(p.faz)],
+        ['Durum', GV.badge(p.durum)],
+        ['Sağlık durumu', GV.badge(p.saglik)],
+        ['Öncelik', GV.pri(p.oncelik)],
+        ['Proje yöneticisi', GV.user(p.pm, { sm:true })],
+        ['Son güncelleme', F.date(p.sonGuncelleme)]
+      ]) +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Zaman ve İlerleme</h3></div>' +
+      dl([
+        ['Başlangıç tarihi', F.date(p.baslangic)],
+        ['Planlanan bitiş', GV.dateCell(p.planlananBitis, { done:bitti })],
+        ['Gerçekleşen bitiş', p.gercekBitis ? F.date(p.gercekBitis) : null],
+        ['Kalan süre', bitti ? 'Tamamlandı' : F.rel(p.planlananBitis)],
+        ['İlerleme oranı', GV.progress(p.ilerleme)],
+        ['Tahmini süre', F.hours(p.tahminiSure)],
+        ['Harcanan süre', '<b>' + F.hours(p.harcananSure) + '</b>'],
+        ['Süre sapması', (function(){
+          var d = p.harcananSure - p.tahminiSure;
+          if(!p.tahminiSure) return null;
+          var y = Math.round(d / p.tahminiSure * 100);
+          return d > 0 ? '<span class="u-num u-danger u-b">+' + F.hours(d) + ' (%' + y + ')</span>'
+                       : '<span class="u-num u-ok u-b">' + F.hours(d) + ' (%' + y + ')</span>';
+        })()],
+        ['Gecikme nedeni', p.gecikmeNedeni ? esc(p.gecikmeNedeni) : null]
+      ]) +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Teknik Envanter</h3></div>' +
+      dl([
+        ['Kod deposu', p.repo && p.repo !== '—' ? esc(p.repo) : null],
+        ['Canlı ortam', p.canli && p.canli !== '—' ? esc(p.canli) : null],
+        ['Test ortamı', p.test && p.test !== '—' ? esc(p.test) : null],
+        ['Tasarım dosyası', p.tasarim && p.tasarim !== '—' ? esc(p.tasarim) : null],
+        ['Sunucu / barındırma', esc(p.sunucu)],
+        ['Teknoloji yığını', (p.teknoloji || []).map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ')],
+        ['Üçüncü taraf servisler', (p.ucuncuTaraf || []).length
+          ? p.ucuncuTaraf.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ') : null],
+        ['Teknik sorumlu', GV.user(p.teknikSorumlu, { sm:true })],
+        ['Müşteri ilişkileri sorumlusu', GV.user(p.musteriSorumlu, { sm:true })]
+      ]) +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Riskler ve Kritik İşler</h3></div>' +
+      ((p.riskler || []).length
+        ? '<div class="u-col u-mb-4">' + p.riskler.map(function(r){
+            return '<span class="u-sm">' + ico('i-alert','ic-sm') + ' ' + esc(r) + '</span>'; }).join('') + '</div>'
+        : '<p class="u-sm u-faint u-mb-4">Bu proje için tanımlı risk kaydı yok.</p>') +
+      (kritikIsler.length
+        ? tablo('<th>Kritik / yüksek öncelikli açık iş</th><th>Sorumlu</th><th>Termin</th><th>Durum</th>',
+            kritikIsler.map(function(t){
+              return '<tr><td>' + link('app-gorev-detay.html?id=' + t.kod, esc(t.baslik)) +
+                '<span class="cell-code">' + t.kod + '</span></td>' +
+                '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+                '<td>' + GV.dateCell(t.termin) + '</td>' +
+                '<td>' + GV.badge(t.durum) + '</td></tr>';
+            }).join(''))
+        : '<p class="u-sm u-faint">Açık kritik iş yok.</p>') +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Müşteri Onayları</h3></div>' +
+      (teslimler.length
+        ? tablo('<th>Teslim</th><th>Tarih</th><th>Müşteri onayı</th><th>Onay tarihi</th>',
+            teslimler.map(function(d){
+              return '<tr><td><span class="cell-main">' + esc(d.ad) + '</span><span class="cell-code">' + d.kod + '</span></td>' +
+                '<td><span class="cell-date">' + F.date(d.tarih) + '</span></td>' +
+                '<td>' + GV.badge(d.musteriOnay) + '</td>' +
+                '<td>' + (d.onayTarihi ? F.date(d.onayTarihi) : '<span class="u-faint">—</span>') + '</td></tr>';
+            }).join(''))
+        : '<p class="u-sm u-faint">Müşteri onayına sunulmuş teslim kaydı yok.</p>') +
+    '</div>' +
+  '</div>';
+
+  /* ===================================================================
+     2. PROJE EKİBİ
+     =================================================================== */
+  var ekipKod = uniq([p.pm].concat(p.ekip || [], [p.teknikSorumlu, p.musteriSorumlu])
+    .concat(gorevler.map(function(t){ return t.sorumlu; }))
+    .concat(loglar.map(function(l){ return l.personel; })));
+
+  function ekipRol(kod){
+    var r = [];
+    if(kod === p.pm) r.push('Proje yöneticisi');
+    if(kod === p.teknikSorumlu) r.push('Teknik sorumlu');
+    if(kod === p.musteriSorumlu) r.push('Müşteri sorumlusu');
+    if((p.ekip || []).indexOf(kod) !== -1) r.push('Ekip üyesi');
+    if(!r.length) r.push('Katkı veren');
+    return r;
+  }
+
+  var pEkip = '<div class="gc-body flush">' +
+    tablo('<th>Kişi</th><th>Pozisyon</th><th>Projedeki rolü</th><th class="num">Görev</th><th class="num">Harcanan</th><th>Genel doluluk</th>',
+      ekipKod.map(function(k){
+        var e = DB.emp(k) || {};
+        var gs = gorevler.filter(function(t){ return t.sorumlu === k; });
+        var sa = loglar.filter(function(l){ return l.personel === k; }).reduce(function(a,l){ return a + l.sure; }, 0);
+        return '<tr><td>' + GV.user(k) + '<span class="cell-code">' + esc(k) + '</span></td>' +
+          '<td><span class="cell-sub">' + esc(e.pozisyon || '—') + '</span></td>' +
+          '<td>' + ekipRol(k).map(function(r){ return '<span class="tag">' + esc(r) + '</span>'; }).join(' ') + '</td>' +
+          '<td class="num"><b class="u-num">' + gs.length + '</b></td>' +
+          '<td class="num"><span class="u-num">' + F.hours(sa) + '</span></td>' +
+          '<td>' + (e.doluluk == null ? '<span class="u-faint">—</span>' : GV.progress(e.doluluk)) + '</td></tr>';
+      }).join('')) +
+    '<div class="gc-foot"><span class="gv-count"><b>' + ekipKod.length + '</b> kişi · toplam ' +
+      F.hours(loglar.reduce(function(a,l){ return a + l.sure; }, 0)) + ' kayıtlı emek</span>' +
+      '<a class="btn btn-line btn-sm" href="app-personel.html">' + ico('i-users','ic-sm') + ' Personel listesi</a></div>' +
+  '</div>';
+
+  /* ===================================================================
+     3. MODÜLLER
+     =================================================================== */
+  var pModul = '<div class="gc-body flush">' +
+    (moduller.length
+      ? tablo('<th>Modül</th><th>Sorumlu</th><th>Durum</th><th>İlerleme</th><th class="num">Planlanan efor</th><th class="num">Kayıtlı görev</th>',
+          moduller.map(function(m){
+            var mg = gorevler.filter(function(t){ return t.modul === m.kod; });
+            return '<tr><td><span class="cell-main">' + esc(m.ad) + '</span><span class="cell-code">' + m.kod + '</span></td>' +
+              '<td>' + GV.user(m.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.badge(m.durum) + '</td>' +
+              '<td>' + GV.progress(m.ilerleme) + '</td>' +
+              '<td class="num"><span class="u-num">' + F.hours(m.efor) + '</span></td>' +
+              '<td class="num"><b class="u-num">' + mg.length + '</b></td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count"><b>' + moduller.length + '</b> modül · toplam planlanan efor ' +
+          F.hours(moduller.reduce(function(a,m){ return a + m.efor; }, 0)) + '</span></div>'
+      : bos('i-layers','Modül tanımlı değil','Bu proje için henüz modül kırılımı oluşturulmamış.')) +
+  '</div>';
+
+  /* ===================================================================
+     4. MILESTONE (ödeme planı taksitleri)
+     =================================================================== */
+  function msFatura(kod){ return DB.invoices.filter(function(f){ return f.milestone === kod; })[0]; }
+  function msTeslim(kod){ return DB.deliveries.filter(function(d){ return d.milestone === kod; })[0]; }
+
+  var pMilestone = '<div class="gc-body flush">' +
+    (msler.length
+      ? tablo('<th class="num">Taksit</th><th>Milestone</th><th>Tarih</th><th>Durum</th><th>İlerleme</th>' +
+              '<th class="num">Taksit tutarı (KDV hariç)</th><th>Ödeme</th><th>Fatura</th><th>Teslim</th>',
+          msler.map(function(m){
+            var f = msFatura(m.kod), t = msTeslim(m.kod);
+            return '<tr><td class="num"><b class="u-num">' + m.taksit + '</b></td>' +
+              '<td><span class="cell-main">' + esc(m.ad) + '</span><span class="cell-code">' + m.kod + '</span></td>' +
+              '<td>' + GV.dateCell(m.tarih, { done:m.durum === 'Tamamlandı' }) + '</td>' +
+              '<td>' + GV.badge(m.durum) + '</td>' +
+              '<td>' + GV.progress(m.ilerleme) + '</td>' +
+              '<td class="num">' + para(m.odeme) + '</td>' +
+              '<td>' + GV.badge(m.odemeDurum) + '</td>' +
+              '<td>' + (f ? link('app-fatura.html', f.kod) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + (t ? '<span class="cell-sub">' + esc(t.ad) + '</span>' : '<span class="u-faint">—</span>') + '</td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count"><b>' + msler.length + '</b> taksit · toplam ' +
+          para(msler.reduce(function(a,m){ return a + m.odeme; }, 0)) + ' (KDV hariç)</span>' +
+          '<a class="btn btn-line btn-sm" href="app-proje-milestone.html">' + ico('i-milestone','ic-sm') + ' Milestone ekranı</a></div>'
+      : bos('i-milestone','Milestone tanımlı değil','Bu projeye bağlı bir ödeme planı taksiti bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     5. SPRINTLER
+     =================================================================== */
+  var pSprint = '<div class="gc-body flush">' +
+    (sprintler.length
+      ? tablo('<th>Sprint</th><th>Aralık</th><th>Durum</th><th class="num">Planlanan</th><th class="num">Tamamlanan</th>' +
+              '<th>Tamamlanma</th><th class="num">Görev</th><th class="num">Kayıtlı görev</th>',
+          sprintler.map(function(s){
+            var sg = gorevler.filter(function(t){ return t.sprint === s.kod; });
+            var oran = s.planlanan ? Math.round(s.tamamlanan / s.planlanan * 100) : 0;
+            return '<tr><td><span class="cell-main">' + esc(s.ad) + '</span><span class="cell-code">' + s.kod + '</span></td>' +
+              '<td><span class="cell-date">' + F.dateShort(s.baslangic) + ' – ' + F.dateShort(s.bitis) + '</span></td>' +
+              '<td>' + GV.badge(s.durum) + '</td>' +
+              '<td class="num"><span class="u-num">' + F.hours(s.planlanan) + '</span></td>' +
+              '<td class="num"><b class="u-num">' + F.hours(s.tamamlanan) + '</b></td>' +
+              '<td>' + GV.progress(oran) + '</td>' +
+              '<td class="num"><span class="u-num">' + s.gorevSayisi + '</span></td>' +
+              '<td class="num"><span class="u-num">' + sg.length + '</span></td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count">“Görev” sprintin gerçek görev sayısı, “kayıtlı görev” prototipte modellenmiş olanlar</span>' +
+          '<a class="btn btn-line btn-sm" href="app-proje-sprint.html">' + ico('i-sprint','ic-sm') + ' Sprint ekranı</a></div>'
+      : bos('i-sprint','Sprint tanımlı değil','Bu proje sprint döngüsüyle yürütülmüyor ya da henüz sprint açılmamış.')) +
+  '</div>';
+
+  /* ===================================================================
+     6. GÖREVLER
+     =================================================================== */
+  var pGorev = '<div class="gc-body flush">' +
+    (gorevler.length
+      ? tablo('<th>Görev</th><th>Tür</th><th>Modül</th><th>Sorumlu</th><th>Öncelik</th><th>Durum</th>' +
+              '<th>Termin</th><th>İlerleme</th><th class="num">Tahmini / gerçek</th>',
+          gorevler.map(function(t){
+            return '<tr><td>' + link('app-gorev-detay.html?id=' + t.kod, esc(t.baslik)) +
+              '<span class="cell-code">' + t.kod + '</span></td>' +
+              '<td><span class="tag">' + esc(t.tur) + '</span></td>' +
+              '<td><span class="cell-sub">' + esc(t.modul ? DB.modName(t.modul) : '—') + '</span></td>' +
+              '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.pri(t.oncelik) + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td>' +
+              '<td>' + GV.dateCell(t.termin, { done:t.durum === 'Tamamlandı' }) + '</td>' +
+              '<td>' + GV.progress(t.ilerleme) + '</td>' +
+              '<td class="num"><span class="u-num">' + F.hours(t.tahminiSure) + ' / <b>' + F.hours(t.gercekSure) + '</b></span></td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count"><b>' + gorevler.length + '</b> görev · ' +
+          gorevler.filter(function(t){ return t.durum === 'Tamamlandı'; }).length + ' tamamlandı · ' +
+          gorevler.filter(function(t){ return F.days(t.termin) < 0 && ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; }).length +
+          ' geciken</span><a class="btn btn-line btn-sm" href="app-gorev.html">' + ico('i-tasks','ic-sm') + ' Görev ekranı</a></div>'
+      : bos('i-tasks','Görev yok','Bu projeye bağlı kayıtlı görev bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     7. İŞ YÜKÜ
+     =================================================================== */
+  var isYukuSat = ekipKod.map(function(k){
+    var e = DB.emp(k) || {};
+    var gs = gorevler.filter(function(t){ return t.sorumlu === k; });
+    var acik = gs.filter(function(t){ return ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; });
+    var geciken = acik.filter(function(t){ return F.days(t.termin) < 0; });
+    var sa = loglar.filter(function(l){ return l.personel === k; }).reduce(function(a,l){ return a + l.sure; }, 0);
+    var tahmin = acik.reduce(function(a,t){ return a + (t.tahminiSure || 0); }, 0);
+    return { kod:k, e:e, gs:gs, acik:acik, geciken:geciken, sa:sa, tahmin:tahmin };
+  }).sort(function(a,b){ return b.sa - a.sa; });
+
+  var toplamSaat = loglar.reduce(function(a,l){ return a + l.sure; }, 0);
+
+  var pIsYuku = '<div class="gc-body">' +
+    GV.notice({ tone:'info', icon:'i-info',
+      title:'Bu sekmedeki saatler yalnız bu projeye girilmiş zaman kayıtlarıdır',
+      text:'Kişinin genel doluluğu tüm projelerini kapsar; proje bazlı emek ' + F.hours(toplamSaat) +
+           ', projenin toplam harcanan süresi ' + F.hours(p.harcananSure) + ' olarak raporlanır.' }) +
+    '<div class="u-mt-4">' +
+    tablo('<th>Kişi</th><th class="num">Atanmış görev</th><th class="num">Açık görev</th><th class="num">Geciken</th>' +
+          '<th class="num">Açık iş tahmini</th><th class="num">Harcanan saat</th><th>Projedeki payı</th>',
+      isYukuSat.map(function(r){
+        var pay = toplamSaat ? Math.round(r.sa / toplamSaat * 100) : 0;
+        return '<tr><td>' + GV.user(r.kod) + '</td>' +
+          '<td class="num"><span class="u-num">' + r.gs.length + '</span></td>' +
+          '<td class="num"><b class="u-num">' + r.acik.length + '</b></td>' +
+          '<td class="num">' + (r.geciken.length
+            ? '<span class="u-num u-danger u-b">' + r.geciken.length + '</span>' : '<span class="u-num u-faint">0</span>') + '</td>' +
+          '<td class="num"><span class="u-num">' + F.hours(r.tahmin) + '</span></td>' +
+          '<td class="num"><b class="u-num">' + F.hours(r.sa) + '</b></td>' +
+          '<td>' + GV.progress(pay, { tone:'accent' }) + '</td></tr>';
+      }).join('')) +
+    '</div></div>';
+
+  /* ===================================================================
+     8. TAKVİM (DB.today ayı)
+     =================================================================== */
+  var TODAY = DB.today;
+  var ayBasi = TODAY.slice(0,7) + '-01';
+  var ilkGun = toD(ayBasi);
+  var kaydir = (ilkGun.getDay() + 6) % 7;          /* pazartesi başlangıç */
+  var gridStart = addDays(ayBasi, -kaydir);
+  var AYLAR = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+  var DOW = ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+
+  var olaylar = [];
+  msler.forEach(function(m){
+    olaylar.push({ g:m.tarih, t:'Taksit ' + m.taksit + ' · ' + m.ad,
+      tone:m.durum === 'Tamamlandı' ? 'ok' : (m.durum === 'Gecikti' ? 'danger' : 'purple') });
+  });
+  sprintler.forEach(function(s){
+    olaylar.push({ g:s.baslangic, t:'Sprint başlangıcı · ' + s.ad, tone:'accent' });
+    olaylar.push({ g:s.bitis, t:'Sprint bitişi · ' + s.ad, tone:'accent' });
+  });
+  gorevler.forEach(function(t){
+    if(!t.termin) return;
+    var ge = F.days(t.termin) < 0 && ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1;
+    olaylar.push({ g:t.termin, t:'Termin · ' + t.baslik, tone:ge ? 'danger' : (t.durum === 'Tamamlandı' ? 'ok' : 'warn') });
+  });
+  toplantilar.forEach(function(m){ olaylar.push({ g:m.tarih.slice(0,10), t:'Toplantı · ' + m.ad, tone:'neutral' }); });
+  teslimler.forEach(function(d){
+    olaylar.push({ g:d.tarih, t:'Teslim · ' + d.ad, tone:d.durum === 'Gecikti' ? 'danger' : 'ok' }); });
+
+  var ayOlay = olaylar.filter(function(o){ return o.g >= gridStart && o.g < addDays(gridStart, 42); });
+
+  var calCells = '';
+  for(var ci = 0; ci < 42; ci++){
+    var ds = addDays(gridStart, ci);
+    var evs = ayOlay.filter(function(o){ return o.g === ds; });
+    calCells += '<div class="gv-cal-day' + (ds.slice(0,7) !== TODAY.slice(0,7) ? ' is-out' : '') +
+      (ds === TODAY ? ' is-today' : '') + '">' +
+      '<span class="gv-cal-num">' + parseInt(ds.slice(8,10), 10) + '</span>' +
+      evs.slice(0,3).map(function(o){
+        return '<span class="gv-cal-ev is-' + o.tone + '" title="' + esc(o.t) + '">' + esc(o.t) + '</span>';
+      }).join('') +
+      (evs.length > 3 ? '<span class="gv-cal-ev is-neutral" title="' + (evs.length - 3) + ' olay daha">+' +
+        (evs.length - 3) + ' olay daha</span>' : '') +
+      '</div>';
+  }
+
+  var pTakvim = '<div class="gc-body">' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' +
+      esc(AYLAR[parseInt(TODAY.slice(5,7), 10) - 1] + ' ' + TODAY.slice(0,4)) + '</h3>' +
+      '<p>Milestone, sprint sınırları, görev terminleri, toplantılar ve teslimler</p></div>' +
+      (ayOlay.length
+        ? '<div class="gv-cal">' + DOW.map(function(d){ return '<div class="gv-cal-dow">' + d + '</div>'; }).join('') + calCells + '</div>'
+        : bos('i-calendar','Bu ayda olay yok','Seçili ayda bu projeye ait milestone, termin, toplantı veya teslim bulunmuyor.')) +
+    '</div>' +
+    '<div class="gv-legend">' +
+      '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--purple)"></span>Milestone</span>' +
+      '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--acc-ink)"></span>Sprint</span>' +
+      '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--warn)"></span>Görev termini</span>' +
+      '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--ok)"></span>Teslim</span>' +
+      '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--danger)"></span>Geciken</span>' +
+    '</div></div>';
+
+  /* ===================================================================
+     9. GANTT
+     Çubuk konumu inline style ile verilir (components.md §3 istisnası),
+     renk sınıfla gelir: .is-ok / .is-warn / .is-danger
+     =================================================================== */
+  var ganttTarih = [p.baslangic, p.planlananBitis, p.gercekBitis, TODAY]
+    .concat(msler.map(function(m){ return m.tarih; }))
+    .concat(sprintler.map(function(s){ return s.baslangic; }))
+    .concat(sprintler.map(function(s){ return s.bitis; }))
+    .filter(Boolean).sort();
+
+  var gStart = ganttTarih[0], gEnd = ganttTarih[ganttTarih.length - 1];
+  /* Eksen ay başına yuvarlanır, böylece ay başlıkları çubuklarla hizalanır */
+  gStart = gStart.slice(0,7) + '-01';
+  var eAy = parseInt(gEnd.slice(5,7), 10), eYil = parseInt(gEnd.slice(0,4), 10);
+  if(eAy === 12){ eAy = 1; eYil++; } else { eAy++; }
+  gEnd = eYil + '-' + ('0' + eAy).slice(-2) + '-01';
+  var gSpan = Math.max(1, (toD(gEnd) - toD(gStart)) / 86400000);
+
+  function gPct(iso){ return (toD(iso) - toD(gStart)) / 86400000 / gSpan * 100; }
+
+  var gAylar = [];
+  (function(){
+    var y = parseInt(gStart.slice(0,4), 10), m = parseInt(gStart.slice(5,7), 10);
+    var sonY = parseInt(gEnd.slice(0,4), 10), sonM = parseInt(gEnd.slice(5,7), 10);
+    while(y < sonY || (y === sonY && m < sonM)){
+      var gunSayisi = new Date(y, m, 0).getDate();
+      gAylar.push({ lbl:AYLAR[m - 1].slice(0,3) + ' ' + String(y).slice(2), gun:gunSayisi });
+      if(m === 12){ m = 1; y++; } else { m++; }
+    }
+  })();
+
+  function ganttRow(lbl, bas, bit, cls, metin){
+    var l = Math.max(0, gPct(bas));
+    var w = Math.max(1.2, gPct(bit) - l);
+    if(l + w > 100) w = 100 - l;
+    return '<div class="gv-gantt-row">' +
+      '<div class="gv-gantt-lbl" title="' + esc(lbl) + '">' + esc(lbl) + '</div>' +
+      '<div class="gv-gantt-track">' +
+        '<span class="gv-gantt-ms" style="left:' + gPct(TODAY).toFixed(2) + '%" title="Bugün ' + F.date(TODAY) + '"></span>' +
+        '<span class="gv-gantt-bar' + (cls ? ' ' + cls : '') + '" style="left:' + l.toFixed(2) + '%;width:' + w.toFixed(2) + '%" ' +
+          'title="' + esc(lbl + ' · ' + F.date(bas) + ' → ' + F.date(bit)) + '">' + esc(metin || '') + '</span>' +
+      '</div></div>';
+  }
+
+  var ganttRows = ganttRow('PROJE · ' + p.kod, p.baslangic, p.gercekBitis || p.planlananBitis,
+      bitti ? 'is-ok' : (gecikti ? 'is-danger' : ''), '%' + p.ilerleme);
+
+  var oncekiTarih = p.baslangic;
+  msler.forEach(function(m){
+    var cls = m.durum === 'Tamamlandı' ? 'is-ok' : (m.durum === 'Gecikti' ? 'is-danger' :
+              (m.durum === 'Yaklaşıyor' ? 'is-warn' : ''));
+    var bas = oncekiTarih < m.tarih ? oncekiTarih : m.tarih;
+    ganttRows += ganttRow('T' + m.taksit + ' · ' + m.ad, bas, m.tarih, cls, F.dateShort(m.tarih));
+    oncekiTarih = m.tarih;
+  });
+
+  sprintler.forEach(function(s){
+    var gecikmis = F.days(s.bitis) < 0 && s.durum !== 'Tamamlandı';
+    var cls = s.durum === 'Tamamlandı' ? 'is-ok' : (gecikmis ? 'is-danger' :
+              (s.durum === 'Devam ediyor' ? 'is-warn' : ''));
+    ganttRows += ganttRow(s.ad, s.baslangic, s.bitis, cls,
+      s.planlanan ? Math.round(s.tamamlanan / s.planlanan * 100) + '%' : '');
+  });
+
+  var pGantt = '<div class="gc-body">' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Zaman Çizelgesi</h3>' +
+      '<p>Proje, ödeme planı taksitleri ve sprintler · mor çizgi bugünü gösterir</p></div>' +
+      '<div class="gv-gantt">' +
+        '<div class="gv-gantt-head"><div class="gv-gantt-lbl">Kalem</div>' +
+          '<div class="gv-gantt-months">' + gAylar.map(function(a){
+            return '<div class="gv-gantt-month" style="flex:' + a.gun + '">' + esc(a.lbl) + '</div>';
+          }).join('') + '</div></div>' +
+        '<div class="gv-gantt-grid">' + ganttRows + '</div>' +
+      '</div>' +
+      '<div class="gv-legend">' +
+        '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--ok)"></span>Tamamlandı</span>' +
+        '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--warn)"></span>Yaklaşan / devam eden</span>' +
+        '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--danger)"></span>Gecikmiş</span>' +
+        '<span class="gv-legend-item"><span class="gv-legend-swatch" style="background:var(--purple)"></span>Bugün</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* ===================================================================
+     10. KANBAN
+     =================================================================== */
+  var kanbanDurum = DB.taskStatuses.filter(function(d){
+    return gorevler.some(function(t){ return t.durum === d; }); });
+
+  var pKanban = gorevler.length
+    ? '<div class="gv-kanban">' + kanbanDurum.map(function(d){
+        var items = gorevler.filter(function(t){ return t.durum === d; });
+        var ton = GV.tone(d);
+        return '<section class="gv-kcol" data-kcol="' + esc(d) + '">' +
+          '<div class="gv-kcol-head">' +
+            '<span class="gv-kcol-bar" style="width:var(--sp-8);background:var(--' + (ton === 'accent' ? 'acc' : ton) + ')"></span>' +
+            '<span class="gv-kcol-title">' + esc(d) + '</span>' +
+            '<span class="gv-kcol-cnt">' + items.length + '</span></div>' +
+          '<div class="gv-kcol-body">' + items.map(function(t){
+            return '<article class="gv-kcard" data-id="' + t.kod + '">' +
+              '<span class="gv-kcard-title">' + link('app-gorev-detay.html?id=' + t.kod, esc(t.baslik)) + '</span>' +
+              '<div class="gv-kcard-meta">' + GV.pri(t.oncelik) + '<span>' + esc(t.kod) + '</span></div>' +
+              '<div class="gv-kcard-meta">' + GV.user(t.sorumlu, { sm:true }) + GV.dateCell(t.termin, { done:t.durum === 'Tamamlandı' }) + '</div>' +
+              GV.progress(t.ilerleme) +
+            '</article>';
+          }).join('') + '</div></section>';
+      }).join('') + '</div>'
+    : '<div class="gc-body">' + bos('i-kanban','Kanban için görev yok','Bu projeye bağlı görev olmadığı için kanban panosu boş.') + '</div>';
+
+  /* ===================================================================
+     11. ZAMAN KAYITLARI
+     =================================================================== */
+  var faturalanabilirSaat = loglar.filter(function(l){ return l.faturalanabilir; }).reduce(function(a,l){ return a + l.sure; }, 0);
+
+  var pZaman = '<div class="gc-body flush">' +
+    (loglar.length
+      ? tablo('<th>Tarih</th><th>Personel</th><th>Görev</th><th>Açıklama</th><th class="num">Süre</th><th>Faturalanabilir</th><th>Onay</th>',
+          loglar.slice().sort(function(a,b){ return a.tarih < b.tarih ? 1 : -1; }).map(function(l){
+            var g = DB.task(l.gorev);
+            return '<tr><td><span class="cell-date">' + F.date(l.tarih) + '</span></td>' +
+              '<td>' + GV.user(l.personel, { sm:true }) + '</td>' +
+              '<td>' + (g ? link('app-gorev-detay.html?id=' + g.kod, esc(g.baslik)) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td><span class="cell-sub">' + esc(l.aciklama) + '</span></td>' +
+              '<td class="num"><b class="u-num">' + F.hours(l.sure) + '</b></td>' +
+              '<td>' + (l.faturalanabilir ? '<span class="badge is-ok">Evet</span>' : '<span class="tag">Hayır</span>') + '</td>' +
+              '<td>' + GV.badge(l.onay) + '</td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count">Kayıtlı emek <b>' + F.hours(toplamSaat) + '</b> · faturalanabilir ' +
+          F.hours(faturalanabilirSaat) + ' · projenin toplam harcanan süresi ' + F.hours(p.harcananSure) + '</span>' +
+          '<a class="btn btn-line btn-sm" href="app-zaman.html">' + ico('i-timer','ic-sm') + ' Zaman ekranı</a></div>'
+      : bos('i-timer','Zaman kaydı yok','Bu projeye henüz süre girilmemiş.',
+          '<a class="btn btn-acc" href="app-zaman.html">Zaman kaydı ekranı</a>')) +
+  '</div>';
+
+  /* ===================================================================
+     12. TOPLANTILAR
+     =================================================================== */
+  var pToplanti = '<div class="gc-body">' +
+    (toplantilar.length
+      ? '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Toplantılar</h3></div>' +
+          tablo('<th>Toplantı</th><th>Tür</th><th>Tarih</th><th class="num">Süre</th><th>Yer</th><th class="num">Katılımcı</th><th>Durum</th>',
+            toplantilar.map(function(m){
+              return '<tr><td><span class="cell-main">' + esc(m.ad) + '</span><span class="cell-code">' + m.kod + '</span></td>' +
+                '<td><span class="tag">' + esc(m.tur) + '</span></td>' +
+                '<td><span class="cell-date">' + F.dt(m.tarih) + '</span></td>' +
+                '<td class="num"><span class="u-num">' + m.sure + ' dk</span></td>' +
+                '<td><span class="cell-sub">' + esc(m.yer) + '</span></td>' +
+                '<td class="num"><span class="u-num">' + ((m.katilimci || []).length + (m.disKatilimci || []).length) + '</span></td>' +
+                '<td>' + GV.badge(m.durum) + '</td></tr>';
+            }).join('')) +
+        '</div>' +
+        (kararlar.length
+          ? '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Toplantı Kararları ve Aksiyonlar</h3></div>' +
+              tablo('<th>Karar</th><th>Sorumlu</th><th>Termin</th><th>Durum</th><th>Bağlı görev</th>',
+                kararlar.map(function(k){
+                  return '<tr><td><span class="cell-main">' + esc(k.karar) + '</span><span class="cell-code">' + k.kod + '</span></td>' +
+                    '<td>' + GV.user(k.sorumlu, { sm:true }) + '</td>' +
+                    '<td>' + GV.dateCell(k.termin, { done:k.durum === 'Tamamlandı' }) + '</td>' +
+                    '<td>' + GV.badge(k.durum) + '</td>' +
+                    '<td>' + (k.gorev ? link('app-gorev-detay.html?id=' + k.gorev, k.gorev) : '<span class="u-faint">—</span>') + '</td></tr>';
+                }).join('')) +
+            '</div>' : '') +
+        '<div class="u-row"><a class="btn btn-line btn-sm" href="app-toplanti.html">' + ico('i-calendar-check','ic-sm') + ' Toplantı ekranı</a>' +
+        '<a class="btn btn-line btn-sm" href="app-toplanti-karar.html">' + ico('i-stamp','ic-sm') + ' Karar takibi</a></div>'
+      : bos('i-calendar-check','Toplantı kaydı yok','Bu projeye bağlı planlanmış veya yapılmış toplantı bulunmuyor.',
+          '<a class="btn btn-acc" href="app-toplanti.html">Toplantı ekranı</a>')) +
+  '</div>';
+
+  /* ===================================================================
+     13. DOSYALAR
+     =================================================================== */
+  var pDosya = '<div class="gc-body">' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Projeye Bağlı Dokümanlar</h3></div>' +
+      (dokumanlar.length
+        ? tablo('<th>Doküman</th><th>Tür</th><th>Klasör</th><th class="num">Sürüm</th><th>Boyut</th><th>Yükleyen</th><th>Tarih</th><th>Gizlilik</th><th>Onay</th>',
+            dokumanlar.map(function(d){
+              return '<tr><td><span class="cell-main">' + esc(d.ad) + '</span><span class="cell-code">' + d.kod + '</span></td>' +
+                '<td><span class="tag">' + esc(d.tur) + '</span></td>' +
+                '<td><span class="cell-sub">' + esc(d.klasor) + '</span></td>' +
+                '<td class="num"><span class="u-num">v' + d.versiyon + '</span></td>' +
+                '<td><span class="cell-sub">' + esc(d.boyut) + ' · ' + esc(d.format) + '</span></td>' +
+                '<td>' + GV.user(d.yukleyen, { sm:true }) + '</td>' +
+                '<td><span class="cell-date">' + F.date(d.tarih) + '</span></td>' +
+                '<td><span class="tag">' + esc(d.gizlilik) + '</span></td>' +
+                '<td>' + GV.badge(d.onay) + '</td></tr>';
+            }).join(''))
+        : bos('i-paperclip','Doküman yok','Bu projeye bağlı kayıtlı doküman bulunmuyor. Aşağıdan yeni dosya ekleyebilirsiniz.')) +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Yeni Dosya Ekle</h3></div>' +
+      '<div id="prjUpload"></div>' +
+      '<div class="u-row u-mt-4"><a class="btn btn-line btn-sm" href="app-dokuman.html">' +
+        ico('i-folder','ic-sm') + ' Doküman merkezi</a></div>' +
+    '</div></div>';
+
+  /* ===================================================================
+     14. REVİZYONLAR
+     =================================================================== */
+  var toplamRevizyon = revizyonlar.reduce(function(a,t){ return a + (t.revizyon || 0); }, 0);
+  var toplamYenidenAcilma = revizyonlar.reduce(function(a,t){ return a + (t.yenidenAcilma || 0); }, 0);
+
+  var pRevizyon = '<div class="gc-body">' +
+    GV.notice({ tone:gecikti || toplamRevizyon > 5 ? 'warn' : 'info', icon:'i-refresh',
+      title:'Revizyon geçmişi görevlerin revizyon sayaçlarından türetilir',
+      text:'Bu projede ' + toplamRevizyon + ' revizyon turu ve ' + toplamYenidenAcilma +
+           ' yeniden açılma kayıtlı. Kapsam dışı talepler “Değişiklik Talepleri” sekmesinde izlenir.' }) +
+    '<div class="u-mt-4">' +
+    (revizyonlar.length
+      ? tablo('<th>Görev</th><th>Tür</th><th class="num">Revizyon</th><th class="num">Yeniden açılma</th>' +
+              '<th>Revizyon notu</th><th>Sorumlu</th><th>Durum</th>',
+          revizyonlar.map(function(t){
+            return '<tr><td>' + link('app-gorev-detay.html?id=' + t.kod, esc(t.baslik)) +
+              '<span class="cell-code">' + t.kod + '</span></td>' +
+              '<td><span class="tag">' + esc(t.tur) + '</span></td>' +
+              '<td class="num">' + (t.revizyon > 3
+                ? '<span class="u-num u-danger u-b">' + t.revizyon + '</span>'
+                : '<b class="u-num">' + t.revizyon + '</b>') + '</td>' +
+              '<td class="num"><span class="u-num">' + t.yenidenAcilma + '</span></td>' +
+              '<td><span class="cell-sub">' + esc(t.revizeNot || t.gecikmeNedeni || '—') + '</span></td>' +
+              '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td></tr>';
+          }).join(''))
+      : bos('i-refresh','Revizyon kaydı yok','Bu projenin görevlerinde revizyon veya yeniden açılma kaydı bulunmuyor.')) +
+    '</div></div>';
+
+  /* ===================================================================
+     15. DEĞİŞİKLİK TALEPLERİ
+     =================================================================== */
+  var pDegisiklik = '<div class="gc-body flush">' +
+    (degisiklik.length
+      ? tablo('<th>Talep</th><th>Talep eden</th><th>Tarih</th><th>Kapsam</th>' +
+              '<th class="num">Süre etkisi</th><th class="num">Maliyet etkisi</th><th>Karar</th><th>Durum</th>',
+          degisiklik.map(function(d){
+            return '<tr><td><span class="cell-main">' + esc(d.baslik) + '</span><span class="cell-code">' + d.kod + '</span></td>' +
+              '<td><span class="tag">' + esc(d.talep) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(d.tarih) + '</span></td>' +
+              '<td>' + (d.kapsamIci ? '<span class="badge is-ok">Kapsam içi</span>' : '<span class="badge is-warn">Kapsam dışı</span>') + '</td>' +
+              '<td class="num"><span class="u-num">' + F.hours(d.etkiSure) + '</span></td>' +
+              '<td class="num">' + (d.etkiMaliyet ? para(d.etkiMaliyet) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td><span class="cell-sub">' + esc(d.karar) + '</span></td>' +
+              '<td>' + GV.badge(d.durum) + '</td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count"><b>' + degisiklik.length + '</b> talep · toplam süre etkisi ' +
+          F.hours(degisiklik.reduce(function(a,d){ return a + d.etkiSure; }, 0)) + ' · maliyet etkisi ' +
+          para(degisiklik.reduce(function(a,d){ return a + d.etkiMaliyet; }, 0)) + ' (KDV hariç)</span>' +
+          '<a class="btn btn-line btn-sm" href="app-proje-degisiklik.html">' + ico('i-git','ic-sm') + ' Değişiklik ekranı</a></div>'
+      : bos('i-git','Değişiklik talebi yok','Bu proje için kayıtlı kapsam değişikliği talebi bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     16. TESTLER
+     =================================================================== */
+  var pTest = '<div class="gc-body flush">' +
+    (testler.length
+      ? tablo('<th>Test</th><th>Tür</th><th>Sorumlu</th><th>Tarih</th><th class="num">Senaryo</th>' +
+              '<th class="num">Başarılı</th><th class="num">Başarısız</th><th>Başarı oranı</th><th>Durum</th>',
+          testler.map(function(t){
+            var oran = t.senaryo ? Math.round(t.basarili / t.senaryo * 100) : null;
+            return '<tr><td><span class="cell-main">' + esc(t.ad) + '</span><span class="cell-code">' + t.kod + '</span></td>' +
+              '<td>' + GV.badge(t.tur) + '</td>' +
+              '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.dateCell(t.tarih, { done:t.durum === 'Tamamlandı' }) + '</td>' +
+              '<td class="num"><span class="u-num">' + t.senaryo + '</span></td>' +
+              '<td class="num"><span class="u-num u-ok u-b">' + t.basarili + '</span></td>' +
+              '<td class="num">' + (t.basarisiz
+                ? '<span class="u-num u-danger u-b">' + t.basarisiz + '</span>' : '<span class="u-num u-faint">0</span>') + '</td>' +
+              '<td>' + (oran == null ? '<span class="u-faint">—</span>' : GV.progress(oran)) + '</td>' +
+              '<td>' + GV.badge(t.durum) + '</td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count">Toplam <b>' +
+          testler.reduce(function(a,t){ return a + t.senaryo; }, 0) + '</b> senaryo · ' +
+          testler.reduce(function(a,t){ return a + t.basarisiz; }, 0) + ' başarısız</span>' +
+          '<a class="btn btn-line btn-sm" href="app-proje-test.html">' + ico('i-flask','ic-sm') + ' Test ekranı</a></div>'
+      : bos('i-flask','Test kaydı yok','Bu proje için planlanmış veya koşulmuş test bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     17. HATALAR
+     =================================================================== */
+  var acikHata = hatalar.filter(function(h){ return h.durum !== 'Kapandı'; });
+
+  var pHata = '<div class="gc-body flush">' +
+    (hatalar.length
+      ? tablo('<th>Hata</th><th>Modül</th><th>Şiddet</th><th>Öncelik</th><th>Ortam</th><th>Tekrarlanabilirlik</th>' +
+              '<th>Bulan</th><th>Sorumlu</th><th>Bulunma</th><th>Çözüm</th><th>Durum</th><th>Görev</th>',
+          hatalar.map(function(h){
+            return '<tr><td><span class="cell-main">' + esc(h.baslik) + '</span><span class="cell-code">' + h.kod + '</span></td>' +
+              '<td><span class="cell-sub">' + esc(h.modul ? DB.modName(h.modul) : '—') + '</span></td>' +
+              '<td>' + GV.pri(h.siddet) + '</td>' +
+              '<td>' + GV.pri(h.oncelik) + '</td>' +
+              '<td><span class="tag">' + esc(h.ortam) + '</span></td>' +
+              '<td><span class="cell-sub">' + esc(h.tekrarlanabilir) + '</span></td>' +
+              '<td>' + GV.user(h.bulan, { sm:true }) + '</td>' +
+              '<td>' + GV.user(h.sorumlu, { sm:true }) + '</td>' +
+              '<td><span class="cell-date">' + F.date(h.bulunma) + '</span></td>' +
+              '<td>' + (h.cozum ? '<span class="cell-date">' + F.date(h.cozum) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(h.durum) + '</td>' +
+              '<td>' + (h.gorev ? link('app-gorev-detay.html?id=' + h.gorev, h.gorev) : '<span class="u-faint">—</span>') + '</td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count"><b>' + acikHata.length + '</b> açık hata · ' +
+          hatalar.filter(function(h){ return h.siddet === 'Kritik' && h.durum !== 'Kapandı'; }).length +
+          ' kritik · toplam ' + hatalar.length + ' kayıt</span>' +
+          '<a class="btn btn-line btn-sm" href="app-proje-hata.html">' + ico('i-bug','ic-sm') + ' Hata ekranı</a></div>'
+      : bos('i-bug','Hata kaydı yok','Bu projede raporlanmış hata bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     18. TESLİMLER
+     =================================================================== */
+  var pTeslim = '<div class="gc-body flush">' +
+    (teslimler.length
+      ? tablo('<th>Teslim</th><th>Bağlı taksit</th><th>Tarih</th><th>Teslim eden</th><th>Durum</th>' +
+              '<th>Müşteri onayı</th><th>Onay tarihi</th><th>Not</th>',
+          teslimler.map(function(d){
+            var m = DB.milestones.filter(function(x){ return x.kod === d.milestone; })[0];
+            return '<tr><td><span class="cell-main">' + esc(d.ad) + '</span><span class="cell-code">' + d.kod + '</span></td>' +
+              '<td>' + (m ? '<span class="cell-sub">T' + m.taksit + ' · ' + esc(m.ad) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.dateCell(d.tarih, { done:d.durum === 'Onaylandı' }) + '</td>' +
+              '<td>' + GV.user(d.teslimEden, { sm:true }) + '</td>' +
+              '<td>' + GV.badge(d.durum) + '</td>' +
+              '<td>' + GV.badge(d.musteriOnay) + '</td>' +
+              '<td>' + (d.onayTarihi ? '<span class="cell-date">' + F.date(d.onayTarihi) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+              '<td><span class="cell-sub">' + esc(d.not) + '</span></td></tr>';
+          }).join('')) +
+        '<div class="gc-foot"><span class="gv-count"><b>' + teslimler.length + '</b> teslim · ' +
+          teslimler.filter(function(d){ return d.musteriOnay === 'Onaylandı'; }).length + ' müşteri onaylı</span>' +
+          '<a class="btn btn-line btn-sm" href="app-proje-teslim.html">' + ico('i-package','ic-sm') + ' Teslim ekranı</a></div>'
+      : bos('i-package','Teslim kaydı yok','Bu proje için planlanmış veya yapılmış teslim bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     19. BÜTÇE
+     =================================================================== */
+  var faturaNet   = faturalar.reduce(function(a,f){ return a + f.tutar; }, 0);
+  var faturaBrut  = faturalar.reduce(function(a,f){ return a + f.toplam; }, 0);
+  var tahsilEdilen = faturalar.filter(function(f){ return f.durum === 'Ödendi'; })
+                       .reduce(function(a,f){ return a + f.toplam; }, 0);
+
+  var pButce = '<div class="gc-body">' +
+    (!canFinans ? GV.notice({ tone:'warn', icon:'i-lock',
+      title:'Finansal tutarlar gizlendi',
+      text:'Proje bütçesi, sözleşme bedeli ve fatura tutarlarını görmek için finans yetkisi gerekir. Üst bardaki rol çipinden yetkili bir rolle deneyebilirsiniz.' }) + '<div class="u-mt-4"></div>' : '') +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Sözleşme ve Bütçe</h3></div>' +
+      dl([
+        ['Sözleşme', sozlesme ? link('app-sozlesme.html', esc(sozlesme.ad) + ' · ' + sozlesme.kod) : null],
+        ['Ödeme planı', sozlesme ? esc(sozlesme.odemePlani) : null],
+        ['Sözleşme bedeli (KDV hariç)', para(p.sozlesmeTutari)],
+        ['KDV (%' + (sozlesme ? sozlesme.kdvOran : 20) + ')', sozlesme ? para(sozlesme.kdv) : null],
+        ['Genel toplam (KDV dahil)', sozlesme ? para(sozlesme.toplam) : null],
+        ['Onaylı proje bütçesi (KDV hariç)', para(p.butce)],
+        ['Gerçekleşen maliyet (KDV hariç)', para(p.gerceklesenMaliyet)],
+        ['Kalan bütçe (KDV hariç)', canFinans
+          ? (kalanButce < 0
+              ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kalanButce)) + '</span>'
+              : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
+          : '<span class="cell-mask">••••••</span>'],
+        ['Bütçe kullanımı', GV.progress(butceKullanim, { tone:butceKullanim > 100 ? 'danger' : (butceKullanim > 85 ? 'warn' : null) })],
+        ['Sözleşme – maliyet farkı (KDV hariç)', canFinans
+          ? '<span class="u-num u-b">' + F.money(p.sozlesmeTutari - p.gerceklesenMaliyet) + '</span>'
+          : '<span class="cell-mask">••••••</span>'],
+        ['Garanti süresi', sozlesme ? esc(sozlesme.garanti) : null]
+      ]) +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Ödeme Planı (taksitler · KDV hariç)</h3></div>' +
+      (msler.length
+        ? tablo('<th class="num">Taksit</th><th>Ad</th><th>Tarih</th><th class="num">Tutar (KDV hariç)</th><th>Ödeme durumu</th><th>Fatura</th>',
+            msler.map(function(m){
+              var f = msFatura(m.kod);
+              return '<tr><td class="num"><b class="u-num">' + m.taksit + '</b></td>' +
+                '<td><span class="cell-main">' + esc(m.ad) + '</span></td>' +
+                '<td>' + GV.dateCell(m.tarih, { done:m.odemeDurum === 'Ödendi' }) + '</td>' +
+                '<td class="num">' + para(m.odeme) + '</td>' +
+                '<td>' + GV.badge(m.odemeDurum) + '</td>' +
+                '<td>' + (f ? link('app-fatura.html', f.kod) : '<span class="u-faint">—</span>') + '</td></tr>';
+            }).join(''))
+        : '<p class="u-sm u-faint">Bu proje için taksitli ödeme planı tanımlı değil.</p>') +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Faturalar</h3></div>' +
+      (faturalar.length
+        ? tablo('<th>Fatura</th><th>Tarih</th><th>Vade</th><th class="num">Tutar (KDV hariç)</th>' +
+                '<th class="num">KDV</th><th class="num">Genel toplam (KDV dahil)</th><th>Durum</th><th>Ödeme tarihi</th>',
+            faturalar.map(function(f){
+              return '<tr><td><span class="cell-main">' + f.kod + '</span></td>' +
+                '<td><span class="cell-date">' + F.date(f.tarih) + '</span></td>' +
+                '<td>' + GV.dateCell(f.vade, { done:f.durum === 'Ödendi' }) + '</td>' +
+                '<td class="num">' + para(f.tutar) + '</td>' +
+                '<td class="num">' + para(f.vergi) + '</td>' +
+                '<td class="num">' + para(f.toplam) + '</td>' +
+                '<td>' + GV.badge(f.durum) + '</td>' +
+                '<td>' + (f.odemeTarihi ? '<span class="cell-date">' + F.date(f.odemeTarihi) + '</span>' : '<span class="u-faint">—</span>') + '</td></tr>';
+            }).join('')) +
+          '<div class="u-row u-mt-4"><span class="gv-count">Kesilen: ' + para(faturaNet) + ' (KDV hariç) · ' +
+            para(faturaBrut) + ' (KDV dahil) · tahsil edilen ' + para(tahsilEdilen) + ' (KDV dahil)</span>' +
+            '<a class="btn btn-line btn-sm" href="app-fatura.html">' + ico('i-receipt','ic-sm') + ' Fatura ekranı</a></div>'
+        : '<p class="u-sm u-faint">Bu projeye kesilmiş fatura yok.</p>') +
+    '</div></div>';
+
+  /* ===================================================================
+     20. MALİYETLER
+     =================================================================== */
+  var modulEfor = moduller.reduce(function(a,m){ return a + m.efor; }, 0);
+
+  var pMaliyet = '<div class="gc-body">' +
+    (!canFinans ? GV.notice({ tone:'warn', icon:'i-lock',
+      title:'Maliyet tutarları gizlendi',
+      text:'Emek maliyeti ve bütçe kırılımını görmek için finans yetkisi gerekir. Saat bilgileri yetkiden bağımsız gösterilir.' }) + '<div class="u-mt-4"></div>'
+      : GV.notice({ tone:'info', icon:'i-info',
+      title:'Kişi ve modül bazlı maliyet türetilmiş değerdir',
+      text:'Prototipte gider kalemi koleksiyonu yok. Kırılım, projenin ortalama saat maliyeti (' +
+        (saatMaliyet == null ? '—' : F.money(saatMaliyet) + ' / saat') +
+        ') ile saatlerin çarpımından üretilir; toplam, projenin gerçekleşen maliyetiyle birebir örtüşmeyebilir.' }) + '<div class="u-mt-4"></div>') +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Maliyet Özeti</h3></div>' +
+      dl([
+        ['Onaylı bütçe (KDV hariç)', para(p.butce)],
+        ['Gerçekleşen maliyet (KDV hariç)', para(p.gerceklesenMaliyet)],
+        ['Kalan bütçe (KDV hariç)', canFinans
+          ? (kalanButce < 0
+              ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kalanButce)) + '</span>'
+              : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
+          : '<span class="cell-mask">••••••</span>'],
+        ['Bütçe kullanımı', GV.progress(butceKullanim, { tone:butceKullanim > 100 ? 'danger' : (butceKullanim > 85 ? 'warn' : null) })],
+        ['Tahmini süre', F.hours(p.tahminiSure)],
+        ['Harcanan süre', '<b>' + F.hours(p.harcananSure) + '</b>'],
+        ['Süre kullanımı', GV.progress(p.tahminiSure ? Math.round(p.harcananSure / p.tahminiSure * 100) : 0)],
+        ['Ortalama saat maliyeti', saatMaliyet == null ? null : (canFinans
+          ? '<span class="cell-money">' + F.money(saatMaliyet) + '</span> / saat'
+          : '<span class="cell-mask">••••••</span>')],
+        ['Faturalanabilir emek (kayıtlı)', F.hours(faturalanabilirSaat) + ' / ' + F.hours(toplamSaat)]
+      ]) +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Kişi Bazlı Emek Maliyeti (türetilmiş)</h3></div>' +
+      (loglar.length
+        ? tablo('<th>Kişi</th><th class="num">Kayıtlı saat</th><th class="num">Faturalanabilir</th><th class="num">Türetilmiş maliyet</th><th>Pay</th>',
+            isYukuSat.filter(function(r){ return r.sa > 0; }).map(function(r){
+              var fs = loglar.filter(function(l){ return l.personel === r.kod && l.faturalanabilir; })
+                        .reduce(function(a,l){ return a + l.sure; }, 0);
+              var pay = toplamSaat ? Math.round(r.sa / toplamSaat * 100) : 0;
+              return '<tr><td>' + GV.user(r.kod) + '</td>' +
+                '<td class="num"><b class="u-num">' + F.hours(r.sa) + '</b></td>' +
+                '<td class="num"><span class="u-num">' + F.hours(fs) + '</span></td>' +
+                '<td class="num">' + (saatMaliyet == null ? '<span class="u-faint">—</span>' : para(Math.round(r.sa * saatMaliyet))) + '</td>' +
+                '<td>' + GV.progress(pay, { tone:'accent' }) + '</td></tr>';
+            }).join(''))
+        : '<p class="u-sm u-faint">Bu projeye girilmiş zaman kaydı olmadığı için kişi bazlı kırılım üretilemiyor.</p>') +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Modül Bazlı Planlanan Efor Maliyeti (türetilmiş)</h3></div>' +
+      (moduller.length
+        ? tablo('<th>Modül</th><th>Durum</th><th class="num">Planlanan efor</th><th class="num">Türetilmiş maliyet</th><th>Efor payı</th>',
+            moduller.map(function(m){
+              var pay = modulEfor ? Math.round(m.efor / modulEfor * 100) : 0;
+              return '<tr><td><span class="cell-main">' + esc(m.ad) + '</span></td>' +
+                '<td>' + GV.badge(m.durum) + '</td>' +
+                '<td class="num"><span class="u-num">' + F.hours(m.efor) + '</span></td>' +
+                '<td class="num">' + (saatMaliyet == null ? '<span class="u-faint">—</span>' : para(Math.round(m.efor * saatMaliyet))) + '</td>' +
+                '<td>' + GV.progress(pay, { tone:'accent' }) + '</td></tr>';
+            }).join(''))
+        : '<p class="u-sm u-faint">Modül kırılımı olmadığı için modül bazlı maliyet üretilemiyor.</p>') +
+      '<div class="u-row u-mt-4"><a class="btn btn-line btn-sm" href="app-butce.html">' +
+        ico('i-wallet','ic-sm') + ' Bütçe ve maliyet ekranı</a></div>' +
+    '</div></div>';
+
+  /* ===================================================================
+     21. RAPORLAR
+     =================================================================== */
+  var durumDagilim = DB.taskStatuses.map(function(d){
+    return { label:d, value:gorevler.filter(function(t){ return t.durum === d; }).length };
+  }).filter(function(x){ return x.value; });
+
+  var modulBar = moduller.map(function(m){
+    return { label:m.ad.length > 14 ? m.ad.slice(0,13) + '…' : m.ad, value:m.ilerleme,
+             tone:m.ilerleme >= 100 ? 'ok' : (m.ilerleme < 35 ? 'danger' : null) };
+  });
+
+  var sprintBar = sprintler.map(function(s){
+    return { label:s.ad.replace(/^Sprint\s*/, 'S'), value:s.planlanan, value2:s.tamamlanan };
+  });
+
+  var hataBar = DB.priorities.map(function(s){
+    return { label:s, value:hatalar.filter(function(h){ return h.siddet === s; }).length,
+             tone:s === 'Kritik' ? 'danger' : (s === 'Yüksek' ? 'warn' : null) };
+  }).filter(function(x){ return x.value; });
+
+  function chartCard(title, sub, html, wide){
+    return '<div class="gv-chartcard"' + (wide ? ' style="grid-column:1/-1"' : '') + '><h3>' + esc(title) + '</h3>' +
+      '<span class="gv-ch-sub">' + esc(sub) + '</span>' + html + '</div>';
+  }
+
+  var pRapor = '<div class="gc-body">' +
+    '<div class="kpi-grid">' +
+      '<div class="kpi is-accent"><div class="kpi-ico">' + ico('i-gauge','ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">%' + p.ilerleme + '</div><div class="kpi-lbl">Proje ilerlemesi</div>' +
+        '<div class="kpi-meta ' + (gecikti ? 'is-down' : 'is-flat') + '">' + esc(F.rel(p.planlananBitis)) + '</div></div></div>' +
+      '<div class="kpi ' + (butceKullanim > 100 ? 'is-danger' : 'is-ok') + '"><div class="kpi-ico">' + ico('i-wallet','ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">%' + butceKullanim + '</div><div class="kpi-lbl">Bütçe kullanımı</div>' +
+        '<div class="kpi-meta is-flat">' + paraK(p.gerceklesenMaliyet) + ' / ' + paraK(p.butce) + '</div></div></div>' +
+      '<div class="kpi is-info"><div class="kpi-ico">' + ico('i-timer','ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">' + F.num(p.harcananSure) + '<small>sa</small></div>' +
+        '<div class="kpi-lbl">Harcanan süre</div>' +
+        '<div class="kpi-meta is-flat">Tahmini ' + F.hours(p.tahminiSure) + '</div></div></div>' +
+      '<div class="kpi ' + (acikHata.length ? 'is-warn' : 'is-ok') + '"><div class="kpi-ico">' + ico('i-bug','ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">' + acikHata.length + '</div><div class="kpi-lbl">Açık hata</div>' +
+        '<div class="kpi-meta is-flat">' + testler.reduce(function(a,t){ return a + t.senaryo; }, 0) + ' test senaryosu</div></div></div>' +
+    '</div>' +
+    '<div class="gv-charts">' +
+      (modulBar.length ? chartCard('Modül ilerlemesi', 'Modül bazında tamamlanma yüzdesi',
+        GV.chart.bar(modulBar, { height:230, label:'Modül ilerleme grafiği' })) : '') +
+      (durumDagilim.length ? chartCard('Görev durum dağılımı', gorevler.length + ' kayıtlı görev',
+        GV.chart.donut(durumDagilim, { center:String(gorevler.length), centerSub:'görev' }) + GV.chart.legend(durumDagilim)) : '') +
+      (sprintBar.length ? chartCard('Sprint planlanan / tamamlanan', 'Saat cinsinden sprint yükü',
+        GV.chart.bar(sprintBar, { height:230, label:'Sprint yükü grafiği' })) : '') +
+      (hataBar.length ? chartCard('Hata şiddet dağılımı', hatalar.length + ' hata kaydı',
+        GV.chart.bar(hataBar, { height:230, label:'Hata şiddet grafiği' })) : '') +
+      (canFinans
+        ? chartCard('Bütçe ve gerçekleşen maliyet', 'KDV hariç, bin ₺',
+            GV.chart.bar([
+              { label:'Sözleşme', value:Math.round(p.sozlesmeTutari / 1000) },
+              { label:'Bütçe', value:Math.round(p.butce / 1000) },
+              { label:'Maliyet', value:Math.round(p.gerceklesenMaliyet / 1000),
+                tone:p.gerceklesenMaliyet > p.butce ? 'danger' : 'ok' }
+            ], { height:230, label:'Bütçe ve maliyet grafiği' }), true)
+        : chartCard('Bütçe ve gerçekleşen maliyet', 'Finans yetkisi gerekir',
+            GV.empty({ icon:'i-lock', title:'Tutarlar gizlendi',
+              desc:'Bu grafiği görüntülemek için finans yetkisi gerekir.' }), true)) +
+    '</div></div>';
+
+  /* ===================================================================
+     22. AKTİVİTE GEÇMİŞİ
+     =================================================================== */
+  var pAktivite = '<div class="gc-body">' +
+    (acts.length
+      ? GV.activity(acts)
+      : bos('i-activity','Hareket kaydı yok','Bu proje ve görevleri için kayıtlı değişiklik geçmişi bulunmuyor.')) +
+  '</div>';
+
+  /* ===================================================================
+     SEKME TANIMLARI
+     =================================================================== */
+  var tabs = [
+    { key:'genel',      lbl:'Genel Bakış',          ic:'i-info',            html:pGenel },
+    { key:'ekip',       lbl:'Proje Ekibi',          ic:'i-users',           html:pEkip,       cnt:ekipKod.length },
+    { key:'modul',      lbl:'Modüller',             ic:'i-layers',          html:pModul,      cnt:moduller.length },
+    { key:'milestone',  lbl:'Milestone',            ic:'i-milestone',       html:pMilestone,  cnt:msler.length },
+    { key:'sprint',     lbl:'Sprintler',            ic:'i-sprint',          html:pSprint,     cnt:sprintler.length },
+    { key:'gorev',      lbl:'Görevler',             ic:'i-tasks',           html:pGorev,      cnt:gorevler.length },
+    { key:'isyuku',     lbl:'İş Yükü',              ic:'i-gauge',           html:pIsYuku,     cnt:ekipKod.length },
+    { key:'takvim',     lbl:'Takvim',               ic:'i-calendar',        html:pTakvim },
+    { key:'gantt',      lbl:'Gantt',                ic:'i-chart-bar',       html:pGantt },
+    { key:'kanban',     lbl:'Kanban',               ic:'i-kanban',          html:pKanban },
+    { key:'zaman',      lbl:'Zaman Kayıtları',      ic:'i-timer',           html:pZaman,      cnt:loglar.length },
+    { key:'toplanti',   lbl:'Toplantılar',          ic:'i-calendar-check',  html:pToplanti,   cnt:toplantilar.length },
+    { key:'dosya',      lbl:'Dosyalar',             ic:'i-paperclip',       html:pDosya,      cnt:dokumanlar.length },
+    { key:'revizyon',   lbl:'Revizyonlar',          ic:'i-refresh',         html:pRevizyon,   cnt:revizyonlar.length },
+    { key:'degisiklik', lbl:'Değişiklik Talepleri', ic:'i-git',             html:pDegisiklik, cnt:degisiklik.length },
+    { key:'test',       lbl:'Testler',              ic:'i-flask',           html:pTest,       cnt:testler.length },
+    { key:'hata',       lbl:'Hatalar',              ic:'i-bug',             html:pHata,       cnt:hatalar.length },
+    { key:'teslim',     lbl:'Teslimler',            ic:'i-package',         html:pTeslim,     cnt:teslimler.length },
+    { key:'butce',      lbl:'Bütçe',                ic:'i-wallet',          html:pButce },
+    { key:'maliyet',    lbl:'Maliyetler',           ic:'i-receipt',         html:pMaliyet },
+    { key:'rapor',      lbl:'Raporlar',             ic:'i-chart-pie',       html:pRapor },
+    { key:'aktivite',   lbl:'Aktivite Geçmişi',     ic:'i-activity',        html:pAktivite,   cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* ===================================================================
+     SAĞ ÖZET PANELİ
+     =================================================================== */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body"><div class="gv-summary">' +
+      [['Durum', GV.badge(p.durum)],
+       ['Sağlık', GV.badge(p.saglik)],
+       ['Öncelik', GV.pri(p.oncelik)],
+       ['Sözleşme bedeli (KDV hariç)', para(p.sozlesmeTutari)],
+       ['Onaylı bütçe (KDV hariç)', para(p.butce)],
+       ['Gerçekleşen maliyet (KDV hariç)', para(p.gerceklesenMaliyet)],
+       ['Kalan bütçe (KDV hariç)', canFinans
+          ? (kalanButce < 0
+              ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kalanButce)) + '</span>'
+              : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
+          : '<span class="cell-mask">••••••</span>'],
+       ['İlerleme', '<b>%' + p.ilerleme + '</b>'],
+       ['Planlanan bitiş', GV.dateCell(p.planlananBitis, { done:bitti })],
+       ['Gecikme', gecikti
+          ? '<span class="badge is-danger">' + Math.abs(kalanGun) + ' gün</span>'
+          : (bitti ? '<span class="badge is-ok">Yok</span>' : '<span class="u-faint">Yok</span>')],
+       ['Tahmini / harcanan', F.hours(p.tahminiSure) + ' / <b>' + F.hours(p.harcananSure) + '</b>']
+      ].map(function(x){
+        return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + x[0] + '</span><span class="gv-summary-val">' + x[1] + '</span></div>';
+      }).join('') +
+      '<div class="u-mt-4">' + GV.progress(p.ilerleme) + '</div>' +
+    '</div></div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-building') + 'Müşteri</h2></div>' +
+    '<div class="gc-body">' +
+      (musteri
+        ? link('app-musteri-detay.html?id=' + musteri.kod, '<span class="cell-main">' + esc(musteri.unvan) + '</span>') +
+          '<div class="cell-sub u-mb-4">' + esc(musteri.sektor || '') + '</div>' +
+          '<div class="gv-summary">' +
+            '<div class="gv-summary-row"><span class="gv-summary-lbl">Müşteri sorumlusu</span><span class="gv-summary-val">' +
+              GV.user(p.musteriSorumlu, { sm:true }) + '</span></div>' +
+            '<div class="gv-summary-row"><span class="gv-summary-lbl">Teknik sorumlu</span><span class="gv-summary-val">' +
+              GV.user(p.teknikSorumlu, { sm:true }) + '</span></div>' +
+          '</div>'
+        : '<p class="u-sm u-faint">' + esc(p.musteriAd) + '</p>') +
+    '</div></section>' +
+
+    (sozlesme
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-file-check') + 'Sözleşme</h2></div>' +
+        '<div class="gc-body">' + link('app-sozlesme.html', '<span class="cell-main">' + esc(sozlesme.ad) + '</span>') +
+        '<div class="cell-code u-mb-4">' + sozlesme.kod + '</div>' +
+        '<div class="gv-summary">' +
+          '<div class="gv-summary-row"><span class="gv-summary-lbl">Durum</span><span class="gv-summary-val">' + GV.badge(sozlesme.durum) + '</span></div>' +
+          '<div class="gv-summary-row"><span class="gv-summary-lbl">Ödeme planı</span><span class="gv-summary-val">' + esc(sozlesme.odemePlani) + '</span></div>' +
+          '<div class="gv-summary-row"><span class="gv-summary-lbl">Bedel (KDV hariç)</span><span class="gv-summary-val">' + para(sozlesme.tutar) + '</span></div>' +
+          '<div class="gv-summary-row"><span class="gv-summary-lbl">Genel toplam (KDV dahil)</span><span class="gv-summary-val">' + para(sozlesme.toplam) + '</span></div>' +
+          '<div class="gv-summary-row"><span class="gv-summary-lbl">Bitiş</span><span class="gv-summary-val">' + F.date(sozlesme.bitis) + '</span></div>' +
+        '</div></div></section>'
+      : '') +
+
+    ((p.riskler || []).length || p.gecikmeNedeni
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-alert') + 'Riskler</h2></div>' +
+        '<div class="gc-body"><div class="u-col">' +
+          (p.riskler || []).map(function(r){ return '<span class="u-sm">' + esc(r) + '</span>'; }).join('') +
+          (p.gecikmeNedeni ? '<span class="u-sm u-danger">' + esc(p.gecikmeNedeni) + '</span>' : '') +
+        '</div></div></section>'
+      : '') +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
+      '<p class="u-sm u-faint">Bu projede henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  /* ===================================================================
+     BAS
+     =================================================================== */
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + x.html + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* Dosyalar sekmesindeki yükleme alanı — ortak bileşen */
+  GV.upload({
+    mount:'#prjUpload',
+    hint:'PDF, DOCX, XLSX, PNG, JPG, ZIP · en fazla 20 MB',
+    onChange:function(files){
+      if(files.length) GV.toast(files.length + ' dosya ' + p.kod + ' projesine eklenmek üzere hazır', 'ok', 2200);
+    }
+  });
+});
+</script>
+</body>
+</html>
