@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Teklif Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satis" data-screen="teklif">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName, DB.today
+     crm.js  → DB.quotes, DB.quoteItems, DB.customers, DB.leads, DB.analyses, DB.services
+     work.js → DB.activities
+     misc.js → DB.contracts  (tekliften doğmuş sözleşme uyarısı) -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.quotes.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Satış ve CRM', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen teklif kaydı sistemde yok.',
+      actions:[{ label:'Teklif listesine dön', cls:'btn-line', href:'app-teklif.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Kayıt bulunamadı',
+      desc:'“' + esc(id) + '” numaralı teklif bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-teklif.html">Teklif listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teklif');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teklif') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Satış ve CRM',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teklif',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Teklif listesine dön', cls:'btn-line', href:'app-teklif.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Teklif düzenleme' : 'Teklif oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Teklifleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-teklif.html">Teklif listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-teklif-detay.html?id=' + kayit.kod + '">Teklifi görüntüle</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride yazılı tekil bağdan okunur (ders L-13)
+       quote.musteri → MUS-xxx · quote.lead → LEAD-xxx · quote.analiz → ANL-xxx
+       contract.teklif → TKL-xxx (bağ sözleşmenin üstünde — components.md §9d yön kuralı)
+       quoteItem.teklif → TKL-xxx · activity.kayit → TKL-xxx
+     ================================================================= */
+  var sozlesmeler = duzenle
+    ? DB.contracts.filter(function(s){ return s.teklif === kayit.kod; })
+    : [];
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ
+     ================================================================= */
+  var DURUMLAR = ['Taslak','Teklif hazırlanıyor','İletildi','Müşteri değerlendirmesinde',
+                  'Revize teklif','Kazanıldı','Kaybedildi'];
+  var IC_ONAY  = ['Bekliyor','Onaylandı','Reddedildi'];
+  var MUS_ONAY = ['Bekliyor','Onaylandı','Reddedildi'];
+  var DOVIZ    = ['TRY','USD','EUR','GBP'];
+
+  /* Teklifin müşteriye ULAŞMIŞ olduğu durumlar — 8 teklifin 8'inde bu dört durumda
+     icOnay 'Onaylandı'dır (ölçüldü), iki taslak durumunda musteriOnay '—'dır. */
+  var ILETILMIS  = ['İletildi','Müşteri değerlendirmesinde','Kazanıldı','Kaybedildi'];
+  var ILETILMEMIS = ['Taslak','Teklif hazırlanıyor'];
+
+  /* Kalem türü ve birim sözlüğü: veri katmanında bunların karşılığı olan bir
+     sözlük koleksiyonu YOK (ne kalem türü ne birim). Küme PROMPT.md §10'un fiyat kalemlerinden
+     (modül · saat · paket · lisans · sunucu · bakım · üçüncü taraf) kuruldu ve
+     DB.quoteItems'ta geçen iki değeri ('Modül','Hizmet') kapsayacak biçimde genişletildi.
+     Sözlük eksikliği rapora yazıldı. */
+  var KALEM_TURLERI = ['Modül','Hizmet','Saatlik iş gücü','Paket','Lisans','Sunucu','Bakım','Üçüncü taraf'];
+  var BIRIMLER      = ['Paket','Adet','Gün','Saat','Ay','Yıl','Kullanıcı'];
+
+  var MUSTERILER = DB.customers
+    .filter(function(c){ return c.aktif || (duzenle && c.kod === kayit.musteri); })
+    .map(function(c){ return { value:c.kod, label:c.unvan + ' · ' + c.kod }; });
+
+  var FIRSATLAR = DB.leads
+    .filter(function(l){ return l.aktif || (duzenle && l.kod === kayit.lead); })
+    .map(function(l){ return { value:l.kod, label:l.kod + ' · ' + l.firma + ' · ' + l.asama }; });
+
+  var ANALIZLER = DB.analyses
+    .filter(function(a){ return a.aktif || (duzenle && a.kod === kayit.analiz); })
+    .map(function(a){ return { value:a.kod, label:a.kod + ' · ' + a.firma + ' · ' + a.hizmet }; });
+
+  /* Teklifi hazırlayabilecek kişiler: satış rolleri + satış departmanı + yönetim.
+     Kaydın mevcut hazırlayanı listeden düşmüşse yine de eklenir ki alan boşalmasın. */
+  var HAZIRLAYAN_ROL = ['sahip','genelmudur','operasyon','satismudur','satistemsilci','analist','pm'];
+  var HAZIRLAYANLAR = DB.employees
+    .filter(function(e){
+      if(duzenle && e.kod === kayit.hazirlayan) return true;
+      return e.aktif && (HAZIRLAYAN_ROL.indexOf(e.rol) !== -1 || e.dep === 'DEP-02');
+    })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon + (e.aktif ? '' : ' (pasif)') }; });
+
+  /* =================================================================
+     KALEM ÇALIŞMA KOPYASI — GV.form alanı değildir, kendi tablosu vardır
+     ================================================================= */
+  var kalemler = duzenle
+    ? DB.quoteItems.filter(function(k){ return k.teklif === kayit.kod; })
+        .sort(function(a,b){ return a.sira - b.sira; })
+        .map(function(k){
+          return { kalem:k.kalem, tur:k.tur, birim:k.birim,
+                   miktar:Number(k.miktar), birimFiyat:Number(k.birimFiyat), tutar:Number(k.tutar) };
+        })
+    : [];
+  var kalemBaslangic = kalemler.length;
+
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function kalemToplam(){
+    return kalemler.reduce(function(s,k){ return s + sayi(k.tutar); }, 0);
+  }
+
+  /* =================================================================
+     PARA ZİNCİRİ — components.md §9b
+       net = araToplam − indirim → vergi = net × vergiOran/100 → toplam = net + vergi (BRÜT)
+     Zincir 8 teklifin 8'inde birebir doğrulandı; kaydedilen değer bu formülle üretilir.
+     ================================================================= */
+  function zincir(araToplam, indirim, oran){
+    var net   = sayi(araToplam) - sayi(indirim);
+    var vergi = Math.round(net * sayi(oran) / 100);
+    return { net:net, vergi:vergi, toplam:net + vergi };
+  }
+  function kurSim(d){ return (!d || d === 'TRY') ? '₺' : d; }
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    /* '—' sentinel'i “iletilmedi” demektir; select'te boş seçenek karşılığıdır. */
+    if(formRec.musteriOnay === '—' || formRec.musteriOnay == null) formRec.musteriOnay = '';
+    if(formRec.musteri == null) formRec.musteri = '';
+    if(formRec.lead == null)    formRec.lead = '';
+    if(formRec.analiz == null)  formRec.analiz = '';
+  }else{
+    formRec = {
+      firma:'', musteri:'', lead:'', analiz:'',
+      tarih:DB.today, gecerlilik:'', versiyon:1,
+      hazirlayan:(DB.emp(GV.session.emp) ? GV.session.emp : ''),
+      araToplam:0, indirim:0, vergiOran:20, doviz:'TRY',
+      odemePlani:'', teslimSuresi:'', garanti:'', destek:'',
+      durum:'Taslak', icOnay:'Bekliyor', musteriOnay:'', aktif:true
+    };
+  }
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  /* dt escape EDİLMEZ: etiketteki para ekseni işareti (<span class="u-faint">(KDV hariç)</span>)
+     render edilmek zorunda. Veri gelen her şey dd tarafında ve orada escape'li (ders L-14). */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  var ust = '';
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı — bağ veride yazılı (components.md §9d) ---- */
+    if(sozlesmeler.length){
+      var s0 = sozlesmeler[0];
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Bu tekliften sözleşme doğmuş',
+        text:kayit.kod + ' teklifi ' + sozlesmeler.map(function(s){ return s.kod; }).join(', ') +
+             ' sözleşmesine kaynaklık ediyor (bağ sözleşme kaydının “teklif” alanında yazılı). ' +
+             'Teklifin tutarını, kalemlerini ya da ticari koşullarını değiştirirseniz imzalanmış ' +
+             'sözleşmeyle uyumsuz kalır; sözleşme bu formdan güncellenmez.',
+        actions:[{ label:'Sözleşmeleri gör', href:'app-sozlesme.html' },
+                 { label:'Teklif kartını aç', href:'app-teklif-detay.html?id=' + kayit.kod }] }) +
+        (canFinans
+          ? ozetListe([
+              ['Teklif net tutarı <span class="u-faint">(KDV hariç)</span>',
+                '<span class="cell-money">' + F.money(kayit.araToplam - kayit.indirim, kurSim(kayit.doviz)) + '</span>'],
+              ['Teklif genel toplamı <span class="u-faint">(KDV dahil)</span>',
+                '<span class="cell-money">' + F.money(kayit.toplam, kurSim(kayit.doviz)) + '</span>'],
+              ['Sözleşme bedeli <span class="u-faint">(KDV hariç)</span>',
+                '<span class="cell-money">' + F.money(s0.tutar, kurSim(s0.doviz)) + '</span>' + sub(s0.kod)],
+              ['Sözleşme genel toplamı <span class="u-faint">(KDV dahil)</span>',
+                '<span class="cell-money">' + F.money(s0.toplam, kurSim(s0.doviz)) + '</span>' + sub(s0.kod)]
+            ])
+          : '') +
+        '</div></section>';
+    }else{
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'ok', title:'Bu teklife bağlı sözleşme yok',
+        text:kayit.kod + ' teklifinden doğmuş bir sözleşme kaydı bulunmuyor. Yapacağınız değişiklik ' +
+             'yalnız teklif kartını ve teklif kalemlerini etkiler.' }) + '</div></section>';
+    }
+
+    /* ---- Bağlam kartı ---- */
+    var son = acts[0];
+    var musKart = kayit.musteri ? DB.customers.filter(function(c){ return c.kod === kayit.musteri; })[0] : null;
+    ust += kart('Kayıt Özeti', 'i-info',
+      '<div class="gc-body">' + dl([
+        ['Teklif no', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Firma', esc(kayit.firma)],
+        ['Müşteri kartı', musKart
+          ? '<a href="app-musteri-detay.html?id=' + musKart.kod + '">' + esc(musKart.unvan) + '</a>' + sub(musKart.kod)
+          : '<span class="u-faint">Henüz müşteri kartı açılmadı (aday aşaması)</span>'],
+        ['Durum', GV.badge(kayit.durum) + (kayit.arsiv ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Versiyon', '<b class="u-num">v' + kayit.versiyon + '</b>'],
+        ['İç onay', GV.badge(kayit.icOnay === '—' ? 'Bekliyor' : kayit.icOnay)],
+        ['Müşteri onayı', (kayit.musteriOnay && kayit.musteriOnay !== '—')
+          ? GV.badge(kayit.musteriOnay) : '<span class="u-faint">Müşteriye iletilmedi</span>'],
+        ['Teklif tarihi', F.date(kayit.tarih)],
+        ['Geçerlilik', GV.dateCell(kayit.gecerlilik,
+          { done:['Kazanıldı','Kaybedildi'].indexOf(kayit.durum) !== -1 })],
+        ['Hazırlayan', GV.user(kayit.hazirlayan, { sm:true })],
+        ['Kartta yazılı kalem sayısı', '<b class="u-num">' + kayit.kalemSayisi + '</b>' +
+          sub(kalemBaslangic + ' kalem kaydı sistemde bulundu')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-teklif-detay.html?id=' + kayit.kod + '">' +
+        ico('i-external','ic-sm') + ' Teklif kartını aç</a>');
+
+    /* ---- Kartta yazılı kalem sayısı ile kalem kayıtları uyuşmuyorsa söylenir ---- */
+    if(canFinans && kalemBaslangic !== kayit.kalemSayisi){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', icon:'i-alert', title:'Kalem sayısı kalem kayıtlarıyla uyuşmuyor',
+        text:'Teklif kartında ' + kayit.kalemSayisi + ' kalem yazılı ama kalem dökümünde ' +
+             kalemBaslangic + ' kayıt var. Bu formu kaydettiğinizde kalem sayısı aşağıdaki ' +
+             'listeye göre yeniden yazılır — listeyi kaydetmeden önce tamamlayın.' }) + '</div></section>';
+    }
+
+    if(!canFinans){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-lock', title:'Tutar alanları ve kalem yönetimi bu formda yok',
+        text:'Rolünüzde finansal tutar yetkisi tanımlı değil. Ara toplam, indirim, KDV oranı, ' +
+             'para birimi ve teklif kalemleri forma hiç basılmadı. Kaydettiğinizde bu kaydın ' +
+             'mevcut tutarları ve kalem kayıtları olduğu gibi korunur, hiçbiri değiştirilmez.',
+        actions:[{ label:'Teklif kartını aç', href:'app-teklif-detay.html?id=' + kayit.kod }] }) + '</div></section>';
+    }
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni teklif oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki teklif numarası atanır, teklif kalemleri kalem koleksiyonuna ' +
+             'yazılır, aktivite geçmişine “Teklif oluşturuldu” satırı düşer ve teklif listesine ' +
+             'dönülür. Versiyon numarası 1’den başlar; revizyon teklif kartı üzerinden alınır.',
+        actions:[{ label:'Teklif listesi', href:'app-teklif.html' },
+                 { label:'Ön analizler', href:'app-onanaliz.html' }] }) +
+      (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock',
+        title:'Tutar alanları ve kalem yönetimi bu formda yok',
+        text:'Rolünüzde finansal tutar yetkisi tanımlı değil. Ara toplam, indirim, KDV oranı, ' +
+             'para birimi ve teklif kalemleri forma basılmadı; teklif sıfır tutarla ve kalemsiz ' +
+             'açılır. Tutarları finans yetkisi olan bir kullanıcı tamamlar.' })) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-quote') + 'Teklif Bilgileri</h2>' +
+        '<div class="gc-sub">Zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    (canFinans
+      ? '<section class="gv-card" id="kalemKart">' +
+          '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-list') + 'Teklif Kalemleri</h2>' +
+            '<div class="gc-sub">Kalem tutarları KDV hariçtir; ara toplam bu listeden hesaplanır.</div></div>' +
+            '<div class="gc-head-acts">' +
+              '<button type="button" class="btn btn-acc btn-sm" id="btnKalemEkle">' +
+                ico('i-plus','ic-sm') + ' Kalem ekle</button>' +
+            '</div></div>' +
+          '<div id="kalemBody"></div>' +
+        '</section>' +
+
+        '<section class="gv-card" id="tutarKart">' +
+          '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-wallet') + 'Tutar Zinciri</h2>' +
+            '<div class="gc-sub">Ara toplam − indirim → KDV → genel toplam. Alanları değiştirdikçe güncellenir.</div></div></div>' +
+          '<div class="gc-body" id="tutarOzet"></div>' +
+        '</section>'
+      : '') +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' +
+        GV.notice({ tone:'neutral', icon:'i-printer', title:'PDF çıktısı, dijital onay ve e-imza bu formda yok',
+          text:'Teklif çıktısı teklif kartından (yazdırma penceresi) alınır. Dijital onay ve e-imza ' +
+               'entegrasyonu bu prototipin kapsamı dışındadır; müşteri onayı alanı elle işaretlenir.',
+          actions:duzenle
+            ? [{ label:'Teklif kartından çıktı al', href:'app-teklif-detay.html?id=' + kayit.kod }]
+            : [] }) +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-teklif.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR — PROMPT.md §10 “Teklif Yönetimi” 25 alanı.
+       6. alan (hizmet kalemleri) ve 7–13. fiyat kalemleri kalem tablosunda;
+       22. alan (revizyon geçmişi) aktivite timeline'ında;
+       24–25. alan (PDF / dijital onay / e-imza) kapsam dışı notunda.
+     ================================================================= */
+  function musteriBul(k){ return k ? DB.customers.filter(function(c){ return c.kod === k; })[0] : null; }
+  function leadBul(k){ return k ? DB.leads.filter(function(l){ return l.kod === k; })[0] : null; }
+  function analizBul(k){ return k ? DB.analyses.filter(function(a){ return a.kod === k; })[0] : null; }
+
+  var kimlikAlanlari = [
+    { key:'firma', label:'Firma adı', type:'text', required:true, cols:6,
+      placeholder:'Örn. Başkent Hukuk Bürosu',
+      hint:'Müşteri kartı seçilirse kartın resmi unvanı, seçilmezse fırsatın firma adı yazılır.',
+      validate:function(v, d){
+        var m = musteriBul(d.musteri);
+        if(m && v && v !== m.unvan)
+          return 'Müşteri kartı seçiliyken firma adı kartın resmi unvanı olmalıdır: ' + m.unvan;
+        var l = leadBul(d.lead);
+        if(!m && l && v && v !== l.firma)
+          return 'Bağlı satış fırsatının firma adı farklı: ' + l.firma;
+        return '';
+      } },
+    { key:'musteri', label:'Müşteri kartı', type:'select', options:MUSTERILER, cols:6,
+      placeholder:'Henüz müşteri kartı açılmadı',
+      hint:'Aday aşamasındaki tekliflerde boş bırakılır; o zaman satış fırsatı zorunludur.',
+      validate:function(v, d){
+        return (!v && !d.lead)
+          ? 'Teklif ya bir müşteri kartına ya da bir satış fırsatına bağlanmalıdır.' : '';
+      } },
+    { key:'lead', label:'İlgili satış fırsatı', type:'select', options:FIRSATLAR, cols:6,
+      placeholder:'Fırsat bağı yok',
+      hint:'Teklifin doğduğu satış fırsatı. Bağ yoksa boş bırakılır, tahmin yazılmaz.' },
+    { key:'analiz', label:'Bağlı ön analiz', type:'select', options:ANALIZLER, cols:6,
+      placeholder:'Ön analiz bağı yok',
+      hint:'Ön analiz seçilirse aynı satış fırsatına bağlı olmalıdır.',
+      validate:function(v, d){
+        if(!v) return '';
+        var a = analizBul(v);
+        if(!a || !a.lead) return '';
+        if(d.lead && a.lead !== d.lead)
+          return 'Seçilen ön analiz ' + a.lead + ' fırsatına bağlı; teklifin fırsatı ile uyuşmuyor.';
+        if(!d.lead)
+          return 'Seçilen ön analiz ' + a.lead + ' fırsatına bağlı; teklifte de aynı fırsat seçilmelidir.';
+        return '';
+      } },
+    { key:'hazirlayan', label:'Hazırlayan', type:'select', options:HAZIRLAYANLAR, required:true, cols:6,
+      hint:'Teklifi hazırlayan ve müşteri tarafında savunacak kişi.' },
+    { key:'versiyon', label:'Teklif versiyonu', type:'number', required:true, min:1, cols:6,
+      hint:'Yeni teklif 1’den başlar. Revizyon teklif kartındaki “Revize teklif oluştur” akışıyla artırılır.' }
+  ];
+
+  var tarihAlanlari = [
+    { key:'tarih', label:'Teklif tarihi', type:'date', required:true, cols:6,
+      validate:function(v){
+        return (v && v > DB.today) ? 'Teklif tarihi ileri bir tarih olamaz.' : '';
+      } },
+    { key:'gecerlilik', label:'Geçerlilik tarihi', type:'date', required:true, cols:6,
+      hint:'Veri kümesindeki sekiz teklifin sekizinde geçerlilik, teklif tarihinden 30 gün sonrasıdır.',
+      validate:function(v, d){
+        if(v && d.tarih && v <= d.tarih) return 'Geçerlilik tarihi teklif tarihinden sonra olmalıdır.';
+        return '';
+      } }
+  ];
+
+  var fiyatAlanlari = [
+    { key:'araToplam', label:'Ara toplam (KDV hariç)', type:'money', required:true, min:0, cols:6,
+      hint:'Kalem listesi doluyken kalemlerden hesaplanır ve elle değiştirilemez hâle gelir.',
+      validate:function(v){
+        if(kalemler.length && sayi(v) !== kalemToplam())
+          return 'Kalem listesi doluyken ara toplam kalem toplamına eşit olmalıdır; beklenen değer ' +
+                 F.money(kalemToplam()) + '.';
+        return '';
+      } },
+    { key:'indirim', label:'İndirim (KDV hariç)', type:'money', min:0, cols:6,
+      hint:'Ara toplamdan düşülen net indirim tutarı. İndirim yoksa sıfır bırakılır.',
+      validate:function(v, d){
+        return sayi(v) > sayi(d.araToplam) ? 'İndirim ara toplamı aşamaz.' : '';
+      } },
+    { key:'vergiOran', label:'KDV oranı', type:'percent', required:true, min:0, max:100, cols:6,
+      hint:'KDV tutarı net tutar üzerinden bu oranla hesaplanır; ayrıca girilmez.' },
+    { key:'doviz', label:'Para birimi', type:'select', options:DOVIZ, required:true, cols:6,
+      hint:'Sekiz teklifin sekizi TRY ekseninde; farklı bir para birimi seçilirse tutarlar o birimde okunur.' }
+  ];
+
+  var ticariAlanlari = [
+    { key:'odemePlani', label:'Ödeme planı', type:'text', required:true, cols:6,
+      placeholder:'Örn. %40 peşin · %30 ara teslim · %30 teslimde' },
+    { key:'teslimSuresi', label:'Teslim planı ve süresi', type:'text', required:true, cols:6,
+      placeholder:'Örn. 11 hafta' },
+    { key:'garanti', label:'Garanti', type:'text', cols:6, placeholder:'Örn. 6 ay hata garantisi' },
+    { key:'destek', label:'Destek koşulları', type:'text', cols:6,
+      placeholder:'Örn. 12 ay bakım paketi opsiyonel' }
+  ];
+
+  var durumAlanlari = [
+    { key:'durum', label:'Teklif durumu', type:'select', options:DURUMLAR, required:true, cols:4,
+      hint:'Liste sekmeleri ve başarı oranı bu alanı okur.' },
+    { key:'icOnay', label:'İç onay', type:'select', options:IC_ONAY, required:true, cols:4,
+      hint:'Teklif müşteriye iletilmeden önce satış yönetiminin onayı.',
+      validate:function(v, d){
+        if(ILETILMIS.indexOf(d.durum) !== -1 && v !== 'Onaylandı')
+          return '“' + d.durum + '” durumundaki teklif iç onaydan geçmiş olmalıdır.';
+        return '';
+      } },
+    { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:MUS_ONAY, cols:4,
+      placeholder:'Müşteriye iletilmedi',
+      hint:'Teklif müşteriye iletilmemişse boş bırakılır.',
+      validate:function(v, d){
+        if(ILETILMEMIS.indexOf(d.durum) !== -1 && v)
+          return '“' + d.durum + '” durumunda teklif müşteriye iletilmemiştir; müşteri onayı boş bırakılır.';
+        if(['İletildi','Müşteri değerlendirmesinde'].indexOf(d.durum) !== -1 && !v)
+          return 'Müşteriye iletilmiş teklifte müşteri onay durumu seçilmelidir.';
+        if(d.durum === 'Kazanıldı' && v !== 'Onaylandı')
+          return 'Kazanılan teklifte müşteri onayı “Onaylandı” olmalıdır.';
+        if(d.durum === 'Kaybedildi' && v === 'Onaylandı')
+          return 'Kaybedilen teklifte müşteri onayı “Onaylandı” olamaz.';
+        return '';
+      } },
+    { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+      onLabel:'Kayıt aktif — teklif listelerinde ve seçim kutularında görünür' }
+  ];
+
+  var sections = [
+    { title:'Teklif kimliği ve müşteri',
+      desc:'Teklifin kime verildiği ve hangi satış kaydından doğduğu. Müşteri kartı ile satış ' +
+           'fırsatından en az biri seçilmelidir.',
+      fields:kimlikAlanlari },
+    { title:'Tarih ve geçerlilik',
+      desc:'Teklifin düzenlendiği tarih ve müşteriye tanınan karar süresi.',
+      fields:tarihAlanlari }
+  ];
+
+  if(canFinans){
+    sections.push({ title:'Fiyatlandırma',
+      desc:'Tüm tutarlar KDV hariç girilir; KDV ve genel toplam bu üç alandan hesaplanır ve ayrıca girilmez.',
+      fields:fiyatAlanlari });
+  }
+
+  sections.push(
+    { title:'Ticari koşullar',
+      desc:'Teklif metninde müşteriye taahhüt edilen ödeme, teslim, garanti ve destek koşulları.',
+      fields:ticariAlanlari },
+    { title:'Durum ve onaylar',
+      desc:'Teklifin satış hunisindeki yeri ve iki aşamalı onay durumu (iç onay → müşteri onayı).',
+      fields:durumAlanlari },
+    { title:'Ekler',
+      desc:'Teklif metni, kapsam dokümanı ve müşteriye gönderilen yazışma ekleri.',
+      fields:[
+        { key:'belgeler', label:'Teklif ekleri', type:'file', multiple:true, cols:12,
+          hint:'PDF, DOCX, XLSX, PNG, JPG · en fazla 20 MB. Bu prototipte dosya teklif kaydına ' +
+               'yazılmaz — belgeler Doküman Yönetimi ekranında tutulur.' }
+      ]}
+  );
+
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'teklif', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI BAĞLAR — dinleyiciler mount İÇİNDEKİ düğümlere bağlanır,
+     GV.refresh() taze kopyayla değiştirince kendiliğinden düşerler (ders L-16)
+     ================================================================= */
+  var formEl    = form.el;
+  var elFirma   = formEl.querySelector('[name="firma"]');
+  var elMusteri = formEl.querySelector('[name="musteri"]');
+  var elLead    = formEl.querySelector('[name="lead"]');
+  var elAra     = formEl.querySelector('[name="araToplam"]');
+
+  /* Firma adı bağdan türetilmez, YAZILIR: kullanıcı alanı boş bıraktıysa ya da
+     seçimden gelen değeri taşıyorsa güncellenir; elle yazılmış bir adı ezmez. */
+  function firmaSenkron(){
+    if(!elFirma) return;
+    var m = musteriBul(elMusteri ? elMusteri.value : '');
+    var l = leadBul(elLead ? elLead.value : '');
+    var beklenen = m ? m.unvan : (l ? l.firma : '');
+    if(!beklenen) return;
+    var mevcut = elFirma.value.trim();
+    var otomatik = !mevcut ||
+      DB.customers.some(function(c){ return c.unvan === mevcut; }) ||
+      DB.leads.some(function(x){ return x.firma === mevcut; });
+    if(otomatik && mevcut !== beklenen) elFirma.value = beklenen;
+  }
+  if(elMusteri) elMusteri.addEventListener('change', function(){ firmaSenkron(); ozetCiz(); });
+  if(elLead)    elLead.addEventListener('change', function(){ firmaSenkron(); ozetCiz(); });
+
+  /* =================================================================
+     TUTAR ZİNCİRİ ÖNİZLEMESİ — canlı, salt okunur
+     ================================================================= */
+  function ozetCiz(){
+    var hedef = document.getElementById('tutarOzet');
+    if(!hedef) return;
+    var v   = form.read();
+    var kur = kurSim(v.doviz);
+    var z   = zincir(v.araToplam, v.indirim, v.vergiOran);
+    var kt  = kalemToplam();
+    var l   = leadBul(v.lead);
+
+    var uyari = '';
+    if(kalemler.length && kt !== sayi(v.araToplam)){
+      uyari = GV.notice({ tone:'warn', icon:'i-alert', title:'Ara toplam kalem toplamıyla eşleşmiyor',
+        text:'Kalemlerin toplamı ' + F.money(kt, kur) + ', forma yazılı ara toplam ' +
+             F.money(sayi(v.araToplam), kur) + ' (ikisi de KDV hariç). Kaydetmeden önce düzeltilmelidir.' });
+    }else if(!kalemler.length){
+      uyari = GV.notice({ tone:'neutral', icon:'i-info', title:'Kalem dökümü girilmedi',
+        text:'Bu teklifin kalem listesi boş; ara toplam elle giriliyor. Kalem eklerseniz ara toplam ' +
+             'listeden hesaplanır ve alan otomatik güncellenir.' });
+    }
+
+    hedef.innerHTML = uyari + ozetListe([
+      ['Kalem toplamı <span class="u-faint">(KDV hariç)</span>',
+        kalemler.length
+          ? '<span class="u-num">' + F.money(kt, kur) + '</span>' + sub(kalemler.length + ' kalem')
+          : '<span class="u-faint">Kalem yok</span>'],
+      ['Ara toplam <span class="u-faint">(KDV hariç)</span>',
+        '<span class="cell-money">' + F.money(sayi(v.araToplam), kur) + '</span>'],
+      ['İndirim <span class="u-faint">(KDV hariç)</span>',
+        sayi(v.indirim)
+          ? '<span class="cell-money u-danger">−' + F.money(sayi(v.indirim), kur) + '</span>' +
+            sub('Ara toplamın %' + F.num(sayi(v.araToplam) ? sayi(v.indirim) / sayi(v.araToplam) * 100 : 0, 1) + '’i')
+          : '<span class="u-faint">İndirim uygulanmadı</span>'],
+      ['Net tutar <span class="u-faint">(KDV hariç)</span>',
+        '<span class="cell-money">' + F.money(z.net, kur) + '</span>'],
+      ['KDV <span class="u-faint">(%' + esc(String(sayi(v.vergiOran))) + ')</span>',
+        '<span class="cell-money">' + F.money(z.vergi, kur) + '</span>'],
+      ['Genel toplam <span class="u-faint">(KDV dahil)</span>',
+        '<b><span class="cell-money">' + F.money(z.toplam, kur) + '</span></b>'],
+      l ? ['Müşterinin beyan ettiği bütçe <span class="u-faint">(KDV hariç)</span>',
+        '<span class="u-num">' + F.money(l.butce) + '</span>' + sub(l.kod)] : null,
+      l ? ['Net teklif − beyan bütçe farkı',
+        '<b class="u-num' + (z.net > l.butce ? ' u-danger' : '') + '">' +
+        (z.net - l.butce >= 0 ? '+' : '−') + F.money(Math.abs(z.net - l.butce), kur) + '</b>'] : null
+    ]);
+  }
+
+  if(canFinans){
+    formEl.addEventListener('input',  function(e){ if(e.target.name) ozetCiz(); });
+    formEl.addEventListener('change', function(e){ if(e.target.name) ozetCiz(); });
+  }
+
+  /* =================================================================
+     KALEM YÖNETİMİ — GV.form alanı değildir, kendi tablosu ve modalı vardır.
+     ui.js'te düzenlenebilir satır tablosu bileşeni YOK; tablo burada
+     ortak markup sınıflarıyla (.gv-tablewrap + .gtable + .gv-cardlist)
+     kurulur. ≤760px'te .gv-tablewrap gizlenir (UID-14) — o yüzden aynı
+     veriden .gv-cardlist/.gv-mrow karşılığı da basılır.
+     ================================================================= */
+  function kalemSatirlari(kur){
+    return kalemler.map(function(k, i){
+      return '<tr>' +
+        '<td class="num"><span class="u-num">' + (i + 1) + '</span></td>' +
+        '<td class="cell-wrap"><span class="cell-main">' + esc(k.kalem) + '</span></td>' +
+        '<td><span class="tag">' + esc(k.tur) + '</span></td>' +
+        '<td class="num"><span class="u-num">' + F.num(k.miktar, k.miktar % 1 ? 1 : 0) + '</span></td>' +
+        '<td>' + esc(k.birim) + '</td>' +
+        '<td class="num"><span class="u-num">' + F.money(k.birimFiyat, kur) + '</span></td>' +
+        '<td class="num"><span class="cell-money">' + F.money(k.tutar, kur) + '</span></td>' +
+        '<td class="col-acts"><span class="cell-acts">' +
+          '<button type="button" class="ia" data-kalem-duzenle="' + i + '" title="Kalemi düzenle" ' +
+            'aria-label="Kalemi düzenle">' + ico('i-edit','ic-sm') + '</button>' +
+          '<button type="button" class="ia is-danger" data-kalem-sil="' + i + '" title="Kalemi sil" ' +
+            'aria-label="Kalemi sil">' + ico('i-trash','ic-sm') + '</button>' +
+        '</span></td></tr>';
+    }).join('');
+  }
+
+  function kalemKartlari(kur){
+    return '<div class="gv-cardlist">' + kalemler.map(function(k, i){
+      return '<div class="gv-mrow">' +
+        '<div class="gv-mrow-top"><span class="cell-main">' + (i + 1) + '. ' + esc(k.kalem) + '</span>' +
+          '<span class="tag">' + esc(k.tur) + '</span></div>' +
+        '<div class="gv-mrow-meta">' +
+          '<span>' + ico('i-package','ic-sm') + F.num(k.miktar, k.miktar % 1 ? 1 : 0) + ' ' + esc(k.birim) + '</span>' +
+          '<span>' + ico('i-wallet','ic-sm') + F.money(k.birimFiyat, kur) + ' / ' + esc(k.birim) + '</span>' +
+        '</div>' +
+        '<div class="gv-mrow-bottom">' +
+          '<span class="cell-money">' + F.money(k.tutar, kur) + '</span>' +
+          '<span class="cell-acts">' +
+            '<button type="button" class="ia" data-kalem-duzenle="' + i + '" aria-label="Kalemi düzenle">' +
+              ico('i-edit','ic-sm') + '</button>' +
+            '<button type="button" class="ia is-danger" data-kalem-sil="' + i + '" aria-label="Kalemi sil">' +
+              ico('i-trash','ic-sm') + '</button>' +
+          '</span>' +
+        '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function kalemCiz(){
+    var hedef = document.getElementById('kalemBody');
+    if(!hedef) return;
+    var kur = kurSim(form.read().doviz);
+
+    if(!kalemler.length){
+      hedef.innerHTML = '<div class="gc-body flush">' + GV.empty({
+        icon:'i-list', title:'Kalem eklenmedi',
+        desc:'Teklifin hizmet, modül, lisans ve bakım kalemlerini tek tek ekleyin; ara toplam ' +
+             'kalemlerden hesaplansın. Kalem eklemeden de teklif kaydedilebilir, o zaman ara ' +
+             'toplam elle girilir.',
+        action:'<button type="button" class="btn btn-acc" data-kalem-ekle>' +
+               '<svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg> İlk kalemi ekle</button>'
+      }) + '</div>';
+      return;
+    }
+
+    hedef.innerHTML =
+      '<div class="gc-body flush">' +
+        '<div class="gv-tablewrap"><table class="gtable"><thead><tr>' +
+          '<th class="num th-narrow">Sıra</th><th>Açıklama</th><th>Kalem türü</th>' +
+          '<th class="num th-narrow">Miktar</th><th>Birim</th>' +
+          '<th class="num">Birim fiyat (KDV hariç)</th><th class="num">Tutar (KDV hariç)</th>' +
+          '<th class="col-acts"><span class="gv-sr">İşlemler</span></th>' +
+        '</tr></thead><tbody>' + kalemSatirlari(kur) + '</tbody></table></div>' +
+        kalemKartlari(kur) +
+      '</div>' +
+      '<div class="gc-foot">' +
+        '<span class="gv-count"><b>' + kalemler.length + '</b> kalem · kalem toplamı ' +
+          '<span class="cell-money">' + F.money(kalemToplam(), kur) + '</span> (KDV hariç)</span>' +
+        '<button type="button" class="btn btn-line btn-sm" data-kalem-ekle>' +
+          ico('i-plus','ic-sm') + ' Kalem ekle</button>' +
+      '</div>';
+  }
+
+  /* Kalem eklendiğinde/silindiğinde ara toplam kalemlerden yeniden yazılır —
+     böylece araToplam doğrulaması hiç tetiklenmez ve iki eksen ayrışmaz. */
+  function araToplamSenkron(){
+    if(!elAra) return;
+    if(kalemler.length) elAra.value = kalemToplam();
+  }
+
+  function kalemUygula(){
+    kalemCiz();
+    araToplamSenkron();
+    ozetCiz();
+    form.setDirty(true);
+  }
+
+  function kalemModal(idx){
+    var yeni = idx == null;
+    var k = yeni
+      ? { kalem:'', tur:'Modül', birim:'Paket', miktar:1, birimFiyat:0 }
+      : kalemler[idx];
+    var kur = kurSim(form.read().doviz);
+
+    function opts(list, secili){
+      return list.map(function(o){
+        return '<option value="' + esc(o) + '"' + (o === secili ? ' selected' : '') + '>' + esc(o) + '</option>';
+      }).join('');
+    }
+
+    var body = '<div class="gv-fields">' +
+      '<div class="field f-col-12"><label for="kSablon">Hizmet sözlüğünden doldur</label>' +
+        '<select id="kSablon"><option value="">Serbest kalem — açıklamayı elle yaz</option>' +
+        opts(DB.services, '') + '</select>' +
+        '<div class="f-hint">Seçtiğiniz hizmet açıklama alanına yazılır; sonrasında serbestçe düzenlenebilir.</div></div>' +
+
+      '<div class="field f-col-12"><label for="kAd">Kalem açıklaması<span class="req" aria-hidden="true">*</span></label>' +
+        '<input type="text" class="inp" id="kAd" value="' + esc(k.kalem) + '" ' +
+        'placeholder="Örn. Dava dosyası yönetim modülü"></div>' +
+
+      '<div class="field f-col-6"><label for="kTur">Kalem türü<span class="req" aria-hidden="true">*</span></label>' +
+        '<select id="kTur">' + opts(KALEM_TURLERI, k.tur) + '</select>' +
+        '<div class="f-hint">Modül · saatlik iş gücü · paket · lisans · sunucu · bakım · üçüncü taraf.</div></div>' +
+
+      '<div class="field f-col-6"><label for="kBirim">Birim<span class="req" aria-hidden="true">*</span></label>' +
+        '<select id="kBirim">' + opts(BIRIMLER, k.birim) + '</select></div>' +
+
+      '<div class="field f-col-6"><label for="kMiktar">Miktar<span class="req" aria-hidden="true">*</span></label>' +
+        '<input type="number" class="inp" id="kMiktar" min="0" step="0.5" value="' + esc(k.miktar) + '"></div>' +
+
+      '<div class="field f-col-6"><label for="kFiyat">Birim fiyat (KDV hariç)<span class="req" aria-hidden="true">*</span></label>' +
+        '<div class="f-affix"><input type="number" class="inp" id="kFiyat" min="0" step="1" value="' +
+        esc(k.birimFiyat) + '"><span class="f-suffix">' + esc(kur) + '</span></div></div>' +
+
+      '<div class="field f-col-12"><div class="f-hint" id="kOnizleme"></div></div>' +
+    '</div>';
+
+    var m = GV.modal({
+      title: yeni ? 'Teklif kalemi ekle' : 'Teklif kalemini düzenle',
+      text: yeni ? 'Tutar, miktar × birim fiyat olarak hesaplanır.' : k.kalem,
+      icon:'i-list', size:'lg', body:body,
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label: yeni ? 'Kalemi ekle' : 'Kalemi güncelle', cls:'btn-acc', icon:'i-check',
+          onClick:function(close, el){
+            var ad     = el.querySelector('#kAd').value.trim();
+            var miktar = Number(el.querySelector('#kMiktar').value);
+            var fiyat  = Number(el.querySelector('#kFiyat').value);
+            if(!ad){ GV.toast('Kalem açıklaması zorunludur', 'danger'); return false; }
+            if(!isFinite(miktar) || miktar <= 0){ GV.toast('Miktar sıfırdan büyük olmalıdır', 'danger'); return false; }
+            if(!isFinite(fiyat) || fiyat < 0){ GV.toast('Birim fiyat negatif olamaz', 'danger'); return false; }
+            var kayitYeni = {
+              kalem:ad, tur:el.querySelector('#kTur').value, birim:el.querySelector('#kBirim').value,
+              miktar:miktar, birimFiyat:fiyat, tutar:Math.round(miktar * fiyat)
+            };
+            if(yeni) kalemler.push(kayitYeni);
+            else kalemler[idx] = kayitYeni;
+            kalemUygula();
+            GV.toast(yeni ? 'Kalem eklendi — ' + ad : 'Kalem güncellendi — ' + ad, 'ok');
+          } }
+      ]
+    });
+
+    /* Modal düğümü kapanınca sökülüyor; normal addEventListener yeterli (ders L-16). */
+    var mEl = m.el;
+    function onizle(){
+      var miktar = Number(mEl.querySelector('#kMiktar').value);
+      var fiyat  = Number(mEl.querySelector('#kFiyat').value);
+      var ok = isFinite(miktar) && isFinite(fiyat) && miktar > 0 && fiyat >= 0;
+      mEl.querySelector('#kOnizleme').textContent = ok
+        ? 'Kalem tutarı: ' + F.money(Math.round(miktar * fiyat), kur) + ' (KDV hariç)'
+        : 'Miktar ve birim fiyat girilince kalem tutarı hesaplanır.';
+    }
+    mEl.querySelector('#kMiktar').addEventListener('input', onizle);
+    mEl.querySelector('#kFiyat').addEventListener('input', onizle);
+    mEl.querySelector('#kSablon').addEventListener('change', function(e){
+      if(!e.target.value) return;
+      mEl.querySelector('#kAd').value = e.target.value;
+    });
+    onizle();
+  }
+
+  if(canFinans){
+    kalemCiz();
+    ozetCiz();
+
+    /* Delege dinleyici mount İÇİNDEKİ karta bağlanır (ders L-16). */
+    var kalemKart = document.getElementById('kalemKart');
+    kalemKart.addEventListener('click', function(e){
+      if(e.target.closest('[data-kalem-ekle]') || e.target.closest('#btnKalemEkle')){
+        kalemModal(null); return;
+      }
+      var d = e.target.closest('[data-kalem-duzenle]');
+      if(d){ kalemModal(+d.dataset.kalemDuzenle); return; }
+      var s = e.target.closest('[data-kalem-sil]');
+      if(s){
+        var i = +s.dataset.kalemSil;
+        var k = kalemler[i];
+        if(!k) return;
+        GV.confirm({
+          title:'Kalemi sil', tone:'danger', okLabel:'Sil',
+          text:'“' + k.kalem + '” kalemi tekliften çıkarılacak. Ara toplam kalan kalemlere göre ' +
+               'yeniden hesaplanır.'
+        }).then(function(ok){
+          if(!ok) return;
+          kalemler.splice(i, 1);
+          kalemUygula();
+          GV.toast('Kalem silindi — ' + k.kalem, 'ok');
+        });
+      }
+    });
+  }
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    firma:'Firma adı', musteri:'Müşteri kartı', lead:'İlgili satış fırsatı', analiz:'Bağlı ön analiz',
+    hazirlayan:'Hazırlayan', versiyon:'Teklif versiyonu', tarih:'Teklif tarihi',
+    gecerlilik:'Geçerlilik tarihi', araToplam:'Ara toplam', indirim:'İndirim',
+    vergiOran:'KDV oranı', vergi:'KDV tutarı', toplam:'Genel toplam', doviz:'Para birimi',
+    kalemSayisi:'Kalem sayısı', odemePlani:'Ödeme planı', teslimSuresi:'Teslim planı ve süresi',
+    garanti:'Garanti', destek:'Destek koşulları', durum:'Teklif durumu', icOnay:'İç onay',
+    musteriOnay:'Müşteri onayı', aktif:'Kayıt durumu'
+  };
+  var PARA_ALAN = ['araToplam','indirim','vergiOran','vergi','toplam','doviz'];
+
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.quotes.forEach(function(x){
+      var m = /^TKL-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    var n = String(max + 1);
+    while(n.length < 3) n = '0' + n;
+    return 'TKL-' + String(DB.today).slice(0,4) + '-' + n;
+  }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, false, boş metin ve '—' aynı kovaya
+     düşer; hiç yazılmamış bir alan “değişti” sayılmaz. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Pasif';
+    if(k === 'hazirlayan') return DB.empName(v);
+    if(k === 'vergiOran') return '%' + v;
+    if(k === 'versiyon') return 'v' + v;
+    if(['araToplam','indirim','vergi','toplam'].indexOf(k) !== -1) return F.money(v);
+    if(k === 'tarih' || k === 'gecerlilik') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    /* Ekler alanının koleksiyonda karşılığı yok — uydurma alan yazılmaz. */
+    delete v.belgeler;
+
+    v.versiyon    = sayi(v.versiyon);
+    v.aktif       = !!v.aktif;
+    v.musteri     = v.musteri || null;
+    v.lead        = v.lead || null;
+    v.analiz      = v.analiz || null;
+    v.firma       = String(v.firma || '').trim();
+    v.odemePlani  = String(v.odemePlani || '').trim();
+    v.teslimSuresi= String(v.teslimSuresi || '').trim();
+    v.garanti     = String(v.garanti || '').trim();
+    v.destek      = String(v.destek || '').trim();
+    /* Koleksiyon “iletilmedi” için '—' sentinel'i kullanıyor (8 kaydın 2'sinde). */
+    v.musteriOnay = v.musteriOnay || '—';
+
+    if(canFinans){
+      v.araToplam = sayi(v.araToplam);
+      v.indirim   = sayi(v.indirim);
+      v.vergiOran = sayi(v.vergiOran);
+      v.doviz     = v.doviz || 'TRY';
+      var z = zincir(v.araToplam, v.indirim, v.vergiOran);
+      v.vergi     = z.vergi;
+      v.toplam    = z.toplam;
+      v.kalemSayisi = kalemler.length;
+    }else{
+      /* Yetkisiz rol bu alanları hiç görmedi: düzenlemede mevcut değer korunur,
+         yeni kayıtta sıfırdan açılır. Tahmin yazılmaz. */
+      PARA_ALAN.forEach(function(k){
+        v[k] = duzenle ? kayit[k] : (k === 'doviz' ? 'TRY' : (k === 'vergiOran' ? 20 : 0));
+      });
+      v.kalemSayisi = duzenle ? kayit.kalemSayisi : 0;
+    }
+    return v;
+  }
+
+  /* Kalem kayıtları gerçekten DB.quoteItems'a yazılır: bu teklifin eski satırları
+     sökülür, çalışma kopyası 1..N sıra numarasıyla yeniden basılır. */
+  function kalemleriYaz(kod){
+    for(var i = DB.quoteItems.length - 1; i >= 0; i--){
+      if(DB.quoteItems[i].teklif === kod) DB.quoteItems.splice(i, 1);
+    }
+    kalemler.forEach(function(k, i){
+      DB.quoteItems.push({
+        teklif:kod, sira:i + 1, kalem:k.kalem, tur:k.tur, birim:k.birim,
+        miktar:k.miktar, birimFiyat:k.birimFiyat, tutar:k.tutar
+      });
+    });
+  }
+
+  function kalemDegisti(){
+    if(!canFinans) return false;
+    var oncesi = DB.quoteItems.filter(function(k){ return k.teklif === kayit.kod; })
+                              .sort(function(a,b){ return a.sira - b.sira; });
+    if(oncesi.length !== kalemler.length) return true;
+    return kalemler.some(function(k, i){
+      var o = oncesi[i];
+      return o.kalem !== k.kalem || o.tur !== k.tur || o.birim !== k.birim ||
+             Number(o.miktar) !== k.miktar || Number(o.birimFiyat) !== k.birimFiyat ||
+             Number(o.tutar) !== k.tutar;
+    });
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      var kalemFarki = kalemDegisti();
+      var eskiKalemSayisi = DB.quoteItems.filter(function(k){ return k.teklif === kayit.kod; }).length;
+
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+
+      if(canFinans && kalemFarki){
+        kalemleriYaz(kayit.kod);
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Teklif kalemleri güncellendi',
+          eski:eskiKalemSayisi + ' kalem', yeni:kalemler.length + ' kalem',
+          tone:'accent', icon:'i-list'
+        });
+      }
+
+      if(!degisen && !kalemFarki){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan' +
+          (kalemFarki ? ' · kalem listesi' : ''), 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      DB.quotes.unshift(Object.assign({ kod:kod }, v));
+      if(canFinans && kalemler.length) kalemleriYaz(kod);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Teklif oluşturuldu' + (kalemler.length ? ' · ' + kalemler.length + ' kalem' : ''),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-teklif.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Satış ve CRM',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Teklif',
+    sub:   duzenle ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır.'
+                   : 'Zorunlu alanlar yıldızla işaretlidir · ' + zorunlu.length + ' zorunlu alan.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-teklif.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
