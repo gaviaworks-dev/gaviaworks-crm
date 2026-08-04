@@ -587,6 +587,7 @@
     'app-proje-milestone.html',
     'app-proje-sprint.html',
     'app-proje-test.html',
+    'app-proje-test-detay.html',
     'app-proje-hata.html',
     'app-proje-hata-detay.html',
     'app-proje-degisiklik.html',
