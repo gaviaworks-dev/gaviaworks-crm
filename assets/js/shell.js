@@ -602,6 +602,7 @@
     'app-referans.html',
     'app-referans-detay.html',
     'app-komisyon.html',
+    'app-komisyon-detay.html',
     'app-onanaliz.html',
     'app-onanaliz-detay.html',
     'app-musteri-yetkili.html',
