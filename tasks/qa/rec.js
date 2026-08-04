@@ -49,6 +49,9 @@ const MAP = {
   'app-lead-form.html': 'leads',
   'app-musteri-form.html': 'customers',
   'app-satinalma-form.html': 'purchases',
+  'app-musteri-yetkili-form.html': 'contacts',
+  'app-musteri-iletisim-form.html': 'interactions',
+  'app-referans-form.html': 'referrers',
 };
 
 /* Kaydın GERÇEKTEN yüklendiğinin ölçütü.
