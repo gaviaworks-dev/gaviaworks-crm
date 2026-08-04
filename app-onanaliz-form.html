@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Ön Analiz Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satis" data-screen="onanaliz">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName, DB.today
+     crm.js  → DB.analyses, DB.leads, DB.customers, DB.services, DB.quotes, DB.pipelineStages
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.analyses.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Satış ve CRM', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen ön analiz kaydı sistemde yok.',
+      actions:[{ label:'Ön analizlere dön', cls:'btn-line', href:'app-onanaliz.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Ön analiz bulunamadı',
+      desc:'“' + esc(id) + '” numaralı ön analiz bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-onanaliz.html">Ön analizlere dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Ön Analiz');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Ön Analiz') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Satış ve CRM',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Ön Analiz',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Ön analizlere dön', cls:'btn-line', href:'app-onanaliz.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Ön analiz düzenleme' : 'Ön analiz ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Ön analizleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek
+       bir yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-onanaliz.html">Ön analizlere dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-onanaliz-detay.html?id=' + kayit.kod + '">Analizi görüntüle</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     BAĞLAR — hepsi veride YAZILI tekil bağdan okunur (ders L-13)
+       analiz.lead   → DB.leads          lead.musteri → DB.customers
+       quote.analiz  → DB.quotes         activity.kayit → ANL-xxx
+     Analiz kaydında proje/müşteri bağı ALANI YOKTUR; müşteri yalnız
+     bağlı lead üzerinden okunur ve ekranda öyle etiketlenir.
+     ================================================================= */
+  var lead    = duzenle && kayit.lead ? DB.leads.filter(function(x){ return x.kod === kayit.lead; })[0] : null;
+  var musteri = (lead && lead.musteri) ? DB.customers.filter(function(x){ return x.kod === lead.musteri; })[0] : null;
+  var teklif  = duzenle ? DB.quotes.filter(function(q){ return q.analiz === kayit.kod; })[0] || null : null;
+  var acts    = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Adres parametresiyle ön doldurma: ?lead=LEAD-xxx */
+  var qsLead  = qs.get('lead');
+  var onLead  = qsLead ? DB.leads.filter(function(x){ return x.kod === qsLead; })[0] : null;
+  var onLeadAnaliz = onLead ? DB.analyses.filter(function(x){ return x.lead === onLead.kod; }) : [];
+
+  /* =================================================================
+     PARA EKSENİ — ÖLÇÜLÜR, VARSAYILMAZ
+     components.md §9b tablosunda `DB.analyses[].maliyet` satırı YOK.
+     Bu yüzden eksen, teklife dönmüş analizlerde teklifin üç para ekseniyle
+     (ara toplam / indirim sonrası net / KDV dahil brüt) karşılaştırılarak
+     ölçülür ve sonucu alan ETİKETİNE yazılır.
+     ================================================================= */
+  var olcum = DB.analyses.map(function(x){
+    var q = DB.quotes.filter(function(y){ return y.analiz === x.kod; })[0];
+    if(!q) return null;
+    return { maliyet:x.maliyet, ara:q.araToplam, net:q.araToplam - q.indirim, brut:q.toplam };
+  }).filter(Boolean);
+  var oAra  = olcum.filter(function(o){ return o.maliyet === o.ara;  }).length;
+  var oNet  = olcum.filter(function(o){ return o.maliyet === o.net;  }).length;
+  var oBrut = olcum.filter(function(o){ return o.maliyet === o.brut; }).length;
+  var eksenNet = olcum.length > 0 && oAra === olcum.length;
+
+  var maliyetEtiket = eksenNet
+    ? 'Tahmini bedel (KDV hariç — teklif ara toplamı ekseni)'
+    : 'Tahmini bedel (eksen veride yazılı değil)';
+  var maliyetHint = olcum.length
+    ? 'Ölçüm: teklife dönmüş ' + olcum.length + ' analizde bu alan teklifin ara toplamıyla ' + oAra + '/' + olcum.length +
+      ', indirim sonrası netiyle ' + oNet + '/' + olcum.length + ', KDV dahil brütüyle ' + oBrut + '/' + olcum.length +
+      ' kayıtta birebir eşleşiyor. ' +
+      (eksenNet ? 'Alan iç maliyet değil, teklifin indirim öncesi satış fiyatıdır; indirim teklif aşamasında düşülür.'
+                : 'Üç eksenin hiçbiri tam tutmadığı için alanın ekseni belirsiz kabul edilir.')
+    : 'Hiçbir analiz teklife dönmediği için bu alanın ekseni ölçülemedi.';
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden, serbest metin yok
+     ================================================================= */
+  var DURUMLAR = ['Hazırlanıyor','Onay bekliyor','Onaylandı'];
+
+  /* Hizmet YALNIZ hizmet kataloğundan gelir. Kayıttaki hizmet katalogda
+     yoksa kümeye SESSİZCE eklenmez — kullanıcı uyarılır. */
+  var HIZMETLER   = DB.services.slice();
+  var hizmetDisi  = duzenle && kayit.hizmet && HIZMETLER.indexOf(kayit.hizmet) === -1;
+
+  /* Süre birimi sözlüğü veride yok; küme koleksiyondaki kullanılan
+     değerlerden türetilir — uydurma birim eklenmez. */
+  var SURE_BIRIM = [];
+  DB.analyses.forEach(function(x){
+    if(x.sureBirim && SURE_BIRIM.indexOf(x.sureBirim) === -1) SURE_BIRIM.push(x.sureBirim);
+  });
+  if(duzenle && kayit.sureBirim && SURE_BIRIM.indexOf(kayit.sureBirim) === -1) SURE_BIRIM.push(kayit.sureBirim);
+
+  var HAZIRLAYANLAR = DB.employees
+    .filter(function(e){ return e.aktif || (duzenle && e.kod === kayit.hazirlayan); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon + (e.aktif ? '' : ' (pasif)') }; });
+
+  /* Aday listesi: pasif adaylar ancak düzenlenen kaydın bağıysa görünür.
+     Zaten analizi olan adayın etiketine analiz numarası yazılır — engel değil,
+     bilgi; bir adayın birden çok analizi olabilir. */
+  var LEADLER = DB.leads
+    .filter(function(l){ return l.aktif !== false || (duzenle && l.kod === kayit.lead); })
+    .map(function(l){
+      var mevcut = DB.analyses.filter(function(x){ return x.lead === l.kod && (!duzenle || x.kod !== kayit.kod); });
+      return { value:l.kod, label:l.firma + ' · ' + l.kod + ' · ' + l.asama +
+        (mevcut.length ? ' · ' + mevcut.length + ' analizi var' : '') };
+    });
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+       Liste alanları (entegrasyon, riskler, belirsiz, beklenen,
+       kapsamIci, kapsamDisi) satır satır metne açılır; kaydederken
+       yeniden diziye çevrilir. GV.form'da dizi/çip tipi YOK (eksik bileşen).
+     ================================================================= */
+  var LISTE_ALAN = ['entegrasyon','riskler','belirsiz','beklenen','kapsamIci','kapsamDisi'];
+  var SAYI_ALAN  = ['rolSayisi','anaModul','altModul','ekip','isgucu','sure'];
+  var BAYRAK     = ['web','mobil','yonetimPaneli','musteriPaneli','aiOzellik','odeme',
+                    'abonelik','cokluDil','cokluSirket','raporlama','bildirim','kvkk'];
+
+  function metin(arr){ return (arr || []).join('\n'); }
+  function satirlar(t){
+    return String(t == null ? '' : t).split('\n').map(function(s){ return s.trim(); })
+      .filter(function(s){ return s.length > 0; });
+  }
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+
+  var formRec = {};
+  if(duzenle){
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    LISTE_ALAN.forEach(function(k){ formRec[k] = metin(kayit[k]); });
+    BAYRAK.forEach(function(k){ formRec[k] = !!kayit[k]; });
+    formRec.lead = kayit.lead || '';
+    if(hizmetDisi) formRec.hizmet = '';
+  }else{
+    formRec = {
+      lead:  onLead ? onLead.kod : '',
+      firma: onLead ? onLead.firma : '',
+      hizmet:(onLead && HIZMETLER.indexOf(onLead.hizmet) !== -1) ? onLead.hizmet : '',
+      amac:  onLead ? onLead.ozet : '',
+      hedefKullanici:'', rolSayisi:'', anaModul:'', altModul:'',
+      entegrasyon:'', sunucu:'', guvenlik:'',
+      ekip:'', isgucu:'', sure:'', sureBirim:SURE_BIRIM[0] || '',
+      maliyet:(onLead ? onLead.butce : 0),
+      riskler:'', belirsiz:'', beklenen:'', kapsamIci:'', kapsamDisi:'',
+      hazirlayan:(DB.emp(GV.session.emp) ? GV.session.emp : ''),
+      tarih:DB.today, durum:'Hazırlanıyor', aktif:true
+    };
+    BAYRAK.forEach(function(k){ formRec[k] = false; });
+  }
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+
+  var ust = '';
+
+  if(duzenle){
+    /* ---- Katalog dışı hizmet uyarısı ---- */
+    if(hizmetDisi){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'danger', title:'Kayıttaki hizmet türü katalogda yok',
+        text:'Bu kayıtta “' + kayit.hizmet + '” hizmeti yazılı ama hizmet kataloğunda (' +
+             DB.services.length + ' hizmet) böyle bir değer yok. Hizmet alanı boş açıldı; ' +
+             'kaydetmeden önce katalogdan geçerli bir hizmet seçmelisiniz.' }) + '</div></section>';
+    }
+
+    /* ---- İlişkili kayıt uyarısı — teklif bağı veride YAZILI (quote.analiz) ---- */
+    var bagAksiyon = [];
+    if(teklif) bagAksiyon.push({ label:'Üretilen teklifi aç', href:'app-teklif-detay.html?id=' + teklif.kod, cls:'btn-line' });
+    if(lead)   bagAksiyon.push({ label:'Müşteri adayını aç', href:'app-lead-detay.html?id=' + lead.kod, cls:'btn-line' });
+
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      (teklif
+        ? GV.notice({
+            tone:'warn', title:'Bu analizden bir teklif doğmuş',
+            text:teklif.kod + ' numaralı teklif bu ön analizden üretildi (bağ ' + teklif.kod +
+                 ' kaydının “analiz” alanında yazılı). Teklifin ara toplamı ' + F.money(teklif.araToplam, '₺') +
+                 ', durumu “' + teklif.durum + '”. Analizin kapsamını, eforunu ya da bedelini değiştirirseniz ' +
+                 'teklif otomatik güncellenmez — teklifi kendi ekranından yeni versiyonla revize etmelisiniz.',
+            actions:bagAksiyon })
+        : GV.notice({
+            tone:'ok', title:'Bu analizden henüz teklif doğmamış',
+            text:'DB.quotes içinde “analiz” alanı ' + kayit.kod + ' olan bir teklif yok. Değişiklik yalnız ' +
+                 'bu analiz kaydını etkiler; teklif ön analiz detay ekranından oluşturulur.',
+            actions:bagAksiyon })) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı ---- */
+    var son = acts[0];
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Kayıt Özeti</h2>' +
+        '<div class="gc-head-acts"><a class="btn btn-line btn-sm" href="app-onanaliz-detay.html?id=' + kayit.kod + '">' +
+          ico('i-external','ic-sm') + ' Ön analiz kartını aç</a></div></div>' +
+      '<div class="gc-body">' + dl([
+        ['Ön analiz numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Firma', esc(kayit.firma)],
+        ['Bağlı müşteri adayı', lead
+          ? '<a href="app-lead-detay.html?id=' + lead.kod + '">' + esc(lead.kod) + '</a>' + sub(lead.asama + ' · ' + lead.ozet)
+          : (kayit.lead ? '<span class="u-num">' + esc(kayit.lead) + '</span>' + sub('Aday kaydı bulunamadı') : null)],
+        ['Müşteri kaydı', musteri
+          ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a>' +
+            sub('Aday üzerinden okundu — analiz kaydında müşteri alanı yok')
+          : null],
+        ['Analiz durumu', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Hizmet türü', '<span class="tag">' + esc(kayit.hizmet) + '</span>' +
+          (hizmetDisi ? sub('Katalogda yok — yeniden seçilmeli') : '')],
+        ['Hazırlayan', GV.user(kayit.hazirlayan, { sm:true })],
+        ['Analiz tarihi', F.date(kayit.tarih) + sub(F.rel(kayit.tarih))],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div></section>';
+
+    if(!canFinans){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-lock', title:'Bedel alanı bu formda yok',
+        text:'Rolünüzde finansal tutar yetkisi tanımlı değil. Tahmini bedel alanı forma hiç basılmadı; ' +
+             'bu kaydın mevcut bedeli kaydettiğinizde olduğu gibi korunur.' }) + '</div></section>';
+    }
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni ön analiz kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki ön analiz numarası atanır, aktivite geçmişine “Kayıt oluşturuldu” satırı ' +
+           'yazılır ve ön analiz listesine dönülür. Teklif bu formda üretilmez — analiz kaydı açıldıktan sonra ' +
+           'ön analiz detay ekranındaki “Teklif oluştur” akışıyla doğar.',
+      actions:[{ label:'Ön analizler', href:'app-onanaliz.html' }] });
+
+    var leadNot = '';
+    if(qsLead && !onLead){
+      leadNot = GV.notice({ tone:'warn', title:'Adresteki müşteri adayı bulunamadı',
+        text:'“' + qsLead + '” numaralı aday kaydı sistemde yok, bu yüzden aday alanı ön seçili gelmedi. ' +
+             'Listeden geçerli bir aday seçebilirsiniz.',
+        actions:[{ label:'Müşteri adayları', href:'app-lead.html' }] });
+    }else if(onLead){
+      leadNot = GV.notice({ tone:'ok', title:'Müşteri adayı ön seçili geldi',
+        text:onLead.kod + ' · ' + onLead.firma + ' adayı adresten geldiği için aday, firma ve amaç alanları ' +
+             'aday kaydından dolduruldu' +
+             (HIZMETLER.indexOf(onLead.hizmet) !== -1 ? ', hizmet türü “' + onLead.hizmet + '” olarak seçildi' : '') +
+             (canFinans ? ', tahmini bedel adayın beyan ettiği bütçeyle (' + F.money(onLead.butce, '₺') + ') başlatıldı' : '') +
+             '. Hepsi değiştirilebilir.' +
+             (onLeadAnaliz.length
+               ? ' Bu adayın hâlihazırda ' + onLeadAnaliz.length + ' ön analizi var (' +
+                 onLeadAnaliz.map(function(x){ return x.kod; }).join(', ') + ').'
+               : ''),
+        actions:[{ label:'Adayı aç', href:'app-lead-detay.html?id=' + onLead.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + leadNot +
+      (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock', title:'Bedel alanı bu formda yok',
+        text:'Rolünüzde finansal tutar yetkisi tanımlı değil. Tahmini bedel alanı forma basılmadı; ' +
+             'yeni kayıt bu alanda sıfır değerle açılır ve bedeli yetkili bir rol girer.' })) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clipboard') + 'Ön Analiz Değerlendirmesi</h2>' +
+        '<div class="gc-sub">PROMPT.md §10’un 28 değerlendirme alanı · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-onanaliz.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR — PROMPT.md §10 “Ön analiz” 28 değerlendirme alanının TAMAMI
+     ================================================================= */
+  function bayrakAlan(key, label, hint){
+    return { key:key, label:label, type:'checkbox', cols:3, checkLabel:label, hint:hint };
+  }
+
+  var sections = [
+    { title:'Analiz kimliği ve talep bağı',
+      desc:'Analizin hangi talep için, kim tarafından ve ne zaman hazırlandığı. Aday bağı veride yazılır, ' +
+           'firma adından türetilmez.',
+      fields:[
+        { key:'lead', label:'Bağlı müşteri adayı', type:'select', options:LEADLER, cols:6,
+          placeholder:'Aday seçin (bağsız bırakılabilir)',
+          hint:'Analiz bir talepten doğmadıysa boş bırakın — tahmini bağ yazılmaz.' },
+        { key:'firma', label:'Firma', type:'text', required:true, cols:6,
+          placeholder:'Örn. Poyraz İnşaat Taahhüt',
+          hint:'Aday seçiliyse adayın firma adıyla aynı olmalıdır.',
+          validate:function(v, d){
+            if(!d.lead) return '';
+            var l = DB.leads.filter(function(x){ return x.kod === d.lead; })[0];
+            return (l && String(v).trim() !== l.firma)
+              ? 'Seçili adayın firması “' + l.firma + '” — analiz firması adayla aynı yazılmalıdır.' : '';
+          } },
+        { key:'hizmet', label:'Hizmet türü', type:'select', options:HIZMETLER, required:true, cols:6,
+          placeholder:'Hizmet seçin',
+          hint:'Katalogda olmayan bir hizmet kaydedilemez. Adayın talep ettiği hizmetten farklı olabilir.',
+          validate:function(v){
+            return (v && HIZMETLER.indexOf(v) === -1)
+              ? 'Hizmet türü katalogdaki ' + HIZMETLER.length + ' değerden biri olmalıdır.' : '';
+          } },
+        { key:'hazirlayan', label:'Analizi hazırlayan', type:'select', options:HAZIRLAYANLAR, required:true, cols:3,
+          hint:'Analizden sorumlu çalışan.' },
+        { key:'tarih', label:'Analiz tarihi', type:'date', required:true, cols:3,
+          validate:function(v){ return v && v > DB.today ? 'Analiz tarihi ileri bir tarih olamaz.' : ''; } }
+      ]},
+
+    { title:'Amaç ve kullanıcılar',
+      desc:'Projenin neden yapıldığı, kimlerin kullanacağı ve kaç kullanıcı rolü olacağı.',
+      fields:[
+        { key:'amac', label:'Projenin amacı', type:'textarea', rows:3, required:true, cols:12,
+          placeholder:'Örn. Proje, tedarikçi ve ödeme süreçlerini tek sistemde toplamak' },
+        { key:'hedefKullanici', label:'Hedef kullanıcılar', type:'text', required:true, cols:8,
+          placeholder:'Örn. Operasyon ekibi, satın alma, muhasebe, yönetim',
+          hint:'Kullanıcı gruplarını virgülle ayırın.' },
+        { key:'rolSayisi', label:'Kullanıcı rolü sayısı', type:'number', required:true, min:1, cols:4,
+          hint:'Sistemde tanımlanacak ayrı yetki rolü sayısı.' }
+      ]},
+
+    { title:'Modül yapısı',
+      desc:'Kapsamın modül düzeyindeki büyüklüğü — iş gücü tahmininin dayanağı.',
+      fields:[
+        { key:'anaModul', label:'Ana modül sayısı', type:'number', required:true, min:1, cols:6 },
+        { key:'altModul', label:'Alt modül sayısı', type:'number', required:true, min:0, cols:6,
+          validate:function(v, d){
+            return sayi(v) < sayi(d.anaModul)
+              ? 'Alt modül sayısı ana modül sayısından küçük olamaz.' : '';
+          } }
+      ]},
+
+    { title:'Platform ve özellik eksenleri',
+      desc:'PROMPT.md §10’un özellik eksenleri. İşaretli olanlar kapsama girer; kapsam dışı bırakılanlar ' +
+           'aşağıdaki “Kapsam dışı işler” alanına da yazılmalıdır.',
+      fields:[
+        bayrakAlan('web','Web ihtiyacı'),
+        bayrakAlan('mobil','Mobil uygulama ihtiyacı'),
+        bayrakAlan('yonetimPaneli','Yönetim paneli'),
+        bayrakAlan('musteriPaneli','Müşteri paneli'),
+        bayrakAlan('aiOzellik','Yapay zekâ özellikleri'),
+        bayrakAlan('odeme','Ödeme altyapısı'),
+        bayrakAlan('abonelik','Abonelik sistemi'),
+        bayrakAlan('cokluDil','Çoklu dil'),
+        bayrakAlan('cokluSirket','Çoklu şirket'),
+        bayrakAlan('raporlama','Raporlama'),
+        bayrakAlan('bildirim','Bildirim sistemi')
+      ]},
+
+    { title:'Entegrasyon, altyapı ve uyum',
+      desc:'Dış sistem bağlantıları, barındırma kararı, güvenlik yaklaşımı ve KVKK kapsamı.',
+      fields:[
+        { key:'entegrasyon', label:'Entegrasyonlar', type:'textarea', rows:3, cols:12,
+          placeholder:'E-fatura\nLogo ERP\nSMS',
+          hint:'Her satıra bir entegrasyon yazın. Boş satırlar kaydedilmez.' },
+        { key:'sunucu', label:'Sunucu ve altyapı', type:'text', required:true, cols:6,
+          placeholder:'Örn. Müşteri bulut hesabı · Gavia yönetimli · Yurt içi barındırma zorunlu' },
+        { key:'guvenlik', label:'Güvenlik yaklaşımı', type:'text', required:true, cols:6,
+          placeholder:'Örn. Rol bazlı + log · OAuth2 + cihaz doğrulama' },
+        { key:'kvkk', label:'KVKK kapsamında', type:'checkbox', cols:12,
+          checkLabel:'Proje kişisel veri işliyor — KVKK kapsamında',
+          hint:'Kapsamdaysa güvenlik yaklaşımında veri saklama ve erişim kaydı da tanımlanmalıdır.' }
+      ]},
+
+    { title:'Efor ve zaman planı',
+      desc:'Tahmini ekip, iş gücü ve süre. İş gücü biriminin (saat / adam-gün) veride yazılı bir karşılığı yok; ' +
+           'sayı koleksiyondaki diğer kayıtlarla aynı eksende girilmelidir.',
+      fields:[
+        { key:'ekip', label:'Tahmini ekip', type:'number', required:true, min:1, cols:3,
+          hint:'Kişi sayısı.' },
+        { key:'isgucu', label:'Tahmini iş gücü', type:'number', required:true, min:1, cols:3,
+          hint:'Birim veride yazılı değil — mevcut kayıtlar saat ekseninde girilmiş.' },
+        { key:'sure', label:'Tahmini süre', type:'number', required:true, min:1, cols:3 },
+        { key:'sureBirim', label:'Süre birimi', type:'select', options:SURE_BIRIM, required:true, cols:3,
+          placeholder:'Birim seçin',
+          hint:'Veride süre birimi sözlüğü yok; küme mevcut kayıtlardan türetildi (' + SURE_BIRIM.join(', ') + ').' }
+      ]}
+  ];
+
+  /* Bedel alanı yetkiye bağlıdır — yetkisi olmayan role HİÇ basılmaz (ölü kontrol yok). */
+  if(canFinans){
+    sections.push({
+      title:'Bedel',
+      desc:'Analizin tek para alanı. Ekseni ölçülerek belirlendi, varsayılmadı.',
+      fields:[
+        { key:'maliyet', label:maliyetEtiket, type:'money', required:true, min:1, cols:6,
+          hint:maliyetHint,
+          validate:function(v, d){
+            if(d.durum === 'Onaylandı' && sayi(v) <= 0)
+              return 'Onaylanmış analizde tahmini bedel sıfırdan büyük olmalıdır.';
+            return '';
+          } }
+      ]});
+  }
+
+  sections.push(
+    { title:'Kapsam sınırı',
+      desc:'Neyin yapılacağı ve neyin yapılmayacağı. Kapsam dışı işler yazılmazsa teklif aşamasında ' +
+           'kapsam kayması riski doğar.',
+      fields:[
+        { key:'kapsamIci', label:'Kapsama dahil işler', type:'textarea', rows:5, required:true, cols:6,
+          placeholder:'Web uygulaması\nYönetim paneli\nE-fatura entegrasyonu',
+          hint:'Her satıra bir kalem yazın.' },
+        { key:'kapsamDisi', label:'Kapsam dışı işler', type:'textarea', rows:5, cols:6,
+          placeholder:'Mobil saha uygulaması (Faz 2)\nMuhasebe defter kaydı',
+          hint:'Her satıra bir kalem yazın. Kapsam dışı bırakılan özellik eksenleri de buraya yazılmalıdır.' }
+      ]},
+
+    { title:'Risk ve açık uçlar',
+      desc:'Analizin üç açık uç ekseni. İki ve üzeri risk taşıyan analizler listede “Riskli” sekmesine düşer.',
+      fields:[
+        { key:'riskler', label:'Riskler', type:'textarea', rows:5, cols:4,
+          placeholder:'Kapsam belirsizliği yüksek\nEntegrasyon dokümantasyonu eksik',
+          hint:'Her satıra bir risk yazın.' },
+        { key:'belirsiz', label:'Belirsiz gereksinimler', type:'textarea', rows:5, cols:4,
+          placeholder:'Onay hiyerarşisi\nHesaplama kuralları',
+          hint:'Henüz netleşmemiş, teklif öncesi kapatılması gereken maddeler.' },
+        { key:'beklenen', label:'Müşteriden beklenen bilgiler', type:'textarea', rows:5, cols:4,
+          placeholder:'Mevcut Excel şablonları\nAPI erişimi',
+          hint:'Analizi tamamlamak için müşteriden gelmesi gereken belge ve erişimler.' }
+      ]},
+
+    { title:'Kayıt durumu',
+      desc:'Analizin süreçteki durumu ve kaydın listelerde görünüp görünmeyeceği.',
+      fields:[
+        { key:'durum', label:'Analiz durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+          hint:'Teklif ancak “Onaylandı” durumundaki analizden üretilir.',
+          validate:function(v, d){
+            if(v === 'Onaylandı' && !satirlar(d.kapsamIci).length)
+              return 'Kapsama dahil işler yazılmadan analiz onaylanmış olarak kaydedilemez.';
+            return '';
+          } },
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
+          onLabel:'Kayıt aktif — listelerde ve seçim kutularında görünür',
+          hint:'Kapatılırsa kayıt arşive düşer; bağlı teklif silinmez, kapanmaz.',
+          validate:function(v){
+            return (!v && teklif)
+              ? 'Bu analizden ' + teklif.kod + ' teklifi doğmuş; teklif dururken analiz arşive alınamaz.' : '';
+          } }
+      ]}
+  );
+
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+
+  var form = GV.form({
+    mount:'#formMount', id:'onanaliz', record:formRec, sections:sections
+  });
+
+  /* Aday seçilince firma ve (boşsa) amaç adayın kaydından doldurulur — kullanıcı
+     iki yerde aynı bilgiyi yazmasın ve firma doğrulamasına takılmasın.
+     Dinleyiciler mount İÇİNDEKİ düğümlere bağlanır; GV.refresh() mount'u taze
+     kopyayla değiştirdiği için birikmezler (ders L-16). */
+  var elLead  = form.el.querySelector('[name="lead"]');
+  var elFirma = form.el.querySelector('[name="firma"]');
+  var elAmac  = form.el.querySelector('[name="amac"]');
+  var elHizmet= form.el.querySelector('[name="hizmet"]');
+  if(elLead){
+    elLead.addEventListener('change', function(){
+      var l = DB.leads.filter(function(x){ return x.kod === elLead.value; })[0];
+      if(!l) return;
+      if(elFirma) elFirma.value = l.firma;
+      if(elAmac && !elAmac.value.trim()) elAmac.value = l.ozet;
+      if(elHizmet && !elHizmet.value && HIZMETLER.indexOf(l.hizmet) !== -1) elHizmet.value = l.hizmet;
+    });
+  }
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    lead:'Bağlı müşteri adayı', firma:'Firma', hizmet:'Hizmet türü', hazirlayan:'Analizi hazırlayan',
+    tarih:'Analiz tarihi', amac:'Projenin amacı', hedefKullanici:'Hedef kullanıcılar',
+    rolSayisi:'Kullanıcı rolü sayısı', anaModul:'Ana modül sayısı', altModul:'Alt modül sayısı',
+    web:'Web ihtiyacı', mobil:'Mobil uygulama ihtiyacı', yonetimPaneli:'Yönetim paneli',
+    musteriPaneli:'Müşteri paneli', aiOzellik:'Yapay zekâ özellikleri', odeme:'Ödeme altyapısı',
+    abonelik:'Abonelik sistemi', cokluDil:'Çoklu dil', cokluSirket:'Çoklu şirket',
+    raporlama:'Raporlama', bildirim:'Bildirim sistemi', kvkk:'KVKK kapsamı',
+    entegrasyon:'Entegrasyonlar', sunucu:'Sunucu ve altyapı', guvenlik:'Güvenlik yaklaşımı',
+    ekip:'Tahmini ekip', isgucu:'Tahmini iş gücü', sure:'Tahmini süre', sureBirim:'Süre birimi',
+    maliyet:'Tahmini bedel', kapsamIci:'Kapsama dahil işler', kapsamDisi:'Kapsam dışı işler',
+    riskler:'Riskler', belirsiz:'Belirsiz gereksinimler', beklenen:'Müşteriden beklenen bilgiler',
+    durum:'Analiz durumu', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.analyses.forEach(function(x){
+      var m = /^ANL-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'ANL-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer. */
+  function norm(x){
+    if(Array.isArray(x)) return x.join(' | ');
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(Array.isArray(v)) return v.length ? v.join(' | ') : '—';
+    if(v == null || v === '') return '—';
+    if(BAYRAK.indexOf(k) !== -1) return v ? 'Var' : 'Yok';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşiv';
+    if(k === 'hazirlayan') return DB.empName(v);
+    if(k === 'maliyet') return F.money(v, '₺');
+    if(k === 'tarih') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    LISTE_ALAN.forEach(function(k){ v[k] = satirlar(v[k]); });
+    SAYI_ALAN.forEach(function(k){ v[k] = sayi(v[k]); });
+    BAYRAK.forEach(function(k){ v[k] = !!v[k]; });
+    v.aktif = !!v.aktif;
+    v.lead  = v.lead || null;
+    v.firma = String(v.firma || '').trim();
+    v.amac  = String(v.amac || '').trim();
+    v.hedefKullanici = String(v.hedefKullanici || '').trim();
+    v.sunucu   = String(v.sunucu || '').trim();
+    v.guvenlik = String(v.guvenlik || '').trim();
+
+    if(canFinans){
+      v.maliyet = sayi(v.maliyet);
+    }else{
+      /* Yetkisiz rol bu alanı hiç görmedi: düzenlemede mevcut değer korunur,
+         yeni kayıtta sıfırdan açılır. Tahmin yazılmaz. */
+      v.maliyet = duzenle ? kayit.maliyet : 0;
+    }
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      DB.analyses.unshift(Object.assign({ kod:kod }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Ön analiz kaydı oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ veride YAZILI olduğunda ilgili adaya da bir satır düşülür (ders L-13). */
+      if(v.lead){
+        DB.activities.unshift({
+          kayit:v.lead, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Ön analiz ' + kod + ' açıldı', eski:null, yeni:v.durum, tone:'accent', icon:'i-clipboard'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-onanaliz.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Satış ve CRM',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Ön Analiz',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-onanaliz.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
