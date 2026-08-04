@@ -158,9 +158,13 @@ departman/proje/kayıt/şirket bazlı erişim.
 
 ### Wave 10 — Toplantı, Ajanda, Doküman (§19)
 - [x] `app-ajanda.html` — ajanda (gün/hafta/ay görünümü, 8 olay kaynağı, kaynak çipleri, olay drawer'ı, URL senkronu)
-- [ ] Toplantılar (6 tür) + detay (gündem, notlar, kararlar, aksiyonlar)
-- [ ] Toplantı kararından görev oluşturma
-- [ ] Doküman merkezi (16 doküman türü) + klasörleme, etiket, versiyon, yetki, önizleme, dijital onay, son kullanma, yenileme bildirimi
+- [x] `app-toplanti.html` — toplantılar (6 tür)
+- [x] `app-toplanti-karar.html` — kararlar ve aksiyonlar (termin, gecikme, göreve dönüşüm)
+- [x] Toplantı kararından görev oluşturma (tek işlemle, gerçek `DB.tasks` kaydı)
+- [x] `app-dokuman.html` — doküman merkezi
+- [x] `app-dokuman-sure.html` — son kullanma ve yenileme takibi (gizlilik maskeleme)
+- [ ] Toplantı detay ekranı (gündem, notlar, dosyalar)
+- [ ] Doküman versiyon geçmişi ve dijital onay akışı
 
 ### Wave 10b — Finans (menü §11 · PROMPT.md §10, §22)
 - [x] `app-sozlesme.html` — sözleşmeler (6 sekme, 12 kolon, yenileme akışı, finans maskeleme)
