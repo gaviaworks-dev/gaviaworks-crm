@@ -77,15 +77,30 @@ mobil kart görünümü **aynı veri kaynağından** üretilir (ikinci markup ya
   sözleşmesi olmayan kayıtta "sözleşmeyi aç") bu yordamla elenir. `onRender` içinde DOM'dan
   buton silmek **artık gerekmez**.
 
-## 3. Detay Bileşeni — `GV.detail(config)`
+## 3. Detay Ekranı — `GV.tabs(sel)` + kayıt markup'ı
 
-```js
-GV.detail({ record, header:{code,title,status,actions}, tabs:[{key,label,render}],
-            aside:[{label,value}], activity:true })
-```
-- Sekmeli yapı (müşteri 15, proje 22 sekme) · sol içerik + sağ özet paneli
-- Sekme URL hash'inde tutulur (`#tab=projeler`)
-- Alt kısımda aktivite timeline'ı
+> ⚠️ **`GV.detail(config)` diye bir bileşen YOKTUR.** Sözlükte uzun süre yazılıydı ama
+> `ui.js`'te karşılığı hiç olmadı. Detay ekranları **elle markup + `GV.tabs`** ile kurulur.
+> Kalıp: **`app-gorev-detay.html`** — yeni detay ekranı yazan buna bakar.
+
+Detay ekranı liste ekranlarından farklı olarak `buildSkeleton()` kullanmaz; shell markup'ını
+(`.gv-app` > `.gv-rail`/`.gv-menu`/`.gv-divider`/`.gv-overlay`/`.gv-top`/`.gv-main`) kendi yazar.
+
+| Parça | Sınıf / API |
+|---|---|
+| Kayıt başlığı | `.gv-rec-head` > `.gv-rec-id` > `.gv-rec-code` + `GV.badge` + `GV.pri` |
+| Alan listesi | `.gv-dl` > `div` > `dt` + `dd` (boşsa `dd.is-empty`) |
+| Sağ özet paneli | `.gv-summary` > `.gv-summary-row` > `.gv-summary-lbl` + `.gv-summary-val` |
+| Sekmeler | `GV.tabs('#recTabs')` — hash senkronlu (`#tab=projeler`), klavye ok tuşu |
+| Aktivite | `GV.activity(items)` |
+| Onay zinciri | `GV.chain(steps)` |
+| Kayıt yok durumu | `GV.empty({...})` — `?id=` hatalıysa listeye dönüş aksiyonu |
+| Breadcrumb | `GV.shell.crumb(kayitKodu)` |
+
+**Gantt:** `GV.gantt(config)` **de yoktur** — yalnız CSS vardır. Markup elle kurulur:
+`.gv-gantt` > `.gv-gantt-head` + `.gv-gantt-grid` > `.gv-gantt-row` > `.gv-gantt-lbl` +
+`.gv-gantt-track` > `.gv-gantt-bar[.is-ok|.is-warn|.is-danger]`. Çubuk konumu/genişliği
+yüzde olarak inline `style` ile verilir (tek istisna; renk yine token'dan gelir).
 
 ---
 
@@ -179,7 +194,7 @@ GV.report({
 | Kanban | `GV.kanban(config)` | kolon = durum, sürükle-bırak |
 | Takvim | `.gv-cal` ızgarası (`.gv-cal-dow`, `.gv-cal-day[.is-out|.is-today]`, `.gv-cal-num`, `.gv-cal-ev[.is-ok\|warn\|danger\|accent\|purple\|neutral]`) | ay = 7×6; hafta = `.gv-cal.is-week` (tek satır, uzun hücre); gün = `GV.activity` timeline'ı. Örnek: `app-ajanda.html` |
 | Sohbet | `.gv-chatwrap` (`.gv-chatlist` > `.gv-chan`, `.gv-chatmain` > `.gv-chat-head` > `.gv-chat-title`/`.gv-chat-acts`, `.gv-chat-body` > `.gv-msg[.is-me]`, `.gv-msg-react`, `.gv-chat-foot`) | ≤900px'de `body.chat-list-open` kanal listesini açar — geri butonunu sayfa bağlar. Örnek: `app-sohbet.html` |
-| Gantt | `GV.gantt(config)` | milestone + görev çubukları |
+| Gantt | `.gv-gantt` sınıf ailesi (**`GV.gantt()` JS'i YOK**, bkz. §3) | milestone + görev çubukları, markup elle kurulur |
 
 ---
 
