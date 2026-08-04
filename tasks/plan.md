@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 150 / 237 madde tamam (%63) · 34 kısmen · 53 açık** — 6. oturum başı, 2026-08-04
+**İLERLEME: 153 / 237 madde tamam (%65) · 32 kısmen · 52 açık** — 6. oturum, 2026-08-04
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
 > Kaynak: PROMPT.md (29 bölüm) — hiçbir modül/alan/sekme/durum/rol/rapor atlanmadı.
@@ -186,7 +186,8 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-satinalma-teklif.html` — teklif toplama ve karşılaştırma (9 kriter, yan yana matris, tedarikçi seçimi)
 - [~] Sipariş & teslimat (18 alan) + eksik teslim + iade
       → `app-siparis.html` ✅ · `app-siparis-detay.html` ✅ (7 sekme) · **eksik/kısmi teslim ve iade alanı veride yok**
-- [~] Demirbaşa / araca otomatik aktarım → sipariş detayında sekme var, **`DB.assets[].siparis` bağı yok** (VB-07)
+- [x] Demirbaşa / araca otomatik aktarım → `DB.assets[].siparis` yazılı, `SIP-2026-008` üç demirbaş
+      doğurdu, Σ net = siparişin neti (VB-07 kapandı)
 - [x] Tedarikçi listesi + detay + puanlama → `app-tedarikci.html` · `app-tedarikci-detay.html` (5 sekme, iki puan ekseni ayrı)
 
 ### Wave 9 — Destek & Sohbet (§18, §13)
@@ -199,8 +200,8 @@ departman/proje/kayıt/şirket bazlı erişim.
       düşük puan takibi)
 - [x] Ortak katman: `DB.slaPolicies` · `DB.surveys` · `GV.badge` destek durumları
 - [~] Destek talebi detay + form ekranı → `app-destek-detay.html` ✅ (6 sekme) · form bekliyor
-- [~] Destek → görev / hata / geliştirme / değişiklik / ek teklif dönüşümü
-      → göreve dönüştürme çalışıyor; **talep → kayıt bağ alanı veride yok** (VB-05, aşağıda)
+- [x] Destek → görev / hata / geliştirme / değişiklik / ek teklif dönüşümü
+      → `DB.tasks[].destek` · `DB.bugs[].destek` · `DB.changeRequests[].destek` yazılı (VB-05 kapandı)
 - [x] `app-sohbet.html` — sohbet modülü (11 kanal türü, kanal/mesaj arama, tepki, dosya paylaşımı, kanal bilgisi drawer'ı)
 - [x] Sohbetten görev oluşturma (16 alanlı devir → `DB.tasks` + aktivite kaydı + kanala durum mesajı)
 
@@ -295,8 +296,9 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] ticket · sla · chat_channel · chat_message · meeting · decision
 - [~] document · notification · automation · role · permission · activity_log ✅ ·
       **doküman versiyon geçmişi ve onay zinciri koleksiyonu yok** · `DB.activities` kapsamı eksik (UID-16)
-- [ ] Modüller arası bağ alanları veride **yazılı** olacak (L-13): destek→görev/hata/değişiklik ·
-      sipariş→demirbaş · test→hata→teslim→modül→sprint zincirleri (VB-05 / VB-07 / VB-08)
+- [x] Modüller arası bağ alanları veride **yazılı** (L-13): destek→görev/hata/değişiklik ·
+      sipariş→demirbaş · test→hata→teslim→modül→sprint zincirleri (VB-05 / VB-07 / VB-08 kapandı,
+      `canon.js` eksen 15 · 521 kontrol · components.md §9d)
 
 ---
 
