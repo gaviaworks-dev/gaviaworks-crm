@@ -37,7 +37,7 @@
       { ic:'i-funnel',       lbl:'Satış Pipeline',   href:'app-pipeline.html',           screen:'pipeline' },
       { seclbl:'Referans' },
       { ic:'i-users',        lbl:'Yönlendiren Kişiler', href:'app-referans.html',        screen:'referans' },
-      { ic:'i-percent',      lbl:'Komisyon Hakedişleri', href:'app-komisyon.html',       screen:'komisyon' },
+      { ic:'i-percent',      lbl:'Komisyon Kazançları', href:'app-komisyon.html',       screen:'komisyon' },
       { seclbl:'Süreç' },
       { ic:'i-clipboard',    lbl:'Ön Analizler',     href:'app-onanaliz.html',           screen:'onanaliz' },
       { ic:'i-quote',        lbl:'Teklifler',        href:'app-teklif.html',             screen:'teklif', cnt:'teklif' }
@@ -602,9 +602,11 @@
     'app-referans-detay.html',
     'app-komisyon.html',
     'app-onanaliz.html',
+    'app-onanaliz-detay.html',
     'app-musteri-yetkili.html',
     'app-musteri-iletisim.html',
     'app-istalebi.html',
+    'app-istalebi-detay.html',
     'app-destek.html',
     'app-destek-detay.html',
     'app-destek-sla.html',
@@ -671,6 +673,7 @@
     'app-rapor-personel.html',
     'app-rapor-gorev.html',
     'app-dokuman.html',
+    'app-dokuman-detay.html',
     'app-toplanti.html',
     'app-toplanti-detay.html',
     'app-panel-bildirimler.html',
@@ -796,7 +799,31 @@
      (ölçüldü — altı detay ekranında onay/ödeme aksiyonu iz bırakmıyordu, ders L-15).
      `gv:ready` yeniden tetiklenir; ekran kendini güncel veriyle baştan kurar. */
   GV.refresh = function(){
+    /* Mount düğümü TAZE bir kopyayla değiştirilir. Ekranlar `mount`a delege
+       tıklama dinleyicisi bağlıyor; düğüm yerinde kalsaydı her tazelemede bir
+       dinleyici daha birikir ve tek tıklama N modal açardı (ölçüldü: üç
+       tazeleme → 3 modal). Düğümü değiştirmek o dinleyicileri de götürür. */
+    var m = document.getElementById('rec');
+    if(m && m.parentNode){
+      var taze = document.createElement(m.tagName);
+      taze.id = m.id;
+      if(m.className) taze.className = m.className;
+      m.parentNode.replaceChild(taze, m);
+    }
     document.dispatchEvent(new CustomEvent('gv:ready'));
+  };
+
+  /* Kalıcı düğüme (document, window, .gv-page) dinleyici bağlarken KULLANILIR.
+     Aynı `key` ile ikinci kez çağrılırsa önceki dinleyiciyi söker — böylece
+     GV.refresh() sonrası dinleyici birikmez. Mount içindeki düğümlere bağlanan
+     dinleyiciler için gerekmez; onları GV.refresh zaten düşürür. */
+  GV.on = function(el, type, fn, key){
+    if(!el) return;
+    var reg = el.__gvOn || (el.__gvOn = {});
+    var k = key || type;
+    if(reg[k]) el.removeEventListener(type, reg[k]);
+    reg[k] = fn;
+    el.addEventListener(type, fn);
   };
 
   /* ===================================================================
