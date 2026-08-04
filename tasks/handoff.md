@@ -12,18 +12,20 @@
 > oraya yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki
 > **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde ortak katmanda çözülür.
 
-**Güncelleme:** 2026-08-04 (5. oturum sonu) · **100 ekran** · **21 detay ekranı**
-**Ölçü:** 100 ekran · 46.994 satır · ortak katman 8.166 satır (css+js+veri)
+**Güncelleme:** 2026-08-04 (5. oturum sonu) · **103+ ekran** · **24+ detay ekranı**
+**Son tam tarama:** `gate.js` **515 sayfa yüklemesi (103 ekran × 5 rol)** — konsol hatası 0,
+boş sayfa 0, kırık istek 0. `canon.js` 445 kontrol · `dbref.js` 103 ekran · `links.js` temiz ·
+`esc.js` · `mut.js` · `listen.js` (20 detay ekranı) temiz.
 
 ---
 
 ## 1. BU OTURUMDA (5.) NE YAPILDI
 
-### Üretilen 18 detay ekranı
+### Üretilen 21 detay ekranı
 ```
-SATIŞ     app-teklif-detay (7 sekme) · app-referans-detay (6) · app-onanaliz-detay (7)
-MÜŞTERİ   —
-PROJE     (kuyrukta: hata/test/teslim/değişiklik detayları)
+SATIŞ     app-teklif-detay (7 sekme) · app-referans-detay (6) · app-onanaliz-detay (7) ·
+          app-komisyon-detay (6)
+PROJE     app-proje-hata-detay (7) · app-proje-teslim-detay (6)
 GÖREV     app-istalebi-detay (6)
 DESTEK    app-destek-detay (6)
 PERSONEL  app-personel-detay (11) · app-izin-detay (6)
@@ -90,7 +92,7 @@ etiketler** "Komisyon kazancı / Kazanç tarihi"ne çevrildi. **Alan adları** (
 - **`GV.refresh()`** — mutasyon sonrası yeniden çizim. `location.reload()` **yasak**.
 - **`GV.on(el, type, fn, key)`** — kalıcı düğüme tekil dinleyici.
 - `GV.pageHead` artık kendi bastığı `.gv-page-head` bloğunu da değiştirir.
-- BUILT 84 → 101 kayıt.
+- BUILT 84 → 104 kayıt.
 - Rail menüsü: "Komisyon Hakedişleri" → "Komisyon Kazançları".
 
 ### `assets/js/ui.js`
@@ -187,9 +189,10 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 sayma. Bu oturum sonunda **42 hedef** bekliyordu (5. oturum başında 59'du).
 
 ### Kuyruk (öncelik sırasıyla)
-1. **Kalan detay ekranları (4):** `proje-degisiklik-detay` · `proje-test-detay` ·
-   `duyuru-detay` · (`proje-hata-detay` · `proje-teslim-detay` · `komisyon-detay`
-   5. oturum sonunda ajanlardaydı — `links.js` ile teyit et, yoksa yeniden yazdır).
+1. **Kalan detay ekranları:** `duyuru-detay` · (`proje-test-detay` ve
+   `proje-degisiklik-detay` 5. oturum sonunda ajanlardaydı — **`node links.js` ile teyit et**,
+   kuyrukta duruyorlarsa yeniden yazdır). `proje-hata-detay` · `proje-teslim-detay` ·
+   `komisyon-detay` **tamamlandı ve canlıda**.
 2. **Form ekranları — kuyruğun en kalabalık (~35) ve en şablonlaşabilir bölümü.**
    ✅ **`GV.form` GERÇEKTEN VAR** (`ui.js`) ve üç ekran onu çalışır hâlde kullanıyor:
    `app-ayar-profil.html` · `app-ayar-sirket.html` · `app-panel-duyurular.html`.
