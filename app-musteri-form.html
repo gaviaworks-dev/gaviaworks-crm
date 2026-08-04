@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Müşteri Kartı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="musteri" data-screen="musteri">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName
+     crm.js  → DB.customers, DB.sectors, DB.services, DB.refTypes, DB.referrers
+     work.js → DB.projects, DB.activities
+     ops.js  → DB.surveys
+     misc.js → DB.payments -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* ---- Mod: adreste id varsa düzenleme, yoksa yeni kayıt ---- */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.customers.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Müşteri Yönetimi', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen müşteri kartı sistemde yok.',
+      actions:[{ label:'Müşteri listesine dön', cls:'btn-line', href:'app-musteri.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Kayıt bulunamadı',
+      desc:'“' + esc(id) + '” numaralı müşteri kartı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-musteri.html">Müşteri listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Müşteri');
+  document.title = (duzenle ? kayit.kisa + ' · Düzenle' : 'Yeni Müşteri') + ' — GaviaWorks CRM';
+
+  /* ---- Yetki kapısı: sayfa seviyesinde 403 (PROMPT.md §5 · ders L-07) ---- */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Müşteri Yönetimi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Müşteri',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Müşteri listesine dön', cls:'btn-line', href:'app-musteri.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Müşteri kartı düzenleme' : 'Müşteri kartı ekleme') + ' yetkisi rolünüzde tanımlı değil. ' +
+           'Kayıtları görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>' +
+      (duzenle ? '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-eye', title:'Kartı görüntüleyebilirsiniz',
+        text:'Müşteri kartının tüm sekmeleri salt okunur olarak açılabilir.',
+        actions:[{ label:'Müşteri kartını aç', href:'app-musteri-detay.html?id=' + kayit.kod, cls:'btn-line' }]
+      }) + '</div></section>' : '');
+    return;                            /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     TÜRETİLEBİLİR SAYAÇLAR (ders L-08) — forma KONULMAZ.
+     Kaynak eksenler canon.js / components.md §9b ile birebir aynı:
+       aktifProje        → DB.projects, durumu Teslim/Tamamlandı/İptal/Askıda olmayanlar
+       bekleyenTahsilat  → DB.payments, durumu 'Ödendi' olmayanların Σ tutar (BRÜT)
+       memnuniyet        → DB.surveys, yanıtlanmış anketlerin puan ortalaması
+       toplamCiro        → sözleşme netleri toplamı (NET) — ömür boyu
+       projeSayisi       → ömür boyu proje sayacı
+     ================================================================= */
+  var KAPALI_PROJE = ['Teslim','Tamamlandı','İptal','Askıda'];
+  function acikProjeler(k){
+    return DB.projects.filter(function(p){
+      return p.musteri === k && KAPALI_PROJE.indexOf(p.durum) === -1; });
+  }
+  function acikTahsilatlar(k){
+    return DB.payments.filter(function(p){ return p.musteri === k && p.durum !== 'Ödendi'; });
+  }
+  function anketOrtalamasi(k){
+    var s = DB.surveys.filter(function(a){ return a.musteri === k && a.durum === 'Yanıtlandı'; });
+    if(!s.length) return { n:0, ort:null };
+    return { n:s.length, ort:s.reduce(function(t,a){ return t + a.puan; }, 0) / s.length };
+  }
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ
+     ================================================================= */
+  var DURUMLAR   = ['Aktif','Potansiyel','Riskli','Pasif'];
+  var RISKLER    = ['Düşük','Orta','Yüksek'];
+  var BUYUKLUK   = ['10-50','50-100','100-250','250-500','500+'];
+
+  /* Kazanım kaynağı: DB.refTypes taban küme. Mevcut kayıtlarda geçen ama
+     DB.refTypes'ta olmayan değerler (ör. 'Referans') kümeye eklenir ki
+     düzenlemede hiçbir kaydın mevcut değeri listeden düşmesin. */
+  var KAYNAKLAR = DB.refTypes.slice();
+  DB.customers.forEach(function(c){
+    if(c.kaynak && KAYNAKLAR.indexOf(c.kaynak) === -1) KAYNAKLAR.push(c.kaynak);
+  });
+  KAYNAKLAR.sort(function(a,b){ return a.localeCompare(b,'tr'); });
+
+  var YONLENDIRENLER = DB.referrers
+    .filter(function(r){ return r.aktif || (duzenle && r.kod === kayit.referans); })
+    .map(function(r){ return { value:r.kod, label:r.ad + ' · ' + r.tur }; });
+
+  var TEMSILCILER = DB.employees
+    .filter(function(e){ return e.aktif || (duzenle && e.kod === kayit.sorumlu); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+     ================================================================= */
+  var formRec = {};
+  if(duzenle){
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.etiketler = (kayit.etiketler || []).join(', ');
+    /* '—' sentinel'i boş alan demektir, forma metin olarak taşınmaz. */
+    ['sonrakiAksiyon','web','tel','eposta','adres'].forEach(function(k){
+      if(formRec[k] === '—') formRec[k] = '';
+    });
+    (kayit.hizmetler || []).forEach(function(h){
+      var i = DB.services.indexOf(h);
+      if(i !== -1) formRec['hzm' + i] = true;
+    });
+  }else{
+    formRec = {
+      durum:'Potansiyel', risk:'Düşük', aktif:true, arsiv:false,
+      sorumlu:(DB.emp(GV.session.emp) ? GV.session.emp : '')
+    };
+  }
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+
+  var ust = '';
+
+  if(duzenle){
+    var acikPrj  = acikProjeler(kayit.kod);
+    var acikThs  = acikTahsilatlar(kayit.kod);
+    var acikTutar = acikThs.reduce(function(t,p){ return t + p.tutar; }, 0);
+    var anket    = anketOrtalamasi(kayit.kod);
+    var acts     = DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+                     .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); });
+    var son      = acts[0];
+
+    /* ---- İlişkili kayıt uyarısı — sayılar veriden hesaplanır ---- */
+    var bagliParcalar = [];
+    if(acikPrj.length) bagliParcalar.push(acikPrj.length + ' açık proje');
+    if(acikThs.length) bagliParcalar.push(acikThs.length + ' açık tahsilat kaydı');
+
+    var uyariAksiyon = [];
+    if(acikPrj.length) uyariAksiyon.push({ label:'Projeleri gör', href:'app-proje.html', cls:'btn-line' });
+    if(acikThs.length) uyariAksiyon.push({ label:'Tahsilatları gör', href:'app-tahsilat.html', cls:'btn-line' });
+
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      (bagliParcalar.length
+        ? GV.notice({
+            tone:'warn', title:'Bu kayda bağlı açık işler var',
+            text:kayit.unvan + ' kaydının ' + bagliParcalar.join(' ve ') + ' var. Durumu “Pasif” yaparsanız ' +
+                 'bu kayıtlar silinmez ve kapanmaz; müşteri listede “Pasif” sekmesine düşer, açık projeler ve ' +
+                 'tahsilatlar kendi ekranlarından izlenmeye devam eder.',
+            actions:uyariAksiyon })
+        : GV.notice({
+            tone:'ok', title:'Bağlı açık iş yok',
+            text:kayit.unvan + ' kaydında açık proje ya da açık tahsilat bulunmuyor. Pasife alınması başka bir kaydı etkilemez.' })) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı ---- */
+    var riskTon = kayit.risk === 'Yüksek' ? 'is-danger' : kayit.risk === 'Orta' ? 'is-warn' : 'is-ok';
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Kayıt Özeti</h2>' +
+        '<div class="gc-head-acts"><a class="btn btn-line btn-sm" href="app-musteri-detay.html?id=' + kayit.kod + '">' +
+          ico('i-external','ic-sm') + ' Müşteri kartını aç</a></div></div>' +
+      '<div class="gc-body">' + dl([
+        ['Müşteri kodu', '<span class="u-num">' + esc(kayit.kod) + '</span>'],
+        ['Durum', GV.badge(kayit.durum) + (kayit.arsiv ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Risk seviyesi', GV.badge(kayit.risk, riskTon)],
+        ['İlk kayıt tarihi', F.date(kayit.ilkKayit)],
+        ['Son iletişim', F.date(kayit.sonIletisim) + sub('İletişim geçmişi kayıtlarından güncellenir')],
+        ['Son değiştiren', son
+          ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin)
+          : null]
+      ]) + '</div></section>';
+
+    /* ---- Türetilmiş sayaçlar — salt okunur (ders L-08) ---- */
+    var sayacSatirlari = [
+      ['Toplam proje', '<b class="u-num">' + kayit.projeSayisi + '</b>' +
+        sub('Ömür boyu sayaç — kapanmış projeler dahil')],
+      ['Aktif proje', '<b class="u-num">' + acikPrj.length + '</b>' +
+        sub('Proje kayıtlarından hesaplanır — devam eden projeler')]
+    ];
+    if(canFinans){
+      sayacSatirlari.push(['Toplam ciro (KDV hariç)',
+        '<span class="cell-money">' + F.money(kayit.toplamCiro) + '</span>' +
+        sub('Ömür boyu net ciro — sözleşme bedellerinden gelir')]);
+      sayacSatirlari.push(['Bekleyen tahsilat (KDV dahil)',
+        (acikTutar ? '<span class="cell-money u-danger">' + F.money(acikTutar) + '</span>'
+                   : '<span class="u-faint">—</span>') +
+        sub(acikThs.length + ' açık tahsilat kaydının brüt toplamı')]);
+    }
+    sayacSatirlari.push(['Memnuniyet',
+      anket.ort == null
+        ? '<span class="u-faint">Ölçülmedi</span>' + sub('Yanıtlanmış anket yok')
+        : '<b class="u-num">' + F.num(anket.ort, 1) + ' / 5</b>' +
+          sub(anket.n + ' yanıtlanmış anketin ortalaması')]);
+
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-gauge') + 'Türetilmiş Sayaçlar</h2></div>' +
+      '<div class="gc-body">' +
+        GV.notice({ tone:'neutral', icon:'i-lock', title:'Bu değerler bu ekrandan düzenlenemez',
+          text:'Ciro, tahsilat, proje ve memnuniyet sayaçları proje, tahsilat ve anket kayıtlarından hesaplanır. ' +
+               'Değiştirmek için ilgili kaydı kendi ekranından güncelleyin.',
+          actions:[
+            { label:'Projeler', href:'app-proje.html' },
+            { label:'Tahsilatlar', href:'app-tahsilat.html' },
+            { label:'Memnuniyet anketleri', href:'app-destek-memnuniyet.html' }
+          ] }) +
+        (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+          text:'Rolünüzde finansal tutar görüntüleme yetkisi yok; ciro ve tahsilat satırları listelenmiyor.' })) +
+        dl(sayacSatirlari) +
+      '</div></section>';
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni müşteri kartı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki müşteri kodu atanır, ilk kayıt tarihi ' + F.date(DB.today) +
+             ' olarak yazılır ve ciro, tahsilat, proje, memnuniyet sayaçları sıfırdan başlar. ' +
+             'Yetkili, teklif ve proje kayıtları müşteri oluşturulduktan sonra kendi ekranlarından eklenir.' }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-building') + 'Müşteri Bilgileri</h2>' +
+        '<div class="gc-sub">Zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-musteri.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var hizmetAlanlari = DB.services.map(function(s, i){
+    return { key:'hzm' + i, type:'checkbox', label:s, checkLabel:s, cols:4 };
+  });
+
+  var form = GV.form({
+    mount:'#formMount', id:'musteri', record:formRec,
+    sections:[
+      { title:'Kimlik ve unvan', desc:'Müşterinin resmî ticari unvanı ve listelerde görünen kısa adı.', fields:[
+        { key:'unvan', label:'Ticari unvan', type:'text', required:true, cols:6,
+          placeholder:'Örn. Deniz Lojistik A.Ş.' },
+        { key:'kisa', label:'Kısa ad', type:'text', required:true, cols:3,
+          hint:'Liste, kart ve rapor ekranlarında bu ad görünür.' },
+        { key:'buyukluk', label:'Çalışan sayısı', type:'select', options:BUYUKLUK, required:true, cols:3 }
+      ]},
+
+      { title:'Vergi ve fatura bilgisi', desc:'Fatura ve tahsilat ekranları bu alanları okur.', fields:[
+        { key:'vergiNo', label:'Vergi kimlik numarası', type:'text', required:true, cols:6,
+          hint:'10 haneli VKN ya da 11 haneli TC kimlik numarası.',
+          validate:function(v){
+            if(!v) return '';
+            var d = String(v).replace(/\s/g,'');
+            return (/^\d{10}$/.test(d) || /^\d{11}$/.test(d))
+              ? '' : 'Vergi kimlik numarası 10, TC kimlik numarası 11 haneli olmalıdır.';
+          } },
+        { key:'vergiDairesi', label:'Vergi dairesi', type:'text', required:true, cols:6 }
+      ]},
+
+      { title:'İletişim ve adres', desc:'Kurumsal iletişim bilgileri. Kişi bazlı bilgiler Yetkililer ekranında tutulur.', fields:[
+        { key:'tel', label:'Telefon', type:'tel', required:true, cols:4, placeholder:'+90 216 000 00 00' },
+        { key:'eposta', label:'E-posta', type:'email', required:true, cols:4, placeholder:'info@ornek.com' },
+        { key:'web', label:'Web sitesi', type:'text', cols:4, placeholder:'ornek.com',
+          hint:'Protokolsüz yazılır.',
+          validate:function(v){
+            return v && /^https?:\/\//i.test(v)
+              ? 'Web adresi protokolsüz yazılır: ornek.com' : '';
+          } },
+        { key:'adres', label:'Adres', type:'text', cols:12, placeholder:'İlçe, İl' }
+      ]},
+
+      { title:'Ticari ilişki', desc:'Müşterinin sektörü, ilişkiyi yürüten temsilci ve kaydın nereden geldiği.', fields:[
+        { key:'sektor', label:'Sektör', type:'select', options:DB.sectors, required:true, cols:4 },
+        { key:'sorumlu', label:'Müşteri temsilcisi', type:'select', options:TEMSILCILER, required:true, cols:4 },
+        { key:'kaynak', label:'Kazanım kaynağı', type:'select', options:KAYNAKLAR, required:true, cols:4 },
+        { key:'referans', label:'Yönlendiren kayıt', type:'select', options:YONLENDIRENLER, cols:6,
+          placeholder:'Yönlendiren yok',
+          hint:'Referans kaynakları ve yönlendiren kişiler Referans Yönetimi ekranından yönetilir.' }
+      ]},
+
+      { title:'İlgilenilen hizmetler', desc:'Müşterinin ilgilendiği hizmet hatları. Mevcut kayıtlarda bu bilgi henüz doldurulmamış olabilir.',
+        fields:hizmetAlanlari },
+
+      { title:'Risk ve durum', desc:'Müşteri ilişkisinin durumu ve tahsilat riski. Liste sekmeleri bu iki alanı kullanır.', fields:[
+        { key:'durum', label:'Müşteri durumu', type:'select', options:DURUMLAR, required:true, cols:6 },
+        { key:'risk', label:'Risk seviyesi', type:'select', options:RISKLER, required:true, cols:6,
+          hint:'Tahsilat geçmişi ve memnuniyet ölçümüne göre elle belirlenir.' },
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
+          onLabel:'Kayıt aktif — listelerde ve seçim kutularında görünür',
+          validate:function(v, d){
+            if(v && d.durum === 'Pasif') return 'Durumu “Pasif” olan müşteri kaydı aktif işaretlenemez.';
+            if(!v && d.durum === 'Aktif') return 'Durumu “Aktif” olan müşteri kaydı pasif işaretlenemez.';
+            return '';
+          } },
+        { key:'arsiv', label:'Arşiv', type:'switch', cols:6,
+          onLabel:'Arşive alındı — yalnız arşiv görünümünde listelenir',
+          validate:function(v, d){
+            return v && d.durum !== 'Pasif' ? 'Arşive alınan kayıt “Pasif” durumda olmalıdır.' : '';
+          } }
+      ]},
+
+      { title:'Notlar ve takip', desc:'Bir sonraki temas planı ve kartı sınıflandıran serbest etiketler.', fields:[
+        { key:'sonrakiAksiyon', label:'Sonraki aksiyon', type:'text', cols:6,
+          placeholder:'Örn. Q4 bakım yenilemesi görüşmesi',
+          validate:function(v, d){
+            return !v && d.sonrakiTarih ? 'Tarih girildiğinde sonraki aksiyon da yazılmalıdır.' : '';
+          } },
+        { key:'sonrakiTarih', label:'Sonraki aksiyon tarihi', type:'date', cols:6,
+          validate:function(v, d){
+            return !v && d.sonrakiAksiyon ? 'Sonraki aksiyon girildiğinde tarih de girilmelidir.' : '';
+          } },
+        { key:'etiketler', label:'Etiketler', type:'text', cols:12,
+          placeholder:'Kurumsal, Bakım paketi, Referans veren',
+          hint:'Virgülle ayırın. Etiketler liste aramasında ve müşteri kartında görünür.' }
+      ]}
+    ]
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    unvan:'Ticari unvan', kisa:'Kısa ad', buyukluk:'Çalışan sayısı',
+    vergiNo:'Vergi kimlik numarası', vergiDairesi:'Vergi dairesi',
+    tel:'Telefon', eposta:'E-posta', web:'Web sitesi', adres:'Adres',
+    sektor:'Sektör', sorumlu:'Müşteri temsilcisi', kaynak:'Kazanım kaynağı',
+    referans:'Yönlendiren kayıt', hizmetler:'İlgilenilen hizmetler',
+    durum:'Müşteri durumu', risk:'Risk seviyesi', aktif:'Kayıt durumu', arsiv:'Arşiv',
+    sonrakiAksiyon:'Sonraki aksiyon', sonrakiTarih:'Sonraki aksiyon tarihi', etiketler:'Etiketler'
+  };
+
+  /* Karşılaştırma normalleştirmesi: tanımsız ve false aynı kovaya düşer,
+     böylece hiç yazılmamış bir bayrak "değişti" sayılmaz. */
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    if(Array.isArray(x)) return x.join(', ');
+    return String(x);
+  }
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.customers.forEach(function(x){
+      var m = /^MUS-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'MUS-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ if(!/^hzm\d+$/.test(k)) v[k] = raw[k]; });
+
+    v.hizmetler = DB.services.filter(function(s, i){ return !!raw['hzm' + i]; });
+    v.etiketler = String(raw.etiketler || '').split(',').map(function(t){ return t.trim(); })
+                    .filter(function(t){ return !!t; });
+    v.vergiNo = String(raw.vergiNo || '').replace(/\s/g,'');
+    v.sonrakiTarih = raw.sonrakiTarih || null;
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:norm(kayit[k]) || null, yeni:norm(v[k]) || null,
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+      });
+      GV.toast(kayit.kod + ' güncellendi', 'ok');
+    }else{
+      var kod = yeniKod();
+      DB.customers.unshift(Object.assign({
+        kod:kod,
+        ilkKayit:DB.today, sonIletisim:DB.today,
+        projeSayisi:0, aktifProje:0, toplamCiro:0, bekleyenTahsilat:0, memnuniyet:null
+      }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Müşteri kartı oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-musteri.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Müşteri Yönetimi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Müşteri',
+    sub:   duzenle ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır.'
+                   : 'Zorunlu alanlar yıldızla işaretlidir.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-musteri.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir, dinleyici birikmez (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
