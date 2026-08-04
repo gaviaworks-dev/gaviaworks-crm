@@ -338,6 +338,24 @@ DB.purchases.forEach(p => {
   say(p.onayAdim <= p.onayToplam, p.kod + ' onayAdim=' + p.onayAdim + ' > onayToplam=' + p.onayToplam);
 });
 
+/* ---- 17. Kaynak türü sözlüğe bağlıdır ve yönlendirenle çelişmez -----------
+   `kaynak` DAİMA `DB.refTypes` kümesindendir. Sözlükte olmayan bir değer filtreyi
+   sessizce boşa düşürür: 6. oturumda 9 kayıt `'Referans'` taşıyordu ve iki liste
+   ekranının kaynak filtresi bu kayıtları HİÇ eşleştiremiyordu (ekran değil veri
+   düzeltildi, L-08). Yönlendireni yazılı kayıtta `kaynak` o yönlendirenin türüdür. */
+head('17) Kaynak türü ↔ refTypes ↔ yönlendiren');
+[[DB.leads, 'lead'], [DB.customers, 'müşteri']].forEach(([arr, ad]) => {
+  arr.forEach(r => {
+    if (r.kaynak) say(DB.refTypes.indexOf(r.kaynak) !== -1,
+      r.kod + ' (' + ad + ') kaynak="' + r.kaynak + '" → DB.refTypes içinde yok');
+    if (!r.referans) return;
+    const y = DB.referrers.filter(x => x.kod === r.referans)[0];
+    say(!!y, r.kod + ' referans=' + r.referans + ' → DB.referrers içinde yok');
+    if (y) say(r.kaynak === y.tur,
+      r.kod + ' kaynak="' + r.kaynak + '" ≠ yönlendiren ' + y.kod + ' türü "' + y.tur + '"');
+  });
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

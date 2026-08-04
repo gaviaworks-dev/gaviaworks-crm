@@ -282,3 +282,25 @@ teslim kontrolüyle kapanmıştı ama envanter karşılığı **yoktu**. Üç de
 `tutar` alanı (brüt 34.200 **değil**). `canon.js` eksen 15 bu toplamı her turda doğrular.
 İkisi zimmetli (EMP-011, EMP-012), biri depoda — üç sandalyenin üçünü de zimmetlemek
 zimmet sayısını gerçek dışı şişirirdi.
+
+## V-34 · `kaynak` DAİMA `DB.refTypes` kümesindendir ve yönlendirenle çelişmez
+**Olay:** İki form ajanı bağımsız olarak aynı çelişkiyi bildirdi ve ölçüldü: 9 kayıt
+(3 lead + 6 müşteri) `kaynak:'Referans'` taşıyordu ama **`'Referans'` `DB.refTypes`'ta yoktu**.
+Sonuç görünmez bir veri kaybıydı: `app-lead.html` ve `app-musteri.html` kaynak filtreleri
+`options:DB.refTypes` kullandığı için **en kalabalık kaynak grubunu hiç eşleştiremiyordu**.
+Kullanıcı filtreyi uyguluyor, "bu kaynaktan kayıt yok" sonucunu alıyordu — sahte buton değil,
+sessiz eksik sonuç, bu yüzden daha tehlikeli (UID-12 ile aynı aile).
+**Karar (L-08: ekran değil veri düzeltilir):** `refTypes`'a 18. tür **eklenmedi** — PROMPT.md §9
+17 tür tanımlar. Dokuz kaydın da `referans` alanı zaten yazılıydı ve gösterdikleri yönlendirenin
+`tur` değeri geçerliydi; `kaynak` o türe hizalandı (Personel · İş ortağı · Mevcut müşteri ·
+Eski müşteri). Yani `'Referans'` bir tür değil, **bağın kendisiydi** — bağ alanı `referans`tır.
+**İki ek kayıt:** `REF-006` ("Linkedin Kampanyası", `tur:'Dijital reklam'`) üç kayda bağlıydı;
+biri `Dijital reklam`, ikisi `Sosyal medya` diyordu. LinkedIn iki eksende de okunabilir, ama
+**yönlendirenin yazılı `tur`'u tek doğru kaynaktır** — iki kayıt ona hizalandı.
+**Kural:** `canon.js` **eksen 17** her turda doğrular: `kaynak ∈ DB.refTypes` · `referans` yazılı
+kayıtta `kaynak === referrer.tur`. Yeni kaynak türü gerekiyorsa **önce `DB.refTypes`'a** girer.
+
+## V-35 · `MUS-2023-012.vergiNo` bozuk dizeydi
+`'6community'` — 10/11 hane vergi numarası değil, bozuk veri. Müşteri formunun doğrulaması
+yakaladı (kayıt düzeltilmeden kaydedilemiyordu). Kooperatif için geçerli biçimde 10 haneli
+bir numaraya çevrildi (`5320148796`). Prototip verisi olduğu için numara temsilîdir.
