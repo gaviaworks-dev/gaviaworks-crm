@@ -704,7 +704,10 @@
     'app-istalebi-form.html',
     'app-personel-form.html',
     'app-izin-form.html',
-    'app-sozlesme-form.html'
+    'app-sozlesme-form.html',
+    'app-fatura-form.html',
+    'app-siparis-form.html',
+    'app-tedarikci-form.html'
   ];
   GV.built = BUILT;
 
