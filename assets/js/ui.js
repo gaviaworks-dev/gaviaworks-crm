@@ -1408,7 +1408,12 @@
         var el = wrap.querySelector('input,select,textarea');
         if(!el) return;
         wrap.classList.remove('is-invalid');
-        var val = el.type === 'checkbox' ? el.checked : el.value;
+        /* Radyoda `el` grubun İLK düğmesidir; `.value` her zaman dolu olduğu için
+           `required` hiç tetiklenmezdi. Seçili olanı `read()` ile aynı yordamla oku. */
+        var val = el.type === 'checkbox' ? el.checked
+                : el.type === 'radio'
+                    ? ((wrap.querySelector('input[type=radio]:checked') || {}).value || '')
+                    : el.value;
         var msg = '';
 
         if(f.required && (val === '' || val == null || val === false)) msg = f.label + ' zorunlu alandır.';
