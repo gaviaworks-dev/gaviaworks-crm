@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Değişiklik Talepleri — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="degisiklik">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  var canFinans = GV.perm.can('finans');
+
+  /* ---- türetilmiş yardımcılar (canonical veri üzerinden) ---- */
+  /* Açık talep = henüz karara bağlanmamış olan. Bekleme süresi yalnız bunlarda anlamlı. */
+  var acik   = function(d){ return d.durum === 'Onay bekliyor' || d.durum === 'Değerlendiriliyor'; };
+  /* Bugün referansı DB.today — new Date() değil (mock veri sabit tarih ekseninde) */
+  var bekle  = function(d){ var g = F.days(d.tarih); return g == null ? null : -g; };
+  /* Talebin projesine bağlı sözleşme; DB.contracts[].proje eşleşmesinden gelir. */
+  var szl    = function(d){
+    return DB.contracts.filter(function(c){ return c.proje === d.proje && c.aktif !== false; })[0] || null;
+  };
+  var acikGorev = function(kod){
+    return DB.tasks.filter(function(t){
+      return t.proje === kod && t.durum !== 'Tamamlandı' && t.durum !== 'İptal edildi' && t.aktif !== false;
+    }).length;
+  };
+  var topla  = function(a, alan){ return a.reduce(function(s, d){ return s + (d[alan] || 0); }, 0); };
+
+  /* etkiMaliyet KDV HARİÇ (net) — components.md §9b. 0 = "maliyet etkisi yok", boş değil. */
+  var paraHucre = function(d){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    if(!d.etkiMaliyet) return '<span class="u-faint">Maliyet etkisi yok</span>';
+    return '<span class="cell-money">' + F.money(d.etkiMaliyet) + '</span>';
+  };
+
+  var talepEdenler = DB.changeRequests.map(function(d){ return d.talep; })
+                       .filter(function(v, i, a){ return v && a.indexOf(v) === i; });
+
+  GV.pageHead({ eyebrow:'Projeler', title:'Değişiklik Talepleri',
+    actions:[{ label:'Teslimler', icon:'i-package', href:'app-proje-teslim.html' },
+             { label:'Proje Listesi', icon:'i-briefcase', href:'app-proje.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'degisiklik', key:'kod', source:function(){ return DB.changeRequests; },
+    exportName:'degisiklik-talepleri', exportTitle:'Proje Değişiklik Talepleri',
+    pageSize:10, views:['table','card','kanban'],
+    search:{ placeholder:'Talep kodu, başlık, proje, karar veya sorumlu ara',
+             fields:['kod','baslik','proje','talep','durum','karar'],
+             extra:function(d){ return DB.projName(d.proje) + ' ' + DB.empName(d.sorumlu); } },
+    defaultSort:'tarih', defaultDir:'desc',
+
+    kpis:[
+      { label:'Toplam değişiklik talebi', icon:'i-refresh',
+        calc:function(a){ return a.length; } },
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn',
+        calc:function(a){ return a.filter(function(d){ return d.durum === 'Onay bekliyor'; }).length; } },
+      { label:'Toplam süre etkisi', icon:'i-clock', tone:'info', format:F.hours,
+        calc:function(a){ return topla(a, 'etkiSure'); } },
+      { label:'Toplam maliyet etkisi (KDV hariç)', icon:'i-wallet', tone:'accent',
+        format:function(v){ return canFinans ? F.money(v) : '••••••'; },
+        calc:function(a){ return canFinans ? topla(a, 'etkiMaliyet') : 0; } }
+    ],
+
+    tabs:[
+      { key:'tumu',       label:'Tümü',              icon:'i-list',         filter:null },
+      { key:'degerlend',  label:'Değerlendirilenler',icon:'i-eye',          filter:function(d){ return d.durum === 'Değerlendiriliyor'; } },
+      { key:'onaybek',    label:'Onay Bekleyenler',  icon:'i-stamp',        filter:function(d){ return d.durum === 'Onay bekliyor'; } },
+      { key:'onaylanan',  label:'Onaylananlar',      icon:'i-check-circle', filter:function(d){ return d.durum === 'Onaylandı'; } },
+      { key:'red',        label:'Reddedilenler',     icon:'i-x-circle',     filter:function(d){ return d.durum === 'Reddedildi'; } },
+      { key:'kapsamdisi', label:'Kapsam Dışı',       icon:'i-alert',        filter:function(d){ return d.kapsamIci === false; } }
+    ],
+
+    columns:[
+      { key:'kod', label:'Talep', width:'22%', locked:true, cellClass:'cell-wrap',
+        render:function(d){ return '<a class="cell-main" href="app-proje-degisiklik-detay.html?id=' + d.kod + '">' + d.kod + '</a>' +
+          '<span class="cell-sub">' + esc(d.baslik) + '</span>'; },
+        exportValue:function(d){ return d.kod + ' — ' + d.baslik; } },
+      { key:'proje', label:'Proje', cellClass:'cell-wrap',
+        sortValue:function(d){ return DB.projName(d.proje); },
+        render:function(d){ return '<a class="cell-main" href="app-proje-detay.html?id=' + d.proje + '">' + esc(DB.projName(d.proje)) + '</a>' +
+          '<span class="cell-code">' + d.proje + '</span>'; },
+        exportValue:function(d){ return DB.projName(d.proje); } },
+      { key:'talep', label:'Talep eden taraf',
+        render:function(d){ return '<span class="badge is-neutral no-dot">' + esc(d.talep) + '</span>'; } },
+      { key:'tarih', label:'Talep tarihi',
+        render:function(d){ return GV.dateCell(d.tarih, { done:!acik(d) }); } },
+      { key:'bekle', label:'Bekleme süresi', cellClass:'num',
+        sortValue:function(d){ return acik(d) ? bekle(d) : -1; },
+        render:function(d){
+          if(!acik(d)) return '<span class="u-faint">—</span>';
+          var g = bekle(d);
+          return '<span class="u-num' + (g > 7 ? ' u-danger' : g > 3 ? ' u-warn' : '') + '">' + F.num(g) + ' gün</span>'; },
+        exportValue:function(d){ return acik(d) ? bekle(d) : ''; } },
+      { key:'durum', label:'Durum', render:function(d){ return GV.badge(d.durum); } },
+      { key:'kapsamIci', label:'Kapsam',
+        sortValue:function(d){ return d.kapsamIci ? 1 : 0; },
+        render:function(d){ return d.kapsamIci
+          ? GV.badge('Kapsam içi', 'is-ok')
+          : GV.badge('Kapsam dışı', 'is-warn'); },
+        exportValue:function(d){ return d.kapsamIci ? 'Kapsam içi' : 'Kapsam dışı'; } },
+      { key:'etkiSure', label:'Süre etkisi (saat)', cellClass:'num',
+        render:function(d){ return d.etkiSure
+          ? '<span class="u-num">' + F.hours(d.etkiSure) + '</span>'
+          : '<span class="u-faint">Süre etkisi yok</span>'; },
+        exportValue:function(d){ return d.etkiSure || 0; } },
+      { key:'etkiMaliyet', label:'Maliyet etkisi (KDV hariç)', cellClass:'num',
+        render:paraHucre,
+        exportValue:function(d){ return canFinans ? d.etkiMaliyet : ''; } },
+      { key:'karar', label:'Karar', cellClass:'cell-wrap',
+        render:function(d){ return d.karar && d.karar !== '—'
+          ? '<span class="cell-sub">' + esc(d.karar) + '</span>'
+          : '<span class="u-faint">Karar yazılmadı</span>'; } },
+      { key:'sorumlu', label:'Sorumlu',
+        sortValue:function(d){ return DB.empName(d.sorumlu); },
+        render:function(d){ return GV.user(d.sorumlu, { sm:true }); },
+        exportValue:function(d){ return DB.empName(d.sorumlu); } },
+      { key:'sozlesme', label:'Projenin sözleşmesi', cellClass:'cell-wrap',
+        sortValue:function(d){ var c = szl(d); return c ? c.kod : ''; },
+        render:function(d){
+          var c = szl(d);
+          if(!c) return '<span class="u-faint">Sözleşme yok</span>';
+          return '<a class="cell-main" href="app-sozlesme.html?q=' + c.kod + '">' + c.kod + '</a>' +
+                 '<span class="cell-sub">' + esc(c.ad) + '</span>'; },
+        exportValue:function(d){ var c = szl(d); return c ? c.kod : ''; } },
+      { key:'acikGorev', label:'Projedeki açık görev', cellClass:'num', visible:false,
+        sortValue:function(d){ return acikGorev(d.proje); },
+        render:function(d){
+          var n = acikGorev(d.proje);
+          if(!n) return '<span class="u-faint">Yok</span>';
+          return '<a href="app-gorev.html?q=' + d.proje + '" title="' + d.proje + ' açık görevleri">' +
+                 '<span class="badge is-info no-dot">' + n + ' açık</span></a>'; },
+        exportValue:function(d){ return acikGorev(d.proje); } }
+    ],
+
+    filters:[
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'durum', label:'Durum', type:'multi',
+        options:['Değerlendiriliyor','Onay bekliyor','Onaylandı','Reddedildi'] },
+      { key:'talep', label:'Talep eden taraf', type:'select', options:talepEdenler },
+      { key:'kapsamIci', label:'Kapsam', type:'select', options:['Kapsam içi','Kapsam dışı'],
+        test:function(d, v){ return v === 'Kapsam içi' ? d.kapsamIci === true : d.kapsamIci === false; } },
+      { key:'tarih', label:'Talep tarihi', type:'daterange' },
+      { key:'maliyet', label:'Maliyet etkisi (KDV hariç)', type:'select',
+        options:['Maliyet etkisi yok','1 – 50.000 ₺','50.001 – 100.000 ₺','100.000 ₺ üzeri'],
+        test:function(d, v){
+          var m = d.etkiMaliyet || 0;
+          if(v === 'Maliyet etkisi yok')      return m === 0;
+          if(v === '1 – 50.000 ₺')            return m > 0 && m <= 50000;
+          if(v === '50.001 – 100.000 ₺')      return m > 50000 && m <= 100000;
+          return m > 100000; } },
+      { key:'sureEsik', label:'Süre etkisi eşiği', type:'select',
+        options:['8 saatten fazla','16 saatten fazla','40 saatten fazla'],
+        test:function(d, v){ return (d.etkiSure || 0) > parseInt(v, 10); } }
+    ],
+
+    /* Vurgu yalnız 7 günden uzun süredir karara bağlanmamış taleplerde — her açık
+       talepte değil; aksi hâlde listenin yarısı kırmızıya boyanır ve sinyali kaybolur. */
+    rowClass:function(d){ return acik(d) && bekle(d) > 7 ? 'is-late' : ''; },
+
+    kanban:{ groupBy:'durum',
+      columns:['Değerlendiriliyor','Onay bekliyor','Onaylandı','Reddedildi'],
+      card:function(d){
+        return '<a class="gv-kcard-title" href="app-proje-degisiklik-detay.html?id=' + d.kod + '">' + esc(d.baslik) + '</a>' +
+          '<div class="gv-kcard-meta"><span>' + esc(DB.projName(d.proje)) + '</span>' +
+          (d.kapsamIci ? GV.badge('Kapsam içi','is-ok') : GV.badge('Kapsam dışı','is-warn')) + '</div>' +
+          '<div class="gv-kcard-meta"><span>' + F.hours(d.etkiSure) + '</span>' + paraHucre(d) + '</div>' +
+          '<div class="gv-kcard-meta">' + GV.user(d.sorumlu, { sm:true }) +
+          (acik(d) ? '<span class="u-xs u-faint">' + F.num(bekle(d)) + ' gündür bekliyor</span>' : '') + '</div>'; } },
+
+    mobile:function(d){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-degisiklik-detay.html?id=' + d.kod + '">' + d.kod + '</a>' +
+        '<span class="u-num">' + F.hours(d.etkiSure) + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(DB.projName(d.proje)) + ' · ' + esc(d.baslik) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-wallet','ic-sm') + 'Maliyet etkisi (KDV hariç): ' + paraHucre(d) + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(d.durum) +
+        (d.kapsamIci ? GV.badge('Kapsam içi','is-ok') : GV.badge('Kapsam dışı','is-warn')) + '</span>' +
+        GV.dateCell(d.tarih, { done:!acik(d) }) + '</div>';
+    },
+
+    card:function(d){
+      var c = szl(d);
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-proje-degisiklik-detay.html?id=' + d.kod + '">' + esc(d.baslik) + '</a>' +
+        '<div class="cell-code">' + d.kod + ' · ' + esc(DB.projName(d.proje)) + '</div></div>' + GV.badge(d.durum) + '</div>' +
+        '<div class="gv-rcard-meta">' +
+        (d.kapsamIci ? GV.badge('Kapsam içi','is-ok') : GV.badge('Kapsam dışı','is-warn')) +
+        '<span>' + esc(d.talep) + ' talebi</span>' +
+        '<span>' + F.dateShort(d.tarih) + '</span></div>' +
+        '<div class="gv-rcard-meta"><span>Süre etkisi: ' + F.hours(d.etkiSure) + '</span>' +
+        '<span>Maliyet etkisi (KDV hariç): ' + paraHucre(d) + '</span></div>' +
+        '<div class="cell-sub">' + (d.karar && d.karar !== '—' ? esc(d.karar) : 'Karar yazılmadı') + '</div>' +
+        '<div class="gv-rcard-foot">' + GV.user(d.sorumlu, { sm:true }) +
+        (c ? '<a href="app-sozlesme.html?q=' + c.kod + '">' + c.kod + '</a>'
+           : '<span class="u-faint">Sözleşme yok</span>') + '</div>';
+    },
+
+    rowActions:[
+      { key:'proje', icon:'i-briefcase', label:'Projeyi aç',
+        href:function(d){ return 'app-proje-detay.html?id=' + d.proje; } },
+      /* Sözleşmesi olmayan projede bu aksiyon hiç basılmaz (components.md rowActions.show) */
+      { key:'sozlesme', icon:'i-file-check', label:'Sözleşmeyi aç',
+        show:function(d){ return !!szl(d); },
+        href:function(d){ var c = szl(d); return c ? 'app-sozlesme.html?q=' + c.kod : ''; } },
+      { key:'onayla', icon:'i-stamp', label:'Talebi onayla',
+        show:function(d){ return acik(d); },
+        run:function(d, refresh){
+          if(!GV.perm.can('onay')){ GV.toast('Değişiklik talebi onaylama yetkiniz yok.', 'danger'); return; }
+          GV.confirm({ title:'Değişiklik Talebini Onayla',
+            text:d.kod + ' · ' + d.baslik + ' — süre etkisi ' + F.hours(d.etkiSure) +
+                 (canFinans ? ', maliyet etkisi ' + (d.etkiMaliyet ? F.money(d.etkiMaliyet) + ' (KDV hariç)' : 'yok') : '') +
+                 '. Onaylandı olarak işaretlensin mi?',
+            tone:'warn' })
+            .then(function(ok){
+              if(!ok) return;
+              d.durum = 'Onaylandı';
+              if(!d.karar || d.karar === '—') d.karar = 'Onaylandı — plana işlenecek';
+              GV.toast(d.kod + ' onaylandı', 'ok');
+              refresh();
+            }); } },
+      { key:'ekteklif', icon:'i-quote', label:'Ek teklif oluştur',
+        show:function(d){ return d.kapsamIci === false && d.durum === 'Onaylandı'; },
+        run:function(d){
+          if(!GV.perm.can('ekle')){ GV.toast('Teklif oluşturma yetkiniz yok.', 'danger'); return; }
+          GV.confirm({ title:'Ek Teklif Oluştur',
+            text:d.kod + ' kapsam dışı ve onaylanmış bir talep. ' + DB.projName(d.proje) +
+                 ' projesi için ek teklif hazırlamak üzere teklif ekranına gidilsin mi?',
+            tone:'warn' })
+            .then(function(ok){ if(ok) location.href = 'app-teklif.html'; }); } }
+    ],
+
+    bulk:[
+      { key:'onayla', label:'Onayla', icon:'i-stamp',
+        confirm:'Seçili {n} değişiklik talebi Onaylandı olarak işaretlenecek. Karara bağlanmış talepler atlanır.',
+        run:function(ids){
+          if(!GV.perm.can('onay')){ GV.toast('Değişiklik talebi onaylama yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.changeRequests.forEach(function(d){
+            if(ids.indexOf(d.kod) !== -1 && acik(d)){
+              d.durum = 'Onaylandı';
+              if(!d.karar || d.karar === '—') d.karar = 'Onaylandı — plana işlenecek';
+              n++;
+            }
+          });
+          GV.toast(n ? (n + ' değişiklik talebi onaylandı' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hiçbiri karar bekleyen talep değil', n ? 'ok' : 'warn');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'Seçili {n} değişiklik talebi arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Arşivleme yetkiniz yok.', 'danger'); return; }
+          DB.changeRequests.forEach(function(d){ if(ids.indexOf(d.kod) !== -1) d.aktif = false; });
+          GV.toast(ids.length + ' değişiklik talebi arşivlendi', 'ok');
+        } }
+    ],
+
+    emptyState:{ icon:'i-refresh', title:'Bu görünümde değişiklik talebi yok',
+      desc:'Müşteri ya da ekip sözleşme kapsamının dışına çıkan bir istek ilettiğinde talep burada açılır; kapsam dışı ve onaylanan talepler ek tekliften yürür.',
+      action:'<a class="btn btn-acc" href="app-proje-degisiklik-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Değişiklik Talebi</a>' }
+  });
+
+});
+</script>
+</body>
+</html>
+

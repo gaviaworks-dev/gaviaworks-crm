@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hatalar — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="hata">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+
+  /* ---- türetilmiş yardımcılar (canonical veri üzerinden) ---- */
+  var modul    = function(kod){ return DB.projectModules.filter(function(m){ return m.kod === kod; })[0] || null; };
+  var modulAd  = function(kod){ var m = modul(kod); return m ? m.ad : null; };
+  var gorev    = function(kod){ return DB.tasks.filter(function(t){ return t.kod === kod; })[0] || null; };
+  var acik     = function(b){ return b.durum !== 'Kapandı'; };
+  var agir     = function(b){ return b.siddet === 'Kritik' || b.siddet === 'Yüksek'; };
+  var bagsiz   = function(b){ return !b.gorev; };
+
+  /* Gün hesabı DB.today eksenine oturur — new Date() ile "bugün" alınmaz.
+     Kapanmış hatada süre = bulunma → çözüm; açık hatada = bulunmadan bugüne. */
+  var sure = function(b){
+    var d0 = F.days(b.bulunma);
+    if(d0 == null) return null;
+    return (b.cozum ? F.days(b.cozum) : 0) - d0;
+  };
+  var ortCozum = function(list){
+    var c = list.filter(function(b){ return b.cozum; });
+    if(!c.length) return null;
+    return c.reduce(function(s, b){ return s + sure(b); }, 0) / c.length;
+  };
+  /* DB.today'e gün ekler — referans yine sabit veri ekseni, sistem saati değil. */
+  var addDays = function(iso, n){
+    var d = new Date(String(iso).slice(0,10) + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0,10);
+  };
+
+  /* Şiddet değerleri veriden türetilir ve DB.priorities sırasına oturtulur —
+     DB.impacts ('Çok yüksek' … ) hata şiddeti ekseniyle aynı değer kümesi değildir. */
+  var siddetler = DB.priorities.filter(function(p){
+    return DB.bugs.some(function(b){ return b.siddet === p; });
+  });
+  var kisiOpts = function(alan){
+    return DB.bugs.map(function(b){ return b[alan]; })
+      .filter(function(v, i, a){ return v && a.indexOf(v) === i; })
+      .map(function(k){ return { value:k, label:DB.empName(k) }; });
+  };
+
+  /* Yeni görev kodu: dizi uzunluğundan değil, mevcut EN BÜYÜK numaradan türetilir. */
+  var yeniGorevKodu = function(){
+    var max = 0;
+    DB.tasks.forEach(function(t){
+      var m = /^GRV-\d{4}-(\d+)$/.exec(t.kod || '');
+      if(m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'GRV-' + String(DB.today).slice(0,4) + '-' + (max + 1);
+  };
+  /* Hata şiddeti → görev etki ekseni (DB.impacts). 'Kritik' şiddetin etki karşılığı
+     'Çok yüksek'tir; diğer üç değer iki eksende de aynı adı taşır. */
+  var etkiKarsiligi = function(siddet){ return siddet === 'Kritik' ? 'Çok yüksek' : siddet; };
+  var terminGunu = { 'Kritik':1, 'Yüksek':3, 'Orta':7, 'Düşük':14 };
+
+  GV.pageHead({ eyebrow:'Projeler', title:'Hatalar',
+    actions:[{ label:'Testler', icon:'i-flask', href:'app-proje-test.html' },
+             { label:'Proje Listesi', icon:'i-briefcase', href:'app-proje.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'hata', key:'kod', source:function(){ return DB.bugs; },
+    exportName:'hatalar', exportTitle:'Proje Hata Kayıtları', pageSize:10,
+    views:['table','card','kanban'],
+    search:{ placeholder:'Hata kodu, başlık, proje, modül veya ortam ara',
+             fields:['kod','baslik','proje','modul','siddet','oncelik','durum','ortam','gorev'],
+             extra:function(b){ return DB.projName(b.proje) + ' ' + (modulAd(b.modul) || '') + ' ' +
+                                       DB.empName(b.bulan) + ' ' + DB.empName(b.sorumlu); } },
+    defaultSort:'bulunma', defaultDir:'desc',
+
+    kpis:[
+      { label:'Toplam hata kaydı', icon:'i-bug',
+        calc:function(a){ return a.length; } },
+      { label:'Açık hata', icon:'i-alert-circle', tone:'warn',
+        calc:function(a){ return a.filter(acik).length; } },
+      { label:'Kritik ve yüksek şiddet', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(agir).length; },
+        meta:function(a){ return a.filter(function(b){ return agir(b) && acik(b); }).length + ' tanesi açık'; },
+        metaTone:'danger' },
+      { label:'Ortalama çözüm süresi', icon:'i-timer', tone:'ok',
+        format:function(v){ return v == null ? '—' : F.num(v, v % 1 ? 1 : 0) + ' gün'; },
+        calc:function(a){ return ortCozum(a); },
+        meta:function(a){ var c = a.filter(function(b){ return b.cozum; }).length;
+                          return c ? c + ' kapanmış kayıttan' : 'Kapanmış kayıt yok'; } }
+    ],
+
+    tabs:[
+      { key:'tumu',   label:'Tümü',                 icon:'i-list',         filter:null },
+      { key:'acik',   label:'Açık',                 icon:'i-alert-circle', filter:function(b){ return b.durum === 'Açık'; } },
+      { key:'devam',  label:'Devam Edenler',        icon:'i-play',         filter:function(b){ return b.durum === 'Devam ediyor'; } },
+      { key:'kapali', label:'Kapananlar',           icon:'i-check-circle', filter:function(b){ return b.durum === 'Kapandı'; } },
+      { key:'agir',   label:'Kritik ve Yüksek',     icon:'i-alert',        filter:agir },
+      { key:'bagsiz', label:'Göreve Bağlanmamış',   icon:'i-link',         filter:bagsiz }
+    ],
+
+    columns:[
+      { key:'kod', label:'Hata', width:'22%', locked:true, cellClass:'cell-wrap',
+        render:function(b){ return '<a class="cell-main" href="app-proje-hata-detay.html?id=' + b.kod + '">' + b.kod + '</a>' +
+          '<span class="cell-sub">' + esc(b.baslik) + '</span>'; },
+        exportValue:function(b){ return b.kod + ' — ' + b.baslik; } },
+      { key:'proje', label:'Proje', cellClass:'cell-wrap',
+        sortValue:function(b){ return DB.projName(b.proje); },
+        render:function(b){ return '<a class="cell-main" href="app-proje-detay.html?id=' + b.proje + '">' + esc(DB.projName(b.proje)) + '</a>' +
+          '<span class="cell-code">' + b.proje + '</span>'; },
+        exportValue:function(b){ return DB.projName(b.proje); } },
+      { key:'modul', label:'Modül', cellClass:'cell-wrap',
+        sortValue:function(b){ return modulAd(b.modul) || ''; },
+        render:function(b){
+          var ad = modulAd(b.modul);
+          if(!ad) return '<span class="u-faint">Modülsüz</span>';
+          return '<span class="cell-main">' + esc(ad) + '</span><span class="cell-code">' + b.modul + '</span>'; },
+        exportValue:function(b){ return modulAd(b.modul) || ''; } },
+      { key:'siddet', label:'Şiddet',
+        sortValue:function(b){ return DB.priorities.indexOf(b.siddet); },
+        render:function(b){ return GV.pri(b.siddet); } },
+      { key:'oncelik', label:'Öncelik',
+        sortValue:function(b){ return DB.priorities.indexOf(b.oncelik); },
+        render:function(b){ return GV.pri(b.oncelik); } },
+      { key:'durum', label:'Durum', render:function(b){ return GV.badge(b.durum); } },
+      { key:'bulan', label:'Bulan',
+        sortValue:function(b){ return DB.empName(b.bulan); },
+        render:function(b){ return GV.user(b.bulan, { sm:true }); },
+        exportValue:function(b){ return DB.empName(b.bulan); } },
+      { key:'sorumlu', label:'Sorumlu',
+        sortValue:function(b){ return DB.empName(b.sorumlu); },
+        render:function(b){ return GV.user(b.sorumlu, { sm:true }); },
+        exportValue:function(b){ return DB.empName(b.sorumlu); } },
+      { key:'bulunma', label:'Bulunma tarihi',
+        render:function(b){ return GV.dateCell(b.bulunma, { done:!acik(b) }) +
+          '<span class="cell-sub">' + F.rel(b.bulunma) + '</span>'; },
+        exportValue:function(b){ return F.date(b.bulunma); } },
+      { key:'sure', label:'Açık kalma / çözüm süresi', cellClass:'num',
+        sortValue:function(b){ var s = sure(b); return s == null ? -1 : s; },
+        render:function(b){
+          var s = sure(b);
+          if(s == null) return '<span class="u-faint">—</span>';
+          if(b.cozum) return '<span class="u-num u-ok">' + F.num(s) + ' gün</span>' +
+            '<span class="cell-sub">Çözüm: ' + F.dateShort(b.cozum) + '</span>';
+          var t = s > 7 ? ' u-danger' : s > 3 ? ' u-warn' : '';
+          return '<span class="u-num' + t + '">' + F.num(s) + ' gün</span>' +
+                 '<span class="cell-sub">Hâlâ açık</span>'; },
+        exportValue:function(b){ var s = sure(b); return s == null ? '' : s; } },
+      { key:'ortam', label:'Ortam',
+        render:function(b){ return b.ortam ? '<span class="tag">' + esc(b.ortam) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'tekrarlanabilir', label:'Tekrarlanabilirlik',
+        render:function(b){ return b.tekrarlanabilir ? '<span class="tag">' + esc(b.tekrarlanabilir) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'gorev', label:'Bağlı görev', cellClass:'cell-wrap',
+        sortValue:function(b){ return b.gorev || ''; },
+        render:function(b){
+          if(!b.gorev) return '<span class="badge is-warn no-dot">Bağlanmadı</span>';
+          var g = gorev(b.gorev);
+          return '<a class="cell-main" href="app-gorev-detay.html?id=' + b.gorev + '">' + b.gorev + '</a>' +
+            (g ? '<span class="cell-sub">' + esc(g.baslik) + '</span>' : ''); },
+        exportValue:function(b){ return b.gorev || 'Bağlanmadı'; } },
+      { key:'projeDurum', label:'Proje durumu', visible:false,
+        sortValue:function(b){ var p = DB.proj(b.proje); return p ? p.durum : ''; },
+        render:function(b){ var p = DB.proj(b.proje); return p ? GV.badge(p.durum) : '<span class="u-faint">—</span>'; },
+        exportValue:function(b){ var p = DB.proj(b.proje); return p ? p.durum : ''; } }
+    ],
+
+    filters:[
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'modul', label:'Modül', type:'select',
+        options:DB.projectModules.map(function(m){ return { value:m.kod, label:m.ad + ' · ' + DB.projName(m.proje) }; }) },
+      { key:'siddet', label:'Şiddet', type:'multi', options:siddetler },
+      { key:'oncelik', label:'Öncelik', type:'multi', options:DB.priorities },
+      { key:'durum', label:'Durum', type:'multi', options:['Açık','Devam ediyor','Kapandı'] },
+      { key:'sorumlu', label:'Sorumlu', type:'select', options:kisiOpts('sorumlu') },
+      { key:'bulan', label:'Bulan', type:'select', options:kisiOpts('bulan') },
+      { key:'bulunma', label:'Bulunma tarihi', type:'daterange' },
+      { key:'bagsiz', label:'Görev bağlantısı', type:'select',
+        options:[{ value:'yok', label:'Yalnız göreve bağlanmamışlar' }, { value:'var', label:'Yalnız göreve bağlananlar' }],
+        test:function(b, v){ return v === 'yok' ? bagsiz(b) : !bagsiz(b); } }
+    ],
+
+    /* Satır vurgusu yalnız AÇIK ve kritik şiddetli hatalarda — kapanmış kritik kayıt
+       kırmızı kalırsa liste sinyal değerini yitirir. */
+    rowClass:function(b){ return b.siddet === 'Kritik' && acik(b) ? 'is-late' : ''; },
+
+    kanban:{ groupBy:'durum', columns:['Açık','Devam ediyor','Kapandı'],
+      card:function(b){
+        return '<a class="gv-kcard-title" href="app-proje-hata-detay.html?id=' + b.kod + '">' + esc(b.baslik) + '</a>' +
+          '<div class="gv-kcard-meta"><span>' + b.kod + ' · ' + esc(DB.projName(b.proje)) + '</span>' + GV.pri(b.siddet) + '</div>' +
+          '<div class="gv-kcard-meta">' + GV.user(b.sorumlu, { sm:true }) +
+          (bagsiz(b) ? '<span class="badge is-warn no-dot">Görevsiz</span>'
+                     : '<span class="cell-code">' + b.gorev + '</span>') + '</div>'; } },
+
+    mobile:function(b){
+      var s = sure(b);
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-hata-detay.html?id=' + b.kod + '">' + esc(b.baslik) + '</a>' +
+        GV.pri(b.siddet) + '</div>' +
+        '<div class="gv-mrow-code">' + b.kod + ' · ' + esc(DB.projName(b.proje)) + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + GV.ico('i-layers','ic-sm') + esc(modulAd(b.modul) || 'Modülsüz') + '</span>' +
+        '<span>' + GV.ico('i-server', 'ic-sm') + esc(b.ortam || '—') + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(b.durum) +
+        (bagsiz(b) ? '<span class="badge is-warn no-dot">Görevsiz</span>' : '') +
+        (s == null ? '' : '<span class="badge no-dot' + (!b.cozum && s > 7 ? ' is-danger' : ' is-neutral') + '">' + s + ' gün</span>') +
+        '</span>' + GV.dateCell(b.bulunma, { done:!acik(b) }) + '</div>';
+    },
+
+    card:function(b){
+      var s = sure(b);
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-proje-hata-detay.html?id=' + b.kod + '">' + esc(b.baslik) + '</a>' +
+        '<div class="cell-code">' + b.kod + ' · ' + esc(DB.projName(b.proje)) + '</div></div>' + GV.badge(b.durum) + '</div>' +
+        '<div class="gv-rcard-meta">' + GV.pri(b.siddet) +
+        '<span>' + esc(modulAd(b.modul) || 'Modülsüz') + '</span>' +
+        '<span>' + esc(b.ortam || '—') + '</span></div>' +
+        '<div class="gv-rcard-meta"><span>Bulunma: ' + F.dateShort(b.bulunma) + '</span>' +
+        '<span>' + (s == null ? '—' : b.cozum ? s + ' günde çözüldü' : s + ' gündür açık') + '</span></div>' +
+        '<div class="gv-rcard-foot">' + GV.user(b.sorumlu, { sm:true }) +
+        (bagsiz(b) ? '<span class="badge is-warn no-dot">Göreve bağlanmadı</span>'
+                   : '<a class="cell-code" href="app-gorev-detay.html?id=' + b.gorev + '">' + b.gorev + '</a>') + '</div>';
+    },
+
+    rowActions:[
+      { key:'proje', icon:'i-briefcase', label:'Projeyi aç',
+        href:function(b){ return 'app-proje-detay.html?id=' + b.proje; } },
+      { key:'gorevAc', icon:'i-tasks', label:'Bağlı görevi aç',
+        show:function(b){ return !!b.gorev; },
+        href:function(b){ return 'app-gorev-detay.html?id=' + b.gorev; } },
+      { key:'gorevOlustur', icon:'i-plus', label:'Bu hatadan görev oluştur',
+        show:function(b){ return bagsiz(b); },
+        run:function(b, refresh){
+          if(!GV.perm.can('ekle')){ GV.toast('Görev oluşturma yetkiniz yok.', 'danger'); return; }
+          GV.confirm({ title:'Hatadan Görev Oluştur', tone:'warn',
+            text:b.kod + ' · ' + b.baslik + ' için hata görevi açılacak, hata bu göreve bağlanacak.' })
+            .then(function(ok){
+              if(!ok) return;
+              var kod = yeniGorevKodu();
+              var p = DB.proj(b.proje);
+              var ben = (GV.session && GV.session.emp) || b.bulan;
+              DB.tasks.push({
+                kod:kod, baslik:b.baslik, tur:'Hata',
+                proje:b.proje, modul:b.modul, sprint:null,
+                musteri:p ? p.musteri : null, dep:null,
+                olusturan:ben, veren:ben, sorumlu:b.sorumlu, yardimci:[], izleyiciler:[b.bulan],
+                kontrolEden:b.bulan, onaylayan:p ? p.pm : null,
+                oncelik:b.oncelik, etki:etkiKarsiligi(b.siddet), aciliyet:b.oncelik,
+                durum:'Atandı', baslangic:DB.today,
+                termin:addDays(DB.today, terminGunu[b.siddet] || 7), tamamlanma:null,
+                tahminiSure:null, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
+                aciklama:b.kod + ' hata kaydından oluşturuldu. Ortam: ' + (b.ortam || '—') +
+                         ' · Tekrarlanabilirlik: ' + (b.tekrarlanabilir || '—') + '.',
+                amac:'Hata kaydının giderilmesi',
+                kabulKriteri:'Hata bildirilen ortamda tekrarlanamıyor, regresyon testi temiz',
+                beklenenCikti:'Düzeltme + test kaydı',
+                etiketler:['Hata', b.siddet], aktif:true
+              });
+              b.gorev = kod;
+              GV.toast(kod + ' oluşturuldu · ' + b.kod + ' bu göreve bağlandı', 'ok');
+              refresh();
+            });
+        } },
+      { key:'test', icon:'i-flask', label:'Projenin testlerini gör',
+        href:function(b){ return 'app-proje-test.html?q=' + b.proje; } }
+    ],
+
+    bulk:[
+      { key:'kapat', label:'Kapandı İşaretle', icon:'i-check-circle',
+        confirm:'Seçili {n} hata kaydı Kapandı olarak işaretlenecek ve çözüm tarihi bugün yazılacak. Zaten kapalı kayıtlar atlanır.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Hata kaydını güncelleme yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.bugs.forEach(function(b){
+            if(ids.indexOf(b.kod) !== -1 && acik(b)){ b.durum = 'Kapandı'; b.cozum = DB.today; n++; }
+          });
+          GV.toast(n ? (n + ' hata kapatıldı' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hepsi zaten kapalı', n ? 'ok' : 'warn');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'Seçili {n} hata kaydı arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Arşivleme yetkiniz yok.', 'danger'); return; }
+          DB.bugs.forEach(function(b){ if(ids.indexOf(b.kod) !== -1) b.aktif = false; });
+          GV.toast(ids.length + ' hata kaydı arşivlendi', 'ok');
+        } }
+    ],
+
+    emptyState:{ icon:'i-bug', title:'Bu görünümde hata kaydı yok',
+      desc:'Test koşumlarında başarısız olan senaryolar ve müşteri bildirimleri hata kaydına dönüşünce burada listelenir.',
+      action:'<a class="btn btn-acc" href="app-proje-hata-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Hata Kaydı</a>' }
+  });
+
+});
+</script>
+</body>
+</html>

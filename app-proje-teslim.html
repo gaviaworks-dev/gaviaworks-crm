@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Teslimler — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="teslim">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  var canFinans = GV.perm.can('finans');
+
+  /* ---- türetilmiş yardımcılar (canonical veri üzerinden) ---- */
+  var projAd    = function(kod){ return DB.projName(kod); };
+  var musKod    = function(t){ var p = DB.proj(t.proje); return p ? p.musteri : null; };
+  var musAd     = function(t){ var p = DB.proj(t.proje); return p ? p.musteriAd : '—'; };
+
+  /* Teslim ↔ taksit bağı VERİDE yazılıdır (DB.deliveries[].milestone) — tarih
+     yakınlığından tahmin edilmez (lessons L-13: bağlantı alanı tekilse veriye yazılır). */
+  var taksitOf  = function(t){
+    return t.milestone ? (DB.milestones.filter(function(m){ return m.kod === t.milestone; })[0] || null) : null;
+  };
+  var faturaOf  = function(ms){
+    if(!ms) return null;
+    return DB.invoices.filter(function(i){ return i.milestone === ms.kod; })[0] || null;
+  };
+
+  var onayBekler = function(t){ return t.musteriOnay === 'Bekliyor'; };
+  var onaylandi  = function(t){ return t.musteriOnay === 'Onaylandı'; };
+  /* Geciken = kaydın kendi durumu Gecikti YA DA planlı kalıp tarihi geçmiş teslim. */
+  var geciken    = function(t){ return t.durum === 'Gecikti' || (t.durum === 'Planlandı' && F.days(t.tarih) < 0); };
+  /* Teslimden müşteri onayına kadar geçen gün — onay yoksa null. */
+  var onayGun    = function(t){ return t.onayTarihi ? F.days(t.onayTarihi, t.tarih) : null; };
+
+  var teslimEdenler = DB.deliveries.map(function(t){ return t.teslimEden; })
+                                   .filter(function(v, i, a){ return v && a.indexOf(v) === i; })
+                                   .map(function(k){ return { value:k, label:DB.empName(k) }; });
+  var musteriler = DB.deliveries.map(function(t){ return musKod(t); })
+                                .filter(function(v, i, a){ return v && a.indexOf(v) === i; })
+                                .map(function(k){
+                                  var p = DB.projects.filter(function(x){ return x.musteri === k; })[0];
+                                  return { value:k, label:p ? p.musteriAd : k };
+                                });
+
+  GV.pageHead({ eyebrow:'Projeler', title:'Teslimler',
+    actions:[{ label:'Milestone', icon:'i-milestone', href:'app-proje-milestone.html' },
+             { label:'Proje Listesi', icon:'i-briefcase', href:'app-proje.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'teslim', key:'kod', source:function(){ return DB.deliveries; },
+    exportName:'teslimler', exportTitle:'Proje Teslimleri', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Teslim kodu, teslim adı, proje, müşteri veya not ara',
+             fields:['kod','ad','proje','durum','not'],
+             extra:function(t){
+               var ms = taksitOf(t);
+               return projAd(t.proje) + ' ' + musAd(t) + ' ' + DB.empName(t.teslimEden) + ' ' + (ms ? ms.kod + ' ' + ms.ad : ''); } },
+    defaultSort:'tarih', defaultDir:'desc',
+
+    kpis:[
+      { label:'Toplam teslim', icon:'i-package',
+        calc:function(a){ return a.length; } },
+      { label:'Müşteri onayı alınmış', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(onaylandi).length; } },
+      { label:'Onay bekleyen', icon:'i-hourglass', tone:'warn',
+        calc:function(a){ return a.filter(onayBekler).length; } },
+      { label:'Geciken teslim', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(geciken).length; } }
+    ],
+
+    tabs:[
+      { key:'tumu',    label:'Tümü',                     icon:'i-list',         filter:null },
+      { key:'planli',  label:'Planlananlar',             icon:'i-calendar',     filter:function(t){ return t.durum === 'Planlandı'; } },
+      { key:'onayli',  label:'Onaylananlar',             icon:'i-check-circle', filter:function(t){ return t.durum === 'Onaylandı'; } },
+      { key:'geciken', label:'Gecikenler',               icon:'i-alert',        filter:geciken },
+      { key:'bekleyen',label:'Müşteri Onayı Bekleyenler',icon:'i-hourglass',    filter:onayBekler }
+    ],
+
+    columns:[
+      { key:'kod', label:'Teslim', width:'20%', locked:true, cellClass:'cell-wrap',
+        render:function(t){ return '<a class="cell-main" href="app-proje-teslim-detay.html?id=' + t.kod + '">' + t.kod + '</a>' +
+          '<span class="cell-sub">' + esc(t.ad) + '</span>'; } },
+      { key:'proje', label:'Proje', cellClass:'cell-wrap',
+        sortValue:function(t){ return projAd(t.proje); },
+        render:function(t){ return '<a class="cell-main" href="app-proje-detay.html?id=' + t.proje + '">' + esc(projAd(t.proje)) + '</a>' +
+          '<span class="cell-code">' + t.proje + '</span>'; },
+        exportValue:function(t){ return projAd(t.proje); } },
+      { key:'musteri', label:'Müşteri', cellClass:'cell-wrap',
+        sortValue:function(t){ return musAd(t); },
+        render:function(t){
+          var k = musKod(t);
+          return k ? '<a href="app-musteri-detay.html?id=' + k + '">' + esc(musAd(t)) + '</a>'
+                   : '<span class="u-faint">—</span>'; },
+        exportValue:function(t){ return musAd(t); } },
+      { key:'tarih', label:'Teslim tarihi',
+        render:function(t){ return GV.dateCell(t.tarih, { done:t.durum === 'Onaylandı' }); } },
+      { key:'kalan', label:'Gecikme / kalan gün',
+        sortValue:function(t){ return F.days(t.tarih); },
+        render:function(t){
+          if(t.durum === 'Onaylandı') return '<span class="u-faint">Teslim edildi</span>';
+          var d = F.days(t.tarih);
+          if(d < 0) return '<span class="badge is-danger no-dot">' + (-d) + ' gün gecikti</span>';
+          return '<span class="u-num">' + F.rel(t.tarih) + '</span>'; },
+        exportValue:function(t){ return t.durum === 'Onaylandı' ? 'Teslim edildi' : F.rel(t.tarih); } },
+      { key:'durum', label:'Durum', render:function(t){ return GV.badge(t.durum); } },
+      { key:'teslimEden', label:'Teslim eden',
+        sortValue:function(t){ return DB.empName(t.teslimEden); },
+        render:function(t){ return GV.user(t.teslimEden, { sm:true }); },
+        exportValue:function(t){ return DB.empName(t.teslimEden); } },
+      { key:'musteriOnay', label:'Müşteri onayı',
+        sortValue:function(t){ return onayBekler(t) ? 'Bekliyor' : t.musteriOnay; },
+        render:function(t){ return onayBekler(t) ? GV.badge('Bekliyor') : GV.badge(t.musteriOnay); },
+        exportValue:function(t){ return onayBekler(t) ? 'Bekliyor' : t.musteriOnay; } },
+      { key:'onayTarihi', label:'Onay tarihi',
+        render:function(t){ return t.onayTarihi ? GV.dateCell(t.onayTarihi, { done:true })
+                                                : '<span class="u-faint">—</span>'; } },
+      { key:'onayGun', label:'Onaya kadar geçen gün', cellClass:'num',
+        sortValue:function(t){ var g = onayGun(t); return g == null ? -1 : g; },
+        render:function(t){
+          var g = onayGun(t);
+          if(g == null) return '<span class="u-faint">—</span>';
+          return '<span class="u-num">' + g + ' gün</span>'; },
+        exportValue:function(t){ var g = onayGun(t); return g == null ? '' : g; } },
+      { key:'taksit', label:'Karşılık gelen taksit (KDV hariç)', cellClass:'cell-wrap',
+        sortValue:function(t){ var m = taksitOf(t); return m ? m.taksit : -1; },
+        render:function(t){
+          var m = taksitOf(t);
+          if(!m) return '<span class="u-faint">—</span><span class="cell-sub">Eşleşen taksit yok</span>';
+          return '<a class="cell-main" href="app-proje-milestone.html?id=' + m.kod + '">' + m.kod + '</a>' +
+            '<span class="cell-sub">' + m.taksit + '. taksit · ' +
+            (canFinans ? '<span class="cell-money">' + F.money(m.odeme) + '</span>'
+                       : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>') +
+            '</span>'; },
+        exportValue:function(t){
+          var m = taksitOf(t);
+          if(!m || !canFinans) return '';
+          return m.kod + ' · ' + m.taksit + '. taksit · ' + m.odeme; } },
+      { key:'not', label:'Teslim notu', cellClass:'cell-wrap',
+        render:function(t){ return t.not ? '<span class="cell-sub">' + esc(t.not) + '</span>'
+                                         : '<span class="u-faint">—</span>'; },
+        exportValue:function(t){ return t.not || ''; } },
+      { key:'fatura', label:'Taksit faturası', visible:false, cellClass:'cell-wrap',
+        sortValue:function(t){ var f = faturaOf(taksitOf(t)); return f ? f.kod : ''; },
+        render:function(t){
+          var f = faturaOf(taksitOf(t));
+          if(!f) return '<span class="u-faint">Kesilmedi</span>';
+          return '<a class="cell-main" href="app-fatura-detay.html?id=' + f.kod + '">' + f.kod + '</a>' +
+            '<span class="cell-sub">' + GV.badge(f.durum) + '</span>'; },
+        exportValue:function(t){ var f = faturaOf(taksitOf(t)); return f ? f.kod + ' · ' + f.durum : ''; } },
+      { key:'projeDurum', label:'Proje durumu', visible:false,
+        sortValue:function(t){ var p = DB.proj(t.proje); return p ? p.durum : ''; },
+        render:function(t){ var p = DB.proj(t.proje); return p ? GV.badge(p.durum) : '<span class="u-faint">—</span>'; },
+        exportValue:function(t){ var p = DB.proj(t.proje); return p ? p.durum : ''; } }
+    ],
+
+    filters:[
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'musteri', label:'Müşteri', type:'select', options:musteriler,
+        test:function(t, v){ return musKod(t) === v; } },
+      { key:'durum', label:'Durum', type:'multi', options:['Planlandı','Onaylandı','Gecikti'] },
+      { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:['Onaylandı','Bekliyor'],
+        test:function(t, v){ return v === 'Bekliyor' ? onayBekler(t) : t.musteriOnay === v; } },
+      { key:'teslimEden', label:'Teslim eden', type:'select', options:teslimEdenler },
+      { key:'tarih', label:'Teslim tarihi', type:'daterange' },
+      { key:'gecikenVar', label:'Yalnız gecikenler', type:'select', options:['Evet','Hayır'],
+        test:function(t, v){ return v === 'Evet' ? geciken(t) : !geciken(t); } }
+    ],
+
+    /* Satır vurgusu yalnız gerçekten gecikmiş teslimlerde — onay bekleyen ama tarihi
+       gelmemiş planlı teslim kırmızıya boyanmaz. */
+    rowClass:function(t){ return geciken(t) ? 'is-late' : ''; },
+
+    mobile:function(t){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-teslim-detay.html?id=' + t.kod + '">' + t.kod + '</a>' +
+        GV.dateCell(t.tarih, { done:t.durum === 'Onaylandı' }) + '</div>' +
+        '<div class="gv-mrow-code">' + esc(projAd(t.proje)) + ' · ' + esc(t.ad) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(t.durum) +
+        (onayBekler(t) ? '<span class="badge is-warn no-dot">Müşteri onayı bekliyor</span>'
+                       : '<span class="badge is-ok no-dot">Müşteri onayladı</span>') + '</span>' +
+        GV.user(t.teslimEden, { sm:true }) + '</div>';
+    },
+
+    card:function(t){
+      var m = taksitOf(t);
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-proje-teslim-detay.html?id=' + t.kod + '">' + esc(t.ad) + '</a>' +
+        '<div class="cell-code">' + t.kod + ' · ' + esc(projAd(t.proje)) + '</div></div>' + GV.badge(t.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(musAd(t)) + '</span>' +
+        '<span>' + F.dateShort(t.tarih) + '</span>' +
+        '<span>' + (t.durum === 'Onaylandı' ? 'Teslim edildi' : esc(F.rel(t.tarih))) + '</span></div>' +
+        '<div class="gv-rcard-meta">' +
+        (m ? '<span>' + m.kod + ' · ' + m.taksit + '. taksit · ' +
+               (canFinans ? F.money(m.odeme) + ' (KDV hariç)' : '<span class="cell-mask">••••••</span>') + '</span>'
+           : '<span class="u-faint">Eşleşen taksit yok</span>') + '</div>' +
+        '<div class="gv-rcard-foot">' + GV.user(t.teslimEden, { sm:true }) +
+        (onayBekler(t) ? '<span class="badge is-warn no-dot">Onay bekliyor</span>'
+                       : GV.badge(t.musteriOnay)) + '</div>';
+    },
+
+    rowActions:[
+      { key:'proje', icon:'i-briefcase', label:'Projeyi aç',
+        href:function(t){ return 'app-proje-detay.html?id=' + t.proje; } },
+      { key:'milestone', icon:'i-milestone', label:'Milestone\'u aç',
+        show:function(t){ return !!taksitOf(t); },
+        href:function(t){ var m = taksitOf(t); return 'app-proje-milestone.html?id=' + m.kod; } },
+      /* Onay yetkisi olmayan rolde buton hiç basılmaz (ölü buton yasağı); run içindeki
+         yetki kontrolü ikinci savunma hattı olarak durur. */
+      { key:'onayla', icon:'i-stamp', label:'Müşteri onayını işaretle',
+        show:function(t){ return onayBekler(t) && GV.perm.can('onay'); },
+        run:function(t, refresh){
+          if(!GV.perm.can('onay')){ GV.toast('Müşteri onayını işaretleme yetkiniz yok.', 'danger'); return; }
+          GV.modal({ title:'Müşteri Onayını İşaretle', text:t.kod + ' · ' + t.ad, icon:'i-stamp', size:'sm',
+            body:'<div class="gv-fields"><div class="field f-col-12"><label for="tsOnayTar">Müşteri onay tarihi</label>' +
+              '<input type="date" class="inp" id="tsOnayTar" value="' + DB.today + '" min="' + t.tarih + '"></div></div>',
+            actions:[{ label:'Vazgeç', cls:'btn-line' },
+              { label:'Onaylandı İşaretle', cls:'btn-acc', onClick:function(close, el){
+                  t.musteriOnay = 'Onaylandı';
+                  t.onayTarihi = el.querySelector('#tsOnayTar').value || DB.today;
+                  GV.toast(t.kod + ' için müşteri onayı işlendi', 'ok');
+                  refresh(); } }] }); } },
+      { key:'not', icon:'i-file', label:'Teslim notunu gör',
+        show:function(t){ return !!t.not; },
+        run:function(t){
+          var m = taksitOf(t);
+          GV.modal({ title:'Teslim Notu', text:t.kod + ' · ' + t.ad, icon:'i-package', size:'sm',
+            body:'<p>' + esc(t.not) + '</p>' +
+              '<div class="gv-rcard-meta"><span>' + esc(projAd(t.proje)) + '</span>' +
+              '<span>' + esc(musAd(t)) + '</span>' +
+              '<span>Teslim: ' + F.date(t.tarih) + '</span>' +
+              '<span>' + (m ? m.kod + ' · ' + m.taksit + '. taksit' : 'Eşleşen taksit yok') + '</span></div>',
+            actions:[{ label:'Kapat', cls:'btn-line' }] }); } }
+    ],
+
+    bulk:[
+      { key:'onayla', label:'Müşteri Onayı İşaretle', icon:'i-stamp',
+        confirm:'Seçili {n} teslim için müşteri onayı bugünün tarihiyle işlenecek. Onayı zaten alınmış teslimler atlanır.',
+        run:function(ids){
+          if(!GV.perm.can('onay')){ GV.toast('Müşteri onayını işaretleme yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.deliveries.forEach(function(t){
+            if(ids.indexOf(t.kod) !== -1 && onayBekler(t)){
+              t.musteriOnay = 'Onaylandı'; t.onayTarihi = DB.today; n++;
+            }
+          });
+          GV.toast(n ? (n + ' teslimin müşteri onayı işlendi' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hiçbiri onay beklemiyor', n ? 'ok' : 'warn'); } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'Seçili {n} teslim arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Arşivleme yetkiniz yok.', 'danger'); return; }
+          DB.deliveries.forEach(function(t){ if(ids.indexOf(t.kod) !== -1) t.aktif = false; });
+          GV.toast(ids.length + ' teslim arşivlendi', 'ok'); } }
+    ],
+
+    emptyState:{ icon:'i-package', title:'Bu görünümde teslim kaydı yok',
+      desc:'Bir milestone tamamlandığında çıktısı teslim kaydına dönüşür; müşteri onayı alındıktan sonra taksit faturası kesilir.',
+      action:'<a class="btn btn-acc" href="app-proje-teslim-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Teslim Kaydı</a>' }
+  });
+
+});
+</script>
+</body>
+</html>
