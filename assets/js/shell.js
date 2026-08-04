@@ -521,11 +521,28 @@
       var collapsed = false;
       try{ collapsed = localStorage.getItem(LS_MENU) === '1'; }catch(e){}
       if(collapsed) document.body.classList.add('gv-menu-off');
+
+      /* Menünün o anki gerçek durumu — kırılıma göre farklı sınıf belirleyicidir.
+         (981–1180px aralığında varsayılan kapalıdır, sınıfsız gövde = kapalı.) */
+      function menuOpen(){
+        if(window.matchMedia('(max-width:980px)').matches) return document.body.classList.contains('gv-nav-open');
+        if(window.matchMedia('(min-width:981px) and (max-width:1180px)').matches) return document.body.classList.contains('gv-menu-on');
+        return !document.body.classList.contains('gv-menu-off');
+      }
+      function syncDivider(){
+        var open = menuOpen();
+        divider.setAttribute('aria-expanded', open ? 'true' : 'false');
+        divider.setAttribute('aria-label', open ? 'Bölüm menüsünü daralt' : 'Bölüm menüsünü genişlet');
+      }
       divider.addEventListener('click', function(){
-        var off = document.body.classList.toggle('gv-menu-off');
-        document.body.classList.toggle('gv-menu-on', !off);
-        try{ localStorage.setItem(LS_MENU, off ? '1' : '0'); }catch(e){}
+        var open = menuOpen();
+        document.body.classList.toggle('gv-menu-off', open);
+        document.body.classList.toggle('gv-menu-on', !open);
+        try{ localStorage.setItem(LS_MENU, open ? '1' : '0'); }catch(e){}
+        syncDivider();
       });
+      window.addEventListener('resize', syncDivider);
+      syncDivider();
     }
   }
 
@@ -687,7 +704,8 @@
     app.innerHTML =
       '<aside class="gv-rail" id="gvRail"></aside>' +
       '<nav class="gv-menu" id="gvMenu"></nav>' +
-      '<button type="button" class="gv-divider" id="gvDivider" aria-label="Menüyü daralt veya genişlet">' +
+      '<button type="button" class="gv-divider" id="gvDivider" aria-controls="gvMenu" aria-expanded="true" ' +
+        'aria-label="Bölüm menüsünü daralt">' +
         '<span>' + ico('i-chev-left','ic-sm') + '</span></button>' +
       '<div class="gv-overlay" id="gvOverlay"></div>' +
       '<header class="gv-top" id="gvTop"></header>' +

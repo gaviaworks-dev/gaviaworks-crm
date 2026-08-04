@@ -10,7 +10,22 @@
 
 ---
 
-## UID-01 · Rail collapse çentiği referansa göre bozuk
+## ✅ UID-01 · Rail collapse çentiği referansa göre bozuk — ÇÖZÜLDÜ (2026-08-04)
+
+**Çözüm:** Tutamak iki katmana ayrıldı — `.gv-divider` artık kenar boyunca uzanan görünmez
+28×160 px yakalama bandı (gerçek `<button>`, `aria-expanded` + `aria-controls`), içindeki
+`span` ise bitişik yüzeyin token rengini (`--brand-night` / daraltılmışken `--brand-abyss`)
+taşıyan, kenarlıksız-gölgesiz, yalnız dışa bakan kenarı yuvarlak 24×56 px grip.
+
+**Ölçüm (Playwright, 1440/1024/768/390, iki durum):** bant içeri 10 px / dışarı 18 px,
+sekiz farklı noktadan hover tetiklendi, bant dışından tetiklenmedi; grip rengi bitişik
+yüzeyle birebir aynı; menü kalemleri ve rail vurgusuyla kesişim yok; bant hiçbir etkileşimli
+öğeyi örtmüyor. Yan etki olarak 981–1180 px aralığındaki "ilk tıklama boşa gidiyor" hatası
+da düzeldi (tutamak artık sınıf değil gerçek durum üzerinden karar veriyor).
+
+---
+
+## UID-01 (özgün kayıt) · Rail collapse çentiği referansa göre bozuk
 
 **Nerede:** Tüm ekranlarda sol rail ile içerik arasındaki daralt/genişlet tutamağı.
 
