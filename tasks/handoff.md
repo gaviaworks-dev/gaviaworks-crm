@@ -11,7 +11,7 @@
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
 > ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
-**Güncelleme:** 2026-08-04 (3. oturum sonu) · **74 ekran canlıda** · **Wave 1, 9, 10, 11, 12 TAMAM.**
+**Güncelleme:** 2026-08-04 (4. oturum sonu) · **83 ekran canlıda** · **Wave 1, 9, 10, 11, 12 TAMAM.**
 
 ---
 
@@ -143,11 +143,10 @@ Ortak katman: `tokens.css` 199 · `shell.css` 414 · `ui.css` 1.237 · `shell.js
 ölçüsüdür — referans projede tek bir liste ekranı 1.134 satırdı (lessons L-05).
 
 
-### VERİ BORCU — bilinçli olarak devredildi (3. oturum)
+### VERİ BORCU — VB-01/02/03 KAPANDI (4. oturum) · VB-04 AÇIK
 
-Bu iki çelişki **bulundu, ölçüldü, düzeltilmedi.** İkisi de kaynağı geniş bir alanı
-(finans raporları, müşteri cirosu, sözleşme ekranları) etkiliyor; yarım düzeltme
-yenilerini doğurur. Ayrı bir oturumda bilinçli olarak ele alınmalı.
+> ✅ **VB-01, VB-02, VB-03 4. oturumda kapatıldı** — aşağıdaki özgün kayıtlar tarihsel
+> bağlam için duruyor. Kapanış özeti bu bölümün sonunda. **VB-04 açıktır.**
 
 **VB-01 · `DB.contracts[].tutar` bazı sözleşmelerde KDV dahil, bazılarında hariç.**
 `app-odemeplani.html` sözleşmenin `odemePlani` metnini taksit tutarlarıyla karşılaştırınca
@@ -190,6 +189,89 @@ baştan sona bu terim üzerine kurulu: `app-komisyon.html` (başlık, 8 etiket),
 Teklif puanı "bu teklife verilen değerlendirme", tedarikçi puanı "genel performans"
 olarak yorumlandı ve `app-satinalma-teklif.html` ikisini ayrı gösteriyor. Bu yorum
 doğruysa bir sorun yok; ama hiçbir yerde **yazılı değil**. `ops.js`'e yazılmalı.
+
+### 4. OTURUMDA YAPILANLAR
+
+**VB-01 kapandı — para tek eksene oturdu.**
+Beyar'ın verdiği standart: sözleşme tutarı KDV hariç, KDV ayrı alan, taksitler net tutardan
+türetilir, ekranda gösterilen toplam ikisinin toplamı. **Türetince çıkan sonuç:** yedi
+sözleşmenin `tutar` değeri **zaten net eksendeydi**; bozuk olan taksit türetimiydi.
+`DB.projects[].sozlesmeTutari` her sözleşmede `tutar` ile birebir aynı olduğu için sözleşme
+bedellerine ve proje tarafına **hiç dokunulmadı**. Eklenen alanlar: `kdvOran` · `kdv` · `toplam`.
+Düzeltilenler: beş fatura net'e, beş tahsilat brüt'e hizalandı; `toplamCiro` üç müşteride
+(Marmara 980.000→1.104.000 · Öz Gıda 295.000→354.000 · Anka 530.000→600.000);
+`bekleyenTahsilat` beş müşteride. Konvansiyon `misc.js` → `DB.contracts` başında ve
+`components.md` §9b'de yazılı.
+
+**VB-02 kapandı — ödeme planı tam set.** 9 → **19 milestone** (6 sözleşme).
+`Σ odeme = sözleşme tutarı`, `taksit` numaraları 1..N boşluksuz, `sozlesme` alanı açık.
+Geçmiş tamamlanmış taksitler için 8 fatura + 9 tahsilat eklendi.
+**Ölçüm:** tamamlanmış 11 taksitin 11'inin de faturası var → "faturası kesilmemiş" sekmesi
+**0 kayıt**. Doğru sonuç ama o akış gerçek veriyle sınanamıyor (assumptions V-25).
+
+**VB-03 kapandı — iki puan ekseni ayrıştı.** `ops.js` → `DB.suppliers` başlığında ve
+`components.md` §9c'de yazılı. Etiketler: "Teklif puanı" / "Tedarikçi genel puanı".
+
+**`canon.js` 372 → 397 kontrol.** Yeni eksenler: 9 (net+KDV=brüt) · 10 (Σ taksit = sözleşme
+neti + taksit sırası boşluksuz) · 11 (`toplamCiro` ↔ sözleşmeler) · 12 (sprint `gorevSayisi`
+>= modellenmiş kayıt) · 13 (teslim ↔ milestone tekil bağı).
+
+**Üretilen 9 ekran (3.987 satır):**
+```
+PROJE ALT   app-proje-milestone · app-proje-sprint · app-proje-test ·
+            app-proje-hata · app-proje-degisiklik · app-proje-teslim
+DETAY       app-musteri-detay (15 sekme) · app-proje-detay (22 sekme) · app-lead-detay (9 sekme)
+```
+`app-proje-detay`'ın **Gantt sekmesi** `.gv-gantt` CSS ailesinin **ilk tüketicisi** oldu —
+uzun süredir kullanıcı bekliyordu.
+
+**Ortak katmanda düzeltilen GERÇEK hatalar:**
+1. **`GV.pri` slug hatası (ui.js).** `String.replace('ü','u')` global değildi; `düşük` iki `ü`
+   içerdiği için sınıf `is-dusük` çıkıyor, CSS'teki `.pri.is-dusuk` ile eşleşmiyordu.
+   **"Düşük" öncelik rozeti `GV.pri` kullanan 18 ekranın hepsinde renksiz basılıyormuş.**
+   Global regex + boşluk sadeleştirme (`Çok yüksek` → tek sınıf) + eksik CSS kuralı.
+2. **Teslim ↔ taksit bağı tahminle kuruluyordu** (tarihe 10 gün tolerans). L-13 gereği
+   `DB.deliveries[].milestone` açık alan oldu; `musteriOnay`'daki `'—'` sentinel'i gerçek
+   durum değerine çevrildi. Eşleşmeler birebir aynı kaldı, canon'a alındı.
+
+**Ortak katmana eklenenler:**
+- `DB.proj` · `DB.projName` · `DB.mod` · `DB.modName` · `DB.task` (work.js sonu, `DB.emp` deseni).
+- `GV.badge` TONE: test türleri (5) · `Değerlendiriliyor` · `Hazırlanıyor` · `Revizyon istendi` ·
+  lead sıcaklığı (`Sıcak`/`Ilık`/`Soğuk` — `app-lead.html`'deki yerel harita silindi).
+- `.gv-progress.is-accent` / `.is-info` / `.is-neutral` · `.pri.is-cok-yuksek`.
+- `DB.contracts[].kdvOran/kdv/toplam` · `DB.milestones[].sozlesme/taksit` ·
+  `DB.deliveries[].milestone`.
+
+**`components.md`'de düzeltilen ÜÇ yanlış kayıt** (sözlük gerçeğe hizalandı):
+1. **`GV.detail(config)` diye bir bileşen YOK** — hiç yazılmamış. Detay ekranları elle markup +
+   `GV.tabs('#recTabs')` ile kurulur, kalıp `app-gorev-detay.html`. §3 yeniden yazıldı.
+2. **`GV.gantt(config)` de YOK** — yalnız CSS var, markup elle kurulur.
+3. **KPI sınıfı `.gv-kpi` değil** — gerçek sınıf `.kpi-grid > .kpi-card`.
+
+**⚠️ Eksen çakışması yazıldı:** `Yüksek`/`Orta`/`Düşük` üç ayrı eksende geçiyor (öncelik ·
+etki · müşteri riski). TONE sözlüğüne **konulamaz** — riski yüksek müşteri ile önceliği
+yüksek görev aynı rengi alırdı. Bu değerlerde `GV.badge(v,'is-danger')` ile **açık ton geçmek
+doğru kullanımdır**, yerel harita yazmak değil (components.md §5).
+
+**Yeni borç kayıtları (ui-debt.md 7 → 14 madde):**
+UID-08 kontrol/etiket boşluğu (L-04 ailesinin 4. tekrarı) · UID-09 native form kontrolleri ·
+UID-10 yan panel başlık ayrımı · **UID-11** finans yetkisi yokken KPI `₺0` gösteriyor (tablo
+maskeleniyor ama KPI "sıfır para var" diyor — 3 ekranda ölçüldü) · **UID-12** `app-gorev.html`'de
+"Tümü" sekmesi yok, dışarıdan filtreli gelen bağlantı sessizce eksik sonuç veriyor ·
+**UID-13** `GV.list` `bulk[]`'te `show`/yetki kapısı yok (ölü buton yasağı toplu işlemde
+uygulanmıyor) · **UID-14** `.gv-tablewrap` ≤760px'de gizli, detay sekmelerinin mobil ikizi yok.
+
+**Oturum sonu tam tarama:** `gate.js` **415 sayfa yüklemesi (83 ekran × 5 rol)** — konsol
+hatası 0, boş sayfa 0, kırık istek 0. `canon.js` 397 kontrol temiz. `dbref.js` 83 ekran temiz.
+`links.js` temiz, 59 hedef kuyrukta. Dokuz ekranın **gelişmiş filtresi ve çıktı modalı tek tek
+açıldı** (L-12 sınıfı), detay ekranlarının **46 sekmesi tek tek tıklandı** — hata yok.
+Canlı doğrulandı (HTTP 200).
+
+**Ölçü:** 83 ekran · 34.337 satır (ortalama 414 satır/ekran).
+Ortak katman: `tokens.css` 198 · `shell.css` 413 · `ui.css` 1.241 · `shell.js` 863 ·
+`ui.js` 1.911 · `dashboard.js` 732 · veri 2.446 satır.
+
+---
 
 ## 2. ORTAK KATMANIN MEVCUT DURUMU
 
@@ -461,20 +543,39 @@ durumda** — subagent'a doğrudan verilebilir.
 
 ### Sıradaki kuyruk (öncelik sırasıyla)
 `node tasks/qa/links.js` çıktısındaki "henüz üretilmemiş hedefler" listesi **canlı kuyruktur** —
-her zaman güncel, elle sayılmaz. Bu oturum sonunda 62 hedef bekliyordu.
+her zaman güncel, elle sayılmaz. Bu oturum sonunda **59 hedef** bekliyordu.
 
-1. **İK / satın alma kalanı:** `app-odemeplani`
-2. **Proje alt ekranları:** `app-proje-milestone` · `-sprint` · `-test` · `-hata` ·
-   `-degisiklik` · `-teslim`
-3. **Detay ekranları** — kalıp `app-gorev-detay.html`. Öncelik: müşteri (15 sekme),
-   proje (22 sekme), lead, teklif, personel, araç, satın alma, destek.
-   **Gantt CSS'i (`.gv-gantt`) hâlâ kullanan ekran bekliyor** — proje detayının Gantt sekmesi.
-4. **Form ekranları** — `GV.form({sections:[...]})` hazır; her liste ekranının `-form.html` karşılığı.
-   Kuyruğun en kalabalık bölümü (30+ ekran), en şablonlaşabilir olanı da bu.
-5. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının
+1. **Detay ekranları — kalan 12.** Kalıp artık üç örnekli: `app-gorev-detay` (basit),
+   `app-musteri-detay` (15 sekme), `app-proje-detay` (22 sekme + Gantt).
+   Sıra: `teklif-detay` · `personel-detay` · `arac-detay` · `satinalma-detay` · `destek-detay` ·
+   `sozlesme-detay` · `fatura-detay` · `tahsilat-detay` · `referans-detay` · `komisyon-detay` ·
+   `onanaliz-detay` · `toplanti-detay` · `demirbas-detay` · `siparis-detay` · `tedarikci-detay` ·
+   `dokuman-detay` · `izin-detay` · `istalebi-detay` · `duyuru-detay` ·
+   `proje-hata-detay` · `proje-test-detay` · `proje-teslim-detay` · `proje-degisiklik-detay`.
+2. **Form ekranları — kuyruğun en kalabalık (30+) ve en şablonlaşabilir bölümü.**
+   ✅ **`GV.form` GERÇEKTEN VAR** (`ui.js:1272`) ve üç ekran onu çalışır halde kullanıyor:
+   `app-ayar-profil.html` · `app-ayar-sirket.html` · `app-panel-duyurular.html`.
+   Yeni form ekranı yazacak subagent'a bu üçünden birini **desen referansı** olarak ver
+   (`GV.detail`/`GV.gantt` gibi hayalet değil, kontrol edildi).
+3. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının
    doğrulanması · canonical tarama · 1440/768/390 tam tarama · kapanış raporu.
-6. **FAZ: UI ve UX KALİTE GEÇİŞİ** — `ui-debt.md`'deki UID-02 · UID-03 · UID-04 · UID-05.
-   UID-01 kapandı. **Ekran üretimi bitmeden bu faza başlanmaz.**
+4. **FAZ: UI ve UX KALİTE GEÇİŞİ** — `ui-debt.md`'de **14 madde** (UID-01 kapandı,
+   UID-02..UID-14 açık). **Ekran üretimi bitmeden bu faza başlanmaz.**
+
+### 4. oturumun subagent'lara verdiği ders — prompt'a MUTLAKA koy
+Üç ajan da aynı hatamı yakaladı: brief'te bölüm anahtarını `projeler` yazmıştım, doğrusu
+**`proje`**. `shell.js` `SECTIONS` anahtarları: `panel · satis · musteri · proje · gorev ·
+destek · sohbet · personel · varlik · satinalma · finans · dokuman · toplanti · rapor · ayarlar`.
+Yanlış yazılırsa menü hiç çizilmez. **Yeni ekran brief'inde anahtarı `shell.js`'ten kopyala.**
+
+Ayrıca her subagent prompt'una şunlar konulmalı (hepsi bu oturumda gerçek hata önledi):
+- "`GV.detail()` ve `GV.gantt()` YOK — elle markup + `GV.tabs`."
+- "Okuduğun her `DB.<koleksiyon>` için o veri dosyası `<script>` ile yüklü olmalı" (L-12).
+- "`GV.badge(v)` ortak sözlüğü kullanır — yerel ton haritası yazma, eksiği raporla."
+- "`DB.proj/projName/mod/modName/task/emp/empName` ortak katmanda VAR, yerel kopya yazma."
+- "Tarih referansı `DB.today`, `new Date()` ile bugün ALMA."
+- "Aynı sayfada ikinci `GV.list` örneği kurma (UID-06) — detay sekmelerinde düz `.gtable` yeterli."
+- Para alanı yazıyorsa: "etikete ekseni yaz (KDV hariç/dahil), aynı kolonda karıştırma."
 
 ### Bir sonraki oturuma özel uyarılar
 - Rapor ekranı yazdıracaksan subagent'a `scratchpad/rp-example.html` **veya** yayındaki
