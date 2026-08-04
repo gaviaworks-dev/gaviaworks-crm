@@ -672,7 +672,11 @@
                 (c.render ? c.render(r, i) : esc(r[c.key] == null ? '—' : r[c.key])) + '</td>';
         });
         if(cfg.rowActions){
-          tr += '<td class="col-acts"><span class="cell-acts">' + cfg.rowActions.map(function(a){
+          tr += '<td class="col-acts"><span class="cell-acts">' + cfg.rowActions.filter(function(a){
+            /* show(row) → o satırda anlamsız olan aksiyon hiç basılmaz.
+               Devre dışı buton bırakmak yerine aksiyonu yok saymak esastır. */
+            return typeof a.show === 'function' ? !!a.show(r) : true;
+          }).map(function(a){
             var href = typeof a.href === 'function' ? a.href(r) : a.href;
             return href
               ? '<a class="ia' + (a.cls ? ' ' + a.cls : '') + '" href="' + href + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</a>'
