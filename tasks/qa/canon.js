@@ -148,6 +148,50 @@ head('8) Milestone ↔ fatura ↔ tahsilat');
   });
 }
 
+/* ---------- 9. Para konvansiyonu: net / KDV / brüt (VB-01) ---------- */
+head('9) Para konvansiyonu — sözleşme net + KDV = brüt');
+DB.contracts.forEach(c => {
+  say(c.kdv === Math.round(c.tutar * c.kdvOran / 100),
+      c.kod + ' kdv=' + money(c.kdv) + ' beklenen=' + money(Math.round(c.tutar * c.kdvOran / 100)));
+  say(c.toplam === c.tutar + c.kdv,
+      c.kod + ' toplam=' + money(c.toplam) + ' tutar+kdv=' + money(c.tutar + c.kdv));
+});
+DB.invoices.forEach(i => {
+  say(i.toplam === i.tutar + i.vergi,
+      i.kod + ' toplam=' + money(i.toplam) + ' tutar+vergi=' + money(i.tutar + i.vergi));
+});
+
+/* ---------- 10. Ödeme planı tam mı: Σ taksit = sözleşme neti (VB-02) ---------- */
+head('10) Ödeme planı bütünlüğü — Σ milestone.odeme = sözleşme tutarı');
+DB.contracts.filter(c => c.proje).forEach(c => {
+  const ms = DB.milestones.filter(m => m.sozlesme === c.kod);
+  say(ms.length > 0, c.kod + ' projeli sözleşmenin hiç taksiti yok');
+  const top = ms.reduce((s, m) => s + m.odeme, 0);
+  say(top === c.tutar,
+      c.kod + ' Σ taksit=' + money(top) + ' sözleşme neti=' + money(c.tutar) +
+      ' (' + ms.length + ' taksit)');
+  const sira = ms.map(m => m.taksit).sort((a, b) => a - b);
+  say(sira.every((n, k) => n === k + 1), c.kod + ' taksit sırası boşluklu: ' + sira.join(','));
+});
+DB.milestones.forEach(m => {
+  const c = DB.contracts.find(c => c.kod === m.sozlesme);
+  say(!!c, m.kod + ' sözleşmesi (' + m.sozlesme + ') yok');
+  if (c) say(c.proje === m.proje, m.kod + ' projesi sözleşmenin projesi değil');
+});
+
+/* ---------- 11. Müşteri cirosu net eksende ve sözleşmelerini kapsar ---------- */
+head('11) toplamCiro (net) ↔ sözleşmeler');
+DB.customers.forEach(c => {
+  const cs = DB.contracts.filter(x => x.musteri === c.kod);
+  if (!cs.length) return;
+  const net = cs.reduce((s, x) => s + x.tutar, 0);
+  say(c.toplamCiro >= net,
+      c.kod + ' toplamCiro=' + money(c.toplamCiro) + ' < sözleşme neti=' + money(net));
+  // projeSayisi kadar sözleşmesi varsa ciro tam olarak onların toplamıdır (ömür boyu geçmiş yok)
+  if (cs.length === c.projeSayisi) say(c.toplamCiro === net,
+      c.kod + ' tüm projeleri DB\'de: toplamCiro=' + money(c.toplamCiro) + ' Σ sözleşme=' + money(net));
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

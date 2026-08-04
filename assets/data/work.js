@@ -135,19 +135,41 @@ DB.projectModules = [
 
 /* ---- Milestone --------------------------------------------------------- */
 /* Milestone = sözleşmenin ödeme planındaki taksit.
-   Canonical: `odeme` faturanın NET tutarıdır (`DB.invoices[].tutar`, KDV hariç).
-   Bir milestone'a en fazla BİR fatura bağlanır; `odemeDurum` o faturanın
-   tahsilat kaydındaki durumu yansıtır. */
+   Canonical (para konvansiyonu: misc.js → DB.contracts başlığı):
+   · `odeme`   = taksitin **NET** tutarı (KDV hariç) = bağlı faturanın `tutar`ı.
+   · Bir sözleşmenin taksitlerinin `odeme` toplamı = sözleşmenin `tutar`ı (net) —
+     TAM SET burada tutulur, eksik taksit bırakılmaz.
+   · `taksit`  = ödeme planındaki sıra (1 tabanlı) · `sozlesme` = bağlı sözleşme.
+   · Bir milestone'a en fazla BİR fatura bağlanır; `odemeDurum` o faturanın
+     tahsilat kaydındaki durumu yansıtır.
+   SZL-2026-022 (aylık bakım) proje bazlı değildir — taksitleri milestone olarak
+   değil, aylık fatura olarak yürür. */
 DB.milestones = [
-  { kod:'MS-001', proje:'PRJ-2026-001', ad:'Beta sürüm teslimi', tarih:'2026-07-10', durum:'Tamamlandı', odeme:264000, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-002', proje:'PRJ-2026-001', ad:'Store yayın onayı', tarih:'2026-08-14', durum:'Gecikti', odeme:176000, odemeDurum:'Bekliyor', ilerleme:82 },
-  { kod:'MS-003', proje:'PRJ-2026-002', ad:'POC kabul', tarih:'2026-07-25', durum:'Tamamlandı', odeme:300000, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-004', proje:'PRJ-2026-002', ad:'Canlıya alma', tarih:'2026-09-04', durum:'Planlandı', odeme:300000, odemeDurum:'Bekliyor', ilerleme:48 },
-  { kod:'MS-005', proje:'PRJ-2026-003', ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:163333, odemeDurum:'Bekliyor', ilerleme:64 },
-  { kod:'MS-006', proje:'PRJ-2026-003', ad:'Entegrasyon testi', tarih:'2026-09-30', durum:'Planlandı', odeme:163333, odemeDurum:'Bekliyor', ilerleme:20 },
-  { kod:'MS-007', proje:'PRJ-2026-005', ad:'Rezervasyon motoru demo', tarih:'2026-08-22', durum:'Yaklaşıyor', odeme:70000, odemeDurum:'Bekliyor', ilerleme:52 },
-  { kod:'MS-008', proje:'PRJ-2026-006', ad:'Canlıya alma', tarih:'2026-06-26', durum:'Gecikti', odeme:77083, odemeDurum:'Bekliyor', ilerleme:71 },
-  { kod:'MS-009', proje:'PRJ-2026-004', ad:'Nihai teslim', tarih:'2026-07-24', durum:'Tamamlandı', odeme:88500, odemeDurum:'Bekliyor', ilerleme:100 }
+  /* PRJ-2026-001 · SZL-2026-019 · %30 · %30 · %40 → 264.000 + 264.000 + 352.000 = 880.000 */
+  { kod:'MS-001', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:1, ad:'Beta sürüm teslimi', tarih:'2026-07-10', durum:'Tamamlandı', odeme:264000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-002', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:2, ad:'Store yayın onayı', tarih:'2026-08-14', durum:'Yaklaşıyor', odeme:264000, odemeDurum:'Bekliyor', ilerleme:82 },
+  { kod:'MS-019', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:3, ad:'Yayın sonrası kabul ve devir', tarih:'2026-08-28', durum:'Planlandı', odeme:352000, odemeDurum:'Bekliyor', ilerleme:0 },
+  /* PRJ-2026-002 · SZL-2026-021 · %50 peşin · %50 teslimde → 300.000 + 300.000 = 600.000 */
+  { kod:'MS-003', proje:'PRJ-2026-002', sozlesme:'SZL-2026-021', taksit:1, ad:'POC kabul', tarih:'2026-07-25', durum:'Tamamlandı', odeme:300000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-004', proje:'PRJ-2026-002', sozlesme:'SZL-2026-021', taksit:2, ad:'Canlıya alma', tarih:'2026-09-04', durum:'Planlandı', odeme:300000, odemeDurum:'Bekliyor', ilerleme:48 },
+  /* PRJ-2026-003 · SZL-2025-018 · 6 eşit milestone → 184.000 × 6 = 1.104.000 */
+  { kod:'MS-010', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:1, ad:'Analiz ve altyapı kurulumu', tarih:'2025-11-28', durum:'Tamamlandı', odeme:184000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-011', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:2, ad:'Çekirdek modül teslimi', tarih:'2026-01-30', durum:'Tamamlandı', odeme:184000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-012', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:3, ad:'Saha mobil uygulaması', tarih:'2026-03-27', durum:'Tamamlandı', odeme:184000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-013', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:4, ad:'Logo ERP entegrasyonu', tarih:'2026-05-29', durum:'Tamamlandı', odeme:184000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-005', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:5, ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:184000, odemeDurum:'Bekliyor', ilerleme:64 },
+  { kod:'MS-006', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:6, ad:'Entegrasyon testi ve Faz 1 kapanışı', tarih:'2026-09-30', durum:'Planlandı', odeme:184000, odemeDurum:'Bekliyor', ilerleme:20 },
+  /* PRJ-2026-004 · SZL-2026-020 · %40 · %30 · %30 → 141.600 + 106.200 + 106.200 = 354.000 */
+  { kod:'MS-014', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:1, ad:'Analiz ve prototip onayı', tarih:'2026-06-05', durum:'Tamamlandı', odeme:141600, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-015', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:2, ad:'Üretim takip modülü teslimi', tarih:'2026-06-30', durum:'Tamamlandı', odeme:106200, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-009', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:3, ad:'Nihai teslim', tarih:'2026-07-24', durum:'Tamamlandı', odeme:106200, odemeDurum:'Bekliyor', ilerleme:100 },
+  /* PRJ-2026-005 · SZL-2026-023 · %30 · %30 · %40 → 126.000 + 126.000 + 168.000 = 420.000 */
+  { kod:'MS-016', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:1, ad:'Kapsam ve tasarım onayı', tarih:'2026-06-26', durum:'Tamamlandı', odeme:126000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-007', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:2, ad:'Rezervasyon motoru demo', tarih:'2026-08-22', durum:'Yaklaşıyor', odeme:126000, odemeDurum:'Bekliyor', ilerleme:52 },
+  { kod:'MS-017', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:3, ad:'Portalın canlıya alınması', tarih:'2026-09-18', durum:'Planlandı', odeme:168000, odemeDurum:'Bekliyor', ilerleme:0 },
+  /* PRJ-2026-006 · SZL-2026-024 · %50 peşin · %50 teslimde → 92.500 + 92.500 = 185.000 */
+  { kod:'MS-018', proje:'PRJ-2026-006', sozlesme:'SZL-2026-024', taksit:1, ad:'Sözleşme peşinatı', tarih:'2026-03-16', durum:'Tamamlandı', odeme:92500, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-008', proje:'PRJ-2026-006', sozlesme:'SZL-2026-024', taksit:2, ad:'Canlıya alma', tarih:'2026-06-26', durum:'Gecikti', odeme:92500, odemeDurum:'Bekliyor', ilerleme:71 }
 ];
 
 /* ---- Sprintler --------------------------------------------------------- */
