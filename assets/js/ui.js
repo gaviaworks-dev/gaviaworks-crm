@@ -1446,14 +1446,22 @@
       return out;
     }
 
-    /* kaydetmeden çıkış uyarısı */
-    window.addEventListener('beforeunload', function(e){
-      if(dirty){ e.preventDefault(); e.returnValue = ''; }
-    });
+    /* Kaydetmeden çıkış uyarısı. `window` kalıcı düğümdür: her `GV.refresh()` sonrası
+       yeniden bağlanırsa dinleyici birikir (ders L-16). Bu yüzden `GV.on` ile tekil
+       anahtar üzerinden bağlanır — aynı anahtar ikinci kez gelince öncekini söker.
+       Anahtar mount'a özgüdür ki aynı sayfadaki iki form birbirini sökmesin. */
+    var dirtyKey = 'gvform.dirty.' + (cfg.id || cfg.mount || 'form');
+    if(GV.on){
+      GV.on(window, 'beforeunload', function(e){
+        if(dirty){ e.preventDefault(); e.returnValue = ''; }
+      }, dirtyKey);
+    }
 
     return {
       validate:validate,
       read:read,
+      el:mount,
+      isDirty:function(){ return dirty; },
       submit:function(){
         var errs = validate();
         if(errs.length){ GV.toast(errs.length + ' alan hatalı — kontrol edin', 'danger'); return null; }
