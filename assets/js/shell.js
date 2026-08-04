@@ -691,7 +691,8 @@
     'app-musteri-iletisim-form.html',
     'app-referans-form.html',
     'app-komisyon-form.html',
-    'app-onanaliz-form.html'
+    'app-onanaliz-form.html',
+    'app-teklif-form.html'
   ];
   GV.built = BUILT;
 
