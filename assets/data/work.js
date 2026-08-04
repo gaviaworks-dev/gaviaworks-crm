@@ -526,7 +526,14 @@ DB.bugs = [
    `sprint`   = koşumun düştüğü sprint. null = koşum tarihi hiçbir sprint aralığına girmiyor
                 (veride o dönemin sprinti yok) — tarih yakınlığıyla UYDURULMAZ.
    `basarisiz` ile bağlı hata sayısı **eşit olmak zorunda değildir**: her düşen senaryo
-   ayrı bir hata kaydı doğurmaz. Kural yalnız şudur: bağlı hata sayısı ≤ `basarisiz`. */
+   ayrı bir hata kaydı doğurmaz. Kural yalnız şudur: bağlı hata sayısı ≤ `basarisiz`.
+
+   SENARYO SAYIM EKSENİ (5 koşumun 5'inde ölçüldü, durumdan bağımsız):
+   `basarili + basarisiz = senaryo` — HER durumda geçerlidir, yalnız `Tamamlandı`da değil.
+   `Planlandı` koşumda üçü de 0'dır (henüz senaryo yazılmamıştır), `Devam ediyor` koşumda
+   koşulmuş senaryolar sayılır ve toplam o ana kadarki senaryo sayısıdır.
+   `app-proje-test-detay.html` bu eşitliği her kayıtta "Sayım tutmuyor" rozetiyle denetler;
+   form ekranı da aynı kuralı uygular — iki ekran ayrışmaz. */
 DB.tests = [
   { kod:'TST-2026-018', proje:'PRJ-2026-001', ad:'Mobil regresyon — Sprint 18', tur:'Regresyon', senaryo:62,
     basarili:59, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-07-31', durum:'Tamamlandı',
