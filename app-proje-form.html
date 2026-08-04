@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Proje Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="proje">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName, DB.today
+     crm.js  → DB.customers, DB.services
+     work.js → DB.projects, DB.projectModules, DB.tasks, DB.deliveries,
+               DB.milestones, DB.activities, DB.priorities
+     misc.js → DB.contracts -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.projects.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Teslimat', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen proje kaydı sistemde yok.',
+      actions:[{ label:'Projelere dön', cls:'btn-line', href:'app-proje.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Proje bulunamadı',
+      desc:'“' + esc(id) + '” numaralı proje bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje.html">Projelere dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Proje');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Proje') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Teslimat',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Proje',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Projelere dön', cls:'btn-line', href:'app-proje.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Proje düzenleme' : 'Proje ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Projeleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-proje.html">Projelere dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-proje-detay.html?id=' + kayit.kod + '">Proje kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     BAĞLAR — hepsi veride YAZILI tekil alandan okunur (ders L-13)
+       proje.musteri      → DB.customers
+       sozlesme.proje     → DB.contracts      (bağ SÖZLEŞMEDE yazılı, projede değil)
+       modul.proje        → DB.projectModules
+       gorev.proje        → DB.tasks
+       teslim.proje       → DB.deliveries
+       milestone.proje    → DB.milestones
+       activity.kayit     → PRJ-xxx
+     ================================================================= */
+  var musteri  = duzenle && kayit.musteri
+    ? DB.customers.filter(function(c){ return c.kod === kayit.musteri; })[0] : null;
+  var sozlesme = duzenle
+    ? DB.contracts.filter(function(s){ return s.proje === kayit.kod; })[0] || null : null;
+  var moduller = duzenle
+    ? DB.projectModules.filter(function(m){ return m.proje === kayit.kod; }) : [];
+  var gorevler = duzenle
+    ? DB.tasks.filter(function(t){ return t.proje === kayit.kod; }) : [];
+  var teslimler = duzenle
+    ? DB.deliveries.filter(function(d){ return d.proje === kayit.kod; }) : [];
+  var taksitler = duzenle
+    ? DB.milestones.filter(function(m){ return m.proje === kayit.kod; }) : [];
+  var acts = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* PROMPT.md §11 “Kritik işler” ve “Müşteri onayları” PROJE KAYDINDA alan olarak
+     YOKTUR; ikisi de bağlı koleksiyonlardan türetilir (app-proje-detay.html ile aynı
+     ölçüt). Bu yüzden forma alan olarak basılmaz, salt-okunur bağlam olarak gösterilir. */
+  var kritikIsler = gorevler.filter(function(t){
+    return ['Kritik','Yüksek'].indexOf(t.oncelik) !== -1 &&
+           ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1;
+  });
+  var musteriOnaylari = teslimler.filter(function(d){ return !!d.musteriOnay; });
+
+  /* Adres parametresiyle ön doldurma: ?musteri=MUS-xxx */
+  var qsMus = qs.get('musteri');
+  var onMus = qsMus ? DB.customers.filter(function(c){ return c.kod === qsMus; })[0] : null;
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden; sözlük yoksa mevcut kayıtlardan türetilir
+     ================================================================= */
+  /* Proje durumu sözlüğü veride koleksiyon olarak yok. Küme app-proje.html'in
+     durum filtresiyle birebir aynı beş değerdir (aynı ekseni iki yerde ayrıştırmamak
+     için oradan alındı); veride yalnız dördü kullanılmış. */
+  var DURUMLAR = ['Planlama','Geliştirme','Test','Teslim','Askıda'];
+  var SAGLIK   = ['İyi','Dikkat','Riskli'];
+
+  /* Faz sözlüğü veride YOK — küme mevcut kayıtlardan türetilir, uydurma faz eklenmez. */
+  var FAZLAR = [];
+  DB.projects.forEach(function(p){ if(p.faz && FAZLAR.indexOf(p.faz) === -1) FAZLAR.push(p.faz); });
+  if(duzenle && kayit.faz && FAZLAR.indexOf(kayit.faz) === -1) FAZLAR.push(kayit.faz);
+
+  /* Proje türü hizmet kataloğundan gelir — 8 projenin 8'i katalogdaki bir değeri taşıyor. */
+  var TURLER  = DB.services.slice();
+  var turDisi = duzenle && kayit.tur && TURLER.indexOf(kayit.tur) === -1;
+
+  var MUSTERILER = DB.customers
+    .filter(function(c){ return c.aktif !== false || (duzenle && c.kod === kayit.musteri); })
+    .map(function(c){
+      var say = DB.projects.filter(function(p){
+        return p.musteri === c.kod && (!duzenle || p.kod !== kayit.kod); }).length;
+      return { value:c.kod, label:c.unvan + ' · ' + c.kod + (say ? ' · ' + say + ' projesi var' : '') };
+    });
+
+  function calisanSecenek(filtre){
+    return DB.employees
+      .filter(function(e){ return filtre ? filtre(e) : true; })
+      .filter(function(e){ return e.aktif !== false; })
+      .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+  }
+  /* Proje yöneticisi kümesi rol matrisinden değil, çalışan kartındaki `roller`
+     dizisinden okunur — app-proje.html'in pm filtresiyle aynı ölçüt. */
+  function pmAday(e){ return e.roller.indexOf('pm') !== -1 || e.rol === 'sahip'; }
+  var PMLER = calisanSecenek(pmAday);
+  /* Düzenlenen kaydın pm'i kümede yoksa kaybolmasın diye eklenir. */
+  if(duzenle && kayit.pm && !PMLER.some(function(o){ return o.value === kayit.pm; })){
+    var pmEmp = DB.emp(kayit.pm);
+    PMLER.push({ value:kayit.pm, label:(pmEmp ? pmEmp.ad : kayit.pm) + ' · kayıtta yazılı (pm rolü yok)' });
+  }
+  var CALISANLAR = calisanSecenek(null);
+  var EKIP_ADAY  = DB.employees.filter(function(e){
+    return e.aktif !== false || (duzenle && (kayit.ekip || []).indexOf(e.kod) !== -1); });
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+       Dizi alanları (ekip dışında) satır satır metne açılır; kaydederken
+       yeniden diziye çevrilir. GV.form'da dizi/çip/çoklu seçim tipi YOK.
+       Ekip, üye başına bir onay kutusu alanı olarak basılır.
+     ================================================================= */
+  var LISTE_ALAN = ['teknoloji','ucuncuTaraf','riskler'];
+  var SAYI_ALAN  = ['ilerleme','tahminiSure','harcananSure'];
+  var PARA_ALAN  = ['sozlesmeTutari','butce','gerceklesenMaliyet'];
+  var EKIP_ON    = 'ekip_';
+
+  function metin(arr){ return (arr || []).join('\n'); }
+  function satirlar(t){
+    return String(t == null ? '' : t).split('\n').map(function(s){ return s.trim(); })
+      .filter(function(s){ return s.length > 0; });
+  }
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+
+  var formRec = {};
+  if(duzenle){
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    LISTE_ALAN.forEach(function(k){ formRec[k] = metin(kayit[k]); });
+    formRec.gercekBitis = kayit.gercekBitis || '';
+    formRec.gecikmeNedeni = kayit.gecikmeNedeni || '';
+    formRec.aktif = kayit.aktif !== false;
+    formRec.arsiv = kayit.arsiv === true;
+    if(turDisi) formRec.tur = '';
+    EKIP_ADAY.forEach(function(e){
+      formRec[EKIP_ON + e.kod] = (kayit.ekip || []).indexOf(e.kod) !== -1; });
+  }else{
+    formRec = {
+      ad:'', musteri:(onMus ? onMus.kod : ''), tur:'', faz:FAZLAR[0] || '',
+      oncelik:'Orta', pm:'', teknikSorumlu:'', musteriSorumlu:'',
+      baslangic:DB.today, planlananBitis:'', gercekBitis:'',
+      durum:'Planlama', ilerleme:0, saglik:'İyi',
+      tahminiSure:'', harcananSure:0,
+      sozlesmeTutari:'', butce:'', gerceklesenMaliyet:0,
+      repo:'', canli:'', test:'', tasarim:'', sunucu:'',
+      teknoloji:'', ucuncuTaraf:'', riskler:'', gecikmeNedeni:'',
+      aktif:true, arsiv:false
+    };
+    EKIP_ADAY.forEach(function(e){ formRec[EKIP_ON + e.kod] = false; });
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — etiket ve ipuçlarında kullanılan sayılar varsayılmaz, sayılır
+     ================================================================= */
+  /* Sözleşme bedeli ekseni: components.md §9b → DB.projects[].sozlesmeTutari = NET.
+     Ölçüm burada da tekrarlanır ki ipucundaki sayı gerçek olsun. */
+  var eslesen = 0, sozlesmeli = 0;
+  DB.projects.forEach(function(p){
+    var s = DB.contracts.filter(function(c){ return c.proje === p.kod; })[0];
+    if(!s) return;
+    sozlesmeli++;
+    if(s.tutar === p.sozlesmeTutari) eslesen++;
+  });
+
+  /* Modül ilerlemesi ↔ proje ilerlemesi: veride yazılı bir türetme kuralı YOK.
+     İki ölçü de gösterilir, aralarında kural varmış gibi doğrulama yapılmaz. */
+  var modOrt = moduller.length
+    ? Math.round(moduller.reduce(function(s,m){ return s + m.ilerleme; }, 0) / moduller.length) : null;
+  var modEforToplam = moduller.reduce(function(s,m){ return s + (m.efor || 0); }, 0);
+  var modAgirlikli = modEforToplam
+    ? Math.round(moduller.reduce(function(s,m){ return s + m.ilerleme * (m.efor || 0); }, 0) / modEforToplam)
+    : null;
+
+  /* Gecikmiş projelerde gecikme nedeni yazılı mı — kural buradan ölçülür. */
+  var gecikenler = DB.projects.filter(function(p){
+    return p.durum !== 'Teslim' && p.planlananBitis && p.planlananBitis < DB.today; });
+  var gecikenNedenli = gecikenler.filter(function(p){ return !!p.gecikmeNedeni; }).length;
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  var ust = '';
+
+  if(duzenle){
+    /* ---- Katalog dışı proje türü uyarısı ---- */
+    if(turDisi){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'danger', title:'Kayıttaki proje türü hizmet kataloğunda yok',
+        text:'Bu projede “' + kayit.tur + '” türü yazılı ama hizmet kataloğunda (' + TURLER.length +
+             ' hizmet) böyle bir değer yok. Tür alanı boş açıldı; kaydetmeden önce katalogdan ' +
+             'geçerli bir tür seçmelisiniz.' }) + '</div></section>';
+    }
+
+    /* ---- İlişkili kayıt uyarısı — bağ SÖZLEŞMEDE yazılı (contract.proje) ---- */
+    var bagAksiyon = [];
+    if(sozlesme) bagAksiyon.push({ label:'Sözleşmeyi aç', href:'app-sozlesme-detay.html?id=' + sozlesme.kod, cls:'btn-line' });
+    if(musteri)  bagAksiyon.push({ label:'Müşteri kartını aç', href:'app-musteri-detay.html?id=' + musteri.kod, cls:'btn-line' });
+
+    var bagliSayi = moduller.length + gorevler.length + teslimler.length + taksitler.length;
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({
+        tone:bagliSayi ? 'warn' : 'info',
+        title:bagliSayi ? 'Bu projeye bağlı ' + bagliSayi + ' kayıt var' : 'Bu projeye bağlı alt kayıt yok',
+        text:(bagliSayi
+              ? moduller.length + ' modül · ' + gorevler.length + ' görev · ' + taksitler.length +
+                ' taksit · ' + teslimler.length + ' teslim bu projenin kodunu taşıyor. '
+              : 'Modül, görev, taksit ve teslim koleksiyonlarında bu proje kodunu taşıyan kayıt yok. ') +
+             (sozlesme
+               ? sozlesme.kod + ' sözleşmesi bu projeye bağlı (bağ sözleşme kaydının “proje” alanında yazılı, ' +
+                 'projede ayna alan açılmaz). Sözleşme bedeli ' + F.money(sozlesme.tutar, '₺') + ' (KDV hariç), ' +
+                 'genel toplam ' + F.money(sozlesme.toplam, '₺') + ' (KDV dahil). Projedeki sözleşme bedelini ' +
+                 'değiştirirseniz sözleşme kaydı otomatik güncellenmez.'
+               : 'Bu projeye bağlı bir sözleşme kaydı yok (DB.contracts içinde “proje” alanı ' + kayit.kod +
+                 ' olan kayıt bulunmuyor); sözleşme bedeli alanı bir sözleşmeyle karşılaştırılamaz.') +
+             (bagliSayi ? ' Projeyi arşive alırsanız bu kayıtlar silinmez, listelerde bağlı kaldıkları proje ' +
+                          'arşivli görünür.' : ''),
+        actions:bagAksiyon }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı ---- */
+    var son = acts[0];
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Proje numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Proje adı', esc(kayit.ad)],
+        ['Müşteri', musteri
+          ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>' +
+            sub(musteri.sektor + ' · risk: ' + musteri.risk)
+          : (kayit.musteri ? '<span class="u-num">' + esc(kayit.musteri) + '</span>' + sub('Müşteri kaydı bulunamadı') : null)],
+        ['Proje durumu', GV.badge(kayit.durum) +
+          (kayit.arsiv === true ? ' <span class="tag">Arşiv</span>' : '') +
+          (kayit.aktif === false ? ' <span class="tag">Pasif</span>' : '')],
+        ['Sağlık durumu', GV.badge(kayit.saglik)],
+        ['Öncelik', GV.pri(kayit.oncelik)],
+        ['Proje yöneticisi', GV.user(kayit.pm, { sm:true })],
+        ['İlerleme', GV.progress(kayit.ilerleme)],
+        ['Planlanan bitiş', GV.dateCell(kayit.planlananBitis, { done:kayit.durum === 'Teslim' }) +
+          sub(F.rel(kayit.planlananBitis))],
+        ['Son güncelleme', F.date(kayit.sonGuncelleme)],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-proje-detay.html?id=' + kayit.kod + '">' +
+        ico('i-external','ic-sm') + ' Proje kartını aç</a>');
+
+    /* ---- PROMPT.md §11'in iki TÜRETİLMİŞ alanı: kritik işler + müşteri onayları ---- */
+    ust += kart('Kritik İşler ve Müşteri Onayları', 'i-clipboard-check',
+      GV.notice({ tone:'neutral', icon:'i-lock',
+        title:'Bu iki alan proje kaydında tutulmaz, formda düzenlenmez',
+        text:'PROMPT.md §11 “kritik işler” ve “müşteri onayları” başlıklarını proje künyesinde ister; ' +
+             'veride ikisinin de proje üzerinde bir alanı yok. Kritik işler görev koleksiyonundaki ' +
+             'kritik/yüksek öncelikli açık görevlerden, müşteri onayları teslim kayıtlarının ' +
+             '“müşteri onayı” alanından türetilir. Buradan görüntülenir, ilgili ekranlarından değiştirilir.',
+        actions:[
+          { label:'Projenin görevleri', href:'app-gorev.html?t=proje&f_proje=' + kayit.kod },
+          { label:'Projenin teslimleri', href:'app-proje-teslim.html?f_proje=' + kayit.kod }
+        ] }) +
+      '<div class="u-mt-4"></div>' +
+      dl([
+        ['Açık kritik / yüksek öncelikli iş', kritikIsler.length
+          ? kritikIsler.map(function(t){
+              return '<div><a href="app-gorev-detay.html?id=' + t.kod + '">' + esc(t.baslik) + '</a> ' +
+                GV.pri(t.oncelik) + ' ' + GV.badge(t.durum) +
+                sub(DB.empName(t.sorumlu) + ' · termin ' + F.date(t.termin)) + '</div>';
+            }).join('')
+          : null],
+        ['Müşteri onayına sunulmuş teslim', musteriOnaylari.length
+          ? musteriOnaylari.map(function(d){
+              return '<div><a href="app-proje-teslim-detay.html?id=' + d.kod + '">' + esc(d.ad) + '</a> ' +
+                GV.badge(d.musteriOnay) +
+                sub(F.date(d.tarih) + (d.onayTarihi ? ' · onay ' + F.date(d.onayTarihi) : ' · onay tarihi yok')) + '</div>';
+            }).join('')
+          : null]
+      ]));
+
+    /* ---- Modül ilerlemesi — ölçüm, kural değil ---- */
+    if(moduller.length){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'info', icon:'i-layers', title:'Modül ilerlemesi ile proje ilerlemesi ayrı ölçülerdir',
+        text:'Bu projenin ' + moduller.length + ' modülü var. Modüllerin düz ortalaması %' + modOrt +
+             (modAgirlikli != null ? ', efora göre ağırlıklı ortalaması %' + modAgirlikli : '') +
+             '; proje kaydında yazılı ilerleme %' + kayit.ilerleme + '. Veride ikisini birbirine bağlayan ' +
+             'bir türetme kuralı yazılı olmadığı için ilerleme alanı modüllerden hesaplanmaz, elle girilir.',
+        actions:[{ label:'Proje modülleri', href:'app-proje-detay.html?id=' + kayit.kod }] }) +
+        '</div></section>';
+    }
+
+    if(!canFinans){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'neutral', icon:'i-lock', title:'Finansal alanlar bu formda yok',
+        text:'Rolünüzde finans yetkisi tanımlı değil. Sözleşme bedeli, proje bütçesi ve gerçekleşen ' +
+             'maliyet alanları forma hiç basılmadı; bu kaydın mevcut tutarları kaydettiğinizde olduğu ' +
+             'gibi korunur.' }) + '</div></section>';
+    }
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni proje kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki proje numarası atanır, son güncelleme tarihi ' + F.date(DB.today) +
+           ' olarak yazılır, aktivite geçmişine “Proje oluşturuldu” satırı düşülür ve proje listesine ' +
+           'dönülür. Modül, sprint, taksit ve teslim kayıtları bu formda açılmaz — proje kartı ' +
+           'doğduktan sonra kendi ekranlarından eklenir. Sözleşme bağı da burada kurulmaz: bağ ' +
+           'sözleşme kaydının “proje” alanında yazılır (components.md §9d yön kuralı).',
+      actions:[{ label:'Projeler', href:'app-proje.html' }] });
+
+    var musNot = '';
+    if(qsMus && !onMus){
+      musNot = GV.notice({ tone:'warn', title:'Adresteki müşteri bulunamadı',
+        text:'“' + qsMus + '” numaralı müşteri kaydı sistemde yok, bu yüzden müşteri alanı ön seçili ' +
+             'gelmedi. Listeden geçerli bir müşteri seçebilirsiniz.',
+        actions:[{ label:'Müşteriler', href:'app-musteri.html' }] });
+    }else if(onMus){
+      var musProje = DB.projects.filter(function(p){ return p.musteri === onMus.kod; });
+      musNot = GV.notice({ tone:'ok', title:'Müşteri ön seçili geldi',
+        text:onMus.kod + ' · ' + onMus.unvan + ' müşterisi adresten geldiği için müşteri alanı seçili ' +
+             'açıldı' + (musProje.length ? '. Bu müşterinin hâlihazırda ' + musProje.length +
+             ' projesi var (' + musProje.map(function(p){ return p.kod; }).join(', ') + ')' : '') + '.',
+        actions:[{ label:'Müşteri kartını aç', href:'app-musteri-detay.html?id=' + onMus.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + musNot +
+      (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock', title:'Finansal alanlar bu formda yok',
+        text:'Rolünüzde finans yetkisi tanımlı değil. Sözleşme bedeli, proje bütçesi ve gerçekleşen ' +
+             'maliyet alanları forma basılmadı; yeni kayıt bu üç alanda sıfır değerle açılır ve ' +
+             'tutarları yetkili bir rol girer.' })) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-briefcase') + 'Proje Künyesi</h2>' +
+        '<div class="gc-sub">PROMPT.md §11 proje alanları + teknik envanter · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-proje.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [
+    { title:'Proje kimliği',
+      desc:'Projenin adı, müşterisi ve sınıflandırması. Proje numarası kaydederken sistem tarafından ' +
+           'atanır, elle girilmez.',
+      fields:[
+        { key:'ad', label:'Proje adı', type:'text', required:true, cols:12,
+          placeholder:'Örn. Vitalis Hasta Randevu Mobil Uygulaması',
+          validate:function(v, d){
+            var ayni = DB.projects.filter(function(p){
+              return (!duzenle || p.kod !== kayit.kod) && p.ad.trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+            return ayni ? 'Aynı adla başka bir proje var (' + ayni.kod + '). Ad ayırt edici olmalıdır.' : '';
+          } },
+        { key:'musteri', label:'Müşteri', type:'select', options:MUSTERILER, required:true, cols:6,
+          placeholder:'Müşteri seçin',
+          hint:'Projenin müşteri bağı burada yazılır; müşteri unvanı kayda bu seçimden kopyalanır.' },
+        { key:'tur', label:'Proje türü', type:'select', options:TURLER, required:true, cols:6,
+          placeholder:'Tür seçin',
+          hint:'Hizmet kataloğundaki ' + TURLER.length + ' değerden biri. Liste ekranının tür filtresi bu kümeyi kullanır.',
+          validate:function(v){
+            return (v && TURLER.indexOf(v) === -1)
+              ? 'Proje türü hizmet kataloğundaki ' + TURLER.length + ' değerden biri olmalıdır.' : '';
+          } },
+        { key:'faz', label:'Faz', type:'select', options:FAZLAR, required:true, cols:6,
+          placeholder:'Faz seçin',
+          hint:'Veride faz sözlüğü yok; küme mevcut projelerden türetildi (' + FAZLAR.join(', ') + ').' },
+        { key:'oncelik', label:'Öncelik', type:'select', options:DB.priorities, required:true, cols:6,
+          hint:'Öncelik sözlüğü: ' + DB.priorities.join(' · ') + '.' }
+      ]},
+
+    { title:'Sorumluluk',
+      desc:'Projeden sorumlu üç eksen: yönetim, teknik ve müşteri ilişkisi.',
+      fields:[
+        { key:'pm', label:'Proje yöneticisi', type:'select', options:PMLER, required:true, cols:4,
+          placeholder:'Yönetici seçin',
+          hint:'Kümede “pm” rolü tanımlı ' + PMLER.length + ' çalışan var.' },
+        { key:'teknikSorumlu', label:'Teknik sorumlu', type:'select', options:CALISANLAR, required:true, cols:4,
+          placeholder:'Çalışan seçin',
+          hint:'Teknik envanterin (depo, ortam, sunucu) sahibi.' },
+        { key:'musteriSorumlu', label:'Müşteri sorumlusu', type:'select', options:CALISANLAR, required:true, cols:4,
+          placeholder:'Çalışan seçin',
+          hint:'Müşteriyle iletişimi yürüten çalışan; proje yöneticisinden farklı olabilir.' }
+      ]},
+
+    { title:'Proje ekibi',
+      desc:'Projede çalışan personel. Ekip listesi kayıtta çalışan kodlarından oluşan bir dizidir; ' +
+           'GV.form’da çoklu seçim tipi olmadığı için üye başına bir onay kutusu basılır.',
+      fields:EKIP_ADAY.map(function(e){
+        return { key:EKIP_ON + e.kod, type:'checkbox', cols:4,
+          label:e.ad, checkLabel:e.ad + ' · ' + e.pozisyon + (e.aktif === false ? ' (pasif)' : '') };
+      }) },
+
+    { title:'Takvim, durum ve ilerleme',
+      desc:'Projenin zaman ekseni ve süreçteki yeri. Teslim edilmiş bir projede gerçekleşen bitiş ' +
+           'tarihi ve %100 ilerleme zorunludur.',
+      fields:[
+        { key:'baslangic', label:'Başlangıç tarihi', type:'date', required:true, cols:4 },
+        { key:'planlananBitis', label:'Planlanan bitiş', type:'date', required:true, cols:4,
+          validate:function(v, d){
+            return (v && d.baslangic && v < d.baslangic)
+              ? 'Planlanan bitiş başlangıç tarihinden önce olamaz.' : '';
+          } },
+        { key:'gercekBitis', label:'Gerçekleşen bitiş', type:'date', cols:4,
+          hint:'Proje teslim edilmediyse boş bırakılır.',
+          validate:function(v, d){
+            if(v && d.baslangic && v < d.baslangic) return 'Gerçekleşen bitiş başlangıç tarihinden önce olamaz.';
+            if(v && v > DB.today) return 'Gerçekleşen bitiş ileri bir tarih olamaz.';
+            if(!v && d.durum === 'Teslim') return 'Teslim edilmiş projede gerçekleşen bitiş tarihi zorunludur.';
+            if(v && d.durum !== 'Teslim') return 'Gerçekleşen bitiş yazılan proje “Teslim” durumunda olmalıdır.';
+            return '';
+          } },
+        { key:'durum', label:'Proje durumu', type:'select', options:DURUMLAR, required:true, cols:4,
+          hint:'Veride durum sözlüğü koleksiyonu yok; küme proje listesinin durum filtresiyle aynı beş değerdir.' },
+        { key:'ilerleme', label:'İlerleme oranı', type:'percent', required:true, cols:4,
+          hint:moduller.length
+            ? 'Bu projenin ' + moduller.length + ' modülünün ortalaması %' + modOrt + ' — bilgi amaçlıdır, alan elle girilir.'
+            : 'Modüllerden hesaplanmaz, elle girilir.',
+          validate:function(v, d){
+            if(d.durum === 'Teslim' && sayi(v) !== 100) return 'Teslim edilmiş projenin ilerlemesi %100 olmalıdır.';
+            if(d.durum !== 'Teslim' && sayi(v) === 100) return '%100 ilerleyen proje “Teslim” durumuna alınmalıdır.';
+            return '';
+          } },
+        { key:'saglik', label:'Proje sağlık durumu', type:'select', options:SAGLIK, required:true, cols:4,
+          hint:'İyi · Dikkat · Riskli. Liste ekranının “Riskli” sekmesi bu alanı okur.' }
+      ]},
+
+    { title:'Efor',
+      desc:'Saat cinsinden tahmin ve gerçekleşme. Zaman kayıtları bu alanları otomatik güncellemez; ' +
+           'prototipte iki sayı da elle tutulur.',
+      fields:[
+        { key:'tahminiSure', label:'Tahmini süre (saat)', type:'number', required:true, min:1, cols:6 },
+        { key:'harcananSure', label:'Harcanan süre (saat)', type:'number', min:0, cols:6,
+          hint:'Tahmini süreyi aşması hata değildir — aşan projeler bütçe raporunda ayrı görünür.' }
+      ]}
+  ];
+
+  /* Finansal alanlar yetkiye bağlıdır — yetkisi olmayan role HİÇ basılmaz (ölü kontrol yok). */
+  if(canFinans){
+    sections.push({
+      title:'Sözleşme ve bütçe',
+      desc:'Üç tutar da NET eksendedir (KDV hariç) — components.md §9b. Net ve brüt aynı formda karışmaz; ' +
+           'KDV ve genel toplam sözleşme kaydında tutulur.',
+      fields:[
+        { key:'sozlesmeTutari', label:'Sözleşme bedeli (KDV hariç)', type:'money', required:true, min:0, cols:4,
+          hint:'Ölçüm: sözleşmesi olan ' + sozlesmeli + ' projenin ' + eslesen +
+               ' tanesinde bu alan sözleşmenin net tutarıyla birebir aynı.' +
+               (sozlesme ? ' Bu projenin sözleşmesi ' + sozlesme.kod + ' · ' + F.money(sozlesme.tutar, '₺') + '.' : ''),
+          validate:function(v){
+            if(!sozlesme) return '';
+            return sayi(v) !== sozlesme.tutar
+              ? 'Bağlı sözleşme ' + sozlesme.kod + ' net ' + F.money(sozlesme.tutar, '₺') +
+                ' yazıyor; proje sözleşme bedeli aynı olmalıdır (§9b tek eksen kuralı).' : '';
+          } },
+        { key:'butce', label:'Onaylı proje bütçesi (KDV hariç)', type:'money', required:true, min:0, cols:4,
+          hint:'Projenin iç maliyet bütçesi — sözleşme bedeli değildir.' },
+        { key:'gerceklesenMaliyet', label:'Gerçekleşen maliyet (KDV hariç)', type:'money', min:0, cols:4,
+          hint:'Bütçeyi aşması hata değildir; liste ekranında bütçe kullanımı kırmızıya döner.' }
+      ]});
+  }
+
+  sections.push(
+    { title:'Teknik envanter',
+      desc:'PROMPT.md §2’nin “her proje içerisinde bulunmalıdır” dediği bağlantı ve altyapı alanları. ' +
+           'Bağlantılar veride şema öneki olmadan (örn. github.com/…) tutulduğu için metin alanı ' +
+           'olarak açılır; bilinmeyen alanlara tire (—) yazılır.',
+      fields:[
+        { key:'repo', label:'Kaynak kod deposu', type:'text', cols:6,
+          placeholder:'github.com/gaviaworks/proje-adi' },
+        { key:'canli', label:'Canlı ortam bağlantısı', type:'text', cols:6,
+          placeholder:'panel.musteri.com' },
+        { key:'test', label:'Test ortamı bağlantısı', type:'text', cols:6,
+          placeholder:'test.musteri.com' },
+        { key:'tasarim', label:'Tasarım dosyası bağlantısı', type:'text', cols:6,
+          placeholder:'figma.com/proje-adi' },
+        { key:'sunucu', label:'Sunucu ve barındırma', type:'text', required:true, cols:12,
+          placeholder:'Örn. Gavia yönetimli VPS · Müşteri on-premise · AWS eu-central-1' },
+        { key:'teknoloji', label:'Kullanılan teknolojiler', type:'textarea', rows:5, required:true, cols:6,
+          placeholder:'Node.js\nReact\nPostgreSQL',
+          hint:'Her satıra bir teknoloji yazın. Boş satırlar kaydedilmez; liste ekranının aramasında bu alan taranır.' },
+        { key:'ucuncuTaraf', label:'Üçüncü taraf servisler', type:'textarea', rows:5, cols:6,
+          placeholder:'iyzico\nGoogle Maps\ne-Fatura',
+          hint:'Her satıra bir servis yazın. Servis kullanılmıyorsa boş bırakın.' }
+      ]},
+
+    { title:'Risk ve gecikme',
+      desc:'Projenin açık uçları. Planlanan bitişi geçmiş ve teslim edilmemiş projede gecikme nedeni zorunludur.',
+      fields:[
+        { key:'riskler', label:'Proje riskleri', type:'textarea', rows:5, cols:6,
+          placeholder:'Kapsam büyümesi\nEntegrasyon dokümantasyonu yetersiz',
+          hint:'Her satıra bir risk yazın.' },
+        { key:'gecikmeNedeni', label:'Gecikme nedeni', type:'textarea', rows:5, cols:6,
+          placeholder:'Örn. Müşteri içerik onayı 9 gün gecikti',
+          hint:'Ölçüm: gecikmiş ' + gecikenler.length + ' projenin ' + gecikenNedenli + ' tanesinde bu alan dolu.',
+          validate:function(v, d){
+            var gecikti = d.durum !== 'Teslim' && d.planlananBitis && d.planlananBitis < DB.today;
+            return (gecikti && !String(v || '').trim())
+              ? 'Planlanan bitişi geçmiş ve teslim edilmemiş projede gecikme nedeni yazılmalıdır.' : '';
+          } }
+      ]},
+
+    { title:'Kayıt durumu',
+      desc:'Kaydın listelerde görünüp görünmeyeceği. Liste bileşeni “pasif” ve “arşiv” bayraklarının ' +
+           'ikisini de arşiv sayar; ikisi ayrı alan olduğu için ikisi de burada gösterilir.',
+      fields:[
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
+          onLabel:'Kayıt aktif — listelerde ve seçim kutularında görünür',
+          hint:'Kapatılırsa kayıt pasife düşer; bağlı modül, görev ve teslimler silinmez.' },
+        { key:'arsiv', label:'Arşiv', type:'switch', cols:6,
+          onLabel:'Proje arşivlendi — yalnız arşiv görünümünde listelenir',
+          hint:'Veride 8 projenin 1’inde bu bayrak var; liste bileşeni “arşiv” ve “pasif” bayraklarını ' +
+               'aynı eksende değerlendirir.',
+          validate:function(v, d){
+            return (v && d.durum !== 'Teslim')
+              ? 'Teslim edilmemiş proje arşivlenemez — önce durumu “Teslim” yapın ya da kaydı pasife alın.' : '';
+          } }
+      ]}
+  );
+
+  /* Ekip grubu mantıksal olarak TEK alandır; sayım öyle yapılır. */
+  var alanSayisi = sections.reduce(function(n, s){
+    return n + (s.title === 'Proje ekibi' ? 1 : (s.fields || []).length); }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'proje', record:formRec, sections:sections
+  });
+
+  /* Proje adı müşteri seçiminden TÜRETİLMEZ: veride 8 projenin hiçbirinin adı müşteri
+     unvanıyla başlamıyor (“Vitalis Hasta Randevu Mobil Uygulaması” ≠ “Vitalis Sağlık Grubu”).
+     Otomatik doldurma yarım bir ad bırakacağı için kurulmadı; müşteri unvanı yalnız
+     kaydederken `musteriAd` alanına kopyalanır. */
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    ad:'Proje adı', musteri:'Müşteri', musteriAd:'Müşteri unvanı', tur:'Proje türü', faz:'Faz',
+    oncelik:'Öncelik', pm:'Proje yöneticisi', teknikSorumlu:'Teknik sorumlu',
+    musteriSorumlu:'Müşteri sorumlusu', ekip:'Proje ekibi',
+    baslangic:'Başlangıç tarihi', planlananBitis:'Planlanan bitiş', gercekBitis:'Gerçekleşen bitiş',
+    durum:'Proje durumu', ilerleme:'İlerleme oranı', saglik:'Proje sağlık durumu',
+    tahminiSure:'Tahmini süre', harcananSure:'Harcanan süre',
+    sozlesmeTutari:'Sözleşme bedeli', butce:'Onaylı proje bütçesi', gerceklesenMaliyet:'Gerçekleşen maliyet',
+    repo:'Kaynak kod deposu', canli:'Canlı ortam bağlantısı', test:'Test ortamı bağlantısı',
+    tasarim:'Tasarım dosyası bağlantısı', sunucu:'Sunucu ve barındırma',
+    teknoloji:'Kullanılan teknolojiler', ucuncuTaraf:'Üçüncü taraf servisler',
+    riskler:'Proje riskleri', gecikmeNedeni:'Gecikme nedeni',
+    sonGuncelleme:'Son güncelleme tarihi', aktif:'Kayıt durumu', arsiv:'Arşiv'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Numara yıl ekseninden bağımsız artar (PRJ-2025-008 → PRJ-2026-009). */
+  function yeniKod(){
+    var max = 0;
+    DB.projects.forEach(function(x){
+      var m = /^PRJ-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'PRJ-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer. */
+  function norm(x){
+    if(Array.isArray(x)) return x.join(' | ');
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(k === 'ekip') return (v || []).length ? (v || []).map(DB.empName).join(', ') : '—';
+    if(Array.isArray(v)) return v.length ? v.join(' | ') : '—';
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Pasif';
+    if(k === 'arsiv') return v ? 'Arşivli' : 'Arşivde değil';
+    if(['pm','teknikSorumlu','musteriSorumlu'].indexOf(k) !== -1) return DB.empName(v);
+    if(PARA_ALAN.indexOf(k) !== -1) return F.money(v, '₺');
+    if(k === 'ilerleme') return v + '%';
+    if(k === 'tahminiSure' || k === 'harcananSure') return F.hours(v);
+    if(['baslangic','planlananBitis','gercekBitis','sonGuncelleme'].indexOf(k) !== -1) return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){
+      if(k.indexOf(EKIP_ON) === 0) return;         /* ekip kutuları ayrı toplanır */
+      v[k] = raw[k];
+    });
+
+    v.ekip = EKIP_ADAY.filter(function(e){ return !!raw[EKIP_ON + e.kod]; })
+                      .map(function(e){ return e.kod; });
+
+    LISTE_ALAN.forEach(function(k){ v[k] = satirlar(v[k]); });
+    SAYI_ALAN.forEach(function(k){ v[k] = sayi(v[k]); });
+    v.aktif = !!v.aktif;
+    v.arsiv = !!v.arsiv;
+    v.ad = String(v.ad || '').trim();
+    v.gercekBitis   = String(v.gercekBitis || '').trim() || null;
+    v.gecikmeNedeni = String(v.gecikmeNedeni || '').trim() || null;
+    ['repo','canli','test','tasarim','sunucu'].forEach(function(k){
+      v[k] = String(v[k] || '').trim() || '—';     /* veride boş bağlantı tire ile yazılır */
+    });
+
+    /* Müşteri unvanı seçimden KOPYALANIR — kayıtta yazılı, ekranda türetilmez. */
+    var c = DB.customers.filter(function(x){ return x.kod === v.musteri; })[0];
+    v.musteriAd = c ? c.unvan : (duzenle ? kayit.musteriAd : '');
+
+    if(canFinans){
+      PARA_ALAN.forEach(function(k){ v[k] = sayi(v[k]); });
+    }else{
+      /* Yetkisiz rol bu alanları hiç görmedi: düzenlemede mevcut değer korunur,
+         yeni kayıtta sıfırdan açılır. Tahmin yazılmaz. */
+      PARA_ALAN.forEach(function(k){ v[k] = duzenle ? kayit[k] : 0; });
+    }
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        /* Son güncelleme tarihi yalnız gerçekten bir şey değiştiğinde ilerletilir. */
+        if(kayit.sonGuncelleme !== DB.today){
+          DB.activities.unshift({
+            kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+            metin:'Alan güncellendi: ' + ALAN_ADI.sonGuncelleme,
+            eski:gorunur('sonGuncelleme', kayit.sonGuncelleme), yeni:gorunur('sonGuncelleme', DB.today),
+            tone:'accent', icon:'i-edit'
+          });
+          kayit.sonGuncelleme = DB.today;
+        }
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      DB.projects.unshift(Object.assign({ kod:kod }, v, { sonGuncelleme:DB.today }));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Proje oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ veride YAZILI olduğu için müşteri kaydına da bir satır düşülür (ders L-13). */
+      if(v.musteri){
+        DB.activities.unshift({
+          kayit:v.musteri, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Proje ' + kod + ' açıldı', eski:null, yeni:v.ad, tone:'accent', icon:'i-briefcase'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-proje.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Teslimat',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Proje',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-proje.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
