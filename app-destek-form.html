@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Destek Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="destek" data-screen="destek">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.emp, DB.empName, DB.today
+     crm.js  → DB.customers, DB.contacts
+     ops.js  → DB.tickets, DB.slaPolicies, DB.supportPackages, DB.surveys
+     work.js → DB.projects, DB.projName, DB.priorities, DB.impacts,
+               DB.activities, DB.tasks, DB.bugs, DB.changeRequests -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.tickets.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Destek ve Bakım', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen destek kaydı sistemde yok.',
+      actions:[{ label:'Destek listesine dön', cls:'btn-line', href:'app-destek.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Destek kaydı bulunamadı',
+      desc:'“' + esc(id) + '” numaralı destek kaydı bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-destek.html">Destek listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Destek Kaydı');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Destek Kaydı') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Destek ve Bakım',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Destek Kaydı',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Destek listesine dön', cls:'btn-line', href:'app-destek.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Destek kaydı düzenleme' : 'Destek kaydı açma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Destek kayıtlarını görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek
+       bir yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-destek.html">Destek listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-destek-detay.html?id=' + kayit.kod + '">Kaydı görüntüle</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     SÜRE / TARİH YARDIMCILARI
+     SLA hedefleri DAKİKA cinsindedir (DB.slaPolicies), harcanan/kalan
+     destek SAAT cinsindedir (DB.tickets, DB.supportPackages). İki eksen
+     birbirine çevrilmez, ayrı biçimlendirilir.
+     ================================================================= */
+  function sure(dk){
+    if(dk == null) return '—';
+    var m = Math.abs(Math.round(dk));
+    var g = Math.floor(m / 1440), s = Math.floor((m % 1440) / 60), d = m % 60;
+    if(g) return g + ' gün' + (s ? ' ' + s + ' sa' : '');
+    if(s) return s + ' sa' + (d ? ' ' + d + ' dk' : '');
+    return d + ' dk';
+  }
+  /* Referans an: DB.today gününün başlangıcı (mock veri sabit tarih ekseni —
+     components.md §9: “açık talepte geçen süre DB.today gününün başlangıcına göre”). */
+  var SIMDI = new Date(DB.today + 'T00:00:00');
+  function anIso(t, s){ return (t && s) ? t + 'T' + s : null; }
+  function tarihi(iso){ return iso ? String(iso).slice(0,10) : ''; }
+  function saati(iso){ return iso ? String(iso).slice(11,16) : ''; }
+  function dakikaFarki(a, b){
+    if(!a || !b) return null;
+    return Math.round((new Date(String(b).slice(0,16) + ':00') - new Date(String(a).slice(0,16) + ':00')) / 60000);
+  }
+  /* Açık talepte “geçen süre”. Aynı gün açılan talepte fark negatif çıkar
+     (referans an günün başlangıcıdır); negatif tüketim anlamsız olduğu için sıfıra kırpılır. */
+  function gecenDk(iso){
+    if(!iso) return 0;
+    return Math.max(0, Math.round((SIMDI - new Date(String(iso).slice(0,16) + ':00')) / 60000));
+  }
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function bosSayi(v){
+    if(v === '' || v == null) return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  var SAAT_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+  /* =================================================================
+     SLA — components.md §9 · TEK DOĞRU KAYNAK DB.slaPolicies
+     Eşleşme kuralı: kategori aynı VE (öncelik aynı VEYA politika 'Tümü').
+     `sla` alanı politikanın `etiket`idir; kullanıcıya serbest yazdırılmaz.
+     `slaDurum` iki eksenin KÖTÜSÜdür (ilk yanıt + çözüm) ve hesaplanır.
+     ================================================================= */
+  function politika(kategori, oncelik){
+    var l = DB.slaPolicies.filter(function(p){ return p.aktif !== false; });
+    for(var i = 0; i < l.length; i++){
+      if(l[i].kategori === kategori && (l[i].oncelik === oncelik || l[i].oncelik === 'Tümü')) return l[i];
+    }
+    return null;
+  }
+  function seviye(o){ return o >= 1 ? 'İhlal edildi' : o >= 0.75 ? 'Risk altında' : 'Zamanında'; }
+
+  /* Ham değerlerden TÜM türetilmiş alanları üretir — kaydetme ve canlı
+     önizleme aynı yordamı kullanır ki ekranda görünen ile kaydedilen ayrışmasın. */
+  function turet(d){
+    var P       = politika(d.kategori, d.oncelik);
+    var acilis  = d.acilis || null;
+    var ilk     = d.ilkYanit || null;
+    var mud     = dakikaFarki(acilis, ilk);
+    var coz     = d.cozumSuresi;
+    var gecen   = gecenDk(acilis);
+
+    var yanitHedef = P ? P.ilkYanit : null;
+    var cozumHedef = P ? P.cozum : null;
+    var yanitGecen = mud != null ? mud : gecen;
+    var cozumGecen = coz != null ? coz : gecen;
+    var yanitOran  = yanitHedef ? yanitGecen / yanitHedef : 0;
+    var cozumOran  = cozumHedef ? cozumGecen / cozumHedef : 0;
+
+    var paket = paketBul(d.musteri);
+    return {
+      politika:P,
+      sla: P ? P.etiket : null,
+      mudahaleSuresi: mud,
+      yanitHedef:yanitHedef, cozumHedef:cozumHedef,
+      yanitGecen:yanitGecen, cozumGecen:cozumGecen,
+      yanitOran:yanitOran,   cozumOran:cozumOran,
+      yanitDurum: mud == null ? 'Yanıt bekliyor' : (yanitHedef != null && mud > yanitHedef ? 'Aşıldı' : 'Tutturuldu'),
+      cozumDurum: coz == null ? 'Çözüm bekliyor' : (cozumHedef != null && coz > cozumHedef ? 'Aşıldı' : 'Tutturuldu'),
+      eksen: yanitOran > cozumOran ? 'ilk yanıt' : 'çözüm',
+      slaDurum: P ? seviye(Math.max(yanitOran, cozumOran)) : null,
+      paket:paket,
+      bakimPaketi: paketEtiket(paket),
+      kalanDestek: paket ? paket.kalan : 0
+    };
+  }
+
+  /* =================================================================
+     BAKIM PAKETİ — components.md §9
+     Kota aritmetiği SABİTTİR: kullanilan + kalan = aylikSaat × dönem ayı.
+     Bu form paketin `kullanilan`/`kalan` alanlarına DOKUNMAZ; talebin
+     `bakimPaketi` ve `kalanDestek` alanları paketten OKUNUR (7/7 talepte
+     paketin `kalan`ı talebin `kalanDestek`iyle birebir aynı).
+     ================================================================= */
+  function paketBul(musteriKod){
+    if(!musteriKod) return null;
+    var l = DB.supportPackages.filter(function(p){ return p.musteri === musteriKod; });
+    return l.filter(function(p){ return p.durum === 'Aktif'; })[0] || l[0] || null;
+  }
+  /* Talepteki `bakimPaketi` paketin adının kısa hâlidir: 'Kurumsal Bakım' → 'Kurumsal'.
+     Paketi olmayan müşteride veri '—' tutar; sentinel veriden gelir, uydurulmaz. */
+  function paketEtiket(p){ return p ? String(p.ad).replace(/\s*Bakım\s*$/, '') : '—'; }
+
+  /* =================================================================
+     MEMNUNİYET — components.md §9: tur:'Destek talebi' anketin puanı
+     DB.tickets[].memnuniyet ile aynıdır. Puan ankette toplanır, bu formda
+     elle girilmez; kayıt anketin puanını taşır.
+     ================================================================= */
+  function anketBul(kod){
+    if(!kod) return null;
+    return DB.surveys.filter(function(a){ return a.tur === 'Destek talebi' && a.ilgili === kod; })[0] || null;
+  }
+
+  /* =================================================================
+     SÖZLÜKLER — hepsi veriden, serbest metin yok
+     ================================================================= */
+  /* Kategori kümesi SLA matrisinden gelir: SLA'sı olmayan kategori açılamaz. */
+  var KATEGORILER = [];
+  DB.slaPolicies.forEach(function(p){ if(KATEGORILER.indexOf(p.kategori) === -1) KATEGORILER.push(p.kategori); });
+  var kategoriDisi = duzenle && kayit.kategori && KATEGORILER.indexOf(kayit.kategori) === -1;
+
+  var ONCELIKLER = DB.priorities.slice();
+  var ETKILER    = DB.impacts.slice();
+
+  /* Durum kümesi: liste ekranının kanban kolon sırası + veride görülen
+     her değer (uydurma durum eklenmez, veride olan da kaybolmaz). */
+  var DURUMLAR = ['Açık','Devam ediyor','Müşteri bekleniyor','Çözüldü','Kapandı'];
+  DB.tickets.forEach(function(t){ if(t.durum && DURUMLAR.indexOf(t.durum) === -1) DURUMLAR.push(t.durum); });
+  var ACIK_DURUM = function(d){ return ['Kapandı','Çözüldü'].indexOf(d) === -1; };
+
+  var MUSTERILER = DB.customers
+    .filter(function(c){ return c.aktif !== false || (duzenle && c.kod === kayit.musteri); })
+    .map(function(c){
+      var p = paketBul(c.kod);
+      return { value:c.kod, label:c.kisa + (p ? ' · ' + p.ad + ' (' + F.hours(p.kalan) + ' kalan)' : ' · bakım paketi yok') +
+                                (c.aktif === false ? ' · pasif' : '') };
+    });
+
+  var SORUMLULAR = DB.employees
+    .filter(function(e){ return e.aktif || (duzenle && e.kod === kayit.sorumlu); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon + (e.aktif ? '' : ' (pasif)') }; });
+
+  function projeSecenek(musteriKod){
+    return DB.projects
+      .filter(function(p){ return p.musteri === musteriKod; })
+      .map(function(p){ return { value:p.kod, label:p.ad + ' · ' + p.kod + ' · ' + p.durum }; });
+  }
+  function yetkiliSecenek(musteriKod){
+    return DB.contacts
+      .filter(function(y){ return y.musteri === musteriKod && (y.aktif !== false); })
+      .map(function(y){ return { value:y.ad, label:y.ad + ' · ' + y.pozisyon + (y.birincil ? ' · birincil' : '') }; });
+  }
+
+  /* =================================================================
+     ADRES PARAMETRESİYLE ÖN DOLDURMA — ?musteri=MUS-...
+     ================================================================= */
+  var qsMusteri = qs.get('musteri');
+  var onMusteri = qsMusteri ? DB.customers.filter(function(c){ return c.kod === qsMusteri; })[0] : null;
+
+  /* =================================================================
+     FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
+     `acilis` / `ilkYanit` 'YYYY-MM-DDTHH:MM' tutulur; GV.form'da datetime
+     alan tipi YOK (eksik bileşen), bu yüzden tarih + saat ikilisine açılır
+     ve kaydederken yeniden birleştirilir.
+     ================================================================= */
+  function suan(){ return new Date().toTimeString().slice(0,5); }
+
+  var formRec;
+  if(duzenle){
+    formRec = {
+      musteri:kayit.musteri || '', proje:kayit.proje || '', acan:kayit.acan || '',
+      sorumlu:kayit.sorumlu || '', baslik:kayit.baslik || '',
+      kategori:kategoriDisi ? '' : (kayit.kategori || ''),
+      oncelik:kayit.oncelik || '', etki:kayit.etki || '',
+      acilisTarih:tarihi(kayit.acilis), acilisSaat:saati(kayit.acilis),
+      ilkYanitTarih:tarihi(kayit.ilkYanit), ilkYanitSaat:saati(kayit.ilkYanit),
+      cozumSuresi:kayit.cozumSuresi == null ? '' : kayit.cozumSuresi,
+      harcananSure:kayit.harcananSure == null ? '' : kayit.harcananSure,
+      durum:kayit.durum || '', ucretli:!!kayit.ucretli, aktif:kayit.aktif !== false
+    };
+  }else{
+    formRec = {
+      musteri:onMusteri ? onMusteri.kod : '', proje:'', acan:'', sorumlu:'',
+      baslik:'', kategori:'', oncelik:'', etki:'',
+      acilisTarih:DB.today, acilisSaat:suan(),
+      ilkYanitTarih:'', ilkYanitSaat:'', cozumSuresi:'', harcananSure:0,
+      durum:'Açık', ucretli:false, aktif:true
+    };
+  }
+
+  var anket = duzenle ? anketBul(kayit.kod) : null;
+  var acts  = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Dönüşümler — bağ DOĞAN kaydın üstünde yazılıdır (components.md §9d, ders L-13).
+     Talepte ayna alan yoktur; ters yönde filtreyle okunur. */
+  function bagli(koleksiyon){
+    if(!duzenle) return [];
+    return koleksiyon.filter(function(x){ return x.destek === kayit.kod; });
+  }
+  var donusum = { gorev:bagli(DB.tasks), hata:bagli(DB.bugs), degisiklik:bagli(DB.changeRequests) };
+  var donusumSayi = donusum.gorev.length + donusum.hata.length + donusum.degisiklik.length;
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      /* dt escape EDİLMEZ: sabit etiket işaretlemesi (eksen notu) render edilmek
+         zorunda. Veriden gelen değerler dd tarafındadır ve orada escape'lidir. */
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  function ozet(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  var ust = '';
+
+  if(duzenle){
+    var musteriKaydi = DB.customers.filter(function(c){ return c.kod === kayit.musteri; })[0] || null;
+    var mevcutTuretilmis = turet({
+      musteri:kayit.musteri, kategori:kayit.kategori, oncelik:kayit.oncelik,
+      acilis:kayit.acilis, ilkYanit:kayit.ilkYanit, cozumSuresi:kayit.cozumSuresi
+    });
+
+    if(kategoriDisi){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'danger', title:'Kayıttaki kategori SLA matrisinde yok',
+        text:'Bu kayıtta “' + kayit.kategori + '” kategorisi yazılı ama SLA politikası tablosunda (' +
+             DB.slaPolicies.length + ' politika) bu kategori için satır yok. Kategori alanı boş açıldı; ' +
+             'kaydetmeden önce SLA’sı tanımlı bir kategori seçmelisiniz.',
+        actions:[{ label:'SLA politikaları', href:'app-destek-sla.html' }] }) + '</div></section>';
+    }
+
+    /* Veride yazılı slaDurum ile hesaplanan ayrışıyorsa sessizce üzerine yazılmaz — bildirilir. */
+    if(mevcutTuretilmis.slaDurum && mevcutTuretilmis.slaDurum !== kayit.slaDurum){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Kayıtlı SLA durumu hesaplananla aynı değil',
+        text:'Kayıtta “' + kayit.slaDurum + '” yazılı; ilk yanıt ve çözüm eksenlerinden hesaplanan değer ise “' +
+             mevcutTuretilmis.slaDurum + '”. SLA durumu elle girilen bir alan değildir — kaydettiğinizde ' +
+             'hesaplanan değer yazılır.' }) + '</div></section>';
+    }
+
+    /* İlişkili kayıt uyarısı — dönüşüm bağları veride YAZILI (components.md §9d). */
+    var donusumAksiyon = [];
+    donusum.gorev.forEach(function(g){ donusumAksiyon.push({ label:'Görev ' + g.kod, href:'app-gorev-detay.html?id=' + g.kod }); });
+    donusum.hata.forEach(function(h){ donusumAksiyon.push({ label:'Hata ' + h.kod, href:'app-proje-hata-detay.html?id=' + h.kod }); });
+    donusum.degisiklik.forEach(function(d){ donusumAksiyon.push({ label:'Değişiklik ' + d.kod, href:'app-proje-degisiklik-detay.html?id=' + d.kod }); });
+
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      (donusumSayi
+        ? GV.notice({
+            tone:'warn', title:'Bu talepten ' + donusumSayi + ' kayıt doğmuş',
+            text:'Bağ doğan kaydın “destek” alanında yazılı: ' +
+                 (donusum.gorev.length ? donusum.gorev.length + ' görev · ' : '') +
+                 (donusum.hata.length ? donusum.hata.length + ' hata kaydı · ' : '') +
+                 (donusum.degisiklik.length ? donusum.degisiklik.length + ' değişiklik talebi · ' : '') +
+                 'talepte ayna alan tutulmaz. Talebin kategorisini, önceliğini ya da durumunu değiştirmeniz ' +
+                 'doğan kayıtları otomatik güncellemez; onları kendi ekranlarından düzenlemelisiniz.',
+            actions:donusumAksiyon })
+        : GV.notice({
+            tone:'ok', title:'Bu talepten henüz kayıt doğmamış',
+            text:'Görev, hata ve değişiklik talebi koleksiyonlarında “destek” alanı ' + kayit.kod +
+                 ' olan kayıt yok. Değişiklik yalnız bu destek kaydını etkiler; dönüştürme akışı ' +
+                 'destek listesindeki “Dönüştür” aksiyonundadır.',
+            actions:[{ label:'Destek listesi', href:'app-destek.html' }] })) +
+      '</div></section>';
+
+    /* Bağlam kartı */
+    var son = acts[0];
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Kayıt Özeti</h2>' +
+        '<div class="gc-head-acts"><a class="btn btn-line btn-sm" href="app-destek-detay.html?id=' + kayit.kod + '">' +
+          ico('i-external','ic-sm') + ' Destek kartını aç</a></div></div>' +
+      '<div class="gc-body">' + dl([
+        ['Kayıt numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Müşteri', musteriKaydi
+          ? '<a href="app-musteri-detay.html?id=' + musteriKaydi.kod + '">' + esc(musteriKaydi.kisa) + '</a>' +
+            sub('Kayda yazılan ad: ' + kayit.musteriAd)
+          : (kayit.musteri ? '<span class="u-num">' + esc(kayit.musteri) + '</span>' + sub('Müşteri kaydı bulunamadı') : null)],
+        ['Talep durumu', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Kayıtlı SLA', '<span class="tag">' + esc(kayit.sla) + '</span>' + sub(kayit.kategori + ' × ' + kayit.oncelik)],
+        ['Kayıtlı SLA durumu', GV.badge(kayit.slaDurum)],
+        ['Sorumlu', GV.user(kayit.sorumlu, { sm:true })],
+        ['Açılış', F.dt(kayit.acilis) + sub(F.rel(kayit.acilis))],
+        ['İlk yanıt', kayit.ilkYanit ? F.dt(kayit.ilkYanit) + sub(sure(kayit.mudahaleSuresi) + ' içinde') : null],
+        ['Memnuniyet', kayit.memnuniyet != null
+          ? GV.badge(kayit.memnuniyet + ' / 5', kayit.memnuniyet >= 4 ? 'is-ok' : kayit.memnuniyet >= 3 ? 'is-warn' : 'is-danger') +
+            (anket ? sub(anket.kod + ' · ' + anket.durum) : '')
+          : (anket ? '<span class="tag">' + esc(anket.durum) + '</span>' + sub(anket.kod + ' · puan bekleniyor') : null)],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div></section>';
+  }else{
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni destek kaydı açılıyor',
+      text:'Kaydettiğinizde sıradaki destek numarası atanır, SLA seçtiğiniz kategori ve önceliğe göre ' +
+           'politika tablosundan türetilir, SLA durumu ilk yanıt ve çözüm eksenlerinden hesaplanır ve ' +
+           'aktivite geçmişine “Kayıt oluşturuldu” satırı yazılır. Ardından destek listesine dönülür.',
+      actions:[{ label:'Destek listesi', href:'app-destek.html' }] });
+
+    var musteriNot = '';
+    if(qsMusteri && !onMusteri){
+      musteriNot = GV.notice({ tone:'warn', title:'Adresteki müşteri bulunamadı',
+        text:'“' + qsMusteri + '” numaralı müşteri kaydı sistemde yok, bu yüzden müşteri alanı ön seçili gelmedi. ' +
+             'Listeden geçerli bir müşteri seçebilirsiniz.',
+        actions:[{ label:'Müşteriler', href:'app-musteri.html' }] });
+    }else if(onMusteri){
+      var onPaket = paketBul(onMusteri.kod);
+      musteriNot = GV.notice({ tone:'ok', title:'Müşteri ön seçili geldi',
+        text:onMusteri.kod + ' · ' + onMusteri.kisa + ' adresten geldiği için müşteri alanı dolduruldu; ' +
+             'proje ve talebi açan yetkili listeleri bu müşterinin kayıtlarıyla sınırlandı' +
+             (onPaket
+               ? '. Bakım paketi ' + onPaket.kod + ' (' + onPaket.ad + ', ' + F.hours(onPaket.kalan) + ' kalan) kayda işlenecek.'
+               : '. Bu müşterinin bakım paketi yok; bakım paketi alanı “—”, kalan destek 0 olarak yazılacak.'),
+        actions:[{ label:'Müşteriyi aç', href:'app-musteri-detay.html?id=' + onMusteri.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + musteriNot + '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-support') + 'Destek Kaydı</h2>' +
+        '<div class="gc-sub">PROMPT.md §18 destek talebi alanları · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-destek.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-hourglass') + 'Türetilen Alanlar</h2>' +
+        '<div class="gc-sub">SLA, SLA durumu, müdahale süresi, bakım paketi ve memnuniyet elle girilmez — ' +
+        'form değiştikçe burada yeniden hesaplanır ve kaydedilen değer budur.</div></div>' +
+        '<div class="gc-head-acts"><a class="btn btn-line btn-sm" href="app-destek-sla.html">' +
+          ico('i-external','ic-sm') + ' SLA politikaları</a></div></div>' +
+      '<div class="gc-body" id="turetilen"></div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [
+    { title:'Talep sahibi ve bağlam',
+      desc:'Talebin hangi müşteriden, hangi yetkiliden ve hangi proje kapsamında geldiği. ' +
+           'Proje ve yetkili listeleri seçilen müşteriye göre daralır; başka müşterinin kaydı seçilemez.',
+      fields:[
+        { key:'musteri', label:'Müşteri', type:'select', options:MUSTERILER, required:true, cols:6,
+          placeholder:'Müşteri seçin',
+          hint:'Müşteri seçimi bakım paketini, kalan destek süresini ve yetkili listesini belirler.' },
+        { key:'proje', label:'İlgili proje', type:'select', options:projeSecenek(formRec.musteri), cols:6,
+          placeholder:'Proje seçin (zorunlu değil)',
+          hint:'Talep bir projeye bağlı değilse boş bırakın — tahmini bağ yazılmaz (ders L-13).',
+          validate:function(v, d){
+            if(!v) return '';
+            var p = DB.projects.filter(function(x){ return x.kod === v; })[0];
+            if(!p) return 'Seçilen proje sistemde yok.';
+            return p.musteri === d.musteri ? '' :
+              'Seçilen proje bu müşteriye ait değil (' + p.kod + ' → ' + p.musteriAd + ').';
+          } },
+        { key:'acan', label:'Talebi açan yetkili', type:'select', options:yetkiliSecenek(formRec.musteri), required:true, cols:6,
+          placeholder:'Yetkili seçin',
+          hint:'Müşteri yetkilileri kartından gelir; kayda yetkilinin adı yazılır.',
+          validate:function(v, d){
+            if(!v || !d.musteri) return '';
+            var y = DB.contacts.filter(function(x){ return x.musteri === d.musteri && x.ad === v; })[0];
+            return y ? '' : 'Bu ad seçili müşterinin yetkilileri arasında yok.';
+          } },
+        { key:'sorumlu', label:'Destek sorumlusu', type:'select', options:SORUMLULAR, required:true, cols:6,
+          placeholder:'Sorumlu seçin',
+          hint:'Talebi üstlenen çalışan; SLA eskalasyonu bu kişiden başlar.' }
+      ]},
+
+    { title:'Talep içeriği ve SLA ekseni',
+      desc:'Kategori ve öncelik SLA politikası tablosunun iki eksenidir: bu ikisi seçilince talebin SLA’sı ' +
+           'tablodan türetilir, kullanıcı SLA’yı serbest yazamaz.',
+      fields:[
+        { key:'baslik', label:'Talep başlığı', type:'text', required:true, cols:12,
+          placeholder:'Örn. Randevu formunda tarih seçici mobilde açılmıyor',
+          hint:'Sorunu tek cümlede özetleyin; liste ve kanban kartında bu metin görünür.' },
+        { key:'kategori', label:'Talep kategorisi', type:'select', options:KATEGORILER, required:true, cols:4,
+          placeholder:'Kategori seçin',
+          hint:'Küme SLA politikası tablosundan gelir — SLA’sı tanımlı olmayan kategori açılamaz.',
+          validate:function(v, d){
+            if(!v) return '';
+            return politika(v, d.oncelik)
+              ? '' : 'Bu kategori ve öncelik için SLA politikası tanımlı değil; SLA türetilemez.';
+          } },
+        { key:'oncelik', label:'Öncelik', type:'select', options:ONCELIKLER, required:true, cols:4,
+          placeholder:'Öncelik seçin',
+          hint:'Öncelik eksenidir (DB.priorities) — etki eksenidir, ikisi karıştırılmaz.' },
+        { key:'etki', label:'Etki seviyesi', type:'select', options:ETKILER, required:true, cols:4,
+          placeholder:'Etki seçin',
+          hint:'Sorunun işi ne kadar durdurduğu (DB.impacts). SLA hesabına girmez, raporlamada kullanılır.' }
+      ]},
+
+    { title:'Zaman ekseni',
+      desc:'Açılış ve ilk yanıt anı ile çözüm süresi. Müdahale süresi bu ikisinden hesaplanır; ' +
+           'SLA tüketimi de buradan çıkar. Çözüm anı veride tutulmadığı için çözüm süresi dakika girilir.',
+      fields:[
+        { key:'acilisTarih', label:'Açılış tarihi', type:'date', required:true, cols:3,
+          hint:'Talebin sisteme düştüğü gün.',
+          validate:function(v){ return v && v > DB.today ? 'Açılış tarihi ileri bir tarih olamaz.' : ''; } },
+        { key:'acilisSaat', label:'Açılış saati', type:'text', required:true, cols:3,
+          placeholder:'SS:DD',
+          hint:'24 saat biçimi, örn. 20:15.',
+          validate:function(v){ return v && !SAAT_RE.test(v) ? 'Saati SS:DD biçiminde girin (örn. 09:30).' : ''; } },
+        { key:'ilkYanitTarih', label:'İlk yanıt tarihi', type:'date', cols:3,
+          hint:'Yanıt verilmediyse boş bırakın; SLA tüketimi açılıştan bu yana sayılır.',
+          validate:function(v, d){
+            if(!v && d.durum && d.durum !== 'Açık')
+              return '“' + d.durum + '” durumundaki talepte ilk yanıt anı boş bırakılamaz.';
+            if(v && !d.ilkYanitSaat) return 'İlk yanıt tarihi girildiyse saati de girilmelidir.';
+            if(v && v > DB.today) return 'İlk yanıt tarihi ileri bir tarih olamaz.';
+            return '';
+          } },
+        { key:'ilkYanitSaat', label:'İlk yanıt saati', type:'text', cols:3,
+          placeholder:'SS:DD',
+          hint:'Açılıştan bu ana kadar geçen süre müdahale süresi olarak kaydedilir.',
+          validate:function(v, d){
+            if(v && !SAAT_RE.test(v)) return 'Saati SS:DD biçiminde girin (örn. 09:30).';
+            if(v && !d.ilkYanitTarih) return 'İlk yanıt saati girildiyse tarihi de girilmelidir.';
+            var a = anIso(d.acilisTarih, d.acilisSaat), b = anIso(d.ilkYanitTarih, v);
+            if(a && b && dakikaFarki(a, b) < 0) return 'İlk yanıt anı açılıştan önce olamaz.';
+            return '';
+          } },
+        { key:'cozumSuresi', label:'Çözüm süresi (dakika)', type:'number', min:0, cols:6,
+          placeholder:'Örn. 300',
+          hint:'Açılıştan çözüme kadar geçen dakika. Çözülmemiş talepte boş bırakın.',
+          validate:function(v, d){
+            var bos = v === '' || v == null;
+            if(bos && d.durum && !ACIK_DURUM(d.durum))
+              return '“' + d.durum + '” durumundaki talepte çözüm süresi boş bırakılamaz.';
+            if(bos) return '';
+            var mud = dakikaFarki(anIso(d.acilisTarih, d.acilisSaat), anIso(d.ilkYanitTarih, d.ilkYanitSaat));
+            if(mud != null && sayi(v) < mud)
+              return 'Çözüm süresi ilk yanıt süresinden (' + sure(mud) + ') küçük olamaz.';
+            return '';
+          } },
+        { key:'harcananSure', label:'Harcanan süre (saat)', type:'number', min:0, cols:6,
+          hint:'Talebe harcanan iş gücü. Bakım paketi kotası bu formdan düşülmez — kota paket ekranından yönetilir.' }
+      ]},
+
+    { title:'Durum ve ücretlendirme',
+      desc:'Talebin süreçteki durumu, bakım paketi kapsamı dışında faturalanıp faturalanmayacağı ve ' +
+           'kaydın listelerde görünüp görünmeyeceği.',
+      fields:[
+        { key:'durum', label:'Talep durumu', type:'select', options:DURUMLAR, required:true, cols:4,
+          placeholder:'Durum seçin',
+          hint:'“Çözüldü” ve “Kapandı” kapalı durumlardır; çözüm süresi zorunlu olur.' },
+        { key:'ucretli', label:'Ücretlendirme', type:'checkbox', cols:4,
+          checkLabel:'Ücretli — bakım paketi kapsamı dışında faturalanır',
+          hint:'Bakım paketi olan müşteride de işaretlenebilir; paket kapsamı ile faturalama ayrı eksenlerdir.' },
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:4,
+          onLabel:'Kayıt aktif — listelerde ve raporlarda görünür',
+          hint:'Kapatılırsa kayıt arşive düşer; bu talepten doğmuş görev ve hata kayıtları silinmez.',
+          validate:function(v){
+            return (!v && donusumSayi)
+              ? 'Bu talepten ' + donusumSayi + ' kayıt doğmuş; bağlı kayıtlar dururken talep arşive alınamaz.' : '';
+          } }
+      ]}
+  ];
+
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+
+  var form = GV.form({ mount:'#formMount', id:'destek', record:formRec, sections:sections });
+
+  /* =================================================================
+     TÜRETİLEN ALANLAR PANELİ — form değiştikçe yeniden çizilir
+     ================================================================= */
+  var turetilenEl = document.getElementById('turetilen');
+
+  function hamOku(){
+    var d = form.read();
+    return {
+      musteri:d.musteri, kategori:d.kategori, oncelik:d.oncelik, durum:d.durum,
+      acilis:anIso(d.acilisTarih, d.acilisSaat),
+      ilkYanit:anIso(d.ilkYanitTarih, d.ilkYanitSaat),
+      cozumSuresi:bosSayi(d.cozumSuresi)
+    };
+  }
+
+  function oranMetin(gecen, hedef, oran){
+    if(hedef == null) return '<span class="u-faint">Hedef yok</span>';
+    return '<b class="u-num">' + sure(gecen) + '</b> / ' + sure(hedef) +
+      ' <span class="cell-sub">%' + Math.round(oran * 100) + ' tüketim</span>';
+  }
+
+  function turetilenCiz(){
+    var d = hamOku();
+    var t = turet(d);
+    var P = t.politika;
+    var kapali = d.durum && !ACIK_DURUM(d.durum);
+
+    var slaBlok;
+    if(!d.kategori || !d.oncelik){
+      slaBlok = GV.notice({ tone:'neutral', title:'SLA henüz türetilemedi',
+        text:'SLA, kategori × öncelik matrisinden gelir. İki alan da seçilince politika, hedef süreler ve ' +
+             'SLA durumu burada görünür.' });
+    }else if(!P){
+      slaBlok = GV.notice({ tone:'danger', title:'Eşleşen SLA politikası yok',
+        text:'“' + d.kategori + '” kategorisi ve “' + d.oncelik + '” önceliği için politika tablosunda satır yok. ' +
+             'Bu kombinasyonla kayıt açılamaz; kategori veya önceliği değiştirin.',
+        actions:[{ label:'SLA politikaları', href:'app-destek-sla.html' }] });
+    }else{
+      slaBlok =
+        ozet([
+          ['Eşleşen politika', '<span class="cell-code">' + esc(P.kod) + '</span> ' +
+            '<span class="tag">' + esc(P.kategori) + ' × ' + esc(P.oncelik) + '</span>'],
+          ['Kayda yazılacak SLA', '<span class="tag">' + esc(P.etiket) + '</span>'],
+          ['İlk yanıt hedefi', sure(P.ilkYanit)],
+          ['Çözüm hedefi', sure(P.cozum)],
+          ['Çalışma saati', esc(P.calismaSaati)],
+          ['Eskalasyon', esc(P.eskalasyon)]
+        ]) +
+        ozet([
+          ['İlk yanıt ekseni', GV.badge(t.yanitDurum) + ' ' + oranMetin(t.yanitGecen, t.yanitHedef, t.yanitOran)],
+          ['Çözüm ekseni', GV.badge(t.cozumDurum) + ' ' + oranMetin(t.cozumGecen, t.cozumHedef, t.cozumOran)],
+          ['Belirleyici eksen', '<span class="tag">' + esc(t.eksen) + '</span> ' +
+            '<span class="cell-sub">iki eksenin kötüsü yazılır</span>'],
+          ['Kayda yazılacak SLA durumu', GV.badge(t.slaDurum)],
+          ['Müdahale süresi', t.mudahaleSuresi == null
+            ? '<span class="u-faint">Henüz yanıt verilmedi</span>'
+            : '<b class="u-num">' + t.mudahaleSuresi + ' dk</b> <span class="cell-sub">' + sure(t.mudahaleSuresi) + '</span>'],
+          [kapali ? 'Çözüm süresi' : 'Açık talepte geçen süre',
+            kapali
+              ? (d.cozumSuresi == null ? '<span class="u-faint">—</span>'
+                  : '<b class="u-num">' + d.cozumSuresi + ' dk</b> <span class="cell-sub">' + sure(d.cozumSuresi) + '</span>')
+              : '<b class="u-num">' + sure(gecenDk(d.acilis)) + '</b> <span class="cell-sub">' +
+                F.date(DB.today) + ' gününün başlangıcına göre</span>']
+        ]);
+    }
+
+    var p = t.paket;
+    var paketBlok;
+    if(!d.musteri){
+      paketBlok = GV.notice({ tone:'neutral', title:'Müşteri seçilmedi',
+        text:'Bakım paketi ve kalan destek süresi müşterinin paket kaydından okunur.' });
+    }else if(!p){
+      paketBlok = GV.notice({ tone:'warn', title:'Bu müşterinin bakım paketi yok',
+        text:'Kayda bakım paketi “—”, kalan destek 0 saat olarak yazılacak. Talep bakım kapsamı dışındadır; ' +
+             'ücretlendirme kutusunu buna göre işaretleyin.',
+        actions:[{ label:'Bakım paketleri', href:'app-destek-paket.html' }] });
+    }else{
+      var kota = p.kullanilan + p.kalan;
+      var ay   = p.aylikSaat ? Math.round(kota / p.aylikSaat) : null;
+      paketBlok = ozet([
+        ['Bakım paketi', '<span class="cell-code">' + esc(p.kod) + '</span> ' + esc(p.ad) +
+          ' ' + GV.badge(p.durum)],
+        ['Kayda yazılacak paket adı', '<span class="tag">' + esc(t.bakimPaketi) + '</span>'],
+        ['Kayda yazılacak kalan destek', '<b class="u-num">' + F.hours(t.kalanDestek) + '</b>'],
+        ['Kota', '<b class="u-num">' + F.hours(p.kullanilan) + '</b> kullanıldı · <b class="u-num">' +
+          F.hours(p.kalan) + '</b> kaldı <span class="cell-sub">toplam ' + F.hours(kota) +
+          (ay ? ' = ' + F.hours(p.aylikSaat) + '/ay × ' + ay + ' ay' : '') + '</span>'],
+        ['Dönem', F.date(p.baslangic) + ' → ' + F.date(p.bitis) +
+          (p.yenileme ? ' <span class="badge is-warn">Yenilemesi yaklaşan</span>' : '')],
+        canFinans ? ['Paket bedeli <span class="u-faint">(KDV hariç)</span>',
+          '<span class="cell-money">' + F.money(p.tutar, '₺') + '</span>'] : null
+      ]) +
+      GV.notice({ tone:'info', icon:'i-lock', title:'Kota bu formdan değiştirilmez',
+        text:'Paketin “kullanılan” ve “kalan” saatleri sabit kota aritmetiğine bağlıdır ' +
+             '(kullanılan + kalan = aylık saat × dönem ayı). Talebe girdiğiniz harcanan süre bu alanları ' +
+             'düşürmez; kota bakım paketi ekranından yönetilir.' });
+    }
+
+    var memnuniyetBlok;
+    if(!duzenle){
+      memnuniyetBlok = GV.notice({ tone:'neutral', title:'Memnuniyet puanı kayıt açılırken boştur',
+        text:'Puan destek talebi anketinden gelir (anket türü “Destek talebi”, ilgili kaydı bu talep). ' +
+             'Yeni kayıt boş puanla açılır ve anket yanıtlandığında dolar.',
+        actions:[{ label:'Memnuniyet anketleri', href:'app-destek-memnuniyet.html' }] });
+    }else if(anket){
+      memnuniyetBlok = ozet([
+        ['Bağlı anket', '<span class="cell-code">' + esc(anket.kod) + '</span> ' + GV.badge(anket.durum) +
+          ' <span class="cell-sub">' + esc(anket.kanal) + '</span>'],
+        ['Anket puanı', anket.puan == null ? '<span class="u-faint">Yanıt bekleniyor</span>'
+          : GV.badge(anket.puan + ' / 5', anket.puan >= 4 ? 'is-ok' : anket.puan >= 3 ? 'is-warn' : 'is-danger')],
+        ['Kayda yazılacak memnuniyet', anket.puan == null ? '<span class="u-faint">—</span>'
+          : '<b class="u-num">' + anket.puan + ' / 5</b>']
+      ]);
+    }else{
+      memnuniyetBlok = GV.notice({ tone:'neutral', title:'Bu talebe bağlı anket yok',
+        text:'Anket koleksiyonunda türü “Destek talebi” ve ilgilisi ' + kayit.kod + ' olan kayıt bulunmuyor. ' +
+             'Memnuniyet puanı ' + (kayit.memnuniyet == null ? 'boş kalır' : 'kayıttaki değerle (' + kayit.memnuniyet + ' / 5) korunur') + '.',
+        actions:[{ label:'Memnuniyet anketleri', href:'app-destek-memnuniyet.html' }] });
+    }
+
+    turetilenEl.innerHTML =
+      sec('SLA politikası (kategori × öncelik)', slaBlok) +
+      sec('Bakım paketi ve kalan destek', paketBlok) +
+      sec('Memnuniyet', memnuniyetBlok);
+  }
+
+  /* Bağlı listeleri seçilen müşteriye göre yeniden doldurur. */
+  function secDoldur(el, opts, ph, mevcut){
+    if(!el) return;
+    var korunur = opts.filter(function(o){ return String(o.value) === String(mevcut); }).length > 0;
+    el.innerHTML = '<option value="">' + esc(ph) + '</option>' +
+      opts.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (korunur && String(o.value) === String(mevcut) ? ' selected' : '') +
+          '>' + esc(o.label) + '</option>';
+      }).join('');
+    el.value = korunur ? mevcut : '';
+  }
+
+  /* Dinleyiciler mount İÇİNDEKİ düğümlere bağlanır; GV.refresh() mount'u taze
+     kopyayla değiştirdiği için birikmezler (ders L-16). */
+  var elMusteri = form.el.querySelector('[name="musteri"]');
+  var elProje   = form.el.querySelector('[name="proje"]');
+  var elAcan    = form.el.querySelector('[name="acan"]');
+
+  if(elMusteri){
+    elMusteri.addEventListener('change', function(){
+      var m = elMusteri.value;
+      secDoldur(elProje, projeSecenek(m), 'Proje seçin (zorunlu değil)', elProje ? elProje.value : '');
+      secDoldur(elAcan,  yetkiliSecenek(m), 'Yetkili seçin', elAcan ? elAcan.value : '');
+    });
+  }
+  form.el.addEventListener('change', turetilenCiz);
+  form.el.addEventListener('input', turetilenCiz);
+  turetilenCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    musteri:'Müşteri', musteriAd:'Müşteri unvanı', proje:'İlgili proje', baslik:'Talep başlığı',
+    kategori:'Talep kategorisi', oncelik:'Öncelik', etki:'Etki seviyesi', sla:'SLA',
+    sorumlu:'Destek sorumlusu', acan:'Talebi açan yetkili', acilis:'Açılış anı', ilkYanit:'İlk yanıt anı',
+    mudahaleSuresi:'Müdahale süresi', cozumSuresi:'Çözüm süresi', durum:'Talep durumu',
+    harcananSure:'Harcanan süre', ucretli:'Ücretlendirme', bakimPaketi:'Bakım paketi',
+    kalanDestek:'Kalan destek', memnuniyet:'Memnuniyet', slaDurum:'SLA durumu', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.tickets.forEach(function(x){
+      var m = /^DST-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'DST-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '') return '—';
+    if(k === 'ucretli') return v ? 'Ücretli' : 'Bakım paketi';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşiv';
+    if(k === 'sorumlu') return DB.empName(v);
+    if(k === 'proje') return DB.projName(v) || String(v);
+    if(k === 'acilis' || k === 'ilkYanit') return F.dt(v);
+    if(k === 'mudahaleSuresi' || k === 'cozumSuresi') return sure(v);
+    if(k === 'harcananSure' || k === 'kalanDestek') return F.hours(v);
+    if(k === 'memnuniyet') return v + ' / 5';
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var acilis = anIso(raw.acilisTarih, raw.acilisSaat);
+    var ilk    = anIso(raw.ilkYanitTarih, raw.ilkYanitSaat);
+    var coz    = bosSayi(raw.cozumSuresi);
+    var t      = turet({ musteri:raw.musteri, kategori:raw.kategori, oncelik:raw.oncelik,
+                         acilis:acilis, ilkYanit:ilk, cozumSuresi:coz });
+
+    /* SLA politikası yoksa kaydetmeyiz: `sla` uydurulamaz, `slaDurum` hesaplanamaz. */
+    if(!t.politika){
+      GV.toast('Seçilen kategori ve öncelik için SLA politikası yok — kayıt açılamaz', 'danger');
+      return null;
+    }
+
+    var m = DB.customers.filter(function(c){ return c.kod === raw.musteri; })[0] || null;
+    var a = duzenle ? anket : null;
+
+    return {
+      musteri:raw.musteri,
+      /* `musteriAd` müşterinin UNVANIdır (7/7 talepte birebir doğrulandı), kısa adı değil. */
+      musteriAd:m ? m.unvan : '',
+      proje:raw.proje || null,
+      baslik:String(raw.baslik || '').trim(),
+      kategori:raw.kategori, oncelik:raw.oncelik, etki:raw.etki,
+      sla:t.sla,                                   /* politikanın etiketi — türetilir */
+      sorumlu:raw.sorumlu, acan:raw.acan,
+      acilis:acilis, ilkYanit:ilk,
+      mudahaleSuresi:t.mudahaleSuresi,             /* açılış → ilk yanıt farkı — türetilir */
+      cozumSuresi:coz,
+      durum:raw.durum,
+      harcananSure:sayi(raw.harcananSure),
+      ucretli:!!raw.ucretli,
+      bakimPaketi:t.bakimPaketi,                   /* müşterinin paketinden okunur */
+      kalanDestek:t.kalanDestek,                   /* paketin `kalan`ı — kota bozulmaz */
+      memnuniyet: duzenle ? (a && a.puan != null ? a.puan : kayit.memnuniyet) : null,
+      slaDurum:t.slaDurum,                         /* iki eksenin kötüsü — hesaplanır */
+      aktif:!!raw.aktif
+    };
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      DB.tickets.unshift(Object.assign({ kod:kod }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Destek kaydı açıldı', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'SLA politikasından türetildi', eski:v.kategori + ' × ' + v.oncelik,
+        yeni:v.sla + ' · ' + v.slaDurum, tone:'accent', icon:'i-hourglass'
+      });
+      GV.toast(kod + ' oluşturuldu · SLA ' + v.sla, 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-destek.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Destek ve Bakım',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Destek Kaydı',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi +
+        ' alan, 6 alan türetilir.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length +
+        ' zorunlu, 6 alan türetilir.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-destek.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
