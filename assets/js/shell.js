@@ -664,6 +664,7 @@
     'app-rapor-gorev.html',
     'app-dokuman.html',
     'app-toplanti.html',
+    'app-toplanti-detay.html',
     'app-panel-bildirimler.html',
     'app-panel-onaylar.html'
   ];
