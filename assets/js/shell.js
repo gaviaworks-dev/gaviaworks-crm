@@ -815,6 +815,22 @@
       if(m.className) taze.className = m.className;
       m.parentNode.replaceChild(taze, m);
     }
+    /* Açık modal / yan panel kapatılır. İkisi de `.page-main` DIŞINA basılır, yani
+       mount değişince ölmezler. Kapatılmazsa iki şey birden bozulur:
+       (a) panelde ESKİ veriyle çizilmiş içerik ekranda kalır — kullanıcı mutasyonun
+           işlemediğini sanır (L-15'in görünen ikizi),
+       (b) her panelin `document`'e bağladığı Escape/Tab dinleyicisi ölmez ve birikir
+           (ölçüldü: bir tazeleme → +3 dinleyici, ders L-16).
+       `close()` animasyonlu kaldırma yaptığı için doğrudan o çağrılır; API'si
+       yoksa düğüm sökülür ve `body` kaydırma kilidi açılır. */
+    var acik = document.querySelectorAll('.gv-scrim, .gv-drawer, .gv-modal-scrim');
+    if(acik.length){
+      Array.prototype.forEach.call(acik, function(el){
+        if(el.__gvClose){ el.__gvClose(); return; }
+        el.remove();
+      });
+      document.body.style.overflow = '';
+    }
     document.dispatchEvent(new CustomEvent('gv:ready'));
   };
 

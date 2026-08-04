@@ -295,6 +295,8 @@
     });
     var focusEl = scrim.querySelector('.btn-acc, .btn-danger, input, select, textarea, button');
     if(focusEl) focusEl.focus();
+    /* GV.refresh() açık overlay'i kapatabilsin diye kapatıcıyı düğüme asıyoruz. */
+    scrim.__gvClose = close;
     return { close:close, el:scrim };
   };
 
@@ -369,6 +371,9 @@
       }
     });
     if(cfg.onOpen) cfg.onOpen(d, close);
+    /* GV.refresh() açık paneli kapatabilsin diye kapatıcıyı iki düğüme de asıyoruz;
+       kapatma iki kez çağrılsa da zararsızdır (düğüm zaten sökülmüş olur). */
+    d.__gvClose = close; scrim.__gvClose = close;
     return { close:close, el:d };
   };
 
