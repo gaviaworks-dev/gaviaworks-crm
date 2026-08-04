@@ -707,7 +707,10 @@
     'app-sozlesme-form.html',
     'app-fatura-form.html',
     'app-siparis-form.html',
-    'app-tedarikci-form.html'
+    'app-tedarikci-form.html',
+    'app-demirbas-form.html',
+    'app-zimmet-form.html',
+    'app-toplanti-form.html'
   ];
   GV.built = BUILT;
 
