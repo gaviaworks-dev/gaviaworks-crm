@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sprint Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="sprint">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.emp, DB.empName
+     work.js → DB.sprints, DB.projects, DB.tasks, DB.bugs, DB.tests, DB.activities
+     Başka koleksiyon okunmaz; kullanılmayan veri dosyası da yüklenmez. -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.sprints.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Teslimat', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen sprint kaydı sistemde yok.',
+      actions:[{ label:'Sprintlere dön', cls:'btn-line', href:'app-proje-sprint.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Sprint bulunamadı',
+      desc:'“' + id + '” numaralı sprint bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-proje-sprint.html">Sprintlere dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Sprint');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Sprint') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Teslimat',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Sprint',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Sprintlere dön', cls:'btn-line', href:'app-proje-sprint.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Sprint düzenleme' : 'Sprint ekleme') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Sprintleri görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-proje-sprint.html">Sprintlere dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-gorev.html?t=proje&amp;f_sprint=' + kayit.kod +
+                   '">Sprint görevlerini aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     BAĞLAR — hepsi veride YAZILI tekil alandan okunur (ders L-13, §9d)
+       sprint.proje  → DB.projects
+       gorev.sprint  → DB.tasks     (bağ GÖREVDE yazılı, sprintte ayna alan yok)
+       hata.sprint   → DB.bugs      (hatanın ELE ALINDIĞI sprint)
+       kosum.sprint  → DB.tests
+       activity.kayit→ SPR-xxx
+     ================================================================= */
+  var KAPALI_GOREV = ['Tamamlandı','İptal edildi','Arşivlendi'];
+
+  function projeBul(kod){ return DB.projects.filter(function(p){ return p.kod === kod; })[0] || null; }
+
+  var gorevler = duzenle ? DB.tasks.filter(function(t){ return t.sprint === kayit.kod; }) : [];
+  var hatalar  = duzenle ? DB.bugs.filter(function(b){ return b.sprint === kayit.kod; }) : [];
+  var kosumlar = duzenle ? DB.tests.filter(function(t){ return t.sprint === kayit.kod; }) : [];
+  var acikGorev = gorevler.filter(function(t){ return KAPALI_GOREV.indexOf(t.durum) === -1; });
+  var bagliSayi = gorevler.length + hatalar.length + kosumlar.length;
+
+  var acts = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Adres parametresiyle ön doldurma: ?proje=PRJ-xxx */
+  var qsProje = qs.get('proje');
+  var onProje = qsProje ? projeBul(qsProje) : null;
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden türetilir
+     ================================================================= */
+  /* Sprint durumu sözlüğü veride koleksiyon olarak YOK. Küme, liste ekranının
+     (app-proje-sprint.html) durum filtresiyle birebir aynı üç değerdir; veride de
+     6 sprintin tamamı bu üç değerden birini taşıyor. Aynı ekseni iki yerde
+     ayrıştırmamak için uydurma değer eklenmedi. */
+  var DURUMLAR = ['Planlandı','Devam ediyor','Tamamlandı'];
+
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){
+      var say = DB.sprints.filter(function(s){
+        return s.proje === p.kod && (!duzenle || s.kod !== kayit.kod); }).length;
+      return { value:p.kod, label:p.ad + ' · ' + p.kod + (say ? ' · ' + say + ' sprinti var' : ' · sprinti yok') };
+    });
+
+  /* =================================================================
+     ÖLÇÜMLER — etiketlerdeki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  function sprintGun(s){ var d = F.days(s.bitis, s.baslangic); return d == null ? null : d + 1; }
+
+  var sureOlcum = {};
+  var VARSAYILAN_GUN = (function(){
+    var say = {}, en = 0, enGun = 14;
+    DB.sprints.forEach(function(s){
+      var g = sprintGun(s);
+      if(g == null) return;
+      say[g] = (say[g] || 0) + 1;
+      if(say[g] > en){ en = say[g]; enGun = g; }
+    });
+    sureOlcum = { adet:en, toplam:DB.sprints.length };
+    return enGun;
+  })();
+
+  /* gorevSayisi ≥ o sprinte bağlı DB.tasks kaydı sayısı (work.js → DB.sprints başlığı).
+     Kural burada tekrar ölçülür ki ipucundaki sayı gerçek olsun. */
+  var sayacTutan = 0;
+  DB.sprints.forEach(function(s){
+    var n = DB.tasks.filter(function(t){ return t.sprint === s.kod; }).length;
+    if((s.gorevSayisi || 0) >= n) sayacTutan++;
+  });
+  var sprintliGorev = DB.tasks.filter(function(t){ return !!t.sprint; }).length;
+
+  /* Planlanan/tamamlanan saat, bağlı görevlerin saatlerinden TÜRETİLEBİLİR DEĞİL:
+     6 sprintin hiçbirinde iki toplam birbirini tutmuyor (prototipte görevlerin
+     yalnız bir kısmı modellenmiş). Bu yüzden iki alan da forma yazılır. */
+  var saatEsleseni = 0;
+  DB.sprints.forEach(function(s){
+    var t = DB.tasks.filter(function(x){ return x.sprint === s.kod; });
+    var th = t.reduce(function(a, x){ return a + (x.tahminiSure || 0); }, 0);
+    if(th === s.planlanan) saatEsleseni++;
+  });
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  function isoGun(d){
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function gunEkle(iso, n){
+    if(!iso) return '';
+    var d = new Date(String(iso).slice(0,10) + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return isoGun(d);
+  }
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    formRec = {
+      proje:(onProje ? onProje.kod : ''), ad:'',
+      baslangic:DB.today, bitis:gunEkle(DB.today, VARSAYILAN_GUN - 1),
+      durum:'Planlandı', planlanan:'', tamamlanan:0, gorevSayisi:0, aktif:true
+    };
+  }
+
+  /* =================================================================
+     ÇAKIŞMA — aynı projede tarih aralığı kesişen başka sprint
+     ================================================================= */
+  function cakisanlar(proje, bas, bit){
+    if(!proje || !bas || !bit || bas > bit) return [];
+    return DB.sprints.filter(function(s){
+      if(duzenle && s.kod === kayit.kod) return false;
+      if(s.proje !== proje) return false;
+      return s.baslangic <= bit && bas <= s.bitis;      /* kapalı aralık kesişimi */
+    });
+  }
+  /* Mevcut veride çakışma var mı — kuralın veriyle tutup tutmadığı ölçülür. */
+  var mevcutCakisma = 0;
+  for(var ci = 0; ci < DB.sprints.length; ci++){
+    for(var cj = ci + 1; cj < DB.sprints.length; cj++){
+      var a = DB.sprints[ci], b = DB.sprints[cj];
+      if(a.proje === b.proje && a.baslangic <= b.bitis && b.baslangic <= a.bitis) mevcutCakisma++;
+    }
+  }
+
+  /* =================================================================
+     BAĞLAM BLOKLARI
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + esc(p[0]) + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozet(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+  function gorevHref(kod, view){
+    return 'app-gorev.html?' + (view ? 'v=' + view + '&' : '') + 't=proje&f_sprint=' + kod;
+  }
+
+  var ust = '';
+
+  if(duzenle){
+    var pKayit = projeBul(kayit.proje);
+
+    /* ---- İlişkili kayıt uyarısı — üç bağ da KARŞI TARAFTA yazılı (§9d yön kuralı) ---- */
+    var bagAksiyon = [{ label:'Sprint görevleri', href:gorevHref(kayit.kod) }];
+    if(pKayit){
+      bagAksiyon.push({ label:'Projeyi aç', href:'app-proje-detay.html?id=' + pKayit.kod });
+      if(hatalar.length)  bagAksiyon.push({ label:'Projenin hataları', href:'app-proje-hata.html?f_proje=' + pKayit.kod });
+      if(kosumlar.length) bagAksiyon.push({ label:'Projenin test koşumları', href:'app-proje-test.html?f_proje=' + pKayit.kod });
+    }
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({
+        tone:bagliSayi ? 'warn' : 'info',
+        title:bagliSayi ? 'Bu sprinte bağlı ' + bagliSayi + ' kayıt var' : 'Bu sprinte bağlı kayıt yok',
+        text:(bagliSayi
+              ? gorevler.length + ' görev · ' + hatalar.length + ' hata · ' + kosumlar.length +
+                ' test koşumu bu sprintin kodunu taşıyor (' + acikGorev.length + ' görev hâlâ açık). ' +
+                'Bağ karşı tarafta yazılıdır — sprint kaydında ayna alan açılmaz — bu yüzden buradan ' +
+                'değiştirilemez; ilgili kayıtların kendi ekranlarından yönetilir. '
+              : 'Görev, hata ve test koleksiyonlarında bu sprint kodunu taşıyan kayıt yok. ') +
+             'Sprintin projesi burada değiştirilirse bağlı kayıtlar başka bir projenin sprintine ' +
+             'bağlanmış olur; bu yüzden bağlı kayıt varken proje alanı kilitli davranır.',
+        actions:bagAksiyon }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı ---- */
+    var son = acts[0];
+    var oranK = kayit.planlanan ? Math.round(kayit.tamamlanan / kayit.planlanan * 100) : 0;
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Sprint numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Sprint adı', esc(kayit.ad)],
+        ['Proje', pKayit
+          ? '<a href="app-proje-detay.html?id=' + pKayit.kod + '">' + esc(pKayit.ad) + '</a>' +
+            sub(pKayit.kod + ' · ' + pKayit.musteriAd + ' · durum: ' + pKayit.durum)
+          : '<span class="u-num">' + esc(kayit.proje) + '</span>' + sub('Proje kaydı bulunamadı')],
+        ['Proje yöneticisi', pKayit ? GV.user(pKayit.pm, { sm:true }) : null],
+        ['Sprint durumu', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Tarih aralığı', F.date(kayit.baslangic) + ' → ' + F.date(kayit.bitis) +
+          sub(sprintGun(kayit) + ' gün · ' + F.rel(kayit.bitis))],
+        ['Saat', '<b class="u-num">' + F.hours(kayit.tamamlanan) + '</b> / ' + F.hours(kayit.planlanan)],
+        ['Tamamlanma oranı', GV.progress(oranK)],
+        ['Görev sayacı', '<b class="u-num">' + F.num(kayit.gorevSayisi) + '</b>' +
+          sub(gorevler.length + ' görev kaydı modellenmiş · ' + acikGorev.length + ' açık')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="' + gorevHref(kayit.kod, 'kanban') + '">' +
+        ico('i-kanban','ic-sm') + ' Sprint panosu</a>');
+
+    /* ---- Bağlı kayıt dökümü ---- */
+    if(bagliSayi){
+      ust += kart('Bağlı Kayıtlar', 'i-link',
+        GV.notice({ tone:'neutral', icon:'i-lock',
+          title:'Bu üç liste salt okunurdur',
+          text:'Görev–sprint, hata–sprint ve koşum–sprint bağları bağımlı kaydın üstünde tutulur ' +
+               '(components.md §9d yön kuralı). Sprint formundan bir görev sprinte alınamaz, ' +
+               'çıkarılamaz; işlem görevin kendi ekranından yapılır.' }) +
+        '<div class="u-mt-8"></div>' +
+        dl([
+          ['Sprintin görevleri', gorevler.length
+            ? gorevler.map(function(t){
+                return '<div><a href="app-gorev-detay.html?id=' + t.kod + '">' + esc(t.baslik) + '</a> ' +
+                  GV.badge(t.durum) + ' ' + GV.pri(t.oncelik) +
+                  sub(t.kod + ' · ' + DB.empName(t.sorumlu) + ' · termin ' + F.date(t.termin)) + '</div>';
+              }).join('')
+            : null],
+          ['Sprintte ele alınan hatalar', hatalar.length
+            ? hatalar.map(function(b){
+                return '<div><a href="app-proje-hata-detay.html?id=' + b.kod + '">' + esc(b.baslik) + '</a> ' +
+                  GV.badge(b.durum) + ' ' + GV.pri(b.siddet) +
+                  sub(b.kod + ' · bulan ' + DB.empName(b.bulan) + ' · ' + F.date(b.bulunma)) + '</div>';
+              }).join('')
+            : null],
+          ['Sprinte düşen test koşumları', kosumlar.length
+            ? kosumlar.map(function(t){
+                return '<div><a href="app-proje-test-detay.html?id=' + t.kod + '">' + esc(t.ad) + '</a> ' +
+                  GV.badge(t.durum) +
+                  sub(t.kod + ' · ' + t.basarili + '/' + t.senaryo + ' senaryo başarılı · ' + F.date(t.tarih)) + '</div>';
+              }).join('')
+            : null]
+        ]));
+    }
+  }else{
+    /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
+    var yeniNot = GV.notice({ tone:'info', title:'Yeni sprint kaydı oluşturuluyor',
+      text:'Kaydettiğinizde sıradaki sprint numarası atanır, aktivite geçmişine “Sprint oluşturuldu” ' +
+           'satırı düşülür, bağlı projenin geçmişine de bir satır yazılır ve sprint listesine dönülür. ' +
+           'Görev, hata ve test koşumu bu formdan sprinte bağlanmaz: üç bağ da karşı kaydın “sprint” ' +
+           'alanında yazılır (components.md §9d yön kuralı), sprint doğduktan sonra o ekranlardan kurulur.',
+      actions:[{ label:'Sprintler', href:'app-proje-sprint.html' }] });
+
+    var projeNot = '';
+    if(qsProje && !onProje){
+      projeNot = GV.notice({ tone:'warn', title:'Adresteki proje bulunamadı',
+        text:'“' + qsProje + '” numaralı proje kaydı sistemde yok, bu yüzden proje alanı ön seçili ' +
+             'gelmedi. Listeden geçerli bir proje seçebilirsiniz.',
+        actions:[{ label:'Projeler', href:'app-proje.html' }] });
+    }else if(onProje){
+      var pSprint = DB.sprints.filter(function(s){ return s.proje === onProje.kod; });
+      projeNot = GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
+        text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili ' +
+             'açıldı' + (pSprint.length
+               ? '. Bu projenin hâlihazırda ' + pSprint.length + ' sprinti var (' +
+                 pSprint.map(function(s){ return s.kod + ' ' + F.date(s.baslangic) + '–' + F.date(s.bitis); }).join(', ') +
+                 '); tarih aralığı bunlarla çakışırsa aşağıda uyarı çıkar'
+               : '. Bu projenin ilk sprinti olacak') + '.',
+        actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + onProje.kod }] });
+    }
+
+    ust += '<section class="gv-card"><div class="gc-body">' + yeniNot + projeNot +
+      GV.notice({ tone:'neutral', icon:'i-calendar', title:'Tarihler ölçüme göre ön dolduruldu',
+        text:'Başlangıç ' + F.date(DB.today) + ' (sistem tarihi), bitiş ' + VARSAYILAN_GUN +
+             ' gün sonrası olarak açıldı: veride ' + sureOlcum.toplam + ' sprintin ' +
+             sureOlcum.adet + ' tanesi ' + VARSAYILAN_GUN + ' günlük. İki tarih de serbestçe değiştirilir.' }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-sprint') + 'Sprint Künyesi</h2>' +
+        '<div class="gc-sub">Sprint kaydının elle tutulan alanları · zorunlu alanlar yıldızla işaretlidir. ' +
+        'Hız, tamamlanma oranı ve kalan gün gibi türetilebilir ölçüler burada değil, aşağıdaki ' +
+        'kartta canlı hesaplanır (ders L-08).</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-proje-sprint.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-gauge') + 'Türetilen Ölçüler</h2>' +
+        '<div class="gc-sub">Tamamlanma oranı, kalan saat, sprint süresi, günlük hız ve gereken hız ' +
+        'kayda yazılmaz — form değiştikçe burada yeniden hesaplanır. Çakışma denetimi de burada çalışır.' +
+        '</div></div></div>' +
+      '<div class="gc-body" id="turetilen"></div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [
+    { title:'Sprint kimliği',
+      desc:'Sprintin hangi projeye ait olduğu ve adı. Sprint numarası kaydederken sistem tarafından ' +
+           'atanır, elle girilmez.',
+      fields:[
+        { key:'proje', label:'Proje', type:'select', options:PROJELER, required:true, cols:6,
+          placeholder:'Proje seçin',
+          hint:duzenle && bagliSayi
+            ? 'Bu sprinte ' + bagliSayi + ' kayıt bağlı; proje değiştirilemez (bağlı görev, hata ve ' +
+              'koşumlar başka projeye taşınmış olurdu).'
+            : 'Sprintin proje bağı burada yazılır; sprintin görev, hata ve koşumları bu projeden gelir.',
+          validate:function(v){
+            var p = projeBul(v);
+            if(!p) return 'Seçilen proje sistemde yok.';
+            if(duzenle && v !== kayit.proje && bagliSayi){
+              return 'Bu sprinte bağlı ' + bagliSayi + ' kayıt (' + gorevler.length + ' görev, ' +
+                hatalar.length + ' hata, ' + kosumlar.length + ' koşum) ' + kayit.proje +
+                ' projesinde. Proje değiştirilemez; önce bağlı kayıtların sprinti kendi ekranlarından kaldırılmalı.';
+            }
+            return '';
+          } },
+        { key:'ad', label:'Sprint adı', type:'text', required:true, cols:6,
+          placeholder:'Örn. Sprint 19 — Test düzeltmeleri',
+          hint:'Veride ' + DB.sprints.length + ' sprintin ' + DB.sprints.length +
+               ' tanesi “Sprint N — konu” kalıbında ve adlar tekil.',
+          validate:function(v, d){
+            var ayni = DB.sprints.filter(function(s){
+              return (!duzenle || s.kod !== kayit.kod) && s.proje === d.proje &&
+                     String(s.ad).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+            return ayni ? 'Aynı projede aynı adlı başka bir sprint var (' + ayni.kod + ').' : '';
+          } },
+        { key:'durum', label:'Sprint durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+          hint:'Veride durum sözlüğü koleksiyonu yok; küme sprint listesinin durum filtresiyle aynı ' +
+               'üç değerdir (Planlandı · Devam ediyor · Tamamlandı).' },
+        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
+          onLabel:'Sprint aktif — listelerde ve seçim kutularında görünür',
+          hint:'Kapatılırsa kayıt arşive düşer (liste bileşeni “aktif:false” bayrağını arşiv sayar); ' +
+               'bağlı görev, hata ve koşumlar silinmez.' }
+      ]},
+
+    { title:'Takvim',
+      desc:'Sprintin başlangıç ve bitiş tarihi. İki tarih de kapalı aralıktır: bitiş günü sprinte dâhildir. ' +
+           'Aynı projede tarihleri çakışan başka sprint varsa aşağıdaki kartta uyarı çıkar.',
+      fields:[
+        { key:'baslangic', label:'Başlangıç tarihi', type:'date', required:true, cols:6,
+          validate:function(v, d){
+            if(v && d.bitis && v > d.bitis) return 'Başlangıç tarihi bitiş tarihinden sonra olamaz.';
+            return '';
+          } },
+        { key:'bitis', label:'Bitiş tarihi', type:'date', required:true, cols:6,
+          hint:'Veride ' + sureOlcum.toplam + ' sprintin ' + sureOlcum.adet + ' tanesi ' +
+               VARSAYILAN_GUN + ' günlük; başka uzunluk yasak değildir.',
+          validate:function(v, d){
+            if(v && d.baslangic && v < d.baslangic) return 'Bitiş tarihi başlangıçtan önce olamaz.';
+            return '';
+          } }
+      ]},
+
+    { title:'Efor ve kapsam',
+      desc:'Saat cinsinden plan ve gerçekleşme ile sprintin görev sayacı. Tamamlanma oranı ve hız ' +
+           'bu üç sayıdan türetilir; türetilen değerler kayda yazılmaz.',
+      fields:[
+        { key:'planlanan', label:'Planlanan saat', type:'number', required:true, min:1, cols:4,
+          hint:'Sprintin taahhüt ettiği toplam saat. Bağlı görevlerin tahmini sürelerinden ' +
+               'hesaplanmaz: ' + DB.sprints.length + ' sprintin ' + saatEsleseni +
+               ' tanesinde iki toplam eşit (25 görevin yalnız ' + sprintliGorev + ' tanesi sprinte bağlı).' },
+        { key:'tamamlanan', label:'Tamamlanan saat', type:'number', required:true, min:0, cols:4,
+          hint:'Planlanan saati aşması hata değildir; aşım aşağıdaki kartta işaretlenir.',
+          validate:function(v, d){
+            var t = sayi(v);
+            if(d.durum === 'Planlandı' && t > 0)
+              return 'Henüz başlamamış (“Planlandı”) sprintte tamamlanan saat 0 olmalıdır.';
+            if(d.durum === 'Tamamlandı' && t === 0)
+              return 'Tamamlanmış sprintte tamamlanan saat 0 olamaz.';
+            return '';
+          } },
+        { key:'gorevSayisi', label:'Sprintin görev sayısı', type:'number', required:true, min:0, cols:4,
+          hint:'Sprintin GERÇEK görev sayacıdır — prototipte görevlerin yalnız bir kısmı modellendiği ' +
+               'için bilinçli bir sayaç istisnasıdır (work.js: DB.sprints başlığı, assumptions V-27). ' +
+               'Kural: modellenmiş görev kaydından küçük olamaz — ' + DB.sprints.length + ' sprintin ' +
+               sayacTutan + ' tanesinde tutuyor.',
+          validate:function(v){
+            var n = sayi(v);
+            if(duzenle && n < gorevler.length){
+              return 'Bu sprinte bağlı ' + gorevler.length + ' görev kaydı var; sayaç bundan küçük olamaz.';
+            }
+            return '';
+          } }
+      ]}
+  ];
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = 0;
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu++; }); });
+
+  var form = GV.form({ mount:'#formMount', id:'sprint', record:formRec, sections:sections });
+
+  /* =================================================================
+     TÜRETİLEN ÖLÇÜLER — canlı, kayda yazılmaz (ders L-08)
+     ================================================================= */
+  var turetilenEl = document.getElementById('turetilen');
+
+  function hamOku(){
+    var r = form.read();
+    return {
+      proje:r.proje || '', ad:r.ad || '', durum:r.durum || '',
+      baslangic:r.baslangic || '', bitis:r.bitis || '',
+      planlanan:sayi(r.planlanan), tamamlanan:sayi(r.tamamlanan), gorevSayisi:sayi(r.gorevSayisi),
+      aktif:!!r.aktif
+    };
+  }
+
+  function saatDeger(h){ return Math.round(h * 10) / 10; }
+
+  function turetilenCiz(){
+    var d = hamOku();
+    var toplamGun = (d.baslangic && d.bitis && d.baslangic <= d.bitis)
+      ? F.days(d.bitis, d.baslangic) + 1 : null;
+    var gecen = null, kalanGun = null;
+    if(toplamGun != null){
+      gecen = Math.max(0, Math.min(toplamGun, F.days(DB.today, d.baslangic) + 1));
+      kalanGun = toplamGun - gecen;
+    }
+    var oran = d.planlanan ? Math.round(d.tamamlanan / d.planlanan * 100) : null;
+    var kalanSaat = Math.max(0, d.planlanan - d.tamamlanan);
+    var asim = d.tamamlanan > d.planlanan ? d.tamamlanan - d.planlanan : 0;
+    var hiz = (gecen && d.tamamlanan) ? d.tamamlanan / gecen : null;
+    var gereken = (kalanGun && kalanSaat) ? kalanSaat / kalanGun : null;
+    var projeksiyon = (hiz != null && kalanGun != null) ? d.tamamlanan + hiz * kalanGun : null;
+
+    /* ---- takvim bloğu ---- */
+    var takvimBlok;
+    if(toplamGun == null){
+      takvimBlok = GV.notice({ tone:'neutral', title:'Takvim henüz hesaplanamıyor',
+        text:'Süre, geçen gün ve kalan gün iki geçerli tarih girilince (bitiş ≥ başlangıç) burada görünür.' });
+    }else{
+      var durumNot = '';
+      if(d.durum === 'Planlandı' && gecen > 0) durumNot = 'Başlangıç tarihi geçmiş ama durum “Planlandı”.';
+      else if(d.durum === 'Devam ediyor' && kalanGun === 0 && F.days(d.bitis) < 0) durumNot = 'Bitiş tarihi geçmiş ama sprint hâlâ açık.';
+      else if(d.durum === 'Tamamlandı' && F.days(d.bitis) > 0) durumNot = 'Sprint bitiş tarihinden önce kapatılmış.';
+
+      takvimBlok = ozet([
+        ['Sprint süresi', '<b class="u-num">' + toplamGun + ' gün</b> ' +
+          sub(F.date(d.baslangic) + ' → ' + F.date(d.bitis) + ' · bitiş günü dâhil')],
+        ['Bugüne göre', '<b class="u-num">' + gecen + ' / ' + toplamGun + ' gün</b> ' +
+          sub('sistem tarihi ' + F.date(DB.today))],
+        ['Kalan gün', kalanGun === 0
+          ? '<span class="' + (F.days(d.bitis) < 0 ? 'u-danger' : 'u-warn') + '">' +
+            (F.days(d.bitis) < 0 ? 'Süre ' + (-F.days(d.bitis)) + ' gün aşıldı' : 'Son gün') + '</span>'
+          : '<b class="u-num">' + kalanGun + ' gün</b>'],
+        ['Takvim ↔ durum', durumNot
+          ? '<span class="u-warn">' + esc(durumNot) + '</span>'
+          : GV.badge(d.durum) + ' ' + sub('takvimle tutarlı')]
+      ]);
+    }
+
+    /* ---- efor / hız bloğu ---- */
+    var eforBlok;
+    if(!d.planlanan){
+      eforBlok = GV.notice({ tone:'neutral', title:'Efor ölçüleri henüz hesaplanamıyor',
+        text:'Tamamlanma oranı, kalan saat ve hız için planlanan saatin sıfırdan büyük olması gerekir.' });
+    }else{
+      eforBlok = ozet([
+        ['Tamamlanma oranı', GV.progress(oran) + sub('tamamlanan / planlanan — kayda yazılmaz')],
+        ['Kalan saat', asim
+          ? '<span class="u-warn">Plan ' + F.hours(asim) + ' aşıldı</span>'
+          : '<b class="u-num">' + F.hours(kalanSaat) + '</b>'],
+        ['Günlük hız', hiz == null
+          ? '<span class="u-faint">Sprint henüz başlamadı ya da saat girilmedi</span>'
+          : '<b class="u-num">' + F.num(saatDeger(hiz), 1) + ' sa/gün</b> ' +
+            sub(F.hours(d.tamamlanan) + ' / ' + gecen + ' gün')],
+        ['Bitiş için gereken hız', gereken == null
+          ? (kalanSaat === 0 ? '<span class="u-ok">Planlanan saat tamamlandı</span>'
+                             : '<span class="u-faint">Kalan gün yok</span>')
+          : '<b class="u-num ' + (hiz != null && gereken > hiz ? 'u-danger' : 'u-ok') + '">' +
+            F.num(saatDeger(gereken), 1) + ' sa/gün</b> ' +
+            sub(F.hours(kalanSaat) + ' / ' + kalanGun + ' gün')],
+        ['Mevcut hızla projeksiyon', projeksiyon == null
+          ? '<span class="u-faint">Hız ölçülemedi</span>'
+          : '<b class="u-num">' + F.hours(saatDeger(projeksiyon)) + '</b> ' +
+            sub('sprint bitiminde planın %' + Math.round(projeksiyon / d.planlanan * 100) + '’si')]
+      ]);
+      if(gereken != null && hiz != null && gereken > hiz){
+        eforBlok += GV.notice({ tone:'warn', title:'Mevcut hız sprinti bitirmeye yetmiyor',
+          text:'Şu ana kadarki hız ' + F.num(saatDeger(hiz), 1) + ' sa/gün; kalan ' + F.hours(kalanSaat) +
+               ' işi ' + kalanGun + ' günde bitirmek için ' + F.num(saatDeger(gereken), 1) +
+               ' sa/gün gerekiyor. Bu ölçü kayda yazılmaz, yalnız planı gözden geçirmeniz içindir.' });
+      }
+    }
+
+    /* ---- kapsam bloğu ---- */
+    var kapsamBlok;
+    if(duzenle){
+      kapsamBlok = ozet([
+        ['Sayaç', '<b class="u-num">' + F.num(d.gorevSayisi) + ' görev</b> ' + sub('kayda yazılan sayı')],
+        ['Modellenmiş görev kaydı', '<b class="u-num">' + gorevler.length + '</b> ' +
+          (d.gorevSayisi < gorevler.length
+            ? '<span class="u-danger">sayaçtan büyük</span>'
+            : sub('sayaç ≥ kayıt kuralı sağlanıyor'))],
+        ['Açık görev', acikGorev.length
+          ? '<a class="u-num u-warn" href="' + gorevHref(kayit.kod) + '">' + acikGorev.length + '</a>'
+          : '<span class="u-faint">0</span>'],
+        ['Bağlı hata / test koşumu', '<b class="u-num">' + hatalar.length + '</b> hata · ' +
+          '<b class="u-num">' + kosumlar.length + '</b> koşum']
+      ]);
+    }else{
+      kapsamBlok = GV.notice({ tone:'neutral', icon:'i-lock', title:'Yeni sprintin bağlı kaydı yoktur',
+        text:'Görev sayacı ' + d.gorevSayisi + ' olarak açılıyor. Görev, hata ve test koşumu bağı ' +
+             'karşı kaydın “sprint” alanında yazılır; sprint kaydedildikten sonra o ekranlardan kurulur. ' +
+             'Sayaç bağlı görev kaydı sayısından küçük olamaz.' });
+    }
+
+    /* ---- çakışma bloğu ---- */
+    var cakBlok;
+    var cak = cakisanlar(d.proje, d.baslangic, d.bitis);
+    var pSec = projeBul(d.proje);
+    if(!d.proje || !d.baslangic || !d.bitis || d.baslangic > d.bitis){
+      cakBlok = GV.notice({ tone:'neutral', title:'Çakışma denetimi bekliyor',
+        text:'Proje ve geçerli bir tarih aralığı girilince, aynı projedeki diğer sprintlerle kesişim burada denetlenir.' });
+    }else if(cak.length){
+      cakBlok = GV.notice({ tone:'warn', title:'Aynı projede tarihleri çakışan ' + cak.length + ' sprint var',
+        text:cak.map(function(s){
+               return s.kod + ' “' + s.ad + '” (' + F.date(s.baslangic) + ' – ' + F.date(s.bitis) + ', ' + s.durum + ')';
+             }).join(' · ') +
+             '. Paralel sprint yasak değildir — bu yüzden kayıt engellenmez — ama mevcut ' +
+             DB.sprints.length + ' sprint arasında böyle bir kesişim yok (ölçüldü: ' +
+             mevcutCakisma + ' çakışma); tarihleri gözden geçirin.',
+        actions:[{ label:'Projenin sprintleri', href:'app-proje-sprint.html?f_proje=' + d.proje }] }) +
+        ozet(cak.map(function(s){
+          return ['<span class="cell-code">' + esc(s.kod) + '</span> ' + esc(s.ad),
+                  F.date(s.baslangic) + ' – ' + F.date(s.bitis) + ' ' + GV.badge(s.durum)];
+        }));
+    }else{
+      var digerSayi = DB.sprints.filter(function(s){
+        return s.proje === d.proje && (!duzenle || s.kod !== kayit.kod); }).length;
+      cakBlok = GV.notice({ tone:'ok', title:'Tarih çakışması yok',
+        text:digerSayi
+          ? (pSec ? pSec.ad : d.proje) + ' projesindeki diğer ' + digerSayi + ' sprintin hiçbiri ' +
+            F.date(d.baslangic) + ' – ' + F.date(d.bitis) + ' aralığıyla kesişmiyor.'
+          : (pSec ? pSec.ad : d.proje) + ' projesinde başka sprint yok; ' +
+            F.date(d.baslangic) + ' – ' + F.date(d.bitis) + ' aralığı çakışmıyor.' });
+    }
+    /* Proje takvimi bilgi amaçlıdır: veride 6 sprintin 1’i (SPR-2026-023) projesinin
+       planlanan bitişinden sonra bitiyor — proje geciktiği için. Bu bir hata değildir. */
+    if(pSec && d.baslangic && d.bitis && d.baslangic <= d.bitis &&
+       (d.baslangic < pSec.baslangic || d.bitis > pSec.planlananBitis)){
+      cakBlok += GV.notice({ tone:'info', icon:'i-calendar', title:'Sprint, projenin planlanan takvimi dışına taşıyor',
+        text:pSec.kod + ' projesi ' + F.date(pSec.baslangic) + ' – ' + F.date(pSec.planlananBitis) +
+             ' aralığında planlı. Gecikmiş projelerde bu normaldir (veride bir sprint bu durumda), ' +
+             'kayıt engellenmez.',
+        actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + pSec.kod }] });
+    }
+
+    turetilenEl.innerHTML =
+      sec('Takvim', takvimBlok) +
+      sec('Efor ve hız', eforBlok) +
+      sec('Kapsam ve bağlı kayıtlar', kapsamBlok) +
+      sec('Tarih aralığı çakışması', cakBlok);
+  }
+
+  /* Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze kopyayla
+     değiştirdiği için birikmezler (ders L-16). */
+  form.el.addEventListener('input', turetilenCiz);
+  form.el.addEventListener('change', turetilenCiz);
+  turetilenCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    proje:'Proje', ad:'Sprint adı', durum:'Sprint durumu', baslangic:'Başlangıç tarihi',
+    bitis:'Bitiş tarihi', planlanan:'Planlanan saat', tamamlanan:'Tamamlanan saat',
+    gorevSayisi:'Sprintin görev sayısı', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Numara yıl ekseninden bağımsız artar (SPR-2026-023 → SPR-2026-024). */
+  function yeniKod(){
+    var max = 0;
+    DB.sprints.forEach(function(x){
+      var m = /^SPR-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'SPR-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  /* `aktif` veride SPR kayıtlarında YAZILI DEĞİL (6 sprintin 6'sında alan yok); yokluğu
+     "aktif" demektir. Karşılaştırma bu normalleştirmeyle yapılır, yoksa hiçbir şey
+     değiştirilmeden kaydedilince sahte bir "Kayıt durumu" hareketi düşerdi. */
+  function eskiDeger(k){
+    if(!duzenle) return undefined;
+    return k === 'aktif' ? (kayit.aktif !== false) : kayit[k];
+  }
+  function gorunur(k, v){
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşivli';
+    if(v == null || v === '') return '—';
+    if(k === 'proje'){ var p = projeBul(v); return p ? p.ad + ' (' + v + ')' : String(v); }
+    if(k === 'planlanan' || k === 'tamamlanan') return F.hours(v);
+    if(k === 'gorevSayisi') return F.num(v) + ' görev';
+    if(k === 'baslangic' || k === 'bitis') return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+    return {
+      proje:raw.proje,
+      ad:String(raw.ad || '').trim(),
+      baslangic:raw.baslangic,
+      bitis:raw.bitis,
+      durum:raw.durum,
+      planlanan:sayi(raw.planlanan),
+      tamamlanan:sayi(raw.tamamlanan),
+      gorevSayisi:sayi(raw.gorevSayisi),
+      aktif:!!raw.aktif
+    };
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        var eski = eskiDeger(k);
+        if(norm(eski) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, eski), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      DB.sprints.unshift(Object.assign({ kod:kod }, v));
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Sprint oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      /* Bağ veride YAZILI olduğu için projenin geçmişine de bir satır düşülür (ders L-13). */
+      if(v.proje){
+        DB.activities.unshift({
+          kayit:v.proje, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Sprint ' + kod + ' açıldı', eski:null,
+          yeni:v.ad + ' · ' + F.date(v.baslangic) + ' – ' + F.date(v.bitis),
+          tone:'accent', icon:'i-sprint'
+        });
+      }
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-proje-sprint.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Teslimat',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Sprint',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-proje-sprint.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
