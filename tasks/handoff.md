@@ -7,7 +7,7 @@
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
 > ortak katmanda çözülür. Nokta yaması yasak. Ekran üretimi bitmeden bu faza başlanmaz.
 
-**Güncelleme:** 2026-08-04 (2. oturum sonu) · **65 ekran canlıda** · **Wave 1, Wave 11, Wave 12 TAMAM.**
+**Güncelleme:** 2026-08-04 (3. oturum) · **68 ekran canlıda** · **Wave 1, 9, 11, 12 TAMAM.**
 
 ---
 
@@ -68,6 +68,45 @@ Rapor ekranları üç çelişki ortaya çıkardı, **kaynağında** düzeltildi:
 
 **Tarama script'leri her wave sonunda koşulur:** `canon2.js` (müşteri kartı ↔ işlem verisi) ·
 `canon3.js` (fatura ↔ tahsilat) · `ref.js` (komisyon ↔ yönlendiren) · `gate.js` (tüm ekranlar × 5 rol).
+
+### 3. oturumda yapılanlar
+
+**UID-01 kapandı — rail collapse tutamağı ortak katmanda yeniden kuruldu.**
+`.gv-divider` iki katman oldu: görünmez yakalama bandı (buton) + görünen grip (`span`).
+Grip bitişik yüzeyin token rengini taşır, kenarlıksız-gölgesiz, yalnız dışa bakan kenarı
+yuvarlak. `aria-expanded` + `aria-controls` eklendi; aç/kapa kararı artık sınıf varlığına
+değil `matchMedia` ile gerçek duruma bakıyor — 981–1180 px'teki "ilk tıklama boşa gidiyor"
+hatası da böyle düzeldi. Ölçüm: `scratchpad/grip-qa.js`. Canlıda doğrulandı.
+Dersler: **L-09 · L-10 · L-11**.
+
+**Wave 9 destek modülü tamamlandı (3 ekran):**
+`app-destek-sla.html` · `app-destek-paket.html` · `app-destek-memnuniyet.html`
+
+**Ortak katmana eklenenler:**
+- `DB.slaPolicies` — kategori × öncelik SLA matrisi (dakika hedefleri). `DB.tickets[].sla`
+  artık bu tablonun türevi.
+- `DB.surveys` — 24 memnuniyet anketi. Canonical: yanıtlanmış anketlerin müşteri bazlı
+  puan ortalaması = `DB.customers[].memnuniyet`; destek anketinin puanı = talebin `memnuniyet`i.
+- `DB.supportPackages` → `sozlesme` · `yenileme` · `yenilemeTarihi` alanları + 2 yeni paket
+  (yenilemesi yaklaşan ve süresi dolmuş durumlarını gerçekten üreten kayıtlar).
+- `DB.meetings` → 4 tamamlanmış geçmiş toplantı · `DB.decisions` → 9 yeni karar.
+- `GV.badge` sözlüğüne destek ve bakım durumları (8 değer).
+
+**Düzeltilen gerçek hatalar:**
+1. **Etkileşimde patlayan latent bug — 5 ekran.** Ekran config'i `DB.priorities` /
+   `DB.timelogs` / `DB.activities` okuyordu ama o koleksiyonun dosyası sayfada yüklü
+   değildi. Gelişmiş filtre **açılınca** patlıyordu; açılış QA'si göremiyordu.
+   Tarayıcı yazıldı: `scratchpad/dbref.js`. Ders **L-12**.
+2. **Canonical:** `DST-2026-120` `kalanDestek` 26 ↔ paket kalanı 62 çelişkisi.
+3. **Canonical:** 5 talepte `slaDurum` hesapla çelişiyordu; zaman damgaları gerçekçi
+   hale getirildi ve `slaDurum` "iki eksenin kötüsü" kuralıyla yeniden yazıldı.
+
+**QA script'leri yeniden kuruldu** (eskiler scratchpad silinince kaybolmuştu, ayrıca
+`qa-links.js` hatalıydı — kendi hardcode ettiği 8 sayfalık listeye göre yayındaki her
+ekranı "kırık" sayıyordu). Güncel set `components.md` §10'da.
+
+**Yeni borç kaydı:** UID-05 — `GV.perm.scope('gor')` liste ekranlarında uygulanmıyor
+(65+ ekran, ortak katmanda `GV.list` `scopeField` sözleşmesiyle çözülecek).
 
 ## 2. ORTAK KATMANIN MEVCUT DURUMU
 
@@ -232,17 +271,20 @@ ThreadingHTTPServer(('127.0.0.1',8791), SimpleHTTPRequestHandler).serve_forever(
 cd <scratchpad> && node qa.js "app-x.html,app-y.html" [rol]
 #   → "TEMİZ — hata yok, taşma yok" bekleniyor
 
-# 3) Rapor ekranı QA — her raporun KPI+grafik+tablo ürettiğini doğrular
-node rp2.js app-rapor-x.html
+# 3) Canonical veri taraması — 7 eksen tek script'te (eski canon2/canon3/ref birleşti)
+node canon.js                     # → "TEMİZ — N kontrol, canonical çelişki yok"
 
-# 4) Link bütünlüğü
-node qa-links.js        # → "Kırık bağlantı yok (N ekran tarandı)"
+# 4) Yüklenmeyen veri dosyası taraması (lessons L-12 — açılış QA'si bunu göremez)
+node dbref.js                     # → "TEMİZ — N ekran"
 
-# 5) Yetki taraması — rol başına can()/scope() değerleri
-node perm.js
+# 5) Bağlantı bütünlüğü — kırık hedef, eksik BUILT kaydı, hayalet kayıt, yetim ekran
+node links.js                     # → "TEMİZ" + üretilmemiş hedef kuyruğu
 
-# 6) Canonical veri taraması — müşteri kartı ↔ işlem verisi
-node canon2.js ; node canon3.js ; node ref.js
+# 6) Tüm ekranlar × roller — konsol hatası, 403 sayımı, boş sayfa
+node gate.js                      # varsayılan sahip,pm,destek,muhasebe,stajyer
+
+# 6b) Rail tutamağı ölçümü (UID-01 regresyon testi)
+node grip-qa.js                   # → "TEMİZ — tüm ölçümler geçti"
 
 # 7) Canlı doğrulama (push sonrası ~1-2 dk)
 curl -s -o /dev/null -w "%{http_code}\n" https://gaviaworks-dev.github.io/gaviaworks-crm/app-x.html
@@ -250,6 +292,8 @@ curl -s -o /dev/null -w "%{http_code}\n" https://gaviaworks-dev.github.io/gaviaw
 Screenshot'lar `docs/screenshots/` (gitignored).
 `<scratchpad>` = `/private/tmp/claude-501/-Users-gaviaworks-Developer-Projects-gaviaworks-crm/<oturum>/scratchpad`
 Bu script'ler **orkestratöre aittir** — subagent oraya yazmaz (lessons L-06).
+`rp2.js` / `perm.js` / `qa-login.js` / `qa-roles.js` bu oturumda yeniden kurulmadı;
+gerekirse `gate.js` deseninden türetilir.
 `scratchpad/rp-example.html` = `GV.report` kullanımının çalışan örneği; rapor ekranı yazacak
 subagent'a desen referansı olarak verilir.
 
