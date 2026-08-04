@@ -686,7 +686,10 @@
     /* Form ekranları (Wave 12b) */
     'app-lead-form.html',
     'app-musteri-form.html',
-    'app-satinalma-form.html'
+    'app-satinalma-form.html',
+    'app-musteri-yetkili-form.html',
+    'app-musteri-iletisim-form.html',
+    'app-referans-form.html'
   ];
   GV.built = BUILT;
 
