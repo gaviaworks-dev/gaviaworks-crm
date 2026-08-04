@@ -15,6 +15,7 @@
 | L-09 | Rail tutamağının görünen boyutu = yakalama alanı olunca imleç tam üstüne gelmeden tepki vermiyordu | Küçük tutamaklarda **görünen biçim ile yakalama alanı ayrılır**: dış öğe görünmez ve geniş, iç öğe görünen ve küçük. Yakalama alanı yalnız **boşluk oluklarına** taşar, hiçbir etkileşimli öğeyi örtmez — bu ölçülerek doğrulanır (`elementFromPoint` ile altındaki öğe sorgulanır) | 2026-08-04 |
 | L-10 | Yüzeye yapışık bir öğeye kendi rengini vermek dikiş yaratır | Bir öğe komşu yüzeyin **uzantısı** gibi görünecekse rengi o yüzeyin token'ından alır ve yüzeyin kenarlığını **örtecek kadar** içeri taşar. Yüzey duruma göre değişiyorsa (menü açık/kapalı) renk kuralı da her durum için yazılır | 2026-08-04 |
 | L-11 | Aç/kapa butonu sınıf varlığına göre karar veriyordu; 981–1180 px aralığında varsayılan kapalı olduğu için ilk tıklama boşa gidiyordu | Aç/kapa mantığı **sınıf varlığına değil, o kırılımdaki gerçek duruma** bakar (`matchMedia` + kırılıma özgü sınıf). `aria-expanded` bu durumdan türetilir ve `resize`'da yeniden senkronlanır | 2026-08-04 |
+| L-12 | Ekran config'i `DB.priorities` okuyordu ama sayfa `work.js`'i yüklemiyordu; gelişmiş filtre **açılınca** patlıyordu, sayfa açılışında değil | Ekranın okuduğu her `DB.<koleksiyon>` için o koleksiyonun tanımlı olduğu veri dosyası sayfada yüklü olmalı. Sayfa açılışına bakan QA bunu göremez — statik tarayıcı her wave sonunda koşulur (`dbref.js`) | 2026-08-04 |
 
 ---
 
@@ -106,3 +107,19 @@ zaten kapalı olan menüyü "kapatıyor", yani boşa gidiyordu.
 **Kural:** Kırılıma göre varsayılanı değişen her aç/kapa, önce `matchMedia` ile hangi kırılımda
 olduğunu sorar ve o kırılımın belirleyici sınıfına bakar. `aria-expanded` bu türetilmiş
 durumdan yazılır ve `resize` olayında yeniden senkronlanır.
+
+## L-12 · Yüklenmeyen veri dosyasından okuma etkileşimde patlar
+**Olay:** `app-destek.html` gelişmiş filtre tanımında `options:DB.priorities` kullanıyordu ama
+sayfa `assets/data/work.js`'i yüklemiyordu. `DB.priorities` `undefined` olduğu için
+"Gelişmiş Filtre" butonuna basılınca `Cannot read properties of undefined (reading 'map')`
+fırlıyor ve drawer hiç açılmıyordu. Ekran aylardır yayındaydı.
+**Kök neden:** Hata **sayfa açılışında değil, kullanıcı etkileşiminde** oluşuyor. `qa.js`
+sayfayı açıp konsolu dinliyor; hiçbir butona basmadığı için bu sınıfı göremiyor.
+**Tarama sonucu:** Aynı hata 5 ekranda vardı — `app-destek`, `app-satinalma`, `app-pipeline`,
+`app-ayar-yetki`, `app-destek-sla`.
+**Kural:** (a) Ekran hangi `DB.<koleksiyon>`'u okuyorsa o koleksiyonun tanımlı olduğu veri
+dosyası `<script>` ile yüklenir. (b) Bu, ekranın markup'ından statik olarak taranabilir ve
+her wave sonunda taranır (`scratchpad/dbref.js` — koleksiyon → dosya sahipliğini
+`assets/data/*.js`'ten çıkarır, her ekranın yüklediğiyle karşılaştırır).
+(c) Daha genel ders: **açılış QA'si yeterli değil.** Bir ekranın gelişmiş filtresi, satır
+aksiyonu, toplu işlemi ve modalı en az bir kez tetiklenmeden "temiz" denmez.
