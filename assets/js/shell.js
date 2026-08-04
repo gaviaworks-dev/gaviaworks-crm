@@ -599,6 +599,7 @@
     'app-personel-detay.html',
     'app-pipeline.html',
     'app-referans.html',
+    'app-referans-detay.html',
     'app-komisyon.html',
     'app-onanaliz.html',
     'app-musteri-yetkili.html',
@@ -620,6 +621,7 @@
     'app-kapasite.html',
     'app-performans.html',
     'app-demirbas.html',
+    'app-demirbas-detay.html',
     'app-zimmet.html',
     'app-arac.html',
     'app-arac-detay.html',
@@ -637,6 +639,7 @@
     'app-sozlesme.html',
     'app-sozlesme-detay.html',
     'app-fatura.html',
+    'app-fatura-detay.html',
     'app-tahsilat.html',
     'app-butce.html',
     'app-sohbet.html',
@@ -751,9 +754,13 @@
     app.querySelector('.gv-page').appendChild(keep);
   }
 
-  /* Sayfa başlığı — .ph-eyebrow / h1 / .ph-sub / .ph-actions */
+  /* Sayfa başlığı — .ph-eyebrow / h1 / .ph-sub / .ph-actions
+     Yeniden çağrılabilir: ilk çağrıda iskeletin bıraktığı #gvPageHead yer tutucusunu,
+     sonraki çağrılarda kendi bastığı .gv-page-head bloğunu değiştirir. Bu olmadan
+     GV.refresh() sonrası başlık aksiyonları eski koşulla asılı kalıyordu. */
   GV.pageHead = function(cfg){
-    var host = document.getElementById('gvPageHead');
+    var host = document.getElementById('gvPageHead') ||
+               document.querySelector('.gv-page .gv-page-head');
     if(!host) return;
     host.outerHTML =
       '<div class="gv-page-head"><div>' +
@@ -778,6 +785,15 @@
       var btn = document.querySelector('.ph-actions [data-ph-act="' + i + '"]');
       if(btn) btn.addEventListener('click', function(ev){ a.run(ev, btn); });
     });
+  };
+
+  /* Sayfayı yeniden çizer — mock veriyi DEĞİŞTİREN aksiyonlardan sonra kullanılır.
+     `location.reload()` KULLANILMAZ: veri `assets/data/*.js` içinde bellekte durur,
+     sayfa yeniden yüklenince script'ler baştan koşar ve yapılan değişiklik SİLİNİR
+     (ölçüldü — altı detay ekranında onay/ödeme aksiyonu iz bırakmıyordu, ders L-15).
+     `gv:ready` yeniden tetiklenir; ekran kendini güncel veriyle baştan kurar. */
+  GV.refresh = function(){
+    document.dispatchEvent(new CustomEvent('gv:ready'));
   };
 
   /* ===================================================================
