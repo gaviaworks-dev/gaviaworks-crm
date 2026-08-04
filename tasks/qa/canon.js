@@ -192,6 +192,14 @@ DB.customers.forEach(c => {
       c.kod + ' tüm projeleri DB\'de: toplamCiro=' + money(c.toplamCiro) + ' Σ sözleşme=' + money(net));
 });
 
+/* ---- 12. Sprint görev sayısı modellenmiş kayıtları kapsar (V-27) ---- */
+head('12) Sprint gorevSayisi >= modellenmiş görev kaydı');
+DB.sprints.forEach(s => {
+  const n = DB.tasks.filter(t => t.sprint === s.kod).length;
+  say(s.gorevSayisi >= n,
+      s.kod + ' gorevSayisi=' + s.gorevSayisi + ' < DB.tasks kaydı=' + n);
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

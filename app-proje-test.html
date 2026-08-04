@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Testler — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="test">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+
+  /* ---- türetilmiş yardımcılar (canonical veri üzerinden) ---- */
+  var proj     = function(kod){ return DB.projects.filter(function(p){ return p.kod === kod; })[0] || null; };
+  var projAd   = function(kod){ var p = proj(kod); return p ? p.ad : kod; };
+  /* Planlanan testte senaryo 0'dır — sıfıra bölünmez, oran null döner ve "—" basılır. */
+  var oran     = function(t){ return t.senaryo ? Math.round(t.basarili / t.senaryo * 100) : null; };
+  var acikHata = function(kod){
+    return DB.bugs.filter(function(b){ return b.proje === kod && b.durum !== 'Kapandı' && b.aktif !== false; }).length;
+  };
+  var basarisizVar = function(t){ return (t.basarisiz || 0) > 0; };
+  var topla    = function(a, alan){ return a.reduce(function(s, t){ return s + (t[alan] || 0); }, 0); };
+
+  var turler   = DB.tests.map(function(t){ return t.tur; })
+                         .filter(function(v, i, a){ return a.indexOf(v) === i; });
+  var sorumlular = DB.tests.map(function(t){ return t.sorumlu; })
+                           .filter(function(v, i, a){ return v && a.indexOf(v) === i; })
+                           .map(function(k){ return { value:k, label:DB.empName(k) }; });
+
+  GV.pageHead({ eyebrow:'Projeler', title:'Testler',
+    actions:[{ label:'Hatalar', icon:'i-bug', href:'app-proje-hata.html' },
+             { label:'Proje Listesi', icon:'i-briefcase', href:'app-proje.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'test', key:'kod', source:function(){ return DB.tests; },
+    exportName:'testler', exportTitle:'Proje Test Koşumları', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Test kodu, test adı, proje veya test türü ara',
+             fields:['kod','ad','proje','tur','durum'],
+             extra:function(t){ return projAd(t.proje) + ' ' + DB.empName(t.sorumlu); } },
+    defaultSort:'tarih', defaultDir:'desc',
+
+    kpis:[
+      { label:'Toplam test çalışması', icon:'i-flask',
+        calc:function(a){ return a.length; } },
+      { label:'Çalıştırılan senaryo', icon:'i-list', tone:'info',
+        calc:function(a){ return topla(a, 'senaryo'); } },
+      { label:'Başarı oranı', icon:'i-check-circle', tone:'ok', format:F.pct,
+        calc:function(a){
+          var s = topla(a, 'senaryo');
+          return s ? Math.round(topla(a, 'basarili') / s * 100) : null; } },
+      { label:'Başarısız senaryo', icon:'i-x-circle', tone:'danger',
+        calc:function(a){ return topla(a, 'basarisiz'); } }
+    ],
+
+    tabs:[
+      { key:'tumu',     label:'Tümü',                 icon:'i-list',         filter:null },
+      { key:'devam',    label:'Devam Edenler',        icon:'i-play',         filter:function(t){ return t.durum === 'Devam ediyor'; } },
+      { key:'planli',   label:'Planlananlar',         icon:'i-calendar',     filter:function(t){ return t.durum === 'Planlandı'; } },
+      { key:'tamam',    label:'Tamamlananlar',        icon:'i-check-circle', filter:function(t){ return t.durum === 'Tamamlandı'; } },
+      { key:'basarisiz',label:'Başarısızlığı Olanlar',icon:'i-alert',        filter:basarisizVar }
+    ],
+
+    columns:[
+      { key:'kod', label:'Test', width:'22%', locked:true, cellClass:'cell-wrap',
+        render:function(t){ return '<a class="cell-main" href="app-proje-test-detay.html?id=' + t.kod + '">' + t.kod + '</a>' +
+          '<span class="cell-sub">' + esc(t.ad) + '</span>'; } },
+      { key:'proje', label:'Proje', cellClass:'cell-wrap',
+        sortValue:function(t){ return projAd(t.proje); },
+        render:function(t){ return '<a class="cell-main" href="app-proje-detay.html?id=' + t.proje + '">' + esc(projAd(t.proje)) + '</a>' +
+          '<span class="cell-code">' + t.proje + '</span>'; },
+        exportValue:function(t){ return projAd(t.proje); } },
+      { key:'tur', label:'Test türü',
+        render:function(t){ return GV.badge(t.tur); } },
+      { key:'senaryo', label:'Senaryo', cellClass:'num',
+        render:function(t){ return t.senaryo
+          ? '<span class="u-num">' + F.num(t.senaryo) + '</span>'
+          : '<span class="u-faint">—</span>'; } },
+      { key:'basarili', label:'Başarılı', cellClass:'num',
+        render:function(t){ return t.senaryo
+          ? '<span class="u-num u-ok">' + F.num(t.basarili) + '</span>'
+          : '<span class="u-faint">—</span>'; } },
+      { key:'basarisiz', label:'Başarısız', cellClass:'num',
+        render:function(t){ return !t.senaryo ? '<span class="u-faint">—</span>'
+          : basarisizVar(t) ? '<span class="u-num u-danger">' + F.num(t.basarisiz) + '</span>'
+                            : '<span class="u-num">0</span>'; } },
+      { key:'oran', label:'Başarı oranı', sortValue:function(t){ var o = oran(t); return o == null ? -1 : o; },
+        render:function(t){
+          var o = oran(t);
+          if(o == null) return '<span class="u-faint">—</span><span class="cell-sub">Henüz koşulmadı</span>';
+          return GV.progress(o, { tone:o === 100 ? 'ok' : o >= 90 ? '' : o >= 70 ? 'warn' : 'danger' }); },
+        exportValue:function(t){ var o = oran(t); return o == null ? '' : o + '%'; } },
+      { key:'sorumlu', label:'Sorumlu',
+        sortValue:function(t){ return DB.empName(t.sorumlu); },
+        render:function(t){ return GV.user(t.sorumlu, { sm:true }); },
+        exportValue:function(t){ return DB.empName(t.sorumlu); } },
+      { key:'tarih', label:'Çalıştırma tarihi',
+        render:function(t){
+          var bitti = t.durum === 'Tamamlandı';
+          return GV.dateCell(t.tarih, { done:bitti }) +
+            (bitti ? '' : '<span class="cell-sub">' + F.rel(t.tarih) + '</span>'); } },
+      { key:'durum', label:'Durum', render:function(t){ return GV.badge(t.durum); } },
+      { key:'acikHata', label:'Projedeki açık hata', cellClass:'num',
+        sortValue:function(t){ return acikHata(t.proje); },
+        render:function(t){
+          var n = acikHata(t.proje);
+          if(!n) return '<span class="u-faint">Yok</span>';
+          return '<a href="app-proje-hata.html?q=' + t.proje + '" title="' + t.proje + ' açık hataları">' +
+                 '<span class="badge is-danger no-dot">' + n + ' açık</span></a>'; },
+        exportValue:function(t){ return acikHata(t.proje); } },
+      { key:'projeDurum', label:'Proje durumu', visible:false,
+        sortValue:function(t){ var p = proj(t.proje); return p ? p.durum : ''; },
+        render:function(t){ var p = proj(t.proje); return p ? GV.badge(p.durum) : '<span class="u-faint">—</span>'; },
+        exportValue:function(t){ var p = proj(t.proje); return p ? p.durum : ''; } }
+    ],
+
+    filters:[
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'tur', label:'Test türü', type:'multi', options:turler },
+      { key:'durum', label:'Durum', type:'multi', options:['Planlandı','Devam ediyor','Tamamlandı'] },
+      { key:'sorumlu', label:'Sorumlu', type:'select', options:sorumlular },
+      { key:'tarih', label:'Çalıştırma tarihi', type:'daterange' },
+      { key:'basarisizVar', label:'Yalnız başarısızlığı olanlar', type:'select', options:['Evet','Hayır'],
+        test:function(t, v){ return v === 'Evet' ? basarisizVar(t) : !basarisizVar(t); } }
+    ],
+
+    /* Satır vurgusu yalnız başarı oranı %90'ın altına düşen koşumlarda — her başarısız
+       senaryoda değil; aksi hâlde listenin çoğu kırmızıya boyanır ve sinyal değerini yitirir. */
+    rowClass:function(t){ var o = oran(t); return o != null && o < 90 ? 'is-late' : ''; },
+
+    mobile:function(t){
+      var o = oran(t);
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-test-detay.html?id=' + t.kod + '">' + t.kod + '</a>' +
+        '<span class="u-num">' + (o == null ? '—' : o + '%') + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(projAd(t.proje)) + ' · ' + esc(t.ad) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(t.durum) +
+        GV.badge(t.tur) +
+        (basarisizVar(t) ? '<span class="badge is-danger no-dot">' + t.basarisiz + ' başarısız</span>' : '') + '</span>' +
+        GV.dateCell(t.tarih, { done:t.durum === 'Tamamlandı' }) + '</div>';
+    },
+
+    card:function(t){
+      var o = oran(t);
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-proje-test-detay.html?id=' + t.kod + '">' + esc(t.ad) + '</a>' +
+        '<div class="cell-code">' + t.kod + ' · ' + esc(projAd(t.proje)) + '</div></div>' + GV.badge(t.durum) + '</div>' +
+        '<div class="gv-rcard-meta">' + GV.badge(t.tur) +
+        '<span>' + (t.senaryo ? t.senaryo + ' senaryo' : 'Senaryo yazılmadı') + '</span>' +
+        '<span>' + F.dateShort(t.tarih) + '</span></div>' +
+        (o == null ? '<div class="cell-sub">Henüz koşulmadı</div>'
+                   : GV.progress(o, { tone:o === 100 ? 'ok' : o >= 90 ? '' : o >= 70 ? 'warn' : 'danger' })) +
+        '<div class="gv-rcard-foot">' + GV.user(t.sorumlu, { sm:true }) +
+        (basarisizVar(t) ? '<span class="badge is-danger no-dot">' + t.basarisiz + ' başarısız</span>'
+                         : '<span class="u-faint">Başarısız senaryo yok</span>') + '</div>';
+    },
+
+    rowActions:[
+      { key:'proje', icon:'i-briefcase', label:'Projeyi aç',
+        href:function(t){ return 'app-proje-detay.html?id=' + t.proje; } },
+      { key:'hata', icon:'i-bug', label:'Projenin hatalarını gör',
+        href:function(t){ return 'app-proje-hata.html?q=' + t.proje; } },
+      { key:'gorev', icon:'i-tasks', label:'Test görevlerini gör',
+        href:function(t){ return 'app-gorev.html?q=' + t.proje; } }
+    ],
+
+    bulk:[
+      { key:'tamamla', label:'Tamamlandı İşaretle', icon:'i-check-circle',
+        confirm:'Seçili {n} test koşumu Tamamlandı olarak işaretlenecek. Senaryosu koşulmamış planlı testler atlanır.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Test kaydını güncelleme yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.tests.forEach(function(t){
+            if(ids.indexOf(t.kod) !== -1 && t.durum === 'Devam ediyor'){ t.durum = 'Tamamlandı'; n++; }
+          });
+          GV.toast(n ? (n + ' test koşumu tamamlandı' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hiçbiri devam eden bir koşum değil', n ? 'ok' : 'warn');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'Seçili {n} test koşumu arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Arşivleme yetkiniz yok.', 'danger'); return; }
+          DB.tests.forEach(function(t){ if(ids.indexOf(t.kod) !== -1) t.aktif = false; });
+          GV.toast(ids.length + ' test koşumu arşivlendi', 'ok');
+        } }
+    ],
+
+    emptyState:{ icon:'i-flask', title:'Bu görünümde test koşumu yok',
+      desc:'Sprint çıktıları test edilmeye başlandığında koşumlar burada listelenir; başarısız senaryolar hata kaydına dönüşür.',
+      action:'<a class="btn btn-acc" href="app-proje-test-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Test Koşumu</a>' }
+  });
+
+});
+</script>
+</body>
+</html>

@@ -183,3 +183,47 @@ yalnız açık talepler için modellenmiş.
 kaydedildi; satın alma detay ekranı yazılırken `DB.purchaseApprovals`'a bu üç talebin tamamlanmış
 adımları eklenecek. Ekran şu an takılma noktasını sayaçtan değil **gerçek zincirden** okuyor ve
 farkı kullanıcıya bildiriyor.
+
+## V-24 · Sözleşme bedeli KDV HARİÇ tutulur (VB-01 kapandı)
+**Karar (Beyar tarafından verildi, tüm veriye uygulandı):**
+`DB.contracts[].tutar` = sözleşme bedeli, **KDV hariç (net)** — tek eksen budur.
+KDV ayrı alanda (`kdvOran`, `kdv`), ekranda gösterilen brüt bedel `toplam = tutar + kdv`.
+Ödeme planı taksitleri (`DB.milestones[].odeme`) **net** tutardan türetilir.
+**Türetme sonucu:** Yedi sözleşmenin `tutar` değeri **zaten net eksendeydi** — bozuk olan
+taksit türetimiydi. `DB.projects[].sozlesmeTutari` her sözleşmede `tutar` ile birebir aynı
+olduğu için proje tarafında sıfır sapma oluştu; sözleşme tutarlarına hiç dokunulmadı.
+KDV oranı yedi sözleşmede de %20 varsayıldı (mevcut faturaların vergi/tutar oranı).
+**Düzeltilenler:** taksit tutarları · dört fatura (FTR-2026-025/027/028/029/030) net'e
+hizalandı · beş tahsilat brüt'e hizalandı · üç müşterinin `toplamCiro`su (Marmara 980.000 →
+1.104.000 · Öz Gıda 295.000 → 354.000 · Anka 530.000 → 600.000) · beş müşterinin
+`bekleyenTahsilat`ı. `canon.js` eksen 9/10/11 bunu her wave sonunda doğrular.
+
+## V-25 · Ödeme planı tam set tutulur (VB-02 kapandı)
+**Karar:** Projeli her sözleşmenin taksit setinin **tamamı** `DB.milestones`'ta bulunur;
+`Σ odeme = sözleşme tutarı` ve `taksit` numaraları 1..N boşluksuzdur.
+9 milestone → **19 milestone** (6 sözleşme). Tamamlanmış geçmiş taksitler için 8 fatura ve
+9 tahsilat kaydı eklendi. **Ölçüm:** tamamlanmış 11 taksitin 11'inin de faturası kesilmiş
+durumda — `app-odemeplani` ve `app-proje-milestone`'daki "faturası kesilmemiş taksit" sekmesi
+şu an **0 kayıt** gösteriyor. Bu doğru sonuçtur (uyarı yanlış alarm vermiyor) ama o akışın
+gerçek veriyle bir kez sınanabilmesi için ileride bilinçli bir boşluk kaydı eklenmelidir.
+**İstisna:** `SZL-2026-022` (Deniz Lojistik yıllık bakım) proje bazlı değildir — taksitleri
+milestone olarak değil **aylık fatura** olarak yürür, milestone tutmaz.
+
+## V-26 · Teklif puanı ile tedarikçi puanı ayrı eksenlerdir (VB-03 kapandı)
+**Karar:** `DB.supplierQuotes[].puan` = **teklif değerlendirme puanı** (yalnız o teklif: fiyat,
+teslim, garanti, ödeme, teknik uygunluk). `DB.suppliers[].puan` = **tedarikçi genel performans
+puanı** (tüm sipariş geçmişi: teslim zamanlaması, kalite, destek, ödeme uyumu).
+Aynı tedarikçinin iki teklifi farklı teklif puanı alabilir. İkisi aynı hücrede gösterilmez.
+Sözleşme `ops.js` → `DB.suppliers` başlığında ve `components.md` §9c'de yazılıdır.
+Ekran etiketleri ayrıştırıldı: `app-satinalma-teklif.html` matrisinde iki ayrı satır,
+`app-tedarikci.html` yalnız "Tedarikçi genel puanı".
+
+## V-27 · `DB.sprints[].gorevSayisi` gerçek sayaçtır, modellenmiş görev sayısı değildir
+**Durum:** Sprint ekranı çelişki bildirdi — `gorevSayisi` toplamı 60 ama `DB.tasks` içinde
+`sprint` alanı dolu yalnız 12 görev var (toplam 25 görev kaydı).
+**Karar:** Çelişki değil, **bilinçli kapsam istisnası.** `DB.tasks` prototipte tüm görev
+evrenini değil 25 temsili görevi tutar; `gorevSayisi` sprintin gerçek görev sayısıdır.
+`projeSayisi` ile aynı ailedendir (L-08'in yazılı istisnası).
+**Kural:** `gorevSayisi >= o sprinte bağlı DB.tasks kaydı` — `canon.js` eksen 12 doğrular.
+Ekranlar iki sayıyı aynı kolonda göstermez; modellenmiş kayıt "kayıtlı görev" diye ayrı
+etiketlenir. Görev evreni genişletilirse bu istisna kalkar.

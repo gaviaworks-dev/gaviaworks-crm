@@ -173,6 +173,13 @@ DB.milestones = [
 ];
 
 /* ---- Sprintler --------------------------------------------------------- */
+/* `planlanan` / `tamamlanan` SAAT cinsindendir.
+   `gorevSayisi` = sprintin GERÇEK görev sayısıdır. `DB.tasks` prototipte yalnız
+   25 temsili görev tutar (sprintli olan 12'si), yani sprintin tüm görevleri modellenmiş
+   değildir — `projeSayisi` gibi bilinçli bir "ömür boyu / gerçek sayaç" istisnasıdır
+   (lessons L-08 istisnası, assumptions V-27).
+   KURAL: `gorevSayisi` >= o sprinte bağlı `DB.tasks` kaydı sayısı. Ekranlar bu iki sayıyı
+   aynı kolonda göstermez; modellenmiş kayıt sayısı "kayıtlı görev" diye ayrı etiketlenir. */
 DB.sprints = [
   { kod:'SPR-2026-018', proje:'PRJ-2026-001', ad:'Sprint 18 — Test düzeltmeleri', baslangic:'2026-07-27', bitis:'2026-08-09', durum:'Devam ediyor', planlanan:64, tamamlanan:41, gorevSayisi:11 },
   { kod:'SPR-2026-019', proje:'PRJ-2026-002', ad:'Sprint 6 — Skorlama modeli', baslangic:'2026-07-27', bitis:'2026-08-09', durum:'Devam ediyor', planlanan:72, tamamlanan:38, gorevSayisi:9 },
@@ -585,3 +592,7 @@ DB.activities = [
   { kayit:'PRJ-2026-006', tarih:'2026-07-29T14:15', kisi:'Barış Yalçın', metin:'Proje sağlık durumu değişti', eski:'Dikkat', yeni:'Riskli', tone:'danger', icon:'i-alert' },
   { kayit:'MUS-2026-010', tarih:'2026-05-30T16:50', kisi:'Ayşe Kaplan', metin:'Risk seviyesi yükseltildi', eski:'Orta', yeni:'Yüksek', tone:'danger', icon:'i-alert' }
 ];
+
+/* ---- Arama yardımcıları (org.js'teki DB.emp / DB.empName ile aynı desen) ---- */
+DB.proj     = function(kod){ return DB.projects.filter(function(p){ return p.kod === kod; })[0] || null; };
+DB.projName = function(kod){ var p = DB.proj(kod); return p ? p.ad : '—'; };

@@ -176,6 +176,16 @@ SZL-2025-018 "6 eşit milestone" diyor ama 2 milestone var; SZL-2026-020 ve -023
 KPI'ı bu yüzden sözleşme bedelleri toplamının altında kalıyor — ekran hatası değil,
 veri kapsamı eksiği. VB-01 ile birlikte çözülmeli.
 
+**VB-04 · "hakediş" inşaat terimi komisyon modülünde hâlâ yaşıyor — AÇIK.**
+CLAUDE.md ve PROMPT.md §1 "hakediş" kelimesini yasaklıyor. Milestone bağlamındaki kullanımlar
+(`app-rapor-proje.html`, `app-ajanda.html`) bu oturumda "taksit"e çevrildi. Ama komisyon modülü
+baştan sona bu terim üzerine kurulu: `app-komisyon.html` (başlık, 8 etiket), `DB.commissions[].hakedisTarihi`,
+`DB.referrers[].hakedis`, `app-rapor-referans.html`, `app-ayar-arsiv.html` (kolon sözlüğü + PARA regex'i),
+`canon.js` eksen 3. Alan adı değişikliği olduğu için tarama script'ine de dokunur.
+**Neden kapatılmadı:** kapsam genişletmesi olurdu ve yarım rename canonical taramayı kırar.
+**Çözüm:** tek seferde `hakedis` → `kazanc` (veya `komisyonTarihi`) alan adı rename'i + etiketlerde
+"Komisyon kazancı". `canon.js` eksen 3 aynı turda güncellenir.
+
 **VB-03 · `DB.supplierQuotes[].puan` ile `DB.suppliers[].puan` farklı eksenler.**
 Teklif puanı "bu teklife verilen değerlendirme", tedarikçi puanı "genel performans"
 olarak yorumlandı ve `app-satinalma-teklif.html` ikisini ayrı gösteriyor. Bu yorum

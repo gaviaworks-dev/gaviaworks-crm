@@ -171,7 +171,7 @@ GV.report({
 | Çıktı | `GV.export(config)` | kapsam seçimi (tümü/filtreli/seçili) + format |
 | Tarih aralığı | `GV.dateRange(el)` | bugün/bu hafta/bu ay/çeyrek/özel |
 | Toplu işlem barı | `GV.bulk(config)` | seçili kayıt sayısı + aksiyonlar |
-| KPI kartı | `.gv-kpi` | ikon + sayı + etiket + trend + ton |
+| KPI kartı | `.kpi-grid > .kpi-card` (**`.gv-` öneki YOK**) | `.kpi-ico` + `.kpi-num` + `.kpi-lbl` + `.kpi-meta`; `GV.list`/`GV.report` `kpis:[]` config'inden basılır |
 | İlerleme | `.gv-progress` | proje/görev ilerleme, bütçe kullanımı |
 | Kullanıcı çipi | `.gv-user` | avatar (baş harf) + ad + rol |
 | Yardım | `GV.help(key)` | alan/ekran açıklaması |

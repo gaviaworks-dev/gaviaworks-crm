@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Milestone — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="milestone">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+  var canFinans = GV.perm.can('finans');
+  var canDuzen  = GV.perm.can('duzenle');
+
+  /* =================================================================
+     Milestone = sözleşmenin ödeme planındaki bir taksit.
+     Satırlar canonical kayıtlardan her render'da yeniden türetilir;
+     yeni koleksiyon açılmaz (work.js → DB.milestones tek kaynak).
+
+     PARA EKSENİ (components.md §9b):
+       · milestone `odeme`  → NET, KDV hariç  ("Taksit tutarı (KDV hariç)")
+       · fatura   `tutar`   → NET  (= milestone `odeme`)
+       · fatura   `toplam`  → BRÜT ("Fatura toplamı (KDV dahil)")
+     İki eksen aynı kolonda gösterilmez.
+     ================================================================= */
+  function projeOf(kod){ return DB.projects.filter(function(p){ return p.kod === kod; })[0] || null; }
+  function sozOf(kod){ return DB.contracts.filter(function(c){ return c.kod === kod; })[0] || null; }
+  function faturaOf(ms){ return DB.invoices.filter(function(i){ return i.milestone === ms; })[0] || null; }
+  function taksitAdet(soz){ return DB.milestones.filter(function(x){ return x.sozlesme === soz; }).length; }
+
+  function rows(){
+    return DB.milestones.map(function(m){
+      var p = projeOf(m.proje);
+      var c = sozOf(m.sozlesme);
+      var f = faturaOf(m.kod);
+      return {
+        kod:m.kod, ad:m.ad, tarih:m.tarih, durum:m.durum, ilerleme:m.ilerleme,
+        odeme:m.odeme, odemeDurum:m.odemeDurum,
+        taksit:m.taksit, taksitAdet:taksitAdet(m.sozlesme),
+        proje:m.proje, projeAd:p ? p.ad : '', projeDurum:p ? p.durum : null,
+        projeSaglik:p ? p.saglik : null,
+        musteri:p ? p.musteri : (c ? c.musteri : null),
+        musteriAd:p ? p.musteriAd : (c ? c.musteriAd : ''),
+        sozlesme:c ? c.kod : null, sozlesmeAd:c ? c.ad : null, odemePlani:c ? c.odemePlani : null,
+        fatura:f ? f.kod : null, faturaDurum:f ? f.durum : null,
+        faturaTarih:f ? f.tarih : null, faturaVade:f ? f.vade : null,
+        faturaToplam:f ? f.toplam : null
+      };
+    });
+  }
+
+  /* ---- ölçütler — gecikme referansı DB.today (F.days), new Date() değil ---- */
+  var tamam     = function(x){ return x.durum === 'Tamamlandı'; };
+  var geciken   = function(x){ return x.durum === 'Gecikti' ||
+                                      (!tamam(x) && x.tarih && F.days(x.tarih) < 0); };
+  var yaklasan  = function(x){
+    if(tamam(x) || geciken(x) || !x.tarih) return false;
+    var d = F.days(x.tarih);
+    return d >= 0 && d <= 45;
+  };
+  var faturasiz = function(x){ return tamam(x) && !x.fatura; };
+  var bekleyen  = function(x){ return x.odemeDurum !== 'Ödendi'; };
+  var topla     = function(a, f){ return a.filter(f).reduce(function(s,x){ return s + (x.odeme || 0); }, 0); };
+
+  var TUTAR_ARALIK = { '100 B ₺ altı':[0, 100000], '100 B – 200 B ₺':[100000, 200000],
+                       '200 B – 300 B ₺':[200000, 300000], '300 B ₺ üzeri':[300000, Infinity] };
+
+  /* ---- finans maskesi: yetkisizde hücre maskelenir, çıktıya değer gitmez ---- */
+  function para(v){
+    return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>'
+                     : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+  }
+  function paraExp(v){ return canFinans ? v : ''; }
+  function kpiTutar(v){ return canFinans ? v : 0; }
+
+  GV.pageHead({ eyebrow:'Projeler', title:'Milestone',
+    sub:'Proje teslim kilometre taşları — her milestone bir sözleşme taksitidir; planlanan tarih, ilerleme ve fatura durumu tek listede',
+    actions:[{ label:'Ödeme Planları', icon:'i-wallet', href:'app-odemeplani.html' },
+             { label:'Proje Listesi', icon:'i-briefcase', href:'app-proje.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'milestone', key:'kod', source:rows,
+    exportName:'proje-milestone', exportTitle:'Proje Milestone Listesi', pageSize:10,
+    views:['table','card','kanban'], archive:false,
+    kanban:{ groupBy:'durum', columns:['Planlandı','Yaklaşıyor','Gecikti','Tamamlandı'],
+      card:function(x){
+        return '<span class="gv-kcard-title">' + esc(x.ad) + '</span>' +
+          '<div class="gv-kcard-meta"><span>' + esc(x.projeAd) + '</span>' +
+          '<span>' + x.taksit + ' / ' + x.taksitAdet + '</span></div>' +
+          GV.progress(x.ilerleme) +
+          '<div class="gv-kcard-meta">' + para(x.odeme) +
+          (x.fatura ? '<span class="tag">' + x.fatura + '</span>'
+                    : '<span class="badge is-warn no-dot">Faturasız</span>') + '</div>' +
+          '<div class="gv-kcard-meta"><span>' + x.kod + '</span>' + GV.dateCell(x.tarih, { done:x.durum === 'Tamamlandı' }) + '</div>';
+      } },
+    search:{ placeholder:'Milestone, proje, müşteri, sözleşme veya fatura no ara',
+             fields:['kod','ad','proje','projeAd','musteri','musteriAd','sozlesme','sozlesmeAd',
+                     'fatura','durum','odemeDurum'] },
+    defaultSort:'tarih', defaultDir:'asc',
+
+    kpis:[
+      { label:'Toplam milestone', icon:'i-milestone',
+        calc:function(a){ return a.length; },
+        meta:function(a){
+          var pr = a.map(function(x){ return x.proje; }).filter(function(v,i,ar){ return ar.indexOf(v) === i; });
+          return pr.length + ' projede · ' +
+            a.map(function(x){ return x.sozlesme; })
+             .filter(function(v,i,ar){ return v && ar.indexOf(v) === i; }).length + ' sözleşmeye bağlı'; } },
+      { label:'Tamamlanan', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(tamam).length; },
+        meta:function(a){ return a.length ? '%' + Math.round(a.filter(tamam).length / a.length * 100) + ' teslim edildi' : '—'; } },
+      { label:'Geciken', icon:'i-alert', tone:'danger',
+        calc:function(a){ return a.filter(geciken).length; },
+        meta:function(a){ return a.filter(yaklasan).length + ' milestone 45 gün içinde'; },
+        metaTone:'warn' },
+      { label:'Bekleyen taksit tutarı (KDV hariç)', icon:'i-wallet', tone:'warn', format:F.moneyK,
+        calc:function(a){ return kpiTutar(topla(a, bekleyen)); },
+        meta:function(a){ return a.filter(bekleyen).length + ' taksitin ödemesi bekliyor'; } }
+    ],
+
+    tabs:[
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null },
+      { key:'yaklasan', label:'Yaklaşanlar', icon:'i-hourglass', filter:yaklasan },
+      { key:'geciken', label:'Gecikenler', icon:'i-alert', filter:geciken },
+      { key:'tamam', label:'Tamamlananlar', icon:'i-check-circle', filter:tamam },
+      { key:'faturasiz', label:'Faturası Kesilmemiş', icon:'i-alert-circle', filter:faturasiz }
+    ],
+
+    columns:[
+      { key:'kod', label:'Milestone', width:'18%', locked:true, cellClass:'cell-wrap',
+        render:function(x){ return '<span class="cell-main">' + esc(x.ad) + '</span>' +
+          '<span class="cell-code">' + x.kod + '</span>'; },
+        exportValue:function(x){ return x.kod + ' · ' + x.ad; } },
+      { key:'proje', label:'Proje', cellClass:'cell-wrap', render:function(x){
+          return '<a class="cell-main" href="app-proje-detay.html?id=' + x.proje + '">' + esc(x.projeAd) + '</a>' +
+                 '<span class="cell-code">' + x.proje + '</span>'; },
+        exportValue:function(x){ return x.projeAd; } },
+      { key:'musteriAd', label:'Müşteri', cellClass:'cell-wrap', render:function(x){
+          return x.musteri
+            ? '<a class="cell-main" href="app-musteri-detay.html?id=' + x.musteri + '">' + esc(x.musteriAd) + '</a>' +
+              '<span class="cell-code">' + x.musteri + '</span>'
+            : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return x.musteriAd; } },
+      { key:'sozlesme', label:'Sözleşme', cellClass:'cell-wrap', render:function(x){
+          return x.sozlesme
+            ? '<a class="cell-main" href="app-sozlesme.html?t=tumu&q=' + x.sozlesme + '">' + x.sozlesme + '</a>' +
+              '<span class="cell-sub">' + esc(x.odemePlani || '—') + '</span>'
+            : '<span class="u-faint">Sözleşmesiz</span>'; },
+        exportValue:function(x){ return x.sozlesme || ''; } },
+      { key:'taksit', label:'Taksit sırası', cellClass:'num', render:function(x){
+          return x.taksit
+            ? '<span class="cell-main">' + x.taksit + ' / ' + x.taksitAdet + '</span>'
+            : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return x.taksit ? (x.taksit + '/' + x.taksitAdet) : ''; } },
+      { key:'tarih', label:'Planlanan tarih', render:function(x){
+          return GV.dateCell(x.tarih, { done:tamam(x) }) +
+            (tamam(x) ? '' : '<span class="cell-sub ' + (geciken(x) ? 'u-danger' : yaklasan(x) ? 'u-warn' : '') + '">' +
+                             F.rel(x.tarih) + '</span>'); },
+        exportValue:function(x){ return x.tarih || ''; } },
+      { key:'durum', label:'Milestone durumu', render:function(x){ return GV.badge(x.durum); } },
+      { key:'ilerleme', label:'İlerleme', cellClass:'num',
+        render:function(x){ return GV.progress(x.ilerleme); },
+        exportValue:function(x){ return x.ilerleme == null ? '' : x.ilerleme + '%'; } },
+      { key:'odeme', label:'Taksit tutarı (KDV hariç)', cellClass:'num',
+        render:function(x){ return para(x.odeme); },
+        exportValue:function(x){ return paraExp(x.odeme); } },
+      { key:'fatura', label:'Fatura', cellClass:'cell-wrap', render:function(x){
+          return x.fatura
+            ? '<a class="cell-main" href="app-fatura.html?t=tumu&q=' + x.fatura + '">' + x.fatura + '</a>' +
+              GV.badge(x.faturaDurum)
+            : '<span class="badge is-warn no-dot">Kesilmedi</span>'; },
+        exportValue:function(x){ return x.fatura ? (x.fatura + ' · ' + x.faturaDurum) : 'Kesilmedi'; } },
+      { key:'odemeDurum', label:'Ödeme durumu', render:function(x){ return GV.badge(x.odemeDurum); } },
+      { key:'faturaToplam', label:'Fatura toplamı (KDV dahil)', cellClass:'num', visible:false,
+        render:function(x){ return x.faturaToplam == null ? '<span class="u-faint">—</span>' : para(x.faturaToplam); },
+        exportValue:function(x){ return x.faturaToplam == null ? '' : paraExp(x.faturaToplam); } },
+      { key:'faturaVade', label:'Fatura vadesi', visible:false, render:function(x){
+          return x.faturaVade ? GV.dateCell(x.faturaVade, { done:x.faturaDurum === 'Ödendi' })
+                              : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return x.faturaVade || ''; } },
+      { key:'projeDurum', label:'Proje durumu', visible:false, render:function(x){
+          return x.projeDurum ? GV.badge(x.projeDurum) : '<span class="u-faint">—</span>'; } },
+      { key:'projeSaglik', label:'Proje sağlığı', visible:false, render:function(x){
+          return x.projeSaglik ? GV.badge(x.projeSaglik) : '<span class="u-faint">—</span>'; } }
+    ],
+
+    filters:[
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'musteri', label:'Müşteri', type:'select',
+        options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
+      { key:'durum', label:'Milestone durumu', type:'multi',
+        options:['Planlandı','Yaklaşıyor','Gecikti','Tamamlandı'] },
+      { key:'odemeDurum', label:'Ödeme durumu', type:'select', options:['Ödendi','Bekliyor'] },
+      { key:'tarih', label:'Planlanan tarih', type:'daterange' },
+      { key:'tutarAralik', label:'Taksit tutarı (KDV hariç)', type:'select', options:Object.keys(TUTAR_ARALIK),
+        test:function(x, v){
+          var r = TUTAR_ARALIK[v];
+          return !!r && (x.odeme || 0) >= r[0] && (x.odeme || 0) < r[1]; } },
+      { key:'faturaVarmi', label:'Fatura durumu', type:'select',
+        options:['Faturalı','Faturasız'],
+        test:function(x, v){ return v === 'Faturalı' ? !!x.fatura : !x.fatura; } }
+    ],
+
+    rowClass:function(x){ return geciken(x) || faturasiz(x) ? 'is-late' : ''; },
+
+    mobile:function(x){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' +
+        (canFinans ? '<span class="cell-money">' + F.money(x.odeme) + '</span>'
+                   : '<span class="cell-mask">••••••</span>') + '</div>' +
+        '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.projeAd) + ' · taksit ' + x.taksit + '/' + x.taksitAdet + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
+        (x.fatura ? '<span class="tag">' + x.fatura + '</span>'
+                  : '<span class="badge is-warn no-dot">Faturasız</span>') +
+        '</span>' + GV.dateCell(x.tarih, { done:tamam(x) }) + '</div>';
+    },
+
+    card:function(x){
+      return '<div class="gv-rcard-top"><div><span class="cell-main">' + esc(x.ad) + '</span>' +
+        '<div class="cell-sub">' + esc(x.projeAd) + '</div></div>' + GV.badge(x.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + x.kod + '</span>' +
+        '<span>Taksit ' + x.taksit + ' / ' + x.taksitAdet + '</span>' +
+        '<span>' + F.dateShort(x.tarih) + '</span></div>' +
+        '<div class="gv-rcard-meta">' + GV.progress(x.ilerleme) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + esc(x.musteriAd || '—') + '</span>' +
+        '<span>' + (x.sozlesme || 'Sözleşmesiz') + '</span>' +
+        '<span>' + (x.fatura ? x.fatura + ' · ' + x.faturaDurum : 'Fatura kesilmedi') + '</span></div>' +
+        '<div class="gv-rcard-foot">' + para(x.odeme) + GV.badge(x.odemeDurum) + '</div>';
+    },
+
+    /* Zincirin halkası yoksa aksiyon hiç basılmaz (components.md §2 → rowActions.show) */
+    rowActions:[
+      { key:'proje', icon:'i-briefcase', label:'Projeyi aç',
+        href:function(x){ return 'app-proje-detay.html?id=' + x.proje; } },
+      { key:'sozlesme', icon:'i-file-check', label:'Sözleşmeyi aç',
+        show:function(x){ return !!x.sozlesme; },
+        href:function(x){ return 'app-sozlesme.html?t=tumu&q=' + x.sozlesme; } },
+      { key:'fatura', icon:'i-receipt', label:'Faturayı aç',
+        show:function(x){ return !!x.fatura; },
+        href:function(x){ return 'app-fatura.html?t=tumu&q=' + x.fatura; } },
+      { key:'plan', icon:'i-wallet', label:'Ödeme planında gör',
+        href:function(x){ return 'app-odemeplani.html?t=tumu&q=' + x.kod; } }
+    ],
+
+    bulk:[
+      { key:'tamamla', label:'Tamamlandı İşaretle', icon:'i-check-circle',
+        confirm:'Seçili {n} milestone tamamlandı olarak işaretlenecek ve ilerlemesi %100 yapılacak. Zaten tamamlanmış kayıtlar atlanır.',
+        run:function(ids){
+          if(!canDuzen){ GV.toast('Milestone güncelleme yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.milestones.forEach(function(m){
+            if(ids.indexOf(m.kod) !== -1 && m.durum !== 'Tamamlandı'){
+              m.durum = 'Tamamlandı'; m.ilerleme = 100; n++;
+            }
+          });
+          GV.toast(n ? (n + ' milestone tamamlandı olarak işaretlendi' +
+                        (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların tamamı zaten tamamlanmış', n ? 'ok' : 'warn');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+
+    emptyState:{ icon:'i-milestone', title:'Bu görünümde milestone yok',
+      desc:'Sözleşmenin ödeme planı projeye bağlandığında her taksit bir milestone olarak burada listelenir; teslim tarihi, ilerleme ve faturası bu ekrandan izlenir.',
+      action:'<a class="btn btn-acc" href="app-proje.html"><svg class="ic"><use href="#i-briefcase"></use></svg> Proje Listesi</a>' }
+  });
+
+});
+</script>
+</body>
+</html>

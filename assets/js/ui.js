@@ -93,6 +93,9 @@
      1. DURUM SÖZLÜKLERİ (semantik ton eşlemesi)
      =================================================================== */
   var TONE = {
+    /* test türleri — DB.tests[].tur (app-proje-test.html) */
+    'Regresyon':'info', 'Fonksiyonel':'accent', 'Performans':'purple',
+    'Duman':'warn', 'Kabul':'ok',
     /* görev durumları — PROMPT.md §12 (19 durum) */
     'Taslak':'neutral', 'Havuzda':'info', 'Atama bekliyor':'warn', 'Atandı':'info',
     'Kabul bekliyor':'warn', 'Planlandı':'info', 'Başlanmadı':'neutral', 'Devam ediyor':'accent',

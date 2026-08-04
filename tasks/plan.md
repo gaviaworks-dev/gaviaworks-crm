@@ -105,6 +105,10 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [ ] Müşteri formu + Yetkili formu
 
 ### Wave 4 — Projeler (§11)
+- [x] `app-proje-milestone.html` — milestone listesi (taksit sırası, sözleşme→fatura→tahsilat zinciri, faturası kesilmemiş sekmesi, finans maskeleme)
+- [x] `app-proje-sprint.html` — sprint listesi (hız/tamamlanma oranı, sprint görev kırılımı)
+- [x] `app-proje-test.html` — test koşumları (senaryo/başarı oranı, projedeki açık hata bağı)
+- [ ] `app-proje-hata.html` · `app-proje-degisiklik.html` · `app-proje-teslim.html`
 - [ ] Proje listesi + form (24 alan)
 - [ ] Proje detayı — **22 sekme:** Genel Bakış · Proje Ekibi · Modüller · Milestone · Sprintler · Görevler · İş Yükü · Takvim · Gantt · Kanban · Zaman Kayıtları · Toplantılar · Dosyalar · Revizyonlar · Değişiklik Talepleri · Testler · Hatalar · Teslimler · Bütçe · Maliyetler · Raporlar · Aktivite Geçmişi
 - [ ] Teknik envanter alanları (repo, canlı, test, tasarım, sunucu, 3. taraf servisler — §3)

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sprintler — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="proje" data-screen="sprint">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc;
+
+  /* ---- türetilmiş yardımcılar (canonical veri üzerinden) --------------- */
+  var KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+
+  var proj    = function(s){ return DB.projects.filter(function(p){ return p.kod === s.proje; })[0] || {}; };
+  /* Sprint görevleri DB.tasks içinde `sprint` alanıyla bağlanır */
+  var gorevler = function(s){ return DB.tasks.filter(function(t){ return t.sprint === s.kod; }); };
+  var acikGorev = function(s){ return gorevler(s).filter(function(t){ return KAPALI.indexOf(t.durum) === -1; }).length; };
+  /* planlanan / tamamlanan SAAT cinsindendir */
+  var oran    = function(s){ return s.planlanan ? Math.round(s.tamamlanan / s.planlanan * 100) : 0; };
+  var kalanSaat = function(s){ return Math.max(0, (s.planlanan || 0) - (s.tamamlanan || 0)); };
+  var devam   = function(s){ return s.durum === 'Devam ediyor'; };
+  var bitmis  = function(s){ return s.durum === 'Tamamlandı'; };
+  /* Hedefin altında kalan = kapanmış ama tamamlanan/planlanan < %85 */
+  var hedefAlti = function(s){ return bitmis(s) && oran(s) < 85; };
+  /* Tarih ekseni DB.today — new Date() kullanılmaz */
+  var toplamGun = function(s){ var d = F.days(s.bitis, s.baslangic); return d == null ? null : d + 1; };
+  var gecenGun  = function(s){
+    var d = F.days(DB.today, s.baslangic);
+    return Math.max(0, Math.min(toplamGun(s) || 0, d + 1));
+  };
+  var sureMetin = function(s){
+    var b = F.days(s.baslangic), e = F.days(s.bitis);
+    if(s.durum === 'Planlandı') return b > 0 ? 'Başlamasına ' + b + ' gün' : (b === 0 ? 'Bugün başlıyor' : 'Başlangıcı gecikti');
+    if(bitmis(s))               return e < 0 ? (-e) + ' gün önce kapandı' : (e === 0 ? 'Bugün kapandı' : 'Erken kapandı');
+    if(e < 0)  return 'Süre ' + (-e) + ' gün aşıldı';
+    if(e === 0) return 'Son gün';
+    return e + ' gün kaldı';
+  };
+  var sureTon = function(s){
+    if(bitmis(s) || s.durum === 'Planlandı') return '';
+    var e = F.days(s.bitis);
+    return e < 0 ? 'u-danger' : e <= 2 ? 'u-warn' : '';
+  };
+
+  var ORAN_ESIK = { '%50 altı':[0, 50], '%50 – %75':[50, 75], '%75 – %85':[75, 85], '%85 ve üzeri':[85, Infinity] };
+
+  /* Proje yöneticileri — projelerden türetilir, sabit liste yazılmaz */
+  var PM_LIST = (function(){
+    var seen = [], out = [];
+    DB.projects.forEach(function(p){
+      if(p.pm && seen.indexOf(p.pm) === -1){ seen.push(p.pm); out.push({ value:p.pm, label:DB.empName(p.pm) }); }
+    });
+    return out;
+  })();
+
+  /* Sprint görev listesi hedefleri — app-gorev.html'in `sprint` filtresi (f_sprint)
+     ve "Proje İşleri" sekmesi üzerinden çalışır */
+  var gorevHref = function(s, view){
+    return 'app-gorev.html?' + (view ? 'v=' + view + '&' : '') + 't=proje&f_sprint=' + s.kod;
+  };
+
+  GV.pageHead({ eyebrow:'Teslimat', title:'Sprintler',
+    actions:[{ label:'Görev Listesi', icon:'i-tasks', href:'app-gorev.html' },
+             { label:'Proje Listesi', icon:'i-briefcase', href:'app-proje.html' }] });
+
+  GV.list({
+    mount:'#liste', id:'sprint', key:'kod', source:function(){ return DB.sprints; },
+    exportName:'sprintler', exportTitle:'Proje Sprintleri', pageSize:10, views:['table','card'],
+    search:{ placeholder:'Sprint kodu, sprint adı veya proje ara',
+             fields:['kod','ad','proje','durum'],
+             extra:function(s){ var p = proj(s); return (p.ad || '') + ' ' + (p.musteriAd || ''); } },
+    defaultSort:'bitis', defaultDir:'asc',
+
+    kpis:[
+      { label:'Aktif sprint', icon:'i-sprint', tone:'accent',
+        calc:function(a){ return a.filter(devam).length; },
+        meta:function(a){ return a.length + ' sprint kaydı'; } },
+      { label:'Toplam planlanan saat', icon:'i-clock', format:F.hours,
+        calc:function(a){ return a.reduce(function(t, s){ return t + (s.planlanan || 0); }, 0); } },
+      { label:'Tamamlanan saat', icon:'i-check-circle', tone:'ok', format:F.hours,
+        calc:function(a){ return a.reduce(function(t, s){ return t + (s.tamamlanan || 0); }, 0); } },
+      { label:'Ortalama tamamlanma oranı', icon:'i-percent', tone:'info', format:F.pct,
+        calc:function(a){ return a.length ? Math.round(a.reduce(function(t, s){ return t + oran(s); }, 0) / a.length) : 0; },
+        meta:function(a){
+          var p = a.reduce(function(t, s){ return t + (s.planlanan || 0); }, 0);
+          var c = a.reduce(function(t, s){ return t + (s.tamamlanan || 0); }, 0);
+          return 'Saat bazında ' + F.pct(p ? Math.round(c / p * 100) : 0); } }
+    ],
+
+    tabs:[
+      { key:'tumu',    label:'Tümü',                   icon:'i-list',         filter:null },
+      { key:'devam',   label:'Devam Edenler',          icon:'i-play',         filter:devam },
+      { key:'plan',    label:'Planlananlar',           icon:'i-calendar',     filter:function(s){ return s.durum === 'Planlandı'; } },
+      { key:'tamam',   label:'Tamamlananlar',          icon:'i-check-circle', filter:bitmis },
+      { key:'hedef',   label:'Hedefin Altında Kalanlar', icon:'i-alert',      filter:hedefAlti }
+    ],
+
+    columns:[
+      { key:'kod', label:'Sprint', width:'22%', locked:true, cellClass:'cell-wrap',
+        render:function(s){ return '<a class="cell-main" href="' + gorevHref(s) + '">' + s.kod + '</a>' +
+          '<span class="cell-sub">' + esc(s.ad) + '</span>'; },
+        exportValue:function(s){ return s.kod + ' · ' + s.ad; } },
+      { key:'proje', label:'Proje', render:function(s){
+          var p = proj(s);
+          return '<a class="cell-main" href="app-proje-detay.html?id=' + s.proje + '">' + esc(p.ad || s.proje) + '</a>' +
+                 '<span class="cell-code">' + s.proje + '</span>'; },
+        exportValue:function(s){ return (proj(s).ad || '') + ' (' + s.proje + ')'; } },
+      { key:'pm', label:'Sorumlu PM', visible:false,
+        sortValue:function(s){ return DB.empName(proj(s).pm); },
+        render:function(s){ return GV.user(proj(s).pm, { sm:true }); },
+        exportValue:function(s){ return DB.empName(proj(s).pm); } },
+      { key:'baslangic', label:'Başlangıç', render:function(s){
+          return '<span class="cell-date">' + F.date(s.baslangic) + '</span>'; },
+        exportValue:function(s){ return s.baslangic; } },
+      { key:'bitis', label:'Bitiş', render:function(s){
+          return GV.dateCell(s.bitis, { done:bitmis(s) }); },
+        exportValue:function(s){ return s.bitis; } },
+      { key:'sure', label:'Kalan / geçen gün', sortValue:function(s){ return F.days(s.bitis); },
+        render:function(s){
+          var t = toplamGun(s), g = gecenGun(s);
+          return '<span class="cell-main ' + sureTon(s) + '">' + esc(sureMetin(s)) + '</span>' +
+                 '<span class="cell-sub">' + g + ' / ' + t + ' gün</span>'; },
+        exportValue:function(s){ return sureMetin(s) + ' (' + gecenGun(s) + '/' + toplamGun(s) + ' gün)'; } },
+      { key:'durum', label:'Durum', render:function(s){ return GV.badge(s.durum); } },
+      { key:'planlanan', label:'Planlanan saat', cellClass:'num',
+        render:function(s){ return '<span class="u-num">' + F.hours(s.planlanan) + '</span>'; },
+        exportValue:function(s){ return s.planlanan; } },
+      { key:'tamamlanan', label:'Tamamlanan saat', cellClass:'num',
+        render:function(s){ return '<span class="u-num">' + F.hours(s.tamamlanan) + '</span>'; },
+        exportValue:function(s){ return s.tamamlanan; } },
+      { key:'kalanSaat', label:'Kalan saat', cellClass:'num', visible:false,
+        sortValue:kalanSaat,
+        render:function(s){ return '<span class="u-num">' + F.hours(kalanSaat(s)) + '</span>'; },
+        exportValue:kalanSaat },
+      { key:'oran', label:'Tamamlanma oranı', sortValue:oran,
+        render:function(s){ return GV.progress(oran(s), hedefAlti(s) ? { tone:'danger' } : null); },
+        exportValue:oran },
+      { key:'gorevSayisi', label:'Görev sayısı', cellClass:'num',
+        render:function(s){ return '<span class="u-num">' + F.num(s.gorevSayisi) + '</span>'; },
+        exportValue:function(s){ return s.gorevSayisi; } },
+      { key:'acik', label:'Açık görev', cellClass:'num', sortValue:acikGorev,
+        render:function(s){
+          var n = acikGorev(s);
+          return '<a class="u-num ' + (n ? 'u-warn' : 'u-faint') + '" href="' + gorevHref(s) + '">' + F.num(n) + '</a>'; },
+        exportValue:acikGorev }
+    ],
+
+    filters:[
+      { key:'proje', label:'Proje', type:'select',
+        options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
+      { key:'durum', label:'Sprint durumu', type:'multi', options:['Devam ediyor','Planlandı','Tamamlandı'] },
+      { key:'baslangic', label:'Başlangıç tarihi', type:'daterange' },
+      { key:'bitis', label:'Bitiş tarihi', type:'daterange' },
+      { key:'oranEsik', label:'Tamamlanma oranı eşiği', type:'select', options:Object.keys(ORAN_ESIK),
+        test:function(s, v){ var r = ORAN_ESIK[v]; return !!r && oran(s) >= r[0] && oran(s) < r[1]; } },
+      { key:'pm', label:'Sorumlu PM', type:'select', options:PM_LIST,
+        test:function(s, v){ return proj(s).pm === v; } }
+    ],
+
+    rowClass:function(s){ return (devam(s) && F.days(s.bitis) < 0) || hedefAlti(s) ? 'is-late' : ''; },
+
+    mobile:function(s){
+      return '<div class="gv-mrow-top"><a class="cell-main" href="' + gorevHref(s) + '">' + s.kod + '</a>' +
+        '<span class="u-num">' + F.hours(s.tamamlanan) + ' / ' + F.hours(s.planlanan) + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(s.ad) + ' · ' + esc(proj(s).ad || s.proje) + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(s.durum) +
+        '<span class="tag">' + acikGorev(s) + ' / ' + s.gorevSayisi + ' açık görev</span></span>' +
+        '<span class="cell-sub ' + sureTon(s) + '">' + esc(sureMetin(s)) + '</span></div>';
+    },
+
+    card:function(s){
+      return '<div class="gv-rcard-top"><div><a class="cell-main" href="' + gorevHref(s) + '">' + esc(s.ad) + '</a>' +
+        '<div class="cell-sub">' + esc(proj(s).ad || s.proje) + '</div></div>' + GV.badge(s.durum) + '</div>' +
+        '<div class="gv-rcard-meta"><span>' + s.kod + '</span>' +
+        '<span>' + F.dateShort(s.baslangic) + ' – ' + F.dateShort(s.bitis) + '</span>' +
+        '<span class="' + sureTon(s) + '">' + esc(sureMetin(s)) + '</span></div>' +
+        GV.progress(oran(s), hedefAlti(s) ? { tone:'danger' } : null) +
+        '<div class="gv-rcard-foot"><span class="u-num">' + F.hours(s.tamamlanan) + ' / ' + F.hours(s.planlanan) + '</span>' +
+        '<span class="tag">' + acikGorev(s) + ' / ' + s.gorevSayisi + ' açık görev</span></div>';
+    },
+
+    rowActions:[
+      { key:'proje', icon:'i-briefcase', label:'Projeyi aç',
+        href:function(s){ return 'app-proje-detay.html?id=' + s.proje; } },
+      { key:'gorev', icon:'i-tasks', label:'Sprint görevlerini gör',
+        href:function(s){ return gorevHref(s); } },
+      { key:'pano', icon:'i-kanban', label:'Sprint panosu',
+        href:function(s){ return gorevHref(s, 'kanban'); } }
+    ],
+
+    bulk:[
+      { key:'kapat', label:'Sprinti Kapat', icon:'i-check-circle',
+        confirm:'Seçili {n} sprint kapatılacak. Yalnız devam eden sprintler kapanır, planlanan ve kapalı kayıtlar atlanır.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Sprint güncelleme yetkiniz yok.', 'danger'); return; }
+          var n = 0;
+          DB.sprints.forEach(function(s){ if(ids.indexOf(s.kod) !== -1 && devam(s)){ s.durum = 'Tamamlandı'; n++; } });
+          GV.toast(n ? (n + ' sprint kapatıldı' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hiçbiri devam eden sprint değil', n ? 'ok' : 'warn');
+        } },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'Seçili {n} sprint arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',
+        run:function(ids){
+          if(!GV.perm.can('duzenle')){ GV.toast('Arşivleme yetkiniz yok.', 'danger'); return; }
+          DB.sprints.forEach(function(s){ if(ids.indexOf(s.kod) !== -1) s.aktif = false; });
+          GV.toast(ids.length + ' sprint arşivlendi', 'ok');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download' }
+    ],
+
+    emptyState:{ icon:'i-sprint', title:'Bu görünümde sprint yok',
+      desc:'Sprintler projelerin iş paketlerini iki haftalık dönemlere böler; planlanan ve tamamlanan saat ile görevler buraya bağlanır.',
+      action:'<a class="btn btn-acc" href="app-proje-sprint-form.html"><svg class="ic"><use href="#i-plus"></use></svg> Yeni Sprint</a>' }
+  });
+
+});
+</script>
+</body>
+</html>
