@@ -2,6 +2,10 @@
 
 > Bu dosya, **sıfırdan gelen bir Claude'un hiçbir şey sormadan** işe devam
 > edebilmesi için yazıldı. Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/components.md`.
+>
+> **İLK İŞ:** `tasks/qa/` altındaki tarama script'lerini scratchpad'e kopyala ve playwright
+> kur (bölüm 4). Bu script'ler repoda **bilinçli olarak izleniyor** — scratchpad oturumlar
+> arası siliniyor ve 3. oturumda hepsi kaybolmuştu, yeniden yazmak zaman aldı.
 > `PROMPT.md` mutlak kaynaktır; `CLAUDE.md` proje kurallarıdır.
 > **`tasks/ui-debt.md`** = arayüz borç defteri. Üretim sırasında görülen arayüz sorunları oraya
 > yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde
@@ -319,10 +323,14 @@ otomatik `data-wip` olur, tıklanınca açıklayıcı toast çıkar.
 
 ## 4. QA KOMUTLARI VE DOĞRULAMA AKIŞI
 
-Scratchpad silinmişse önce kur:
+Scratchpad silinmişse önce kur — **script'ler repoda, yeniden yazma:**
 ```bash
 cd <scratchpad> && npm init -y && npm i playwright@1.62.1
+cp /Users/gaviaworks/Developer/Projects/gaviaworks-crm/tasks/qa/*.js .
 ```
+`tasks/qa/` içindekiler: `qa.js` · `canon.js` · `dbref.js` · `links.js` · `gate.js` · `grip-qa.js`.
+Ekranların çoğu rol seçimi olmadan `index.html`'e yönlenir; tarayıcıda ekran açarken
+**`?role=sahip`** parametresini kullan (ya da `sessionStorage.gv.session`'ı tohumla).
 
 ```bash
 # 1) Sunucu — TEK THREAD'Lİ python -m http.server KULLANMA.
