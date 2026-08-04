@@ -530,6 +530,14 @@ DB.deliveries = [
 ];
 
 /* ---- Değişiklik talepleri ---------------------------------------------- */
+/* EKSEN UYARISI:
+   `etkiSure` **SAAT**tir, gün değil (`app-proje-degisiklik.html` `F.hours` ile basar,
+   filtresi "8 saatten fazla" der). Gün karşılığı gösterilecekse **türetilmiş** olduğu
+   yazılır — dönüşüm 8 sa/gün varsayımıdır, veride yazılı değil.
+   `etkiMaliyet` **NET** (KDV hariç), müşteriye yansıyan bedel — sözleşme netiyle
+   (`contracts.tutar`) aynı eksende. `projects.butce` / `.gerceklesenMaliyet` **iç maliyet**
+   eksenidir, bu alanla aynı satırda toplanmaz.
+   `etki` diye bir alan **YOKTUR** — etki düzeyi süre/bedel sapmasından hesaplanır. */
 DB.changeRequests = [
   { kod:'DGS-2026-012', proje:'PRJ-2026-006', baslik:'Randevu adımlarının sırası değiştirilsin',
     talep:'Müşteri', tarih:'2026-07-25', etkiSure:12, etkiMaliyet:38000, durum:'Onay bekliyor',
