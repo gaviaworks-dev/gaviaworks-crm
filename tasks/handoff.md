@@ -12,20 +12,25 @@
 > oraya yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki
 > **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde ortak katmanda çözülür.
 
-**Güncelleme:** 2026-08-04 (5. oturum sonu) · **103+ ekran** · **24+ detay ekranı**
-**Son tam tarama:** `gate.js` **515 sayfa yüklemesi (103 ekran × 5 rol)** — konsol hatası 0,
-boş sayfa 0, kırık istek 0. `canon.js` 445 kontrol · `dbref.js` 103 ekran · `links.js` temiz ·
-`esc.js` · `mut.js` · `listen.js` (20 detay ekranı) temiz.
+**Güncelleme:** 2026-08-04 (5. oturum sonu) · **105 ekran** · **25 detay ekranı**
+**Ölçü:** 105 ekran · 51.701 satır · ortak katman 8.166 satır (css+js+veri)
+**Son tam tarama (oturum sonu, hepsi koşuldu):**
+`gate.js` **525 sayfa yüklemesi (105 ekran × 5 rol)** — konsol hatası 0, boş sayfa 0,
+kırık istek 0 · `canon.js` 445 kontrol temiz · `dbref.js` 105 ekran temiz ·
+`links.js` temiz, **37 hedef kuyrukta** (oturum başında 59'du) ·
+`esc.js` · `mut.js` · `listen.js` 20+ detay ekranında temiz ·
+25 detay ekranının hepsi canlıda doğrulandı (HTTP 200).
 
 ---
 
 ## 1. BU OTURUMDA (5.) NE YAPILDI
 
-### Üretilen 21 detay ekranı
+### Üretilen 23 detay ekranı — detay kuyruğu **`duyuru-detay` hariç bitti**
 ```
 SATIŞ     app-teklif-detay (7 sekme) · app-referans-detay (6) · app-onanaliz-detay (7) ·
           app-komisyon-detay (6)
-PROJE     app-proje-hata-detay (7) · app-proje-teslim-detay (6)
+PROJE     app-proje-hata-detay (7) · app-proje-teslim-detay (6) ·
+          app-proje-test-detay (6) · app-proje-degisiklik-detay (7)
 GÖREV     app-istalebi-detay (6)
 DESTEK    app-destek-detay (6)
 PERSONEL  app-personel-detay (11) · app-izin-detay (6)
@@ -83,6 +88,8 @@ etiketler** "Komisyon kazancı / Kazanç tarihi"ne çevrildi. **Alan adları** (
 | `analyses.maliyet` | **NET, indirim ÖNCESİ satış fiyatı** | Teklifin `araToplam`ı ile 3/3 eşleşti; net 1/3, brüt 0/3. İç maliyet **değil** |
 | `capacity.izin` | **GÜN** (kartın kalanı saat) | 10/10 kayıtta gelecek izin günlerinin toplamı. Başlık yorumu "saat" diyordu, yanlıştı |
 | `leaves.cakisma` | **proje takvimi** çakışması | IZN-2026-033'te `true` ama departmanda başka kimse yok. Personel çakışması tarihlerden **hesaplanır** |
+| `changeRequests.etkiSure` | **SAAT** (gün değil) | Liste ekranı `F.hours` ile basıyor, filtresi "8 saatten fazla" diyor |
+| `changeRequests.etkiMaliyet` | **NET**, müşteriye yansıyan | `contracts.tutar` ile aynı eksende. `projects.butce` **iç maliyet** ekseni, aynı satırda toplanmaz |
 
 ---
 
@@ -189,10 +196,10 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 sayma. Bu oturum sonunda **42 hedef** bekliyordu (5. oturum başında 59'du).
 
 ### Kuyruk (öncelik sırasıyla)
-1. **Kalan detay ekranları:** `duyuru-detay` · (`proje-test-detay` ve
-   `proje-degisiklik-detay` 5. oturum sonunda ajanlardaydı — **`node links.js` ile teyit et**,
-   kuyrukta duruyorlarsa yeniden yazdır). `proje-hata-detay` · `proje-teslim-detay` ·
-   `komisyon-detay` **tamamlandı ve canlıda**.
+1. **Kalan detay ekranı: yalnız `duyuru-detay`.** Diğer 23'ü tamamlandı, QA'den geçti,
+   canlıda. `app-panel-duyurular.html` hem liste hem `GV.form` kullanıyor — duyuru detayı
+   yazdırmadan önce oraya bak, belki ayrı ekran gerekmiyor (o zaman `links.js` kuyruğundan
+   düşmesi için `app-panel-duyurular.html`'deki hedefi düzelt).
 2. **Form ekranları — kuyruğun en kalabalık (~35) ve en şablonlaşabilir bölümü.**
    ✅ **`GV.form` GERÇEKTEN VAR** (`ui.js`) ve üç ekran onu çalışır hâlde kullanıyor:
    `app-ayar-profil.html` · `app-ayar-sirket.html` · `app-panel-duyurular.html`.
