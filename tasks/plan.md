@@ -1,6 +1,7 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 153 / 237 madde tamam (%65) · 32 kısmen · 52 açık** — 6. oturum, 2026-08-04
+**İLERLEME: 153 / 274 madde tamam (%56) · 32 kısmen · 89 açık** — 6. oturum, 2026-08-04
+> Sayı 237'den 274'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
 > Kaynak: PROMPT.md (29 bölüm) — hiçbir modül/alan/sekme/durum/rol/rapor atlanmadı.
@@ -265,6 +266,75 @@ detay tablo (`GV.list`) + çıktı (Excel/CSV/PDF/Yazdır) + kayıtlı rapor.
 - [x] `app-ayar-arsiv.html` — arşivlenen kayıtlar (modül bazlı sekmeler), geri alma, kalıcı silme (onaylı)
 - [x] `app-ayar-profil.html` — profil bilgileri, şifre, oturum cihazları, dil/tema/tarih biçimi, kişisel bildirim tercihi
 - [x] `Ayarlar` rail bölümü menü kayıtları + `SEC_BY_ROLE` (yalnız sahip/sistem yöneticisi/İK kısmi) (orkestratör)
+
+### Wave 12b — FORM EKRANLARI (kuyruğun en kalabalık bloğu)
+
+> **Kaynak:** `node links.js` "henüz üretilmemiş hedefler" kuyruğu — 36 form hedefi.
+> Hepsi bir liste ya da detay ekranından `data-wip` olarak bağlanıyor; ekran doğunca
+> `shell.js` `BUILT` dizisine eklenir ve bağlantı kendiliğinden gerçek `href`'e döner.
+> **Sözleşme:** `tasks/form-brief.md` — her ajana ilk iş bu okutulur.
+
+**Ortak sözleşme (her form ekranı için geçerli):** `GV.form({sections:[...]})` kullanılır,
+yeni markup icat edilmez · hem **yeni kayıt** hem **düzenleme** modu, mod adres
+parametresinden (`?id=`) gelir · zorunlu alan doğrulaması + alan bazlı hata mesajı +
+kaydetmeden ayrılma uyarısı · yetki kapısı (yetkisiz rolde form açılmaz, 403) ·
+kaydet sonrası `location.reload` **yasak**, `GV.refresh` ile biter ve listeye döner ·
+dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` yazılmaz.
+
+#### Satış ve müşteri (8)
+- [ ] `app-lead-form.html` — müşteri adayı (28 alan · §8.1) ← `app-lead.html` · `app-lead-detay.html`
+- [ ] `app-musteri-form.html` — müşteri kartı ← `app-musteri.html` · `app-musteri-detay.html`
+- [ ] `app-musteri-yetkili-form.html` — müşteri yetkilisi ← `app-musteri-yetkili.html`
+- [ ] `app-musteri-iletisim-form.html` — iletişim kaydı ← `app-musteri-iletisim.html`
+- [ ] `app-referans-form.html` — yönlendiren kişi (21 alan · §9) ← `app-referans.html`
+- [ ] `app-komisyon-form.html` — referans komisyonu ← `app-komisyon.html`
+- [ ] `app-onanaliz-form.html` — ön analiz (28 değerlendirme alanı · §10) ← `app-onanaliz.html`
+- [ ] `app-teklif-form.html` — teklif + kalemler (25 alan · §10) ← `app-teklif.html`
+
+#### Proje ve görev (7)
+- [ ] `app-proje-form.html` — proje (24 alan + teknik envanter) ← `app-proje.html`
+- [ ] `app-proje-sprint-form.html` — sprint ← `app-proje-sprint.html`
+- [ ] `app-proje-test-form.html` — test koşumu (kapsam modülleri + sprint) ← `app-proje-test.html`
+- [ ] `app-proje-hata-form.html` — hata kaydı (şiddet→etki eşlemesi) ← `app-proje-hata.html`
+- [ ] `app-proje-degisiklik-form.html` — değişiklik talebi (süre/maliyet etkisi) ← `app-proje-degisiklik.html`
+- [ ] `app-proje-teslim-form.html` — teslim (kapsam + taksit bağı) ← `app-proje-teslim.html`
+- [ ] `app-gorev-form.html` — görev (50+ alan, alt görev, bağımlılık) ← `app-gorev.html`
+
+#### Destek ve iş talebi (3)
+- [ ] `app-destek-form.html` — destek talebi (18 alan, SLA) ← `app-destek.html`
+- [ ] `app-destek-paket-form.html` — bakım paketi ← `app-destek-paket.html`
+- [ ] `app-istalebi-form.html` — departmanlar arası iş talebi (§13) ← `app-istalebi.html`
+
+#### Personel ve İK (3)
+- [ ] `app-personel-form.html` — personel (23 alan, maaş maskeleme) ← `app-personel.html`
+- [ ] `app-izin-form.html` — izin talebi (bakiye, vekil, çakışma) ← `app-izin.html`
+- [ ] `app-performans-form.html` — performans değerlendirme ← `app-performans.html`
+
+#### Demirbaş ve filo (9)
+- [ ] `app-demirbas-form.html` — demirbaş (28 alan · §15) ← `app-demirbas.html`
+- [ ] `app-zimmet-form.html` — zimmet / iade tutanağı ← `app-zimmet.html`
+- [ ] `app-arac-form.html` — araç (§16 kimlik + satın alma/kiralama) ← `app-arac.html`
+- [ ] `app-arac-bakim-form.html` — araç bakım kaydı ← `app-arac-bakim.html`
+- [ ] `app-arac-muayene-form.html` — muayene kaydı ← `app-arac-muayene.html`
+- [ ] `app-arac-sigorta-form.html` — sigorta / kasko poliçesi ← `app-arac-sigorta.html`
+- [ ] `app-arac-yakit-form.html` — yakıt / şarj kaydı ← `app-arac-yakit.html`
+- [ ] `app-arac-gider-form.html` — araç gideri (18 kalem) ← `app-arac-gider.html`
+- [ ] `app-arac-kaza-form.html` — kaza / hasar / ceza ← `app-arac-kaza.html`
+
+#### Satın alma ve finans (5)
+- [ ] `app-satinalma-form.html` — satın alma talebi (14 alan · §17) ← `app-satinalma.html`
+- [ ] `app-siparis-form.html` — sipariş (18 alan + teslim kontrolü) ← `app-siparis.html`
+- [ ] `app-tedarikci-form.html` — tedarikçi ← `app-tedarikci.html`
+- [ ] `app-sozlesme-form.html` — sözleşme (net/KDV/brüt ekseni) ← `app-sozlesme.html`
+- [ ] `app-fatura-form.html` — fatura ← `app-fatura.html`
+
+#### Toplantı (1)
+- [ ] `app-toplanti-form.html` — toplantı (gündem + katılımcılar) ← `app-toplanti.html`
+
+#### Kuyruktaki tek form olmayan hedef
+- [ ] `duyuru-detay` — `app-panel-duyurular.html` hem liste hem `GV.form` kullanıyor ve duyuruyu
+      **sağ panelde** açıyor. Ayrı ekran gerekmez; `app-panel-duyurular.html`'e `?id=` derin
+      bağlantısı eklenip `app-ayar-log.html`'deki hedef ona çevrilecek.
 
 ### Wave 13 — Kapanış
 - [ ] Tüm `data-wip` bağlantıların gerçek `href`'e çevrilmesi
