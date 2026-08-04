@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Eğitim ve Yetkinlik — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="egitim">
+<div id="liste"></div>
+<div id="kirilim"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+
+  /* Maliyet alan bazlı finans yetkisine tabidir (assumptions V-12 deseni —
+     app-personel.html maaş kolonuyla aynı maskeleme kuralı). */
+  var canFinans = GV.perm.can('finans');
+  var canEdit   = GV.perm.can('duzenle');
+
+  /* =====================================================================
+     TÜRETME YARDIMCILARI
+     Katılım kırılımı DB.trainings[].katilimci dizisinden türetilir —
+     ikinci bir veri kümesi tanımlanmaz.
+     ===================================================================== */
+  function egitimler(){ return DB.trainings.filter(function(t){ return t.aktif !== false; }); }
+  function egitim(kod){ return DB.trainings.filter(function(t){ return t.kod === kod; })[0] || null; }
+  function katilimcilar(t){ return (t && t.katilimci) || []; }
+
+  /* Eğitim kartındaki tekil personel listesi (katılım kayıtlarından türetilir) */
+  function tumKatilimcilar(){
+    var out = [];
+    egitimler().forEach(function(t){
+      katilimcilar(t).forEach(function(k){ if(out.indexOf(k) === -1) out.push(k); });
+    });
+    return out;
+  }
+  function kisiEgitimleri(kod){
+    return egitimler().filter(function(t){ return katilimcilar(t).indexOf(kod) !== -1; });
+  }
+  function kisiSaat(kod){
+    return kisiEgitimleri(kod).reduce(function(s, t){ return s + (t.sure || 0); }, 0);
+  }
+  function kisiPay(kod){
+    return kisiEgitimleri(kod).reduce(function(s, t){ return s + kisiBasi(t); }, 0);
+  }
+  function kisiBasi(t){
+    var n = katilimcilar(t).length;
+    return n ? Math.round((t.maliyet || 0) / n) : (t.maliyet || 0);
+  }
+  function kisiSaatToplam(){
+    return egitimler().reduce(function(s, t){ return s + (t.sure || 0) * katilimcilar(t).length; }, 0);
+  }
+  function katilimSayisi(){
+    return egitimler().reduce(function(s, t){ return s + katilimcilar(t).length; }, 0);
+  }
+  function yil(iso){ return String(iso || '').slice(0, 4); }
+  var buYil = yil(DB.today);
+
+  /* Finans maskesi — yetki yoksa değer hiç üretilmez */
+  function para(v){
+    return canFinans
+      ? '<span class="cell-money">' + F.money(v) + '</span>'
+      : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+  }
+  function paraExport(v){ return canFinans ? v : ''; }
+
+  function ozetSatir(l, v){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + l + '</span>' +
+           '<span class="gv-summary-val">' + v + '</span></div>';
+  }
+
+  function kisiCip(kod, opt){
+    var e = DB.emp(kod) || {};
+    return '<span class="u-row">' + GV.user(kod, opt || { sm:true }) +
+           (e.depAd ? '<span class="tag">' + esc(e.depAd) + '</span>' : '') + '</span>';
+  }
+
+  GV.pageHead({
+    eyebrow:'Personel', title:'Eğitim ve Yetkinlik',
+    sub:'Planlanan ve tamamlanan eğitimler, katılımcıları, süresi ve maliyeti',
+    actions:[
+      { label:'Performans', icon:'i-award', href:'app-performans.html' },
+      { label:'Personel', icon:'i-users', cls:'btn-acc', href:'app-personel.html' }
+    ]
+  });
+
+  /* =====================================================================
+     DURUM DEĞİŞİMİ — GV.confirm + liste/kırılım tazeleme
+     ===================================================================== */
+  var liste = null;
+  function tazele(){ if(liste) liste.refresh(); renderKirilim(); }
+
+  function tamamlaTek(t){
+    return GV.confirm({
+      title:'Tamamlandı işaretle',
+      text:t.ad + ' eğitimi tamamlandı olarak işaretlenecek. ' +
+           katilimcilar(t).length + ' katılımcının eğitim kaydı bu duruma göre güncellenir.',
+      okLabel:'Tamamlandı işaretle', tone:'warn'
+    }).then(function(ok){
+      if(!ok) return false;
+      t.durum = 'Tamamlandı';
+      GV.toast(t.kod + ' tamamlandı olarak işaretlendi', 'ok');
+      tazele();
+      return true;
+    });
+  }
+
+  /* =====================================================================
+     KATILIMCI PANELİ — GV.drawer
+     ===================================================================== */
+  function katilimciPaneli(t){
+    if(!t) return;
+    var ks = katilimcilar(t);
+
+    var ozet = '<div class="gv-summary">' +
+      ozetSatir('Eğitim', '<b>' + esc(t.ad) + '</b>') +
+      ozetSatir('Kod', '<span class="cell-code">' + esc(t.kod) + '</span>') +
+      ozetSatir('Tür', '<span class="tag">' + esc(t.tur || '—') + '</span>') +
+      ozetSatir('Sağlayıcı', esc(t.saglayici || '—')) +
+      ozetSatir('Tarih', esc(F.date(t.baslangic) + ' – ' + F.date(t.bitis))) +
+      ozetSatir('Süre', esc(F.hours(t.sure))) +
+      ozetSatir('Katılımcı', '<b class="u-num">' + ks.length + '</b> kişi') +
+      ozetSatir('Toplam kişi·saat', esc(F.hours((t.sure || 0) * ks.length))) +
+      ozetSatir('Kişi başı maliyet', para(kisiBasi(t))) +
+      ozetSatir('Toplam maliyet', para(t.maliyet)) +
+      ozetSatir('Sertifika', t.sertifika
+        ? GV.badge('Sertifikalı', 'is-ok')
+        : '<span class="u-faint">Sertifikasız</span>') +
+      ozetSatir('Durum', GV.badge(t.durum)) +
+    '</div>';
+
+    var kisiler = ks.length
+      ? '<div class="gv-cards">' + ks.map(function(k){
+          var e = DB.emp(k) || {};
+          return '<div class="gv-rcard">' +
+            '<div class="gv-rcard-top">' + GV.user(k) + GV.badge(t.durum) + '</div>' +
+            '<div class="gv-rcard-meta">' +
+              '<span>' + esc(e.pozisyon || '—') + '</span>' +
+              '<span>' + esc(e.depAd || '—') + '</span>' +
+              '<span class="tag">' + esc(DB.roleName(e.rol)) + '</span>' +
+            '</div>' +
+            '<div class="gv-rcard-meta">' +
+              '<span>' + kisiEgitimleri(k).length + ' eğitim kaydı</span>' +
+              '<span>' + esc(F.hours(kisiSaat(k))) + ' toplam</span>' +
+            '</div>' +
+            '<div class="gv-rcard-foot"><span class="u-xs u-muted">Bu eğitimdeki maliyet payı</span>' +
+              para(kisiBasi(t)) + '</div>' +
+            '<a class="btn btn-line btn-sm" href="app-personel.html?q=' + esc(k) + '">' +
+              ico('i-external','ic-sm') + ' Personeli aç</a>' +
+          '</div>';
+        }).join('') + '</div>'
+      : '<p class="u-sm u-muted">Bu eğitime henüz katılımcı atanmamış.</p>';
+
+    var acts = [{ label:'Kapat', cls:'btn-line' }];
+    if(canEdit && t.durum !== 'Tamamlandı'){
+      acts.push({ label:'Tamamlandı işaretle', cls:'btn-acc',
+        onClick:function(){ tamamlaTek(t); } });
+    }
+
+    GV.drawer({
+      title:t.kod + ' — Katılımcılar',
+      body:ozet +
+        '<h3 class="u-mt-8">Katılımcılar (' + ks.length + ')</h3>' +
+        '<p class="u-sm u-muted">Katılımcı listesi eğitim kaydının katılımcı alanından gelir; ' +
+        'departman ve rol bilgisi personel kartından çözülür.</p>' + kisiler +
+        '<div class="u-row u-wrap u-mt-8">' +
+          '<a class="btn btn-line btn-sm" href="app-personel.html">' +
+            ico('i-users','ic-sm') + ' Personel listesi</a>' +
+          '<a class="btn btn-line btn-sm" href="app-performans.html?t=gelisim">' +
+            ico('i-award','ic-sm') + ' Eğitim ihtiyaçları</a>' +
+        '</div>',
+      actions:acts
+    });
+  }
+
+  /* =====================================================================
+     LİSTE — PROMPT.md §6
+     ===================================================================== */
+  var rowActs = [
+    { key:'katilimci', icon:'i-users', label:'Katılımcıları gör',
+      run:function(t){ katilimciPaneli(t); } }
+  ];
+  if(canEdit){
+    rowActs.push({ key:'tamam', icon:'i-check-circle', label:'Tamamlandı işaretle',
+      run:function(t){ tamamlaTek(t); } });
+  }
+
+  var bulkActs = [];
+  if(canEdit){
+    bulkActs.push({ key:'tamam', label:'Tamamlandı işaretle', icon:'i-check-circle',
+      confirm:'Seçili {n} eğitim tamamlandı olarak işaretlenecek. Zaten tamamlanmış kayıtlar atlanır.',
+      run:function(ids){
+        var y = 0, atlanan = 0;
+        ids.forEach(function(id){
+          var t = egitim(id);
+          if(!t) return;
+          if(t.durum === 'Tamamlandı'){ atlanan++; return; }
+          t.durum = 'Tamamlandı'; y++;
+        });
+        GV.toast(y + ' eğitim tamamlandı işaretlendi' +
+          (atlanan ? ' · ' + atlanan + ' kayıt zaten tamamdı, atlandı' : ''), y ? 'ok' : 'info');
+        renderKirilim();
+      } });
+  }
+  bulkActs.push({ key:'disa', label:'Çıktı al', icon:'i-download' });
+
+  /* Departman filtresi yalnız katılımcısı olan departmanları listeler */
+  var depOptions = DB.departments.filter(function(d){
+    return tumKatilimcilar().some(function(k){ return (DB.emp(k) || {}).dep === d.kod; });
+  }).map(function(d){ return { value:d.kod, label:d.ad }; });
+
+  var filtreler = [
+    { key:'durum', label:'Durum', type:'select', options:['Planlandı','Tamamlandı'] },
+    { key:'kisi', label:'Katılımcı', type:'select',
+      options:tumKatilimcilar().sort(function(a,b){ return DB.empName(a).localeCompare(DB.empName(b),'tr'); })
+        .map(function(k){ return { value:k, label:DB.empName(k) }; }),
+      test:function(t,v){ return katilimcilar(t).indexOf(v) !== -1; } },
+    { key:'dep', label:'Departman', type:'multi', options:depOptions,
+      test:function(t,v){
+        return katilimcilar(t).some(function(k){ return v.indexOf((DB.emp(k) || {}).dep) !== -1; }); } },
+    { key:'baslangic', label:'Başlangıç tarihi', type:'daterange' },
+    { key:'tur', label:'Eğitim türü', type:'multi',
+      options:DB.trainings.map(function(t){ return t.tur; })
+        .filter(function(v,i,s){ return v && s.indexOf(v) === i; }) }
+  ];
+  /* Maliyet aralığı yalnız finans yetkisi olan rollere açılır — maskeli değer
+     üzerinden filtreleme, maskelemeyi anlamsız kılardı (assumptions V-12 mantığı). */
+  if(canFinans){
+    filtreler.push({ key:'maliyetAralik', label:'Maliyet aralığı', type:'select',
+      options:[
+        { value:'0', label:'Ücretsiz (₺0)' },
+        { value:'1-10000', label:'₺1 – ₺10.000' },
+        { value:'10000-15000', label:'₺10.000 – ₺15.000' },
+        { value:'15000+', label:'₺15.000 üstü' }
+      ],
+      test:function(t,v){
+        var m = t.maliyet || 0;
+        if(v === '0') return m === 0;
+        if(v === '1-10000') return m >= 1 && m <= 10000;
+        if(v === '10000-15000') return m > 10000 && m <= 15000;
+        if(v === '15000+') return m > 15000;
+        return true;
+      } });
+  }
+
+  liste = GV.list({
+    mount:'#liste', id:'egitim', key:'kod', source:function(){ return DB.trainings; },
+    exportName:'egitim', exportTitle:'Eğitim ve Yetkinlik Kayıtları', pageSize:25,
+    views:['table','card'], defaultSort:'baslangic', defaultDir:'desc',
+    search:{ placeholder:'Eğitim adı, kod, sağlayıcı veya katılımcı ara',
+             fields:['kod','ad','tur','saglayici','durum'],
+             extra:function(t){
+               return katilimcilar(t).map(function(k){
+                 var e = DB.emp(k) || {};
+                 return (e.ad || k) + ' ' + (e.depAd || '');
+               }).join(' ');
+             } },
+
+    kpis:[
+      { label:'Toplam eğitim', icon:'i-graduation',
+        calc:function(a){ return a.length; } },
+      { label:'Tamamlanan', icon:'i-check-circle', tone:'ok',
+        calc:function(a){ return a.filter(function(t){ return t.durum === 'Tamamlandı'; }).length; } },
+      { label:'Planlanan', icon:'i-clock', tone:'info',
+        calc:function(a){ return a.filter(function(t){ return t.durum === 'Planlandı'; }).length; } },
+      { label:'Toplam eğitim saati', icon:'i-timer', tone:'accent',
+        format:function(v){ return F.hours(v); },
+        calc:function(a){ return a.reduce(function(s,t){ return s + (t.sure || 0); }, 0); },
+        meta:function(){ return ico('i-users','ic-sm') + F.num(kisiSaatToplam()) + ' kişi·saat'; },
+        metaTone:'flat' },
+      { label:'Toplam eğitim maliyeti', icon:'i-wallet', tone:'warn',
+        format:function(v){ return canFinans ? F.money(v)
+          : '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>'; },
+        calc:function(a){ return a.reduce(function(s,t){ return s + (t.maliyet || 0); }, 0); } },
+      { label:'Eğitim alan personel', icon:'i-user-check', tone:'purple',
+        calc:function(){ return tumKatilimcilar().length; },
+        meta:function(){ return ico('i-list','ic-sm') + katilimSayisi() + ' katılım kaydı'; },
+        metaTone:'flat' }
+    ],
+
+    tabs:[
+      { key:'tumu',   label:'Tümü',       icon:'i-list',         filter:null },
+      { key:'plan',   label:'Planlandı',  icon:'i-clock',        filter:function(t){ return t.durum === 'Planlandı'; } },
+      { key:'tamam',  label:'Tamamlandı', icon:'i-check-circle', filter:function(t){ return t.durum === 'Tamamlandı'; } },
+      { key:'buyil',  label:'Bu Yıl',     icon:'i-calendar',     filter:function(t){ return yil(t.baslangic) === buYil; } },
+      { key:'ucretsiz', label:'Ücretsiz', icon:'i-tag',          filter:function(t){ return (t.maliyet || 0) === 0; } }
+    ],
+
+    columns:[
+      { key:'kod', label:'Eğitim kodu', width:'11%',
+        render:function(t){ return '<span class="cell-code">' + esc(t.kod) + '</span>'; } },
+      { key:'ad', label:'Eğitim', width:'20%', locked:true, cellClass:'cell-wrap',
+        render:function(t){ return '<span class="cell-main">' + esc(t.ad) + '</span>' +
+          '<span class="cell-sub">' + esc(t.saglayici || 'Sağlayıcı belirtilmemiş') + '</span>'; } },
+      { key:'tur', label:'Tür',
+        render:function(t){ return t.tur ? '<span class="tag">' + esc(t.tur) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'saglayici', label:'Sağlayıcı', visible:false },
+      { key:'katilimci', label:'Katılımcılar', cellClass:'cell-wrap', width:'18%',
+        sortValue:function(t){ return katilimcilar(t).length; },
+        render:function(t){
+          var ks = katilimcilar(t);
+          if(!ks.length) return '<span class="u-faint">—</span>';
+          return '<span class="u-row u-wrap">' +
+            ks.slice(0,2).map(function(k){ return GV.user(k, { sm:true }); }).join('') +
+            (ks.length > 2 ? '<span class="tag">+' + (ks.length - 2) + '</span>' : '') + '</span>'; },
+        exportValue:function(t){ return katilimcilar(t).map(DB.empName).join(', '); } },
+      { key:'baslangic', label:'Başlangıç',
+        render:function(t){ return GV.dateCell(t.baslangic, { done:t.durum === 'Tamamlandı' }); } },
+      { key:'bitis', label:'Bitiş',
+        render:function(t){ return GV.dateCell(t.bitis, { done:t.durum === 'Tamamlandı' }); } },
+      { key:'sure', label:'Süre', cellClass:'num',
+        render:function(t){ return '<span class="u-num">' + esc(F.hours(t.sure)) + '</span>'; },
+        exportValue:function(t){ return t.sure; } },
+      { key:'kisiSaat', label:'Kişi·saat', cellClass:'num', visible:false,
+        sortValue:function(t){ return (t.sure || 0) * katilimcilar(t).length; },
+        render:function(t){ return '<span class="u-num">' + esc(F.hours((t.sure || 0) * katilimcilar(t).length)) + '</span>'; },
+        exportValue:function(t){ return (t.sure || 0) * katilimcilar(t).length; } },
+      { key:'kisiBasi', label:'Kişi başı maliyet', cellClass:'num',
+        sortValue:function(t){ return kisiBasi(t); },
+        render:function(t){ return para(kisiBasi(t)); },
+        exportValue:function(t){ return paraExport(kisiBasi(t)); } },
+      { key:'maliyet', label:'Toplam maliyet', cellClass:'num',
+        render:function(t){ return para(t.maliyet); },
+        exportValue:function(t){ return paraExport(t.maliyet); } },
+      { key:'sertifika', label:'Sertifika', visible:false,
+        render:function(t){ return t.sertifika ? GV.badge('Sertifikalı','is-ok') : '<span class="u-faint">Yok</span>'; },
+        exportValue:function(t){ return t.sertifika ? 'Var' : 'Yok'; } },
+      { key:'durum', label:'Durum', render:function(t){ return GV.badge(t.durum); } }
+    ],
+
+    filters:filtreler,
+
+    rowClass:function(t){ return t.durum === 'Planlandı' && t.bitis < DB.today ? 'is-late' : ''; },
+
+    card:function(t){
+      var ks = katilimcilar(t);
+      return '<div class="gv-rcard-top"><span>' +
+          '<span class="cell-main">' + esc(t.ad) + '</span>' +
+          '<span class="cell-code">' + esc(t.kod + ' · ' + (t.tur || '—')) + '</span>' +
+        '</span>' + GV.badge(t.durum) + '</div>' +
+        '<div class="gv-rcard-meta">' +
+          '<span>' + esc(t.saglayici || 'Sağlayıcı yok') + '</span>' +
+          '<span>' + esc(F.hours(t.sure)) + '</span>' +
+          '<span>' + ks.length + ' katılımcı</span>' +
+        '</div>' +
+        '<span class="u-row u-wrap">' +
+          ks.slice(0,3).map(function(k){ return GV.user(k, { sm:true }); }).join('') +
+          (ks.length > 3 ? '<span class="tag">+' + (ks.length - 3) + '</span>' : '') +
+        '</span>' +
+        '<div class="gv-rcard-meta"><span>' + esc(F.dateShort(t.baslangic)) + ' – ' +
+          esc(F.dateShort(t.bitis)) + '</span></div>' +
+        '<div class="gv-rcard-foot"><span class="u-xs u-muted">Kişi başı ' +
+          (canFinans ? esc(F.money(kisiBasi(t))) : '••••••') + '</span>' + para(t.maliyet) + '</div>';
+    },
+
+    mobile:function(t){
+      var ks = katilimcilar(t);
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(t.ad) + '</span>' +
+          GV.badge(t.durum) + '</div>' +
+        '<div class="gv-mrow-code">' + esc(t.kod + ' · ' + (t.tur || '—') +
+          (t.saglayici ? ' · ' + t.saglayici : '')) + '</div>' +
+        '<div class="gv-mrow-meta">' +
+          '<span>' + ico('i-calendar','ic-sm') + esc(F.dateShort(t.baslangic) + ' – ' + F.dateShort(t.bitis)) + '</span>' +
+          '<span>' + ico('i-timer','ic-sm') + esc(F.hours(t.sure)) + '</span>' +
+          '<span>' + ico('i-users','ic-sm') + ks.length + ' katılımcı</span>' +
+        '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
+          ks.slice(0,2).map(function(k){ return GV.user(k, { sm:true }); }).join('') +
+          (ks.length > 2 ? '<span class="tag">+' + (ks.length - 2) + '</span>' : '') +
+        '</span>' + para(t.maliyet) + '</div>';
+    },
+
+    rowActions:rowActs,
+    bulk:bulkActs,
+
+    /* Zaten tamamlanmış kayıtta "tamamlandı işaretle" aksiyonu basılmaz.
+       GV.list rowActions'ta satır bazlı görünürlük yordamı yok; aksiyon
+       render sonrası kaldırılır (raporda "eksik bileşen" olarak bildirildi). */
+    onRender:function(){
+      if(!canEdit) return;
+      Array.prototype.slice.call(document.querySelectorAll('#liste tbody tr[data-id]')).forEach(function(tr){
+        var t = egitim(tr.getAttribute('data-id'));
+        if(!t || t.durum !== 'Tamamlandı') return;
+        var b = tr.querySelector('[data-rowact="tamam"]');
+        if(b) b.remove();
+      });
+    },
+
+    emptyState:{ icon:'i-graduation', title:'Bu görünümde eğitim kaydı yok',
+      desc:'Eğitim planı oluşturulduğunda katılımcıları, süresi ve maliyetiyle birlikte burada listelenir.' }
+  });
+
+  /* =====================================================================
+     KATILIMCI KIRILIMI — eğitim × personel matrisi
+     Satır = eğitim, kolon = personel. Alt satır personel bazlı toplamı verir;
+     4 eğitim kaydı böylece katılım düzeyinde okunur hâle gelir.
+     ===================================================================== */
+  function renderKirilim(){
+    var host = document.getElementById('kirilim');
+    if(!host) return;
+
+    var egt = egitimler().slice().sort(function(a,b){
+      return String(a.baslangic).localeCompare(String(b.baslangic));
+    });
+    var kisiler = tumKatilimcilar().sort(function(a,b){
+      return kisiSaat(b) - kisiSaat(a) || DB.empName(a).localeCompare(DB.empName(b),'tr');
+    });
+
+    var head = '<div class="gc-head"><div>' +
+      '<h2 class="gc-title">' + ico('i-users') + ' Katılımcı Kırılımı</h2>' +
+      '<div class="gc-sub">' + egt.length + ' eğitim × ' + kisiler.length + ' personel · ' +
+        katilimSayisi() + ' katılım kaydı · ' + F.hours(kisiSaatToplam()) + ' kişi·saat. ' +
+        'Hücre, o personelin o eğitimdeki saatidir; alt satır personel bazlı toplamı verir.</div>' +
+      '</div><div class="gc-head-acts">' +
+        '<a class="btn btn-line btn-sm" href="app-performans.html?t=gelisim">' +
+          ico('i-award','ic-sm') + '<span class="u-desktop"> Eğitim ihtiyaçları</span></a>' +
+        '<a class="btn btn-line btn-sm" href="app-kapasite.html">' +
+          ico('i-gauge','ic-sm') + '<span class="u-desktop"> Kapasite</span></a>' +
+      '</div></div>';
+
+    if(!kisiler.length){
+      host.innerHTML = '<div class="gv-card u-mt-8">' + head +
+        '<div class="gc-body">' + GV.empty({ icon:'i-users', title:'Katılım kaydı yok',
+          desc:'Eğitimlere katılımcı atandığında personel bazlı kırılım burada oluşur.' }) + '</div></div>';
+      return;
+    }
+
+    var thead = '<tr><th>Eğitim</th>' +
+      kisiler.map(function(k){
+        var e = DB.emp(k) || {};
+        return '<th class="th-narrow">' + esc(e.ad || k) +
+               '<span class="cell-sub">' + esc((DB.dep(e.dep) || {}).kisa || e.depAd || '') + '</span></th>';
+      }).join('') +
+      '<th class="num">Katılımcı</th><th class="num">Kişi·saat</th><th class="num">Maliyet</th></tr>';
+
+    var tbody = egt.map(function(t){
+      var ks = katilimcilar(t), ok = t.durum === 'Tamamlandı';
+      return '<tr>' +
+        '<td><span class="cell-main">' + esc(t.ad) + '</span>' +
+          '<span class="cell-code">' + esc(t.kod + ' · ' + (t.tur || '—')) + '</span></td>' +
+        kisiler.map(function(k){
+          if(ks.indexOf(k) === -1) return '<td class="cell-sw"><span class="u-faint">—</span></td>';
+          return '<td class="cell-sw">' +
+            '<span class="' + (ok ? 'u-ok' : 'u-info') + '" title="' + esc(t.ad + ' — ' + t.durum) + '">' +
+              ico(ok ? 'i-check-circle' : 'i-clock','ic-sm') + '</span>' +
+            '<span class="cell-sub">' + esc(F.hours(t.sure)) + '</span></td>';
+        }).join('') +
+        '<td class="num"><b class="u-num">' + ks.length + '</b></td>' +
+        '<td class="num"><span class="u-num">' + esc(F.hours((t.sure || 0) * ks.length)) + '</span></td>' +
+        '<td class="num">' + para(t.maliyet) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var toplamMaliyet = egt.reduce(function(s,t){ return s + (t.maliyet || 0); }, 0);
+    tbody += '<tr class="is-group"><td>Personel toplamı</td>' +
+      kisiler.map(function(k){
+        return '<td class="cell-sw"><b class="u-num">' + esc(F.hours(kisiSaat(k))) + '</b>' +
+               '<span class="cell-sub">' + kisiEgitimleri(k).length + ' eğitim</span></td>';
+      }).join('') +
+      '<td class="num">' + katilimSayisi() + '</td>' +
+      '<td class="num">' + esc(F.hours(kisiSaatToplam())) + '</td>' +
+      '<td class="num">' + para(toplamMaliyet) + '</td></tr>';
+
+    /* ≤760px'de .gv-tablewrap gizlenir — aynı türetmeden personel bazlı kart listesi */
+    var cards = kisiler.map(function(k){
+      var e = DB.emp(k) || {}, es = kisiEgitimleri(k);
+      return '<div class="gv-mrow">' +
+        '<div class="gv-mrow-top"><span>' +
+          '<a class="cell-main" href="app-personel.html?q=' + esc(k) + '">' + esc(e.ad || k) + '</a>' +
+          '<span class="cell-sub">' + esc(e.pozisyon || '') + '</span></span>' +
+          '<span class="u-num u-b">' + esc(F.hours(kisiSaat(k))) + '</span></div>' +
+        '<div class="gv-mrow-code">' + esc(e.depAd || '') + ' · ' + es.length + ' eğitim</div>' +
+        '<div class="gv-mrow-meta">' + es.map(function(t){
+          return '<span>' + ico(t.durum === 'Tamamlandı' ? 'i-check-circle' : 'i-clock','ic-sm') +
+                 esc(t.ad) + '</span>';
+        }).join('') + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="u-xs u-muted">Maliyet payı</span>' +
+          para(kisiPay(k)) + '</div>' +
+      '</div>';
+    }).join('');
+
+    host.innerHTML = '<div class="gv-card u-mt-8">' + head + '<div class="gc-body flush">' +
+      '<div class="gv-tablewrap is-sticky1"><table class="gtable">' +
+      '<thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table></div>' +
+      '<div class="gv-cardlist">' + cards + '</div>' +
+      '</div></div>';
+  }
+
+  renderKirilim();
+});
+</script>
+</body>
+</html>

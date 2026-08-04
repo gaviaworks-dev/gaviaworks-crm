@@ -122,6 +122,7 @@
       { ic:'i-file-check',   lbl:'Sözleşmeler',      href:'app-sozlesme.html',           screen:'sozlesme' },
       { ic:'i-receipt',      lbl:'Faturalar',        href:'app-fatura.html',             screen:'fatura' },
       { ic:'i-wallet',       lbl:'Tahsilatlar',      href:'app-tahsilat.html',           screen:'tahsilat', cnt:'tahsilat', tone:'danger' },
+      { ic:'i-calendar',     lbl:'Ödeme Planları',   href:'app-odemeplani.html',         screen:'odemeplani' },
       { ic:'i-chart-bar',    lbl:'Proje Bütçe ve Maliyet', href:'app-butce.html',        screen:'butce' }
     ]},
 
@@ -601,6 +602,7 @@
     'app-izin.html',
     'app-zaman.html',
     'app-zaman-onay.html',
+    'app-egitim.html',
     'app-kapasite.html',
     'app-performans.html',
     'app-demirbas.html',
