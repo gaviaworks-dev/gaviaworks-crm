@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Destek Talebi Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="destek" data-screen="destek">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+  var canEkle   = GV.perm.can('ekle');
+
+  var id = new URLSearchParams(location.search).get('id') || (DB.tickets[0] || {}).kod;
+  var t  = DB.tickets.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!t){
+    GV.pageHead({ eyebrow:'Destek ve Bakım', title:'Destek Talebi Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Destek listesi', icon:'i-support', href:'app-destek.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Destek talebi bulunamadı',
+      desc:'“' + (id || '') + '” numaralı destek talebi sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-destek.html">Destek listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(t.kod);
+  document.title = t.kod + ' — Destek Talebi — GaviaWorks CRM';
+
+  /* =================================================================
+     SÜRE BİÇİMLENDİRME — SLA hedefleri dakika cinsinden tutulur
+     (GV.fmt.hours saat alır; dakika tabanı bu ekranda da gerekiyor)
+     ================================================================= */
+  function sure(dk){
+    if(dk == null) return '—';
+    var m = Math.abs(Math.round(dk));
+    var g = Math.floor(m / 1440), s = Math.floor((m % 1440) / 60), d = m % 60;
+    if(g) return g + ' gün' + (s ? ' ' + s + ' sa' : '');
+    if(s) return s + ' sa' + (d ? ' ' + d + ' dk' : '');
+    return d + ' dk';
+  }
+
+  /* Referans an: DB.today gününün başlangıcı (mock veri sabit tarih ekseni) */
+  var SIMDI = new Date(DB.today + 'T00:00:00');
+  function gecenDk(iso){
+    if(!iso) return null;
+    return Math.round((SIMDI - new Date(String(iso).slice(0,16) + ':00')) / 60000);
+  }
+  /* Açılış + geçen dakika → okunabilir an (kapanış zamanı veride tutulmuyor) */
+  function anEkle(iso, dk){
+    if(!iso || dk == null) return null;
+    var d = new Date(String(iso).slice(0,16) + ':00');
+    d.setMinutes(d.getMinutes() + dk);
+    var p = function(n){ return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+           'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  var acikTalep = ['Kapandı','Çözüldü'].indexOf(t.durum) === -1;
+
+  /* =================================================================
+     SLA — components.md §9: iki eksenin KÖTÜSÜ
+     tüketim = geçen / hedef · ≥1 İhlal edildi · ≥0,75 Risk altında · altı Zamanında
+     ================================================================= */
+  function politika(x){
+    var l = DB.slaPolicies;
+    for(var i = 0; i < l.length; i++){
+      var p = l[i];
+      if(p.kategori === x.kategori && (p.oncelik === x.oncelik || p.oncelik === 'Tümü')) return p;
+    }
+    return null;
+  }
+  function seviye(o){ return o >= 1 ? 'İhlal edildi' : o >= 0.75 ? 'Risk altında' : 'Zamanında'; }
+  function tonu(d){ return d === 'İhlal edildi' ? 'danger' : d === 'Risk altında' ? 'warn' : 'ok'; }
+
+  var P = politika(t);
+  var gecenAcilis = gecenDk(t.acilis);
+
+  /* ilk yanıt ekseni — yanıt verilmediyse açılıştan bu yana geçen süre sayar */
+  var yanitHedef = P ? P.ilkYanit : null;
+  var yanitGecen = t.mudahaleSuresi != null ? t.mudahaleSuresi : gecenAcilis;
+  var yanitOran  = yanitHedef ? yanitGecen / yanitHedef : 0;
+  var yanitKalan = yanitHedef != null ? yanitHedef - yanitGecen : null;
+  var yanitDurum = t.mudahaleSuresi == null
+    ? 'Yanıt bekliyor'
+    : (yanitHedef != null && t.mudahaleSuresi > yanitHedef ? 'Aşıldı' : 'Tutturuldu');
+
+  /* çözüm ekseni — çözülmediyse açılıştan bu yana geçen süre sayar */
+  var cozumHedef = P ? P.cozum : null;
+  var cozumGecen = t.cozumSuresi != null ? t.cozumSuresi : gecenAcilis;
+  var cozumOran  = cozumHedef ? cozumGecen / cozumHedef : 0;
+  var cozumKalan = cozumHedef != null ? cozumHedef - cozumGecen : null;
+  var cozumDurum = t.cozumSuresi == null
+    ? 'Çözüm bekliyor'
+    : (cozumHedef != null && t.cozumSuresi > cozumHedef ? 'Aşıldı' : 'Tutturuldu');
+
+  /* kötü olan eksen genel durumu belirler */
+  var belirleyiciOran = Math.max(yanitOran, cozumOran);
+  var eksen    = yanitOran > cozumOran ? 'ilk yanıt' : 'çözüm';
+  var slaHesap = seviye(belirleyiciOran);
+  var slaYuzde = P ? Math.round(belirleyiciOran * 100) : null;
+  var yanitYuzde = yanitHedef ? Math.round(yanitOran * 100) : null;
+  var cozumYuzde = cozumHedef ? Math.round(cozumOran * 100) : null;
+  var cozumAni   = anEkle(t.acilis, t.cozumSuresi);
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride yazılı bağdan
+     ================================================================= */
+  var musteri = t.musteri ? DB.customers.filter(function(c){ return c.kod === t.musteri; })[0] : null;
+  var proje   = t.proje ? DB.proj(t.proje) : null;
+  var yetkili = musteri
+    ? DB.contacts.filter(function(y){ return y.musteri === musteri.kod && y.ad === t.acan; })[0] || null
+    : null;
+
+  /* Bakım paketi — kota aritmetiği: kullanilan + kalan = aylikSaat × dönem ayı.
+     Paketin `kalan`ı talebin `kalanDestek`iyle birebir aynıdır (components.md §9). */
+  var musteriPaketleri = DB.supportPackages.filter(function(p){ return p.musteri === t.musteri; });
+  var paket = musteriPaketleri.filter(function(p){ return p.kalan === t.kalanDestek; })[0] ||
+              musteriPaketleri.filter(function(p){ return p.durum === 'Aktif'; })[0] ||
+              musteriPaketleri[0] || null;
+  var paketSozlesme = (paket && paket.sozlesme)
+    ? DB.contracts.filter(function(s){ return s.kod === paket.sozlesme; })[0] || null : null;
+  var paketToplamKota = paket ? paket.kullanilan + paket.kalan : null;
+  var paketDonemAy    = (paket && paket.aylikSaat) ? Math.round(paketToplamKota / paket.aylikSaat) : null;
+  var paketYuzde      = paketToplamKota ? Math.round(paket.kullanilan / paketToplamKota * 100) : null;
+
+  /* Memnuniyet anketi — tur:'Destek talebi' ve ilgili === talep kodu */
+  var anket = DB.surveys.filter(function(a){
+    return a.tur === 'Destek talebi' && a.ilgili === t.kod; })[0] || null;
+
+  var acts = DB.activities.filter(function(a){ return a.kayit === t.kod; });
+
+  /* =================================================================
+     DÖNÜŞÜMLER — veride talebi göreve/hataya/değişikliğe bağlayan bir
+     alan YOK. Talep kodunu metin/etiket alanlarında arıyoruz; bu ekranda
+     üretilen görevler bu yolla geri bağlanır.
+     ================================================================= */
+  function referans(o, alanlar){
+    for(var i = 0; i < alanlar.length; i++){
+      var v = o[alanlar[i]];
+      if(v == null) continue;
+      if(Object.prototype.toString.call(v) === '[object Array]'){
+        if(v.indexOf(t.kod) !== -1) return true;
+      } else if(String(v).indexOf(t.kod) !== -1) return true;
+    }
+    return false;
+  }
+  function donusumleriTara(){
+    return {
+      gorevler: DB.tasks.filter(function(x){ return referans(x, ['etiketler','aciklama','amac','beklenenCikti']); }),
+      hatalar:  DB.bugs.filter(function(x){ return referans(x, ['baslik','ortam','tekrarlanabilir']); }),
+      degisim:  DB.changeRequests.filter(function(x){ return referans(x, ['baslik','karar']); })
+    };
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      /* dt escape EDİLMEZ: etiketler sayfada yazılı sabitler ve eksen işareti
+         (<span class="u-faint">(KDV hariç)</span>) render edilmek zorunda. Veri gelen
+         alanlar dd tarafında ve orada escape'li. */
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  function para(v){
+    if(!canFinans) return '<span class="cell-mask">••••••</span>';
+    return '<span class="cell-money">' + F.money(v) + '</span>';
+  }
+  function saat(v){ return '<b class="u-num">' + F.hours(v) + '</b>'; }
+  function kalanMetin(dk){
+    if(dk == null) return '<span class="u-faint">—</span>';
+    if(dk >= 0) return '<b class="u-num u-ok">' + sure(dk) + ' kaldı</b>';
+    return '<b class="u-num u-danger">' + sure(-dk) + ' aşım</b>';
+  }
+  /* NPS grubu — components.md §9: 9-10 destekleyici · 7-8 nötr · 0-6 kötüleyici.
+     Bu üç değer GV.badge sözlüğünde yok, açık ton geçilir. */
+  function npsGrup(v){ return v == null ? null : v >= 9 ? 'Destekleyici' : v >= 7 ? 'Nötr' : 'Kötüleyici'; }
+  function npsBadge(v){
+    if(v == null) return null;
+    return GV.badge(npsGrup(v), v >= 9 ? 'is-ok' : v >= 7 ? 'is-warn' : 'is-danger');
+  }
+  function puanBadge(v){
+    if(v == null) return null;
+    return GV.badge(v + ' / 5', v >= 4 ? 'is-ok' : v >= 3 ? 'is-warn' : 'is-danger');
+  }
+
+  /* =================================================================
+     GÖREVE DÖNÜŞTÜRME — app-toplanti-karar.html deseni
+     ================================================================= */
+  var me = GV.session.emp;
+  var tabsApi = null;
+
+  /* Yeni kayıt üretilince Dönüşümler sekmesi ve aktivite kartları yerinde tazelenir
+     (sayfa yeniden yüklenirse mock veri sıfırlanır, üretilen görev kaybolurdu). */
+  function donusumYenile(){
+    var panel = document.querySelector('[data-panel="donusum"]');
+    if(panel) panel.innerHTML = donusumPaneli();
+    var d = donusumleriTara();
+    var toplam = d.gorevler.length + d.hatalar.length + d.degisim.length;
+    var tab = document.querySelector('#recTabs [data-tab="donusum"]');
+    if(tab){
+      var cnt = tab.querySelector('.gv-tab-cnt');
+      if(!cnt && toplam){
+        cnt = document.createElement('span');
+        cnt.className = 'gv-tab-cnt';
+        tab.appendChild(cnt);
+      }
+      if(cnt) cnt.textContent = toplam;
+    }
+    var yeniActs = DB.activities.filter(function(a){ return a.kayit === t.kod; });
+    var aktivitePanel = document.querySelector('[data-panel="aktivite"]');
+    if(aktivitePanel && yeniActs.length) aktivitePanel.innerHTML = '<div class="gc-body">' + GV.activity(yeniActs) + '</div>';
+    var aktiviteTab = document.querySelector('#recTabs [data-tab="aktivite"]');
+    if(aktiviteTab && yeniActs.length){
+      var acnt = aktiviteTab.querySelector('.gv-tab-cnt');
+      if(!acnt){
+        acnt = document.createElement('span');
+        acnt.className = 'gv-tab-cnt';
+        aktiviteTab.appendChild(acnt);
+      }
+      acnt.textContent = yeniActs.length;
+    }
+  }
+
+  function yeniGorevKodu(){
+    var max = 0;
+    DB.tasks.forEach(function(x){
+      var m = /^GRV-2026-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'GRV-2026-' + (max + 1);
+  }
+  function varsayilanTur(){
+    return t.kategori === 'Hata' ? 'Hata' : 'Destek talebi';
+  }
+  function gorevOlustur(opt){
+    var kod = yeniGorevKodu();
+    var atanan = opt.sorumlu || t.sorumlu;
+    var etki = DB.impacts.indexOf(t.etki) !== -1 ? t.etki : 'Orta';
+    DB.tasks.unshift({
+      kod:kod,
+      baslik:opt.baslik,
+      tur:opt.tur,
+      proje:t.proje || null, modul:null, sprint:null, musteri:t.musteri || null,
+      dep:(DB.emp(atanan) || {}).dep || null,
+      olusturan:me, veren:me, sorumlu:atanan, yardimci:[],
+      izleyiciler:[t.sorumlu].filter(function(k){ return k && k !== atanan; }),
+      kontrolEden:me, onaylayan:me,
+      oncelik:opt.oncelik, etki:etki, aciliyet:opt.oncelik === 'Kritik' ? 'Yüksek' : opt.oncelik,
+      durum:'Atandı', baslangic:DB.today, termin:opt.termin, tamamlanma:null,
+      tahminiSure:opt.tahminiSure, gercekSure:0, faturalanabilir:0,
+      ilerleme:0, revizyon:0, yenidenAcilma:0,
+      aciklama:'Destek talebinden üretildi: ' + t.kod + ' · ' + t.baslik +
+               ' (' + t.musteriAd + ' · ' + t.kategori + ')',
+      amac:'Müşteri destek talebinin kalıcı çözüme bağlanması',
+      kabulKriteri:'Çözüm talep sahibine doğrulatıldı ve ' + t.kod + ' destek kaydı kapatıldı',
+      beklenenCikti:'Çözüm ve destek kaydına yazılan kapanış notu',
+      etiketler:['Destek talebi', t.kod], aktif:true
+    });
+    DB.activities.unshift({
+      kayit:t.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
+      kisi:GV.session.ad, metin:'Talepten görev üretildi — ' + kod,
+      eski:null, yeni:kod, tone:'accent', icon:'i-tasks'
+    });
+    return kod;
+  }
+  function donusturModal(){
+    GV.modal({
+      title:'Talebi Göreve Dönüştür', text:t.kod + ' · ' + t.musteriAd, icon:'i-tasks', size:'lg',
+      body:'<div class="field"><label for="dgBaslik">Görev başlığı</label>' +
+             '<input type="text" id="dgBaslik" class="inp" value="' + esc(t.baslik) + '"></div>' +
+           '<div class="gv-grid gv-grid-2 u-mt-4">' +
+             '<div class="field"><label for="dgTur">Görev türü</label><select id="dgTur">' +
+               DB.taskTypes.map(function(x){
+                 return '<option value="' + esc(x) + '"' + (x === varsayilanTur() ? ' selected' : '') + '>' +
+                        esc(x) + '</option>'; }).join('') + '</select></div>' +
+             '<div class="field"><label for="dgOncelik">Öncelik</label><select id="dgOncelik">' +
+               DB.priorities.map(function(x){
+                 return '<option value="' + esc(x) + '"' + (x === t.oncelik ? ' selected' : '') + '>' +
+                        esc(x) + '</option>'; }).join('') + '</select></div>' +
+             '<div class="field"><label for="dgSorumlu">Atanan</label><select id="dgSorumlu">' +
+               DB.employees.filter(function(e){ return e.aktif !== false; }).map(function(e){
+                 return '<option value="' + esc(e.kod) + '"' + (e.kod === t.sorumlu ? ' selected' : '') + '>' +
+                        esc(e.ad) + '</option>'; }).join('') + '</select></div>' +
+             '<div class="field"><label for="dgTermin">Termin</label>' +
+               '<input type="date" id="dgTermin" value="' + esc(DB.today) + '"></div>' +
+             '<div class="field"><label for="dgSure">Tahmini süre (saat)</label>' +
+               '<input type="number" id="dgSure" class="inp" min="1" step="1" value="8"></div>' +
+           '</div>' +
+           GV.notice({ tone:'info', title:'Görev talebe etiketle bağlanır',
+             text:'Veri modelinde destek talebini göreve bağlayan ayrı bir alan tutulmuyor. ' +
+                  'Üretilen görev ' + t.kod + ' etiketiyle işaretlenir ve “Dönüşümler” sekmesinde listelenir. ' +
+                  'Müşteri, proje ve öncelik talep kaydından devralınır.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Görev Oluştur', cls:'btn-acc', onClick:function(close, el){
+            var baslik = el.querySelector('#dgBaslik').value.trim();
+            if(!baslik){ GV.toast('Görev başlığı boş bırakılamaz', 'warn'); return false; }
+            var sureDeger = parseInt(el.querySelector('#dgSure').value, 10);
+            var kod = gorevOlustur({
+              baslik:baslik,
+              tur:el.querySelector('#dgTur').value,
+              oncelik:el.querySelector('#dgOncelik').value,
+              sorumlu:el.querySelector('#dgSorumlu').value,
+              termin:el.querySelector('#dgTermin').value || DB.today,
+              tahminiSure:(!sureDeger || sureDeger < 1) ? 8 : sureDeger
+            });
+            donusumYenile();
+            GV.result({ tone:'ok', title:'Görev oluşturuldu',
+              text:kod + ' açıldı ve ' + t.kod + ' talebine bağlandı.',
+              actions:[
+                { label:'Görevi aç', cls:'btn-acc', onClick:function(){
+                    location.href = 'app-gorev-detay.html?id=' + kod; } },
+                { label:'Dönüşümleri gör', cls:'btn-line', onClick:function(){
+                    if(tabsApi) tabsApi.activate('donusum', true); } }
+              ] });
+          } }
+      ]
+    });
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  var actions = [
+    { label:'Destek listesi', icon:'i-support',   href:'app-destek.html' },
+    { label:'SLA takibi',     icon:'i-hourglass', href:'app-destek-sla.html' }
+  ];
+  if(canEkle){
+    actions.push({ label:'Göreve dönüştür', icon:'i-tasks', cls:'btn-acc', run:donusturModal });
+  }
+
+  GV.pageHead({
+    eyebrow:'Destek ve Bakım', title:'Destek Talebi Detayı',
+    sub:t.kod + ' · ' + t.musteriAd + ' · ' + t.kategori,
+    actions:actions
+  });
+
+  /* =================================================================
+     KAYIT BAŞLIĞI
+     ================================================================= */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + t.kod + '</span>' +
+        GV.badge(t.durum) + GV.pri(t.oncelik) + GV.badge(t.slaDurum) +
+        (t.ucretli ? '<span class="badge is-warn no-dot">Ücretli</span>' : '<span class="tag">Bakım paketi kapsamında</span>') +
+        (t.aktif === false ? '<span class="tag">Pasif</span>' : '') + '</div>' +
+      '<h1>' + esc(t.baslik) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        (musteri
+          ? '<span>' + ico('i-building','ic-sm') + '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' +
+            esc(musteri.kisa) + '</a></span>'
+          : '<span>' + ico('i-building','ic-sm') + esc(t.musteriAd) + '</span>') +
+        '<span>' + ico('i-tag','ic-sm') + esc(t.kategori) + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + 'Açılış ' + F.dt(t.acilis) + '</span>' +
+        '<span>' + ico('i-user','ic-sm') + esc(DB.empName(t.sorumlu)) + '</span>' +
+        (proje ? '<span>' + ico('i-briefcase','ic-sm') + '<a href="app-proje-detay.html?id=' + proje.kod + '">' +
+          esc(proje.ad) + '</a></span>' : '') +
+        '<span>' + ico('i-hourglass','ic-sm') + 'SLA ' + esc(t.sla) + '</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* =================================================================
+     SEKMELER
+     ================================================================= */
+  var don = donusumleriTara();
+  var donSayi = don.gorevler.length + don.hatalar.length + don.degisim.length;
+
+  var tabs = [
+    { key:'genel',      lbl:'Genel',            ic:'i-info' },
+    { key:'sla',        lbl:'SLA',              ic:'i-hourglass' },
+    { key:'paket',      lbl:'Bakım Paketi',     ic:'i-shield-check', cnt:paket ? 1 : 0 },
+    { key:'memnuniyet', lbl:'Memnuniyet',       ic:'i-star',         cnt:anket ? 1 : 0 },
+    { key:'donusum',    lbl:'Dönüşümler',       ic:'i-refresh',      cnt:donSayi },
+    { key:'aktivite',   lbl:'Aktivite Geçmişi', ic:'i-activity',     cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL — DB.tickets alanlarının tamamı
+     ================================================================= */
+  var pGenel = '<div class="gc-body">' +
+    GV.notice({ tone:'neutral', icon:'i-info', title:'Talep gövdesi ayrı tutulmuyor',
+      text:'Destek kaydında serbest metin açıklaması, geliş kanalı (telefon / e-posta / portal) ve ' +
+           'kapanış zamanı için ayrı alan bulunmuyor. Aşağıdaki kapanış anı, açılış zamanına çözüm ' +
+           'süresi eklenerek türetilmiştir.' }) +
+    sec('Talep Kimliği', dl([
+      ['Talep kodu', '<span class="u-num">' + esc(t.kod) + '</span>'],
+      ['Konu', esc(t.baslik)],
+      ['Kategori', '<span class="tag">' + esc(t.kategori) + '</span>'],
+      ['Öncelik', GV.pri(t.oncelik)],
+      ['Etki', '<span class="tag">' + esc(t.etki) + '</span>'],
+      ['Durum', GV.badge(t.durum)],
+      ['Kayıt durumu', t.aktif === false ? GV.badge('Pasif') : GV.badge('Aktif')]
+    ])) +
+    sec('Müşteri ve Bağlam', dl([
+      ['Müşteri', musteri
+        ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>' +
+          ' <span class="cell-sub">' + esc(musteri.kod) + ' · ' + esc(musteri.sektor) + '</span>'
+        : esc(t.musteriAd)],
+      ['Müşteri durumu', musteri ? GV.badge(musteri.durum) : null],
+      ['Talebi açan', esc(t.acan) +
+        (yetkili ? ' <span class="cell-sub">' + esc(yetkili.pozisyon) + ' · ' + esc(yetkili.kod) + '</span>'
+                 : ' <span class="cell-sub">Müşteri yetkili kartıyla eşleşmedi</span>')],
+      ['Yetkili iletişim', yetkili
+        ? esc(yetkili.eposta) + ' <span class="cell-sub">' + esc(yetkili.tel) + '</span>' : null],
+      ['Atanan personel', GV.user(t.sorumlu, { sm:true })],
+      ['Bağlı proje', proje
+        ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+          ' <span class="cell-sub">' + esc(proje.kod) + ' · ' + esc(proje.durum) + '</span>'
+        : '<span class="u-faint">Projeye bağlı değil</span>']
+    ])) +
+    sec('Zaman Çizelgesi', dl([
+      ['Açılış zamanı', '<span class="cell-date">' + F.dt(t.acilis) + '</span>'],
+      ['İlk yanıt zamanı', t.ilkYanit
+        ? '<span class="cell-date">' + F.dt(t.ilkYanit) + '</span>'
+        : '<span class="u-faint">Henüz yanıtlanmadı</span>'],
+      ['Müdahale süresi <span class="u-faint">(ilk yanıt)</span>', t.mudahaleSuresi != null
+        ? '<b class="u-num">' + sure(t.mudahaleSuresi) + '</b> ' + GV.badge(yanitDurum)
+        : GV.badge('Yanıt bekliyor')],
+      ['Çözüm süresi', t.cozumSuresi != null
+        ? '<b class="u-num">' + sure(t.cozumSuresi) + '</b>'
+        : '<span class="u-faint">Henüz çözülmedi · açılıştan bu yana ' + sure(gecenAcilis) + '</span>'],
+      ['Kapanış zamanı <span class="u-faint">(türetilmiş)</span>', cozumAni
+        ? '<span class="cell-date">' + F.dt(cozumAni) + '</span>' +
+          ' <span class="cell-sub">açılış + çözüm süresi</span>'
+        : '<span class="u-faint">Talep açık</span>'],
+      ['Harcanan efor', saat(t.harcananSure)]
+    ])) +
+    sec('SLA ve Bakım', dl([
+      ['SLA etiketi', '<span class="badge is-info no-dot">' + esc(t.sla) + '</span>'],
+      ['SLA durumu <span class="u-faint">(kayıtlı)</span>', GV.badge(t.slaDurum)],
+      ['SLA durumu <span class="u-faint">(hesaplanan)</span>', GV.badge(slaHesap) +
+        ' <span class="cell-sub">belirleyen eksen: ' + esc(eksen) + '</span>'],
+      ['Ücretlendirme', t.ucretli
+        ? '<span class="badge is-warn no-dot">Ücretli</span>'
+        : '<span class="tag">Bakım paketi kapsamında</span>'],
+      ['Bakım paketi', t.bakimPaketi && t.bakimPaketi !== '—'
+        ? '<span class="tag">' + esc(t.bakimPaketi) + '</span>' +
+          (paket ? ' <span class="cell-sub">' + esc(paket.kod) + ' · ' + esc(paket.ad) + '</span>' : '')
+        : '<span class="u-faint">Bakım paketi yok</span>'],
+      ['Kalan destek kotası', t.kalanDestek
+        ? saat(t.kalanDestek) : '<span class="u-faint">Kota tanımlı değil</span>']
+    ])) +
+    sec('Memnuniyet', dl([
+      ['Memnuniyet puanı', t.memnuniyet != null
+        ? puanBadge(t.memnuniyet)
+        : '<span class="u-faint">Anket henüz yanıtlanmadı</span>'],
+      ['Anket kaydı', anket
+        ? '<a href="app-destek-memnuniyet.html">' + esc(anket.kod) + '</a>' +
+          ' <span class="cell-sub">' + esc(anket.durum) + ' · ' + esc(anket.kanal) + '</span>'
+        : '<span class="u-faint">Bu talebe bağlı anket yok</span>'],
+      ['Tavsiye skoru <span class="u-faint">(NPS)</span>', anket && anket.tavsiye != null
+        ? '<b class="u-num">' + anket.tavsiye + ' / 10</b> ' + npsBadge(anket.tavsiye) : null]
+    ])) +
+    '</div>';
+
+  /* =================================================================
+     2. SLA
+     ================================================================= */
+  var slaUyum = (t.slaDurum !== slaHesap)
+    ? GV.notice({ tone:'warn', icon:'i-alert', title:'Kayıtlı SLA durumu hesapla uyuşmuyor',
+        text:'Talep kartında “' + t.slaDurum + '” yazılı, iki eksenin kötüsünden hesaplanan ' +
+          'değer “' + slaHesap + '”. Ekranda hesaplanan değer esas alınır.' })
+    : '';
+  var etiketUyum = (P && t.sla !== P.etiket)
+    ? GV.notice({ tone:'warn', icon:'i-alert', title:'SLA etiketi politikayla eşleşmiyor',
+        text:'Talep kartında “' + t.sla + '” yazılı, ' + P.kod + ' politikasının çözüm etiketi “' + P.etiket + '”.' })
+    : '';
+
+  var eskalasyonVar = P && P.eskalasyon && P.eskalasyon !== 'Yok';
+  var eskalasyonDurum = !acikTalep
+    ? GV.badge('Kapandı, eskalasyon gerekmiyor', 'is-neutral')
+    : slaHesap === 'İhlal edildi'
+      ? GV.badge('Eskalasyon gerekli', 'is-danger')
+      : slaHesap === 'Risk altında'
+        ? GV.badge('Eskalasyon eşiğine yaklaşıldı', 'is-warn')
+        : GV.badge('Eskalasyon gerekmiyor', 'is-ok');
+
+  var pSla = P
+    ? '<div class="gc-body">' +
+        GV.notice({ tone:'info', icon:'i-hourglass', title:'SLA hesap tabanı',
+          text:'Genel durum ilk yanıt ve çözüm eksenlerinin kötüsünü yansıtır: her eksende tüketim ' +
+               '≥ %100 ise ihlal, ≥ %75 ise risk altında sayılır. Açık talepte geçen süre ' +
+               F.date(DB.today) + ' gününün başlangıcına göre takvim dakikası olarak ölçülür; ' +
+               'çalışma saati kısıtı (mesai içi / 7-24) hesaba katılmaz.' }) +
+        slaUyum + etiketUyum +
+        sec('Uygulanan Politika', dl([
+          ['Politika kodu', '<span class="u-num">' + esc(P.kod) + '</span>'],
+          ['Kategori', '<span class="tag">' + esc(P.kategori) + '</span>'],
+          ['Öncelik kapsamı', P.oncelik === 'Tümü'
+            ? '<span class="tag">Tüm öncelikler</span>' : GV.pri(P.oncelik)],
+          ['İlk yanıt hedefi', '<b class="u-num">' + sure(P.ilkYanit) + '</b>'],
+          ['Çözüm hedefi', '<b class="u-num">' + sure(P.cozum) + '</b>' +
+            ' <span class="cell-sub">Etiket: ' + esc(P.etiket) + '</span>'],
+          ['Çalışma saati', '<span class="tag">' + esc(P.calismaSaati) + '</span>'],
+          ['Eskalasyon kuralı', eskalasyonVar
+            ? esc(P.eskalasyon) : '<span class="u-faint">Bu politikada eskalasyon tanımlı değil</span>'],
+          ['Eskalasyon durumu', eskalasyonDurum]
+        ])) +
+        sec('İlk Yanıt Ekseni', dl([
+          ['Hedef', '<b class="u-num">' + sure(yanitHedef) + '</b>'],
+          ['Gerçekleşen', t.mudahaleSuresi != null
+            ? '<b class="u-num">' + sure(t.mudahaleSuresi) + '</b>' +
+              ' <span class="cell-sub">' + F.dt(t.ilkYanit) + '</span>'
+            : '<span class="u-faint">Yanıt verilmedi · açılıştan bu yana ' + sure(gecenAcilis) + '</span>'],
+          ['Kalan / aşım', kalanMetin(yanitKalan)],
+          ['Hedef tüketimi', yanitYuzde == null ? null :
+            GV.progress(Math.min(100, yanitYuzde), { tone:tonu(seviye(yanitOran)) }) +
+            '<span class="cell-sub">Gerçek tüketim %' + yanitYuzde + '</span>'],
+          ['Eksen durumu', GV.badge(yanitDurum) + ' ' + GV.badge(seviye(yanitOran))]
+        ])) +
+        sec('Çözüm Ekseni', dl([
+          ['Hedef', '<b class="u-num">' + sure(cozumHedef) + '</b>'],
+          ['Gerçekleşen', t.cozumSuresi != null
+            ? '<b class="u-num">' + sure(t.cozumSuresi) + '</b>' +
+              (cozumAni ? ' <span class="cell-sub">' + F.dt(cozumAni) + ' (türetilmiş)</span>' : '')
+            : '<span class="u-faint">Çözülmedi · açılıştan bu yana ' + sure(gecenAcilis) + '</span>'],
+          ['Kalan / aşım', kalanMetin(cozumKalan)],
+          ['Hedef tüketimi', cozumYuzde == null ? null :
+            GV.progress(Math.min(100, cozumYuzde), { tone:tonu(seviye(cozumOran)) }) +
+            '<span class="cell-sub">Gerçek tüketim %' + cozumYuzde + '</span>'],
+          ['Eksen durumu', GV.badge(cozumDurum, cozumDurum === 'Çözüm bekliyor' ? 'is-warn' : '') +
+            ' ' + GV.badge(seviye(cozumOran))]
+        ])) +
+        sec('İki Eksenin Kötüsü', dl([
+          ['Belirleyen eksen', '<b>' + esc(eksen) + '</b>' +
+            ' <span class="cell-sub">ilk yanıt %' + (yanitYuzde == null ? '—' : yanitYuzde) +
+            ' · çözüm %' + (cozumYuzde == null ? '—' : cozumYuzde) + '</span>'],
+          ['Genel SLA durumu', GV.badge(slaHesap)],
+          ['Genel tüketim', slaYuzde == null ? null :
+            GV.progress(Math.min(100, slaYuzde), { tone:tonu(slaHesap) }) +
+            '<span class="cell-sub">Gerçek tüketim %' + slaYuzde + '</span>'],
+          ['Ölçüm tabanı', acikTalep
+            ? 'Açık talep — geçen süre ' + F.date(DB.today) + ' günü başlangıcına göre'
+            : 'Kapanmış talep — kayıtlı müdahale ve çözüm süreleri']
+        ])) +
+      '</div>' +
+      '<div class="gc-body flush">' +
+      tbl('<th>Politika</th><th>Kategori</th><th>Öncelik</th><th class="num">İlk yanıt hedefi</th>' +
+          '<th class="num">Çözüm hedefi</th><th>Çalışma saati</th>',
+        DB.slaPolicies.map(function(p){
+          var bu = p === P;
+          return '<tr>' +
+            '<td>' + (bu
+              ? '<span class="cell-main">' + esc(p.kod) + '</span><span class="cell-code">Bu talebe uygulanan</span>'
+              : '<span class="cell-main">' + esc(p.kod) + '</span><span class="cell-code">' + esc(p.etiket) + '</span>') + '</td>' +
+            '<td><span class="tag">' + esc(p.kategori) + '</span></td>' +
+            '<td>' + (p.oncelik === 'Tümü' ? '<span class="tag">Tüm öncelikler</span>' : GV.pri(p.oncelik)) + '</td>' +
+            '<td class="num"><span class="u-num">' + sure(p.ilkYanit) + '</span></td>' +
+            '<td class="num"><span class="u-num">' + sure(p.cozum) + '</span></td>' +
+            '<td><span class="tag">' + esc(p.calismaSaati) + '</span></td></tr>';
+        }).join('')) +
+      sayac('<b>' + DB.slaPolicies.length + '</b> politika · kategori × öncelik matrisi',
+        '<a class="btn btn-line btn-sm" href="app-destek-sla.html">' + ico('i-hourglass','ic-sm') + ' SLA takibi</a>') +
+      '</div>'
+    : '<div class="gc-body flush">' + GV.empty({
+        icon:'i-hourglass', title:'SLA politikası eşleşmedi',
+        desc:'“' + t.kategori + '” kategorisi ve “' + t.oncelik + '” önceliği için tanımlı bir ' +
+             'SLA politikası bulunamadı. Hedef süreler hesaplanamıyor.',
+        action:'<a class="btn btn-acc" href="app-destek-sla.html">SLA takibine git</a>' }) + '</div>';
+
+  /* =================================================================
+     3. BAKIM PAKETİ
+     ================================================================= */
+  var kotaUyari = (paket && paket.kalan !== t.kalanDestek)
+    ? GV.notice({ tone:'warn', icon:'i-alert', title:'Kota değerleri uyuşmuyor',
+        text:'Talep kartında kalan destek ' + F.hours(t.kalanDestek) + ' yazılı, ' + paket.kod +
+             ' paketinde kalan kota ' + F.hours(paket.kalan) + '.' })
+    : '';
+  var finansNot = canFinans ? '' : GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Paket kotası ve kullanımı listelenir, ' +
+         'paket bedeli maskelenir.' });
+
+  var pPaket = paket
+    ? '<div class="gc-body">' + finansNot + kotaUyari +
+        sec('Paket Bilgileri', dl([
+          ['Paket kodu', '<span class="u-num">' + esc(paket.kod) + '</span>'],
+          ['Paket adı', esc(paket.ad)],
+          ['Durum', GV.badge(paket.durum)],
+          ['Dönem', F.date(paket.baslangic) + ' – ' + F.date(paket.bitis)],
+          ['Müşteri', musteri
+            ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>'
+            : esc(t.musteriAd)],
+          ['Paket bedeli <span class="u-faint">(KDV hariç)</span>', para(paket.tutar)]
+        ])) +
+        sec('Kota Kullanımı', dl([
+          ['Aylık kota', saat(paket.aylikSaat)],
+          ['Dönem uzunluğu', paketDonemAy != null
+            ? '<b class="u-num">' + paketDonemAy + ' ay</b>' +
+              ' <span class="cell-sub">' + F.hours(paket.aylikSaat) + ' × ' + paketDonemAy + ' ay</span>'
+            : null],
+          ['Toplam kota', saat(paketToplamKota)],
+          ['Kullanılan', saat(paket.kullanilan)],
+          ['Kalan', saat(paket.kalan) +
+            ' <span class="cell-sub">talep kartındaki kalan destek: ' + F.hours(t.kalanDestek) + '</span>'],
+          ['Kota tüketimi', paketYuzde == null ? null :
+            GV.progress(paketYuzde, { tone:paketYuzde >= 90 ? 'danger' : paketYuzde >= 75 ? 'warn' : 'ok' })],
+          ['Bu talebin eforu', saat(t.harcananSure) +
+            (t.ucretli ? ' <span class="cell-sub">Ücretli — kotadan düşmez</span>'
+                       : ' <span class="cell-sub">Kota kapsamında</span>')]
+        ])) +
+        sec('Yenileme ve Sözleşme', dl([
+          ['Yenileme', paket.yenileme
+            ? GV.badge('Yenilemesi yaklaşan') : '<span class="u-faint">Yenilemesiz</span>'],
+          ['Yenileme tarihi', paket.yenilemeTarihi
+            ? GV.dateCell(paket.yenilemeTarihi, { done:paket.durum === 'Sona erdi' }) +
+              ' <span class="cell-sub">' + F.rel(paket.yenilemeTarihi) + '</span>'
+            : null],
+          ['Bağlı sözleşme', paketSozlesme
+            ? '<a href="app-sozlesme.html">' + esc(paketSozlesme.kod) + '</a>' +
+              ' <span class="cell-sub">' + esc(paketSozlesme.ad) + '</span>'
+            : (paket.sozlesme
+                ? '<span class="u-num">' + esc(paket.sozlesme) + '</span>' +
+                  ' <span class="cell-sub">Sözleşme kaydı bulunamadı</span>'
+                : '<span class="u-faint">Sözleşmeye bağlanmamış</span>')],
+          ['Sözleşme bedeli <span class="u-faint">(KDV hariç)</span>',
+            paketSozlesme ? para(paketSozlesme.tutar) : null],
+          ['Sözleşme dönemi', paketSozlesme
+            ? F.date(paketSozlesme.baslangic) + ' – ' + F.date(paketSozlesme.bitis) : null]
+        ])) +
+      '</div>' +
+      '<div class="gc-body flush">' +
+      tbl('<th>Talep</th><th>Kategori</th><th class="num">Harcanan efor</th><th>Ücretlendirme</th>' +
+          '<th class="num">Kalan kota</th><th>Durum</th>',
+        DB.tickets.filter(function(x){ return x.musteri === t.musteri; })
+          .sort(function(a,b){ return String(b.acilis).localeCompare(String(a.acilis)); })
+          .map(function(x){
+            var bu = x.kod === t.kod;
+            return '<tr>' +
+              '<td class="cell-wrap">' + (bu
+                ? '<span class="cell-main">' + esc(x.baslik) + '</span><span class="cell-code">' + x.kod + ' · Bu talep</span>'
+                : '<a class="cell-main" href="app-destek-detay.html?id=' + x.kod + '">' + esc(x.baslik) + '</a>' +
+                  '<span class="cell-code">' + x.kod + '</span>') + '</td>' +
+              '<td><span class="tag">' + esc(x.kategori) + '</span></td>' +
+              '<td class="num"><span class="u-num">' + F.hours(x.harcananSure) + '</span></td>' +
+              '<td>' + (x.ucretli ? '<span class="badge is-warn no-dot">Ücretli</span>'
+                                  : '<span class="tag">Kota</span>') + '</td>' +
+              '<td class="num"><span class="u-num">' + F.hours(x.kalanDestek) + '</span></td>' +
+              '<td>' + GV.badge(x.durum) + '</td></tr>';
+          }).join('')) +
+      sayac('<b>' + DB.tickets.filter(function(x){ return x.musteri === t.musteri; }).length +
+        '</b> talep · ' + esc(t.musteriAd) + ' paketi kapsamında',
+        '<a class="btn btn-line btn-sm" href="app-destek-paket.html">' + ico('i-shield-check','ic-sm') +
+        ' Bakım paketleri</a>') +
+      '</div>'
+    : '<div class="gc-body flush">' + GV.empty({
+        icon:'i-shield-check', title:'Bakım paketi yok',
+        desc:t.musteriAd + ' için tanımlı bir bakım paketi bulunmuyor. Bu talep paket kotası ' +
+             'dışında yürütülür; efor ücretlendirmesi talep kartındaki “ücretli” işaretinden okunur.',
+        action:'<a class="btn btn-acc" href="app-destek-paket.html">Bakım paketlerine git</a>' }) + '</div>';
+
+  /* =================================================================
+     4. MEMNUNİYET
+     ================================================================= */
+  var puanUyari = (anket && anket.puan != null && t.memnuniyet != null && anket.puan !== t.memnuniyet)
+    ? GV.notice({ tone:'warn', icon:'i-alert', title:'Anket puanı talep kartıyla eşleşmiyor',
+        text:'Talep kartında memnuniyet ' + t.memnuniyet + ', anket kaydında ' + anket.puan + ' yazılı.' })
+    : '';
+
+  var pMemnuniyet = anket
+    ? '<div class="gc-body">' + puanUyari +
+        (anket.durum === 'Bekliyor'
+          ? GV.notice({ tone:'info', icon:'i-send', title:'Anket yanıt bekliyor',
+              text:anket.kod + ' anketi ' + F.date(anket.tarih) + ' tarihinde ' + anket.kanal.toLowerCase() +
+                   ' ile gönderildi. Yanıtlanmadığı için puanı ortalamaya girmez.' })
+          : '') +
+        sec('Anket Kaydı', dl([
+          ['Anket kodu', '<span class="u-num">' + esc(anket.kod) + '</span>'],
+          ['Anket türü', '<span class="tag">' + esc(anket.tur) + '</span>'],
+          ['İlgili kayıt', '<span class="u-num">' + esc(anket.ilgili) + '</span>' +
+            ' <span class="cell-sub">bu destek talebi</span>'],
+          ['Gönderim tarihi', GV.dateCell(anket.tarih, { done:anket.durum === 'Yanıtlandı' })],
+          ['Kanal', '<span class="tag">' + esc(anket.kanal) + '</span>'],
+          ['Yanıtlayan', esc(anket.yanitlayan)],
+          ['Durum', GV.badge(anket.durum)]
+        ])) +
+        sec('Sonuç', dl([
+          ['Memnuniyet puanı', anket.puan != null
+            ? puanBadge(anket.puan) : '<span class="u-faint">Henüz yanıtlanmadı</span>'],
+          ['Talep kartındaki puan', t.memnuniyet != null
+            ? puanBadge(t.memnuniyet) : '<span class="u-faint">Boş</span>'],
+          ['Tavsiye skoru <span class="u-faint">(NPS 0-10)</span>', anket.tavsiye != null
+            ? '<b class="u-num">' + anket.tavsiye + ' / 10</b> ' + npsBadge(anket.tavsiye)
+            : '<span class="u-faint">Henüz yanıtlanmadı</span>'],
+          ['NPS grubu', anket.tavsiye != null
+            ? npsBadge(anket.tavsiye) + ' <span class="cell-sub">9-10 destekleyici · 7-8 nötr · 0-6 kötüleyici</span>'
+            : null],
+          ['Yorum', anket.yorum
+            ? '<span class="cell-wrap">' + esc(anket.yorum) + '</span>'
+            : '<span class="u-faint">Yorum girilmedi</span>'],
+          ['Müşteri memnuniyet ortalaması', musteri && musteri.memnuniyet != null
+            ? puanBadge(musteri.memnuniyet) +
+              ' <span class="cell-sub">' + esc(musteri.kisa) + ' · tüm yanıtlanmış anketler</span>'
+            : null]
+        ])) +
+      '</div>' +
+      '<div class="gc-body flush">' +
+      tbl('<th>Anket</th><th>Tür</th><th>Tarih</th><th>Kanal</th><th class="num">Puan</th>' +
+          '<th class="num">NPS</th><th>Durum</th>',
+        DB.surveys.filter(function(a){ return a.musteri === t.musteri; })
+          .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+          .map(function(a){
+            var bu = a.kod === anket.kod;
+            return '<tr>' +
+              '<td>' + (bu
+                ? '<span class="cell-main">' + esc(a.kod) + '</span><span class="cell-code">Bu talebin anketi</span>'
+                : '<a class="cell-main" href="app-destek-memnuniyet.html">' + esc(a.kod) + '</a>' +
+                  '<span class="cell-code">' + esc(a.ilgili || '—') + '</span>') + '</td>' +
+              '<td><span class="tag">' + esc(a.tur) + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(a.tarih) + '</span></td>' +
+              '<td>' + esc(a.kanal) + '</td>' +
+              '<td class="num">' + (a.puan != null ? '<span class="u-num">' + a.puan + '</span>'
+                                                   : '<span class="u-faint">—</span>') + '</td>' +
+              '<td class="num">' + (a.tavsiye != null ? '<span class="u-num">' + a.tavsiye + '</span>'
+                                                      : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(a.durum) + '</td></tr>';
+          }).join('')) +
+      sayac('<b>' + DB.surveys.filter(function(a){ return a.musteri === t.musteri; }).length +
+        '</b> anket · ' + esc(t.musteriAd),
+        '<a class="btn btn-line btn-sm" href="app-destek-memnuniyet.html">' + ico('i-star','ic-sm') +
+        ' Memnuniyet ekranı</a>') +
+      '</div>'
+    : '<div class="gc-body flush">' + GV.empty({
+        icon:'i-star', title:'Bu talebe bağlı anket yok',
+        desc:'Destek talebi kapandığında müşteriye memnuniyet anketi gönderilir. ' + t.kod +
+             ' için henüz bir anket kaydı oluşturulmamış.',
+        action:'<a class="btn btn-acc" href="app-destek-memnuniyet.html">Memnuniyet ekranına git</a>' }) + '</div>';
+
+  /* =================================================================
+     5. DÖNÜŞÜMLER
+     ================================================================= */
+  function donusumPaneli(){
+    var d = donusumleriTara();
+    var toplam = d.gorevler.length + d.hatalar.length + d.degisim.length;
+    if(!toplam){
+      return '<div class="gc-body flush">' + GV.empty({
+        icon:'i-refresh', title:'Bu talepten üretilmiş kayıt yok',
+        desc:'Veri modelinde destek talebini göreve, hata kaydına veya değişiklik talebine bağlayan ayrı ' +
+             'bir alan tutulmuyor; bağ, üretilen kaydın etiket ve açıklama metnindeki talep kodundan okunur. ' +
+             t.kod + ' kodunu taşıyan görev, hata veya değişiklik talebi bulunamadı.',
+        action:canEkle
+          ? '<button type="button" class="btn btn-acc" id="btnDonusturBos">' + ico('i-tasks') +
+            ' Göreve dönüştür</button>'
+          : '<a class="btn btn-line" href="app-gorev.html">Görev listesine git</a>' }) + '</div>';
+    }
+    var out = '<div class="gc-body">' + GV.notice({
+      tone:'neutral', icon:'i-link', title:'Bağ etiket üzerinden kuruluyor',
+      text:'Destek talebini üretilen kayda bağlayan bir veri alanı olmadığı için bağ, kaydın etiket ve ' +
+           'açıklama metnindeki ' + t.kod + ' referansından okunur.' }) + '</div>';
+
+    if(d.gorevler.length){
+      out += '<div class="gc-body flush">' +
+        tbl('<th>Görev</th><th>Tür</th><th>Öncelik</th><th>Sorumlu</th><th>Termin</th>' +
+            '<th class="num">İlerleme</th><th>Durum</th>',
+          d.gorevler.map(function(g){
+            return '<tr>' +
+              '<td class="cell-wrap"><a class="cell-main" href="app-gorev-detay.html?id=' + g.kod + '">' +
+                esc(g.baslik) + '</a><span class="cell-code">' + esc(g.kod) + '</span></td>' +
+              '<td><span class="tag">' + esc(g.tur) + '</span></td>' +
+              '<td>' + GV.pri(g.oncelik) + '</td>' +
+              '<td>' + GV.user(g.sorumlu, { sm:true }) + '</td>' +
+              '<td>' + GV.dateCell(g.termin, { done:g.durum === 'Tamamlandı' }) + '</td>' +
+              '<td class="num">' + GV.progress(g.ilerleme) + '</td>' +
+              '<td>' + GV.badge(g.durum) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + d.gorevler.length + '</b> görev bu talepten üretildi',
+          '<a class="btn btn-line btn-sm" href="app-gorev.html">' + ico('i-tasks','ic-sm') + ' Görev listesi</a>') +
+        '</div>';
+    }
+    if(d.hatalar.length){
+      out += '<div class="gc-body flush">' +
+        tbl('<th>Hata</th><th>Şiddet</th><th>Ortam</th><th>Sorumlu</th><th>Bulunma</th><th>Durum</th>',
+          d.hatalar.map(function(h){
+            return '<tr>' +
+              '<td class="cell-wrap"><a class="cell-main" href="app-proje-hata.html">' + esc(h.baslik) + '</a>' +
+                '<span class="cell-code">' + esc(h.kod) + '</span></td>' +
+              '<td>' + GV.pri(h.siddet) + '</td>' +
+              '<td>' + esc(h.ortam) + '</td>' +
+              '<td>' + GV.user(h.sorumlu, { sm:true }) + '</td>' +
+              '<td><span class="cell-date">' + F.date(h.bulunma) + '</span></td>' +
+              '<td>' + GV.badge(h.durum) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + d.hatalar.length + '</b> hata kaydı',
+          '<a class="btn btn-line btn-sm" href="app-proje-hata.html">' + ico('i-bug','ic-sm') + ' Hata listesi</a>') +
+        '</div>';
+    }
+    if(d.degisim.length){
+      out += '<div class="gc-body flush">' +
+        tbl('<th>Değişiklik talebi</th><th>Talep eden</th><th>Tarih</th><th class="num">Etki (saat)</th>' +
+            '<th>Karar</th><th>Durum</th>',
+          d.degisim.map(function(c){
+            return '<tr>' +
+              '<td class="cell-wrap"><a class="cell-main" href="app-proje-degisiklik.html">' + esc(c.baslik) + '</a>' +
+                '<span class="cell-code">' + esc(c.kod) + '</span></td>' +
+              '<td>' + esc(c.talep) + '</td>' +
+              '<td><span class="cell-date">' + F.date(c.tarih) + '</span></td>' +
+              '<td class="num"><span class="u-num">' + F.num(c.etkiSure) + '</span></td>' +
+              '<td class="cell-wrap">' + esc(c.karar) + '</td>' +
+              '<td>' + GV.badge(c.durum) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + d.degisim.length + '</b> değişiklik talebi',
+          '<a class="btn btn-line btn-sm" href="app-proje-degisiklik.html">' + ico('i-refresh','ic-sm') +
+          ' Değişiklik talepleri</a>') +
+        '</div>';
+    }
+    return out;
+  }
+  var pDonusum = donusumPaneli();
+
+  /* =================================================================
+     6. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body">' + (acts.length
+    ? GV.activity(acts)
+    : GV.empty({ icon:'i-activity', title:'Bu talepte kayıtlı hareket yok',
+        desc:'Destek talebi üzerinde yapılan durum değişiklikleri, atama ve dönüşümler burada listelenir. ' +
+             t.kod + ' için henüz bir hareket kaydı üretilmemiş.' })) + '</div>';
+
+  var panels = {
+    genel:pGenel, sla:pSla, paket:pPaket,
+    memnuniyet:pMemnuniyet, donusum:pDonusum, aktivite:pAktivite
+  };
+
+  /* =================================================================
+     SAĞ ÖZET PANELİ
+     ================================================================= */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Müşteri', musteri
+        ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a>'
+        : esc(t.musteriAd)],
+      ['Kategori', '<span class="tag">' + esc(t.kategori) + '</span>'],
+      ['Öncelik', GV.pri(t.oncelik)],
+      ['Açılış zamanı', '<span class="cell-date">' + F.dt(t.acilis) + '</span>'],
+      ['Atanan personel', GV.user(t.sorumlu, { sm:true })],
+      ['Talep durumu', GV.badge(t.durum)],
+      ['SLA durumu', GV.badge(slaHesap)],
+      ['Memnuniyet', t.memnuniyet != null ? puanBadge(t.memnuniyet) : '<span class="u-faint">Yanıt yok</span>']
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-hourglass') + 'SLA Hedefleri</h2></div>' +
+    '<div class="gc-body">' + (P
+      ? ozetListe([
+          ['İlk yanıt hedefi', '<b class="u-num">' + sure(yanitHedef) + '</b>'],
+          ['İlk yanıt gerçekleşen', t.mudahaleSuresi != null
+            ? '<b class="u-num">' + sure(t.mudahaleSuresi) + '</b>' : GV.badge('Yanıt bekliyor')],
+          ['Çözüm hedefi', '<b class="u-num">' + sure(cozumHedef) + '</b>'],
+          ['Çözüm gerçekleşen', t.cozumSuresi != null
+            ? '<b class="u-num">' + sure(t.cozumSuresi) + '</b>'
+            : '<span class="u-faint">' + sure(gecenAcilis) + ' geçti</span>'],
+          ['Kalan / aşım', kalanMetin(cozumKalan)],
+          ['Belirleyen eksen', '<b>' + esc(eksen) + '</b>'],
+          ['Politika', '<span class="u-num">' + esc(P.kod) + '</span>']
+        ]) +
+        (slaYuzde == null ? '' : '<div class="u-mt-8">' +
+          GV.progress(Math.min(100, slaYuzde), { tone:tonu(slaHesap) }) + '</div>')
+      : '<p class="u-sm u-faint">Bu kategori ve öncelik için tanımlı SLA politikası bulunamadı.</p>') +
+    '</div></section>' +
+
+    (paket
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-shield-check') +
+        'Bakım Paketi</h2></div><div class="gc-body">' +
+        '<span class="cell-main">' + esc(paket.ad) + '</span>' +
+        '<div class="cell-sub u-mb-4">' + esc(paket.kod) + ' · ' + esc(paket.durum) + '</div>' +
+        ozetListe([
+          ['Aylık kota', saat(paket.aylikSaat)],
+          ['Kullanılan', saat(paket.kullanilan)],
+          ['Kalan', saat(paket.kalan)],
+          ['Dönem sonu', GV.dateCell(paket.bitis, { done:paket.durum === 'Sona erdi' })],
+          paket.yenileme ? ['Yenileme', GV.badge('Yenilemesi yaklaşan')] : null
+        ]) +
+        (paketYuzde == null ? '' : '<div class="u-mt-8">' + GV.progress(paketYuzde,
+          { tone:paketYuzde >= 90 ? 'danger' : paketYuzde >= 75 ? 'warn' : 'ok' }) + '</div>') +
+        '</div></section>'
+      : '') +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
+      '<p class="u-sm u-faint">Bu destek talebinde henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  tabsApi = GV.tabs('#recTabs');
+
+  /* =================================================================
+     AKSİYONLAR
+     ================================================================= */
+  mount.addEventListener('click', function(e){
+    if(e.target.closest('#btnDonusturBos')) donusturModal();
+  });
+});
+</script>
+</body>
+</html>
