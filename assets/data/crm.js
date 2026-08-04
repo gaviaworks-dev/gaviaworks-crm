@@ -291,7 +291,17 @@ DB.leads = [
     etiketler:['Beklemede'], notlar:'Yatırım kararı 2027ye ertelendi.' }
 ];
 
-/* ---- Ön analizler (PROMPT.md §10) ------------------------------------- */
+/* ---- Ön analizler (PROMPT.md §10) -------------------------------------
+   EKSENLER:
+   · `maliyet` alan adı yanıltıcıdır — ölçülen eksen **iç maliyet değil, teklifin
+     İNDİRİM ÖNCESİ NET satış fiyatıdır** (KDV hariç). Teklife dönmüş üç analizin
+     üçünde de `maliyet` = `DB.quotes[].araToplam` (612.000 · 428.000 · 298.000);
+     indirim sonrası netle 2/3, brütle 0/3 tutuyor. Alan adı **VB-16** ile
+     yeniden adlandırılacak, eksen o zamana kadar burada yazılı.
+   · `isgucu` **saat** ekseninde girilmiştir (420 · 360 · 260 · 190); birim alan
+     adında yazılı olmadığı için ekranlar etikette "saat" yazar (assumptions).
+   · `sureBirim` sözlüğü **yoktur** — dört kaydın dördü de `'hafta'`. Sözlük
+     doğana kadar form tek seçenekli select basar (VB-17). */
 DB.analyses = [
   { kod:'ANL-2026-001', lead:'LEAD-2026-003', firma:'Poyraz İnşaat Taahhüt', hizmet:'CRM / ERP',
     amac:'Proje, tedarikçi ve ilerleme ödemesi süreçlerini tek sistemde toplamak',
