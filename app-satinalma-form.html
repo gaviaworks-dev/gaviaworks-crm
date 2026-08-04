@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yeni Satın Alma Talebi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satinalma" data-screen="talep">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  /* =====================================================================
+     SATIN ALMA TALEBİ — FORM (PROMPT.md §17)
+     Kaynak koleksiyon: DB.purchases · dönüş listesi: app-satinalma.html
+
+     Üç disiplin:
+     (1) Onay zinciri BURADA DÜZENLENMEZ. `onayAdim` / `onayToplam` forma
+         alan olarak girmez; zincir tutar + kategori + proje bağına göre
+         app-ayar-onay.html'de tanımlı eşiklerden hesaplanır. Bu ekran
+         yalnız ÖNİZLEME basar.
+     (2) Önizleme tahmin değildir: eşikler önce DB.purchases.onayToplam ve
+         DB.purchaseApprovals makam sırasıyla karşılaştırılıp doğrulanır.
+         Doğrulanmazsa önizleme HİÇ basılmaz (uydurma zincir gösterilmez).
+     (3) Kaydedilmiş talebin onay durumu form üzerinden değiştirilemez;
+         yalnız `durum:'Taslak'` kayıtlar düzenlenebilir.
+     ===================================================================== */
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var ME = GV.session.emp;
+
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.purchases.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  function kart(baslik, altBaslik, govde, ikon){
+    return '<div class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon || 'i-cart') + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div></div>' +
+      '<div class="gc-body">' + govde + '</div></div>';
+  }
+  function ozetSatir(lbl, val){
+    return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + esc(lbl) + '</span>' +
+           '<span class="gv-summary-val">' + val + '</span></div>';
+  }
+
+  /* =====================================================================
+     0. ADRESTE id VAR AMA KAYIT YOK
+     ===================================================================== */
+  if(id && !kayit){
+    GV.pageHead({ eyebrow:'Tedarik', title:'Satın Alma Talebi', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Talep listesi', icon:'i-cart', href:'app-satinalma.html' }] });
+    mount.innerHTML = '<div class="gv-card"><div class="gc-body">' + GV.empty({
+      icon:'i-search', title:'Kayıt bulunamadı',
+      desc:id + ' numaralı satın alma talebi bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-satinalma.html">Talep listesine dön</a>' }) +
+      '</div></div>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Talep');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Satın Alma Talebi') + ' — GaviaWorks CRM';
+
+  /* =====================================================================
+     1. YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5, ders L-07)
+     ===================================================================== */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({ eyebrow:'Tedarik', title:duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Satın Alma Talebi',
+      sub:'Bu işlem için yetkiniz yok',
+      actions:[{ label:'Talep listesi', icon:'i-cart', href:'app-satinalma.html' }] });
+    mount.innerHTML = '<div class="gv-card"><div class="gc-body">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Kayıt düzenleme' : 'Kayıt ekleme') + ' yetkisi rolünüzde (' +
+           DB.roleName(GV.perm.role()) + ') tanımlı değil. Satın alma taleplerini ' +
+           'görüntüleyebilir ama değiştiremezsiniz.' }) + '</div></div>';
+    var rt = mount.querySelector('[data-retry]');
+    if(rt) rt.remove();
+    return;
+  }
+
+  /* =====================================================================
+     2. DURUM KAPISI — yalnız Taslak talep düzenlenebilir
+     Onay zincirine girmiş talebin alanları form üzerinden değiştirilemez;
+     bu 403 değildir, kaydın YAŞAM DÖNGÜSÜ kısıtıdır.
+     ===================================================================== */
+  if(duzenle && kayit.durum !== 'Taslak'){
+    GV.pageHead({ eyebrow:'Tedarik', title:kayit.kod + ' · Düzenle',
+      sub:'Talep taslak aşamasını geçtiği için düzenlemeye kapalı',
+      actions:[
+        { label:'Talep listesi', cls:'btn-line', icon:'i-cart', href:'app-satinalma.html' },
+        { label:'Talebi görüntüle', cls:'btn-acc', icon:'i-external', href:'app-satinalma-detay.html?id=' + kayit.kod }
+      ] });
+    mount.innerHTML =
+      GV.notice({ tone:'warn', icon:'i-lock', title:'Bu talep düzenlenemez — salt okunur',
+        text:kayit.kod + ' talebinin durumu “' + kayit.durum + '”. Talep taslak aşamasını geçip ' +
+             'onay zincirine girdikten sonra ürün, miktar, tutar ve bütçe alanları form üzerinden ' +
+             'değiştirilemez; değişiklik onaylanmış tutarı geçersiz kılardı. Onay ilerlemesi ' +
+             (kayit.onayAdim + ' / ' + kayit.onayToplam) + ' adımdadır ve yalnız onay makamlarınca ' +
+             'ilerletilir. Yeni bir ihtiyaç için ayrı talep açın.' }) +
+      '<div class="u-mt-4">' + kart('Talep Özeti', kayit.urun, '<div class="gv-summary">' +
+        ozetSatir('Talep kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>') +
+        ozetSatir('Durum', GV.badge(kayit.durum)) +
+        ozetSatir('Kategori', '<span class="tag">' + esc(kayit.kategori) + '</span>') +
+        ozetSatir('Miktar', '<b class="u-num">' + F.num(kayit.miktar) + '</b> adet') +
+        ozetSatir('Talep tarihi', '<span class="cell-date">' + esc(F.date(kayit.olusturma)) + '</span>') +
+        ozetSatir('Onay ilerlemesi', '<b class="u-num">' + kayit.onayAdim + ' / ' + kayit.onayToplam + '</b>') +
+      '</div>', 'i-lock') + '</div>' +
+      '<div class="u-mt-4">' + kart('Yapılabilecekler', null,
+        '<p class="u-sm u-muted">Talep üzerinde onay, teklif toplama ve sipariş adımları detay ' +
+        'ekranından yürütülür.</p><div class="gv-state-acts u-mt-4">' +
+        '<a class="btn btn-acc" href="app-satinalma-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external') + ' Talep detayına git</a> ' +
+        '<a class="btn btn-line" href="app-satinalma-form.html">' + ico('i-plus') + ' Yeni talep aç</a>' +
+        '</div>', 'i-info') + '</div>';
+    return;
+  }
+
+  /* =====================================================================
+     3. ONAY EŞİKLERİ — app-ayar-onay.html ile AYNI tanım
+     Adım tablosu ayarlar ekranındaki `AKIS[satinalma].adimlar` ile birebir
+     aynıdır; kullanıcı eşikleri değiştirmişse localStorage'daki sürüm
+     (gv.onayakis) esas alınır. Tablo hiçbir DB koleksiyonunda tutulmuyor —
+     rapor edilen eksik: onay akışı yapılandırması ortak katmanda değil.
+     ===================================================================== */
+  var VARSAYILAN_ADIM = [
+    { rol:'depmudur',   kosul:'tutar',      esik:100000 },
+    { rol:'pm',         kosul:'projetutar', esik:100000 },
+    { rol:'satinalma',  kosul:'tutar',      esik:250000 },
+    { rol:'muhasebe',   kosul:'hep',        esik:null   },
+    { rol:'genelmudur', kosul:'tutar',      esik:500000 },
+    { rol:'sahip',      kosul:'hep',        esik:null   }
+  ];
+  var KOSUL_GECERLI = { hep:1, tutar:1, projetutar:1, sure:1, proje:1, kategori:1 };
+
+  function esikleriOku(){
+    var raw, o;
+    try{ raw = window.localStorage.getItem('gv.onayakis'); }catch(e){ return VARSAYILAN_ADIM; }
+    if(!raw) return VARSAYILAN_ADIM;
+    try{ o = JSON.parse(raw); }catch(e){ return VARSAYILAN_ADIM; }
+    if(!o || o.v !== 1 || !o.akis || !Array.isArray(o.akis.satinalma)) return VARSAYILAN_ADIM;
+    var temiz = o.akis.satinalma.map(function(s){
+      if(!s || !DB.permMatrix[s.rol] || !KOSUL_GECERLI[s.kosul]) return null;
+      return { rol:s.rol, kosul:s.kosul, esik:s.esik == null ? null : Number(s.esik),
+               liste:Array.isArray(s.liste) ? s.liste.slice() : null };
+    }).filter(Boolean);
+    return temiz.length ? temiz : VARSAYILAN_ADIM;
+  }
+  var ADIMLAR = esikleriOku();
+
+  function kosulGecer(st, it){
+    if(st.kosul === 'hep') return true;
+    if(st.kosul === 'tutar') return it.tutar != null && it.tutar >= (st.esik || 0);
+    if(st.kosul === 'projetutar') return !!it.proje && it.tutar != null && it.tutar >= (st.esik || 0);
+    if(st.kosul === 'proje') return !!it.proje;
+    if(st.kosul === 'kategori') return !!it.kategori && (st.liste || []).indexOf(it.kategori) !== -1;
+    if(st.kosul === 'sure') return false;                  /* satın almada süre ekseni yok */
+    return true;
+  }
+  function kosulMetin(st){
+    if(st.kosul === 'hep') return 'Her talep';
+    if(st.kosul === 'tutar') return st.esik ? F.money(st.esik) + ' ve üzeri' : 'Tutar farkı gözetmeksizin';
+    if(st.kosul === 'projetutar') return 'Projeye bağlı ve ' + F.money(st.esik || 0) + ' ve üzeri';
+    if(st.kosul === 'proje') return 'Yalnız projeye bağlı talepler';
+    if(st.kosul === 'kategori') return 'Kategori: ' + ((st.liste || []).join(', ') || 'seçilmedi');
+    return '—';
+  }
+  function uygulanan(it){ return ADIMLAR.filter(function(st){ return kosulGecer(st, it); }); }
+
+  /* Makam → kişi: adımda ROL tutulur, kişi kayıttan çözülür */
+  function rolTasiyan(rolKey){
+    return DB.employees.filter(function(e){ return (e.roller || []).indexOf(rolKey) !== -1; })[0] || null;
+  }
+  function makamKisiAd(rolKey, it){
+    var e, d, p;
+    if(rolKey === 'depmudur'){
+      e = it.kisi ? DB.emp(it.kisi) : null;
+      if(e && e.yonetici) return DB.empName(e.yonetici);
+      d = it.dep ? DB.dep(it.dep) : (e ? DB.dep(e.dep) : null);
+      return d && d.yonetici ? DB.empName(d.yonetici) : 'Atanmadı';
+    }
+    if(rolKey === 'pm'){
+      p = it.proje ? DB.projects.filter(function(x){ return x.kod === it.proje; })[0] : null;
+      if(p && p.pm) return DB.empName(p.pm);
+      return 'Atanmadı';
+    }
+    var t = rolTasiyan(rolKey);
+    return t ? t.ad : 'Bu rolü taşıyan kullanıcı yok';
+  }
+
+  /* ---- EŞİK DOĞRULAMASI (L-08) --------------------------------------
+     Bu adım tablosuyla hesaplanan zincir, veride yazılı `onayToplam` ve
+     DB.purchaseApprovals makam sırasıyla birebir aynı çıkmalıdır. Aynı
+     çıkmazsa önizleme BASILMAZ — yanlış bir zincir göstermektense hiç
+     göstermemek doğrudur. */
+  function esikDogrula(){
+    var sapan = [], sayilan = 0;
+    DB.purchases.filter(function(x){ return x.aktif; }).forEach(function(x){
+      sayilan++;
+      var uyg = uygulanan({ tutar:x.tahminiMaliyet, kategori:x.kategori, proje:x.proje });
+      var hesap = uyg.map(function(s){ return DB.roleName(s.rol); });
+      if(uyg.length !== x.onayToplam){
+        sapan.push(x.kod + ': adım ' + uyg.length + ', veride ' + x.onayToplam);
+        return;
+      }
+      var z = DB.purchaseApprovals.filter(function(a){ return a.talep === x.kod; })
+                                  .sort(function(a, b){ return a.sira - b.sira; })
+                                  .map(function(a){ return a.rol; });
+      if(z.length && z.join(' → ') !== hesap.join(' → ')){
+        sapan.push(x.kod + ': ' + hesap.join(' → ') + ' · veride ' + z.join(' → '));
+      }
+    });
+    return { gecerli:!sapan.length, sapan:sapan, sayilan:sayilan };
+  }
+  var DOGRULAMA = esikDogrula();
+
+  /* Onay akışı tanımı ayarlar bölümündedir; erişimi olmayan role bağlantı
+     basılmaz (403'e götüren buton sahte butondur). */
+  var onayAkisAksiyon = GV.perm.sec('ayarlar')
+    ? [{ label:'Onay akışı tanımı', href:'app-ayar-onay.html?akis=satinalma' }] : [];
+
+  /* =====================================================================
+     4. SEÇİM KAYNAKLARI — hepsi koleksiyondan
+     ===================================================================== */
+  var personelSec = DB.employees.filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+  var depSec = DB.departments.filter(function(d){ return d.aktif; })
+    .map(function(d){ return { value:d.kod, label:d.ad }; });
+  var projeSec = DB.projects.filter(function(p){ return p.aktif; })
+    .map(function(p){ return { value:p.kod, label:p.ad + ' · ' + p.kod }; });
+  /* Bütçe kodu için ayrı bir koleksiyon YOK — veride geçen kodlar toplanır.
+     Uydurma kod eklenmez; kullanıcı listede olmayan kodu seçemez (raporlandı). */
+  var butceSec = (function(){
+    var out = [];
+    DB.purchases.forEach(function(x){ if(x.butceKodu && out.indexOf(x.butceKodu) === -1) out.push(x.butceKodu); });
+    return out.sort();
+  })();
+
+  var benimKayit = DB.emp(ME);
+
+  /* =====================================================================
+     5. SAYFA BAŞLIĞI
+     ===================================================================== */
+  GV.pageHead({
+    eyebrow:'Tedarik',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Satın Alma Talebi',
+    sub:   duzenle ? 'Taslak talep üzerinde yapılan değişiklikler aktivite geçmişine yazılır.'
+                   : 'Zorunlu alanlar yıldızla işaretlidir. Talep taslak olarak açılır.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-satinalma.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Talebi kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* =====================================================================
+     6. İSKELET — bağlam / uyarı / form / zincir önizleme / aktivite
+     ===================================================================== */
+  var iliskili = duzenle ? {
+    teklif:DB.supplierQuotes.filter(function(q){ return q.talep === kayit.kod; }).length,
+    siparis:DB.orders.filter(function(o){ return o.talep === kayit.kod; }).length
+  } : null;
+
+  var acts = duzenle ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; }) : [];
+  var sonHareket = acts[0] || null;
+
+  var ustBlok = '';
+  if(duzenle){
+    ustBlok += kart('Kayıt Bağlamı', kayit.urun, '<div class="gv-summary">' +
+      ozetSatir('Talep kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>') +
+      ozetSatir('Talep durumu', GV.badge(kayit.durum)) +
+      ozetSatir('Oluşturma tarihi', '<span class="cell-date">' + esc(F.date(kayit.olusturma)) + '</span>') +
+      ozetSatir('Son değiştiren', sonHareket
+        ? esc(sonHareket.kisi) + ' <span class="cell-sub">' + esc(F.dt(sonHareket.tarih)) + '</span>'
+        : '<span class="u-faint">Kayıt oluşturulduğundan beri değişmedi</span>') +
+      ozetSatir('Onay ilerlemesi', '<b class="u-num">' + kayit.onayAdim + ' / ' + kayit.onayToplam + '</b>' +
+        ' <span class="cell-sub">zincir başlamadı</span>') +
+    '</div>', 'i-clipboard');
+
+    if(iliskili.teklif || iliskili.siparis){
+      ustBlok += '<div class="u-mt-4">' + GV.notice({ tone:'warn', icon:'i-quote',
+        title:'Bu talebe bağlı kayıtlar var',
+        text:'Talebe bağlı ' + iliskili.teklif + ' tedarikçi teklifi ve ' + iliskili.siparis +
+             ' sipariş kaydı bulunuyor. Ürün, teknik özellik veya miktar değişirse toplanan ' +
+             'teklifler karşılaştırılabilir olmaktan çıkar; teklif ekranından yeniden fiyat alın.',
+        actions:[{ label:'Teklifleri gör', href:'app-satinalma-teklif.html' }] }) + '</div>';
+    }
+  }else{
+    ustBlok += GV.notice({ tone:'info', icon:'i-info', title:'Talep taslak olarak açılır',
+      text:'Kaydettiğinizde talep “Taslak” durumunda oluşur ve onay zinciri henüz başlamaz. ' +
+           'Zincir tutar, kategori ve proje bağına göre otomatik belirlenir; aşağıdaki önizlemede ' +
+           'hangi makamlardan geçeceğini görürsünüz. Onay adımları bu formdan düzenlenemez.' });
+  }
+
+  mount.innerHTML =
+    ustBlok +
+    '<div class="u-mt-4">' + kart(duzenle ? 'Talep Bilgileri' : 'Yeni Talep', null,
+      '<div id="formMount"></div>', 'i-cart') + '</div>' +
+    '<div class="u-mt-4" id="zincirKart"></div>' +
+    (duzenle ? '<div class="u-mt-4">' + kart('Aktivite Geçmişi', 'Kayıt üzerindeki tüm değişiklikler',
+      '<div id="aktivite"></div>', 'i-activity') + '</div>' : '');
+
+  if(duzenle) document.getElementById('aktivite').innerHTML = GV.activity(acts);
+
+  /* =====================================================================
+     7. FORM — 14 alan, 4 bölüm (PROMPT.md §17 talep kartı)
+     ===================================================================== */
+  var form = GV.form({
+    mount:'#formMount',
+    id:'satinalmatalep',
+    record: duzenle ? kayit : { talepEden:ME, dep:benimKayit ? benimKayit.dep : '', miktar:1, oncelik:'Orta' },
+    sections:[
+      { title:'Talep bilgisi', desc:'Ne satın alınacak, hangi kategoride ve kaç adet.', fields:[
+        { key:'urun', label:'Ürün veya hizmet', type:'text', required:true, cols:7,
+          placeholder:'Örn. Geliştirici dizüstü bilgisayar' },
+        { key:'kategori', label:'Kategori', type:'select', options:DB.assetCategories, required:true, cols:5 },
+        { key:'aciklama', label:'Açıklama', type:'text', required:true, cols:12,
+          placeholder:'Talebin kısa özeti — listede ürün adının altında görünür' },
+        { key:'ozellik', label:'Teknik özellikler', type:'text', cols:8,
+          placeholder:'Örn. M3 Pro · 18 GB · 512 GB',
+          hint:'Tedarikçilerden teklif toplanırken bu metin kullanılır. Boş bırakılırsa “—” yazılır.' },
+        { key:'miktar', label:'Miktar (adet)', type:'number', required:true, min:1, max:9999, cols:4 }
+      ]},
+      { title:'Bütçe ve gerekçe', desc:'Tahmini bedel KDV hariç girilir; onay zinciri bu tutardan hesaplanır.', fields:[
+        { key:'tahminiMaliyet', label:'Tahmini maliyet (KDV hariç)', type:'money', required:true, cols:6,
+          hint:'Toplam tutar — birim fiyat değil. Onay makamları bu tutara göre belirlenir.',
+          validate:function(v){
+            var n = Number(v);
+            if(v === '' || v == null) return '';
+            if(isNaN(n) || n <= 0) return 'Tahmini maliyet sıfırdan büyük olmalıdır.';
+            return '';
+          } },
+        { key:'butceKodu', label:'Bütçe kodu', type:'select', options:butceSec, required:true, cols:6,
+          placeholder:'Bütçe kodu seçiniz' },
+        { key:'oncelik', label:'Öncelik', type:'select', options:DB.priorities, required:true, cols:6 },
+        { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', type:'date', required:true, cols:6,
+          validate:function(v){
+            if(!v) return '';
+            return v < DB.today ? 'İhtiyaç tarihi bugünden (' + F.date(DB.today) + ') önce olamaz.' : '';
+          } },
+        { key:'gerekce', label:'Talep gerekçesi', type:'textarea', required:true, rows:3, cols:12,
+          placeholder:'Bu alım neden gerekli? Onay makamları kararını bu metne dayandırır.' }
+      ]},
+      { title:'Yönlendirme', desc:'Talebi kimin açtığı ve hangi bütçe merkezine düştüğü onay zincirini belirler.', fields:[
+        { key:'talepEden', label:'Talep eden', type:'select', options:personelSec, required:true, cols:6,
+          hint:'Departman yöneticisi onayı bu kişinin yöneticisinden çözülür.' },
+        { key:'dep', label:'Departman', type:'select', options:depSec, required:true, cols:6 },
+        { key:'proje', label:'İlgili proje', type:'select', options:projeSec, cols:12,
+          placeholder:'Projeye bağlı değil — genel gider talebi',
+          hint:'Projeye bağlanırsa proje yöneticisi onay zincirine eklenir.' }
+      ]},
+      { title:'Ek dosya', desc:'Teklif, ürün broşürü, teknik şartname veya ekran görüntüsü.', fields:[
+        { key:'ek', label:'Talebe eklenecek dosyalar', type:'file', multiple:true, cols:12,
+          hint:'PDF, DOCX, XLSX, PNG, JPG · en fazla 20 MB' }
+      ]}
+    ]
+  });
+
+  /* Dosya alanı uyarısı — statik prototipte yükleme yok, ölü kontrol bırakılmaz */
+  var ekAlan = document.querySelector('[data-field="ek"]');
+  if(ekAlan){
+    ekAlan.insertAdjacentHTML('beforeend', '<div class="u-mt-4">' + GV.notice({
+      tone:'neutral', icon:'i-paperclip', title:'Dosyalar veri modelinde tutulmuyor',
+      text:'DB.purchases kaydında dosya alanı yok. Seçtiğiniz dosyalar bu statik prototipte yalnız ' +
+           'tarayıcıda listelenir, kayıtla birlikte saklanmaz; gerçek yükleme sunucu tarafı gerektirir.'
+    }) + '</div>');
+  }
+
+  /* =====================================================================
+     8. ONAY ZİNCİRİ ÖNİZLEMESİ — canlı, salt okunur
+     Formdaki tutar / kategori / proje / talep eden değiştikçe yeniden
+     hesaplanır. Doğrulanmamış eşikle ASLA basılmaz.
+     ===================================================================== */
+  var zincirKart = document.getElementById('zincirKart');
+
+  function zincirCiz(){
+    if(!DOGRULAMA.gecerli){
+      zincirKart.innerHTML = GV.notice({ tone:'danger', icon:'i-alert',
+        title:'Onay zinciri önizlemesi basılamadı',
+        text:'Onay eşikleri veriyle doğrulanamadı: ' + DOGRULAMA.sapan.join(' · ') +
+             '. Eşikler app-ayar-onay.html üzerinden değiştirilmiş ya da veri değişmiş olabilir. ' +
+             'Yanlış bir zincir göstermemek için önizleme basılmadı; talep yine de kaydedilebilir, ' +
+             'onay zinciri ayarlar ekranındaki tanıma göre işler.',
+        actions:onayAkisAksiyon });
+      return;
+    }
+
+    var v   = form.read();
+    var it  = { tutar:v.tahminiMaliyet === '' ? null : Number(v.tahminiMaliyet),
+                kategori:v.kategori || null, proje:v.proje || null,
+                kisi:v.talepEden || null, dep:v.dep || null };
+    var uyg = uygulanan(it);
+
+    var govde;
+    if(it.tutar == null || isNaN(it.tutar) || it.tutar <= 0){
+      govde = GV.empty({ icon:'i-stamp', title:'Tutar girilince zincir hesaplanır',
+        desc:'Onay makamları tahmini maliyet, kategori ve proje bağına göre belirlenir. ' +
+             'Tahmini maliyeti girin, zincir anında güncellensin.' });
+    }else{
+      govde =
+        '<div class="gv-summary">' +
+          ozetSatir('Tahmini maliyet (KDV hariç)', '<span class="cell-money">' + F.money(it.tutar) + '</span>') +
+          ozetSatir('Devreye giren makam', '<b class="u-num">' + uyg.length + '</b> adım') +
+          ozetSatir('Proje bağı', it.proje
+            ? esc(it.proje)
+            : '<span class="u-faint">Projeye bağlı değil</span>') +
+        '</div>' +
+        '<div class="u-mt-4">' + GV.chain(uyg.map(function(s){
+          return { rol:DB.roleName(s.rol), kisi:makamKisiAd(s.rol, it),
+                   durum:'Sırada', tarih:null, not:kosulMetin(s) };
+        })) + '</div>' +
+        '<div class="u-mt-4">' + GV.notice({ tone:'ok', icon:'i-shield-check',
+          title:'Zincir hesaplanmıştır, tahmin değildir',
+          text:'Bu adımlar app-ayar-onay.html’de tanımlı tutar eşiklerinden okunur ve mevcut ' +
+               DOGRULAMA.sayilan + ' talebin onay adımı sayısıyla birebir doğrulanmıştır. ' +
+               'Onay makamları bu formdan düzenlenemez.',
+          actions:onayAkisAksiyon }) + '</div>';
+    }
+
+    zincirKart.innerHTML = kart('Onay Zinciri Önizlemesi',
+      'Talep kaydedildiğinde bu makamlardan geçecek', govde, 'i-stamp');
+  }
+  zincirCiz();
+
+  /* Mount İÇİNDEKİ düğüme bağlanır — GV.refresh() bu dinleyiciyi kendiliğinden düşürür (§6) */
+  var formEl = document.getElementById('formMount');
+  formEl.addEventListener('input',  function(e){ if(e.target.name) zincirCiz(); });
+  formEl.addEventListener('change', function(e){ if(e.target.name) zincirCiz(); });
+
+  /* =====================================================================
+     9. KAYDET
+     ===================================================================== */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  function yeniKod(){
+    var max = 0;
+    DB.purchases.forEach(function(x){
+      var m = /^SAT-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    var n = String(max + 1);
+    while(n.length < 3) n = '0' + n;
+    return 'SAT-' + String(DB.today).slice(0, 4) + '-' + n;
+  }
+
+  /* Form değerleri metin döner; koleksiyona TİPLİ yazılır */
+  function normalize(v){
+    return {
+      urun:String(v.urun || '').trim(),
+      kategori:v.kategori || '',
+      aciklama:String(v.aciklama || '').trim(),
+      ozellik:String(v.ozellik || '').trim() || '—',
+      miktar:Number(v.miktar),
+      tahminiMaliyet:Number(v.tahminiMaliyet),
+      butceKodu:v.butceKodu || '',
+      oncelik:v.oncelik || '',
+      ihtiyacTarihi:v.ihtiyacTarihi || '',
+      gerekce:String(v.gerekce || '').trim(),
+      talepEden:v.talepEden || '',
+      dep:v.dep || '',
+      proje:v.proje || null
+    };
+  }
+
+  var ALAN_ADI = {
+    urun:'Ürün veya hizmet', kategori:'Kategori', aciklama:'Açıklama', ozellik:'Teknik özellikler',
+    miktar:'Miktar', tahminiMaliyet:'Tahmini maliyet', butceKodu:'Bütçe kodu', oncelik:'Öncelik',
+    ihtiyacTarihi:'İhtiyaç tarihi', gerekce:'Gerekçe', talepEden:'Talep eden', dep:'Departman',
+    proje:'İlgili proje'
+  };
+  function goster(k, val){
+    if(val == null || val === '') return '—';
+    if(k === 'tahminiMaliyet') return F.money(val);
+    if(k === 'talepEden') return DB.empName(val);
+    if(k === 'dep') return DB.depName(val);
+    if(k === 'ihtiyacTarihi') return F.date(val);
+    return String(val);
+  }
+
+  function kaydet(){
+    var ham = form.submit();
+    if(!ham) return;
+    var v = normalize(ham);
+
+    if(duzenle){
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        var eski = kayit[k] == null ? '' : kayit[k];
+        var yeni = v[k] == null ? '' : v[k];
+        if(String(eski) === String(yeni)) return;
+        DB.activities.unshift({ kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:goster(k, kayit[k]), yeni:goster(k, v[k]), tone:'accent', icon:'i-edit' });
+        kayit[k] = v[k];
+        degisen++;
+      });
+
+      /* Onay zinciri kayıt üzerinden DEĞİL, eşiklerden türer. Tutar değiştiyse
+         adım sayısı da değişebilir; `onayAdim` taslakta zaten 0'dır ve elle
+         değiştirilmez. Yalnız doğrulanmış eşikle güncellenir. */
+      if(DOGRULAMA.gecerli){
+        var yeniToplam = uygulanan({ tutar:v.tahminiMaliyet, kategori:v.kategori, proje:v.proje }).length;
+        if(yeniToplam !== kayit.onayToplam){
+          DB.activities.unshift({ kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+            metin:'Onay zinciri yeniden hesaplandı (tutar eşiği)',
+            eski:kayit.onayToplam + ' adım', yeni:yeniToplam + ' adım', tone:'info', icon:'i-stamp' });
+          kayit.onayToplam = yeniToplam;
+          degisen++;
+        }
+      }
+
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+        form.setDirty(false);
+        return;
+      }
+      GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+    }else{
+      var kod = yeniKod();
+      var yeniKayit = Object.assign({ kod:kod }, v, {
+        durum:'Taslak',
+        olusturma:DB.today,
+        onayAdim:0,
+        onayToplam:DOGRULAMA.gecerli
+          ? uygulanan({ tutar:v.tahminiMaliyet, kategori:v.kategori, proje:v.proje }).length
+          : 0,
+        aktif:true
+      });
+      DB.purchases.unshift(yeniKayit);
+      DB.activities.unshift({ kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Satın alma talebi oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus' });
+      GV.toast(kod + ' taslak olarak oluşturuldu' +
+        (yeniKayit.onayToplam ? ' · ' + yeniKayit.onayToplam + ' onay adımı' : ''), 'ok');
+    }
+
+    form.setDirty(false);
+    setTimeout(function(){ location.href = 'app-satinalma.html'; }, 700);
+  }
+
+});
+</script>
+</body>
+</html>
