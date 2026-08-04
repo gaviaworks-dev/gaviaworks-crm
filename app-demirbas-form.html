@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Demirbaş Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="demirbas">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.departments (DB.emp / DB.empName / DB.depName)
+     ops.js  → DB.assets, DB.assetCategories, DB.assignments, DB.orders, DB.suppliers, DB.vehicles
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.assets.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez.
+     GV.empty metnini ÖN-ESCAPE ETME: bileşen kendisi escape ediyor (UID-23). */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Envanter', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen demirbaş kaydı envanterde yok.',
+      actions:[{ label:'Demirbaş listesine dön', cls:'btn-line', href:'app-demirbas.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Demirbaş bulunamadı',
+      desc:'“' + id + '” kodlu demirbaş envanterde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-demirbas.html">Demirbaş listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Demirbaş';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Kimlik, konum, zimmet ve garanti alanları finansal tutar değildir;
+     sayfa kapısı yalnız ekle/düzenle yetkisine bakar. Satın alma tutarı
+     ayrıca `can('finans')` ile kapatılır ve o role forma HİÇ basılmaz.
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Envanter', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Demirbaş listesine dön', cls:'btn-line', href:'app-demirbas.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Demirbaş kaydı düzenleme' : 'Demirbaş kaydı oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Demirbaşları listede ve ' +
+           'demirbaş kartında görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-demirbas.html">Demirbaş listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-demirbas-detay.html?id=' + esc(kayit.kod) +
+                   '">Demirbaş kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function bos(v){ return (v == null || v === '' || v === '—') ? null : v; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); }); return o;
+  }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function paraSade(v){ return '<span class="u-num">' + F.money(v) + '</span>'; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* Kalan gün sayısal bir eşiktir, TONE sözlüğünde karşılığı yok — ton AÇIKÇA
+     geçilir (components.md §5). Eşikler demirbaş kartıyla aynı: 7 / 15 / 30 / 60. */
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0)   return 'is-danger';
+    if(d <= 7)  return 'is-danger';
+    if(d <= 30) return 'is-warn';
+    if(d <= 60) return 'is-info';
+    return 'is-ok';
+  }
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return faint('—');
+    var m = d < 0 ? 'Süresi doldu · ' + (-d) + ' gün' : d === 0 ? 'Bugün son gün' : d + ' gün kaldı';
+    return GV.badge(m, kalanTon(iso));
+  }
+
+  /* =================================================================
+     BAĞLAR VE EKSENLER — components.md §9b / §9d
+       DB.assets[].alisFiyati  = NET (KDV hariç), siparişin `tutar`ı ile aynı eksende
+       DB.orders[].tutar/.vergi/.toplam = net / KDV / BRÜT
+       DB.assets[].siparis     = demirbaş → sipariş bağı. TEK YÖNLÜDÜR: bağ doğan
+       kaydın (demirbaşın) üstünde tutulur, siparişte ayna alan yoktur. Bir siparişin
+       demirbaş grubu DB.assets üzerinden okunur ve grubun Σ alisFiyati'ı siparişin
+       NETİNE eşit olmalıdır (canon.js eksen 15).
+     ================================================================= */
+  var LISANS_KATEGORI = ['Yazılım lisansı','Kurumsal abonelik'];
+  var ARAC_KATEGORI   = ['Otomobil','Ticari araç','Motosiklet','Kiralık araç'];
+
+  function siparisOf(kod){ return kod ? DB.orders.filter(function(o){ return o.kod === kod; })[0] : null; }
+  function tedarikciOf(kod){ return kod ? DB.suppliers.filter(function(s){ return s.kod === kod; })[0] : null; }
+  function tedarikciAd(kod){ var s = tedarikciOf(kod); return s ? s.unvan : (kod || '—'); }
+  function grupOf(kod){ return kod ? DB.assets.filter(function(x){ return x.siparis === kod; }) : []; }
+  /* Düzenlenen kaydın kendisi hariç grup — kaydın yeni değeri forma girilen tutardır. */
+  function digerGrup(kod){
+    return grupOf(kod).filter(function(x){ return !duzenle || x.kod !== kayit.kod; });
+  }
+  function grupToplam(list){ return list.reduce(function(s, x){ return s + sayi(x.alisFiyati); }, 0); }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamDemirbas  = DB.assets.length;
+  var aktifDemirbas   = DB.assets.filter(function(x){ return x.aktif !== false; }).length;
+  var zimmetliSayisi  = DB.assets.filter(function(x){ return x.durum === 'Zimmetli'; }).length;
+  var bagliSayisi     = DB.assets.filter(function(x){ return !!x.siparis; }).length;
+  var kategoriSayisi  = DB.assetCategories.length;
+  var aracKategorileri = DB.assetCategories.filter(function(k){ return ARAC_KATEGORI.indexOf(k) !== -1; });
+  var aracSayisi      = DB.vehicles.length;
+  var teslimSiparis   = DB.orders.filter(function(o){ return o.durum === 'Teslim alındı'; })
+                          .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); });
+  var siparisliOlan   = distinct(DB.assets.map(function(x){ return x.siparis; })).length;
+  var tutanakSayisi   = DB.assignments.length;
+
+  var LOKASYONLAR  = distinct(DB.assets.map(function(x){ return x.lokasyon; })).sort();
+  var ALTKATEGORI  = distinct(DB.assets.map(function(x){ return x.altKategori; })).sort();
+  var DURUMLAR     = ['Aktif','Zimmetli','Depoda','Serviste','Onarımda','Hurda'];
+  distinct(DB.assets.map(function(x){ return x.durum; })).forEach(function(d){
+    if(DURUMLAR.indexOf(d) === -1) DURUMLAR.push(d);
+  });
+
+  /* Sipariş seçenekleri: yalnız TESLİM ALINMIŞ sipariş demirbaş doğurur.
+     Düzenlenen kaydın mevcut bağı listede yoksa savunmacı olarak eklenir. */
+  var SIPARIS_SECENEK = teslimSiparis.map(function(o){
+    return { value:o.kod,
+      label:o.kod + ' · ' + tedarikciAd(o.tedarikci) + ' · ' + F.date(o.tarih) +
+            (canFinans ? ' · ' + F.money(o.tutar) + ' (KDV hariç)' : '') };
+  });
+  if(duzenle && kayit.siparis && !siparisOf(kayit.siparis)){
+    SIPARIS_SECENEK.unshift({ value:kayit.siparis, label:kayit.siparis + ' · sipariş kaydı bulunamadı' });
+  }else if(duzenle && kayit.siparis &&
+           !SIPARIS_SECENEK.filter(function(o){ return o.value === kayit.siparis; }).length){
+    var mevcutSip = siparisOf(kayit.siparis);
+    SIPARIS_SECENEK.unshift({ value:mevcutSip.kod,
+      label:mevcutSip.kod + ' · ' + tedarikciAd(mevcutSip.tedarikci) + ' · ' + mevcutSip.durum });
+  }
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI — hepsi veride YAZILI tekil bağdan
+     ================================================================= */
+  var zimmetler   = duzenle
+    ? DB.assignments.filter(function(z){ return z.demirbas === kayit.kod; })
+        .sort(function(a, b){ return String(b.teslimTarihi || '').localeCompare(String(a.teslimTarihi || '')); })
+    : [];
+  var aktifZimmet = zimmetler.filter(function(z){ return z.durum === 'Aktif'; })[0] || null;
+  var imzaBekleyen = zimmetler.filter(function(z){ return z.personelOnay === 'Bekliyor'; });
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     FORM KAYDI
+     `alisFiyati` finans yetkisi olmayan role forma HİÇ basılmaz; düzenleme
+     modunda kayıttaki değere de dokunulmaz (aşağıda `yaz` içinde v'de yoktur).
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    ['altKategori','ozellik','seri','barkod','lokasyon','tedarikci','siparis',
+     'zimmetli','zimmetTarihi','iadeTarihi','garantiBas','garantiBit'].forEach(function(k){
+      formRec[k] = bos(kayit[k]) == null ? '' : kayit[k];
+    });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    formRec = {
+      kategori:'', altKategori:'', marka:'', model:'', seri:'', ozellik:'',
+      alisTarihi:DB.today, alisFiyati:'', tedarikci:'', siparis:'',
+      garantiBas:'', garantiBit:'', lokasyon:'', dep:'', durum:'Depoda',
+      zimmetli:'', zimmetTarihi:'', iadeTarihi:'', barkod:'', aktif:true
+    };
+  }
+
+  /* Yeni kod ve barkod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.assets.forEach(function(x){
+      var m = /^DMB-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'DMB-' + String(DB.today).slice(0, 4) + '-' + pad(max + 1, 3);
+  }
+  function yeniBarkod(){
+    var max = 0;
+    DB.assets.forEach(function(x){
+      var m = /^GW-DMB-(\d+)$/.exec(x.barkod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'GW-DMB-' + pad(max + 1, 4);
+  }
+  var siradakiKod = duzenle ? kayit.kod : yeniKod();
+  if(!duzenle) formRec.barkod = yeniBarkod();
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'Demirbaş kartının bu formda yer almayan bölümleri',
+    text:'PROMPT.md §15 demirbaş kartında QR kod, fatura numarası, bakım · arıza · servis geçmişi, ' +
+         'hasar kaydı, belgeler ve fotoğraflar da sayılır. Bunların demirbaş kaydında karşılığı yok: ' +
+         'hasar notu zimmet tutanağında tutulur, bakım kayıtları yalnız filo tarafında modellenmiştir, ' +
+         'belge ve fotoğraf yönetimi doküman modülünde yürür. Bu form yalnız demirbaş kaydının kendi ' +
+         'alanlarını yazar; aktivite geçmişi ise kaydedildikçe kendiliğinden oluşur.',
+    actions:[{ label:'Doküman yönetimi', href:'app-dokuman.html' },
+             { label:'Zimmet listesi', href:'app-zimmet.html' }] });
+
+  var ust = '';
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı (form-brief §8) ---- */
+    var bagliMetin = [];
+    if(zimmetler.length) bagliMetin.push(zimmetler.length + ' zimmet tutanağı');
+    if(kayit.siparis)    bagliMetin.push(kayit.siparis + ' siparişi');
+    if(acts.length)      bagliMetin.push(acts.length + ' aktivite kaydı');
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      bagliMetin.length
+        ? { tone:aktifZimmet ? 'warn' : 'info', icon:aktifZimmet ? 'i-alert' : 'i-info',
+            title:'Bu demirbaşa bağlı kayıtlar var',
+            text:kayit.kod + ' kaydına bağlı ' + bagliMetin.join(', ') + ' sistemde tutuluyor' +
+                 (aktifZimmet
+                   ? '; ' + aktifZimmet.kod + ' tutanağı hâlâ açık ve demirbaş ' +
+                     DB.empName(aktifZimmet.personel) + ' üzerinde görünüyor'
+                   : '') +
+                 '. Bu form tutanak oluşturmaz ve kapatmaz — zimmet ve iade işlemi zimmet modülünden ' +
+                 'ya da demirbaş kartından yürür. Kartı hurdaya ayırır veya arşive alırsanız bağlı ' +
+                 'kayıtlar silinmez, demirbaş yalnız aktif envanter listelerinden düşer.',
+            actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' },
+                     { label:'Demirbaş kartını aç', href:'app-demirbas-detay.html?id=' + kayit.kod }] }
+        : { tone:'neutral', icon:'i-info', title:'Bu demirbaşa bağlı tutanak veya sipariş yok',
+            text:kayit.kod + ' için zimmet tutanağı, sipariş bağı ve aktivite kaydı bulunmuyor. ' +
+                 'Ölçüm: envanterdeki ' + toplamDemirbas + ' demirbaşın ' + bagliSayisi +
+                 ' tanesinde sipariş bağı yazılı, sistemde toplam ' + tutanakSayisi + ' zimmet tutanağı var.',
+            actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' },
+                     { label:'Demirbaş kartını aç', href:'app-demirbas-detay.html?id=' + kayit.kod }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var son = acts[0];
+    var lisansKayit = LISANS_KATEGORI.indexOf(kayit.kategori) !== -1;
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Demirbaş kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Demirbaş', esc((kayit.marka || '') + ' ' + (kayit.model || ''))],
+        ['Kategori', tagOf(kayit.kategori) + (kayit.altKategori ? ' ' + tagOf(kayit.altKategori) : '')],
+        ['Durum', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Pasif kayıt</span>' : '') +
+          (kayit.arsiv ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Zimmetli personel', kayit.zimmetli ? GV.user(kayit.zimmetli, { sm:true }) : null],
+        ['Departman · lokasyon', esc(DB.depName(kayit.dep)) + sub(kayit.lokasyon || '—')],
+        ['Satın alma tarihi', kayit.alisTarihi ? F.date(kayit.alisTarihi) : null],
+        canFinans
+          ? ['Satın alma tutarı <span class="u-faint">(KDV hariç)</span>',
+             sayi(kayit.alisFiyati) === 0
+               ? faint('Satın alma bedeli yok') + sub('dönemsel abonelik — bedel aylık gidere yazılır')
+               : '<b>' + para(kayit.alisFiyati) + '</b>']
+          : null,
+        ['Tedarikçi', kayit.tedarikci
+          ? '<a href="app-tedarikci-detay.html?id=' + esc(kayit.tedarikci) + '">' +
+            esc(tedarikciAd(kayit.tedarikci)) + '</a>' + sub(kayit.tedarikci) : null],
+        ['Bağlı sipariş <span class="u-faint">(tek yönlü bağ — demirbaş kaydında tutulur)</span>',
+          kayit.siparis
+            ? '<a href="app-siparis-detay.html?id=' + esc(kayit.siparis) + '">' + esc(kayit.siparis) + '</a>'
+            : faint('Sipariş bağı yok')],
+        [(lisansKayit ? 'Lisans bitişi' : 'Garanti bitişi'),
+          kayit.garantiBit ? F.date(kayit.garantiBit) + ' ' + kalanBadge(kayit.garantiBit) : null],
+        ['Seri numarası', kayit.seri ? '<span class="u-num">' + esc(kayit.seri) + '</span>' : null],
+        ['Barkod', kayit.barkod ? '<span class="u-num">' + esc(kayit.barkod) + '</span>' : null],
+        ['Zimmet tutanağı', zimmetler.length
+          ? '<b class="u-num">' + zimmetler.length + '</b> kayıt' +
+            sub((aktifZimmet ? 'aktif ' + aktifZimmet.kod : 'aktif tutanak yok') +
+                (imzaBekleyen.length ? ' · ' + imzaBekleyen.length + ' imza bekliyor' : ''))
+          : faint('Tutanak yok')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-demirbas-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Demirbaş kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni demirbaş kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki demirbaş kodu ' + siradakiKod + ' olarak atanır, envanter etiketi ' +
+             formRec.barkod + ' önerisiyle açılır ve aktivite geçmişine “Demirbaş kaydı oluşturuldu” satırı ' +
+             'düşer, ardından demirbaş listesine dönülür. Zimmet tutanağı bu formdan doğmaz: durumu ' +
+             '“Zimmetli” seçseniz bile tutanak zimmet modülünden ya da demirbaş kartındaki zimmetleme ' +
+             'akışından oluşturulur. Ölçüm: envanterde ' + toplamDemirbas + ' demirbaş kayıtlı, ' +
+             aktifDemirbas + ' tanesi aktif, ' + zimmetliSayisi + ' tanesi zimmetli.',
+        actions:[{ label:'Demirbaş listesi', href:'app-demirbas.html' },
+                 { label:'Zimmet listesi', href:'app-zimmet.html' },
+                 { label:'Sipariş listesi', href:'app-siparis.html' }] }) + '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-package') + 'Demirbaş Bilgileri</h2>' +
+        '<div class="gc-sub">' + (duzenle ? 'Demirbaş kodu değiştirilmez' : 'Demirbaş kodu kaydederken atanır') +
+        ' · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-link') + 'Sipariş Bağı ve Tutar Dengesi</h2>' +
+        '<div class="gc-sub">Bağ tek yönlüdür: demirbaş kaydında tutulur, siparişte ayna alan yoktur. ' +
+          'Bir siparişin demirbaş grubunun toplamı siparişin netine eşit olmalıdır.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-siparis.html">' + ico('i-truck','ic-sm') +
+            ' Sipariş listesi</a></div></div>' +
+      '<div class="gc-body" id="sipOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-shield') + 'Garanti ve Lisans Süresi</h2>' +
+        '<div class="gc-sub">Süre alanlarını değiştirdikçe eşik ve kalan gün yeniden hesaplanır ' +
+          '(referans: sistem tarihi ' + F.date(DB.today) + ').</div></div></div>' +
+      '<div class="gc-body" id="sureOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-user-check') + 'Zimmet Tutarlılığı</h2>' +
+        '<div class="gc-sub">Kart üzerindeki tahsis bilgisi ile imzalı tutanak aynı personeli ' +
+          'göstermelidir; tutanak bu formdan yazılmaz.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-zimmet.html">' + ico('i-clipboard-check','ic-sm') +
+            ' Zimmet listesi</a></div></div>' +
+      '<div class="gc-body" id="zimOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-demirbas.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Demirbaş kimliği',
+    desc:'Kategori sözlüğü, marka · model ve envanterde kaydı tekilleştiren seri numarası ile ' +
+         'barkod. Demirbaş kodu sistem tarafından atanır, elle girilmez.',
+    fields:[
+      { key:'kategori', label:'Kategori', type:'select', options:DB.assetCategories, required:true, cols:6,
+        placeholder:'Kategori seçin',
+        hint:'Sözlükte ' + kategoriSayisi + ' kategori var. “Yazılım lisansı” ve “Kurumsal abonelik” ' +
+             'kategorilerinde garanti alanları lisans dönemi olarak okunur. Araç kategorileri (' +
+             aracKategorileri.join(' · ') + ') sözlükte bulunur ama araç kaydı filo modülünde tutulur — ' +
+             'sistemde ' + aracSayisi + ' araç kayıtlı ve bu form araç kaydı doğurmaz.' },
+
+      { key:'altKategori', label:'Alt kategori', type:'text', cols:6,
+        placeholder:'Örn. Dizüstü',
+        hint:'Serbest metin. Envanterde kullanılan alt kategoriler: ' + ALTKATEGORI.join(' · ') + '.' },
+
+      { key:'marka', label:'Marka', type:'text', required:true, cols:6, placeholder:'Örn. Apple' },
+
+      { key:'model', label:'Model', type:'text', required:true, cols:6, placeholder:'Örn. MacBook Pro 14 M3',
+        hint:'Listede ve demirbaş kartında başlık “marka + model” olarak gösterilir.' },
+
+      { key:'seri', label:'Seri numarası', type:'text', required:true, cols:6,
+        placeholder:'Örn. C02X1234ABCD',
+        hint:'Üretici seri numarası; garanti başvurusunda istenir ve envanterde tekildir.',
+        validate:function(v){
+          var s = metin(v);
+          if(!s) return '';
+          var ayni = DB.assets.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) &&
+                   String(x.seri).trim().toLowerCase() === s.toLowerCase(); })[0];
+          return ayni ? 'Bu seri numarası ' + ayni.kod + ' (' + ayni.marka + ' ' + ayni.model +
+                        ') kaydında kullanılıyor.' : '';
+        } },
+
+      { key:'barkod', label:'Barkod / envanter etiketi', type:'text', required:true, cols:6,
+        placeholder:'GW-DMB-0000',
+        hint:'Şirket envanter etiketi; biçim GW-DMB- ve dört haneli sıra numarasıdır. ' +
+             (duzenle ? 'Etiket değiştirilirse fiziksel etiketin de yenilenmesi gerekir.'
+                      : 'Sıradaki boş etiket önerildi: ' + formRec.barkod + '.'),
+        validate:function(v){
+          var s = metin(v);
+          if(!s) return '';
+          if(!/^GW-DMB-\d{4}$/.test(s))
+            return 'Barkod biçimi GW-DMB-0000 olmalıdır (dört haneli sıra numarası).';
+          var ayni = DB.assets.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) && String(x.barkod).trim() === s; })[0];
+          return ayni ? 'Bu barkod ' + ayni.kod + ' kaydında kullanılıyor.' : '';
+        } },
+
+      { key:'ozellik', label:'Teknik özellik', type:'textarea', required:true, rows:2, cols:12,
+        placeholder:'Örn. M3 Pro · 18 GB RAM · 512 GB SSD',
+        hint:'Listede ve kartta demirbaş adının altında görünür. Lisans ve aboneliklerde kapsam ' +
+             'buraya yazılır (örn. koltuk sayısı), ayrı bir lisans kapsamı alanı yoktur.' }
+    ]});
+
+  /* Finans yetkisi olmayan role satın alma tutarı HİÇ basılmaz — devre dışı
+     kontrol de bırakılmaz (PROMPT.md §5 · form-brief §3). */
+  var satinAlmaAlanlari = [
+    { key:'alisTarihi', label:'Satın alma tarihi', type:'date', required:true, cols:6,
+      hint:'Sistem tarihi ' + F.date(DB.today) + '; ileri tarihli satın alma girilmez. ' +
+           'Demirbaş yaşı ve garanti hesabı bu tarihten yürür.',
+      validate:function(v){
+        if(!v) return '';
+        if(F.days(v) > 0) return 'Satın alma tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+        return '';
+      } }
+  ];
+  if(canFinans){
+    satinAlmaAlanlari.push({ key:'alisFiyati', label:'Satın alma tutarı (KDV hariç)', type:'money',
+      required:true, min:0, cols:6,
+      hint:'NET eksendedir — bağlı siparişin net tutarıyla aynı eksende yazılır, brüt değil. ' +
+           'Dönemsel abonelikte (bedel aylık gidere yazılıyorsa) 0 girilir; envanterdeki ' +
+           toplamDemirbas + ' kaydın ' +
+           DB.assets.filter(function(x){ return sayi(x.alisFiyati) === 0; }).length +
+           ' tanesinde tutar sıfırdır.',
+      validate:function(v, d){
+        var n = sayi(v);
+        if(metin(v) === '') return '';
+        if(n < 0) return 'Satın alma tutarı negatif olamaz.';
+        if(Math.round(n) !== n) return 'Tutar tam lira olarak yazılır (kuruş kullanılmaz).';
+        var o = siparisOf(d.siparis);
+        if(o){
+          var toplam = grupToplam(digerGrup(o.kod)) + n;
+          if(toplam > sayi(o.tutar))
+            return o.kod + ' siparişinin neti ' + F.money(o.tutar) + '; bu kayıtla birlikte demirbaş ' +
+                   'grubunun toplamı ' + F.money(toplam) + ' olur ve siparişi ' +
+                   F.money(toplam - sayi(o.tutar)) + ' aşar.';
+        }
+        return '';
+      } });
+  }
+  satinAlmaAlanlari.push(
+    { key:'tedarikci', label:'Tedarikçi', type:'select', required:true, cols:6,
+      options:DB.suppliers.map(function(s){ return { value:s.kod, label:s.unvan }; }),
+      placeholder:'Tedarikçi seçin',
+      hint:'Garanti muhatabı ve fatura tarafı. Bağlı sipariş seçilirse tedarikçi siparişinkiyle ' +
+           'aynı olmak zorundadır.' },
+
+    { key:'siparis', label:'Bağlı sipariş', type:'select', cols:6,
+      options:SIPARIS_SECENEK, placeholder:'Sipariş bağı yok',
+      hint:'Yalnız teslim alınmış sipariş demirbaş doğurur; listede ' + teslimSiparis.length +
+           ' teslim alınmış sipariş var. Bağ demirbaş kaydında tutulur, siparişte ayna alan yoktur. ' +
+           'Sipariş kayıtları 2026’dan başladığı için daha eski alımlarda alan boş bırakılır — ' +
+           'tedarikçi eşleşmesi ya da tarih yakınlığı bağ yerine geçmez (ders L-13). Ölçüm: ' +
+           toplamDemirbas + ' demirbaşın ' + bagliSayisi + ' tanesinde bağ yazılı, ' + siparisliOlan +
+           ' sipariş demirbaş doğurmuş.',
+      validate:function(v, d){
+        if(!v) return '';
+        var o = siparisOf(v);
+        if(!o) return 'Seçilen sipariş kaydı bulunamadı; bağ yazılamaz.';
+        if(o.durum !== 'Teslim alındı')
+          return o.kod + ' henüz teslim alınmadı (' + o.durum + '); teslim alınmamış sipariş ' +
+                 'demirbaş doğurmaz.';
+        if(d.tedarikci && o.tedarikci !== d.tedarikci)
+          return o.kod + ' siparişi ' + tedarikciAd(o.tedarikci) + ' firmasına verildi; demirbaşın ' +
+                 'tedarikçisi ' + tedarikciAd(d.tedarikci) + ' seçili. İki kayıt aynı tedarikçiyi ' +
+                 'göstermelidir.';
+        return '';
+      } }
+  );
+
+  sections.push({ title:'Satın alma ve tedarik',
+    desc:'Demirbaşın envantere hangi bedelle, hangi tedarikçiden ve hangi siparişten girdiği. ' +
+         'Tutar NET eksendedir (KDV hariç) ve bağlı siparişin netiyle karşılaştırılır.',
+    fields:satinAlmaAlanlari });
+
+  sections.push({ title:'Garanti ve lisans dönemi',
+    desc:'Donanımda garanti, yazılım lisansı ve kurumsal abonelikte lisans dönemi aynı iki alanda ' +
+         'tutulur. Ayrı lisans anahtarı, koltuk sayısı veya otomatik yenileme alanı yoktur.',
+    fields:[
+      { key:'garantiBas', label:'Garanti / lisans başlangıcı', type:'date', cols:6,
+        hint:'Genellikle satın alma tarihiyle aynıdır.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.alisTarihi && v < d.alisTarihi)
+            return 'Garanti başlangıcı satın alma tarihinden (' + F.date(d.alisTarihi) + ') önce olamaz.';
+          return '';
+        } },
+
+      { key:'garantiBit', label:'Garanti / lisans bitişi', type:'date', cols:6,
+        hint:'Boş bırakılırsa yenileme ve garanti takibi yapılamaz. Yenileme penceresi bitişe ' +
+             '60 gün kala açılır; 30 · 15 · 7 gün eşikleri kartta uyarıya döner.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.garantiBas && v <= d.garantiBas)
+            return 'Bitiş tarihi başlangıçtan (' + F.date(d.garantiBas) + ') sonra olmalıdır.';
+          if(!d.garantiBas) return 'Bitiş tarihi girildiyse başlangıç tarihi de girilmelidir.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Konum, sorumluluk ve durum',
+    desc:'Demirbaşın nerede durduğu, hangi departmanın sorumluluğunda olduğu ve güncel tahsis ' +
+         'bilgisi. Durum “Zimmetli” ise personel ve zimmet tarihi zorunludur.',
+    fields:[
+      { key:'lokasyon', label:'Lokasyon', type:'text', required:true, cols:6,
+        placeholder:'Örn. Ofis · Ankara',
+        hint:'Envanterde kullanılan lokasyonlar: ' + LOKASYONLAR.join(' · ') +
+             '. Bulut hizmetleri ve lisanslar “Bulut” olarak işaretlenir.' },
+
+      { key:'dep', label:'Sorumlu departman', type:'select', required:true, cols:6,
+        options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }),
+        placeholder:'Departman seçin',
+        hint:'Maliyet ve envanter sorumluluğu bu departmandadır; zimmetli personelin departmanından ' +
+             'farklı olabilir.' },
+
+      { key:'durum', label:'Demirbaş durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. Ölçüm: ' + toplamDemirbas + ' demirbaşın ' +
+             zimmetliSayisi + ' tanesi zimmetli. “Hurda” kaydı envanter sayaçlarından düşer.' },
+
+      { key:'zimmetli', label:'Zimmetli personel', type:'select', cols:6,
+        options:DB.employees.filter(function(e){ return e.aktif; })
+                  .map(function(e){ return { value:e.kod, label:e.ad + ' — ' + e.depAd }; }),
+        placeholder:'Zimmetsiz',
+        hint:'Kart üzerindeki güncel tahsis. İmzalı tutanak ayrı bir kayıttır ve bu formdan ' +
+             'oluşturulmaz; tutanak zimmet modülünden ya da demirbaş kartındaki zimmetleme ' +
+             'akışından açılır.',
+        validate:function(v, d){
+          if(d.durum === 'Zimmetli' && !v)
+            return 'Durum “Zimmetli” seçildiğinde zimmetli personel zorunludur.';
+          if(d.durum !== 'Zimmetli' && v)
+            return 'Durum “' + d.durum + '” iken demirbaş bir personelin üzerinde kalamaz — ' +
+                   'personeli boşaltın ya da durumu “Zimmetli” yapın.';
+          return '';
+        } },
+
+      { key:'zimmetTarihi', label:'Zimmet tarihi', type:'date', cols:6,
+        hint:'Demirbaşın personele teslim edildiği gün. Tutanaktaki teslim tarihiyle aynı olmalıdır.',
+        validate:function(v, d){
+          if(d.durum === 'Zimmetli' && !v)
+            return 'Durum “Zimmetli” seçildiğinde zimmet tarihi zorunludur.';
+          if(!v) return '';
+          if(F.days(v) > 0) return 'Zimmet tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+          if(d.alisTarihi && v < d.alisTarihi)
+            return 'Zimmet tarihi satın alma tarihinden (' + F.date(d.alisTarihi) + ') önce olamaz.';
+          return '';
+        } },
+
+      { key:'iadeTarihi', label:'Son iade tarihi', type:'date', cols:6,
+        hint:'Demirbaş depoya en son ne zaman döndü. Zimmetli demirbaşta boş kalır.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.durum === 'Zimmetli')
+            return 'Zimmetli demirbaşta iade tarihi bulunmaz; iade alındıysa durumu “Depoda” yapın.';
+          if(F.days(v) > 0) return 'İade tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+          if(d.zimmetTarihi && v < d.zimmetTarihi)
+            return 'İade tarihi zimmet tarihinden (' + F.date(d.zimmetTarihi) + ') önce olamaz.';
+          if(d.alisTarihi && v < d.alisTarihi)
+            return 'İade tarihi satın alma tarihinden (' + F.date(d.alisTarihi) + ') önce olamaz.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Demirbaş durumu envanter ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — demirbaş listelerinde, sayaçlarda ve zimmet seçimlerinde görünür',
+        hint:'Kapatılırsa demirbaş arşive düşer; zimmet tutanakları ve aktivite geçmişi silinmez. ' +
+             'Ölçüm: ' + toplamDemirbas + ' kaydın ' + aktifDemirbas + ' tanesi aktif.',
+        validate:function(v, d){
+          if(!v && d.durum === 'Zimmetli')
+            return 'Zimmetli demirbaş arşivlenemez — önce iade alınıp durumu “Depoda” ya da ' +
+                   '“Hurda” yapılmalıdır.';
+          return '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'demirbas', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function siparisOzetiCiz(){
+    var hedef = document.getElementById('sipOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var o = siparisOf(v.siparis);
+    var diger = o ? digerGrup(o.kod) : [];
+    var digerNet = grupToplam(diger);
+
+    if(!o){
+      hedef.innerHTML = GV.notice({
+        tone:'info', icon:'i-info', title:'Bu demirbaş modellenmiş bir siparişten gelmiyor',
+        text:'Bağlı sipariş alanı boş. Sipariş kayıtları 2026’dan başlıyor; daha eski alımların sipariş ' +
+             'karşılığı bu prototipte modellenmedi ve tedarikçi eşleşmesi bağ yerine geçmez (ders L-13). ' +
+             'Bağ boş bırakıldığında demirbaş kartında “sipariş bağı yok” yazar, tutar dengesi kontrolü ' +
+             'çalışmaz. Ölçüm: ' + toplamDemirbas + ' demirbaşın ' + bagliSayisi + ' tanesinde bağ yazılı.',
+        actions:[{ label:'Sipariş listesi', href:'app-siparis.html' }] }) +
+        ozetListe([
+          ['Teslim alınmış sipariş <span class="u-faint">(bağ kurulabilir)</span>',
+            '<b class="u-num">' + teslimSiparis.length + '</b> sipariş'],
+          ['Demirbaş doğurmuş sipariş', '<b class="u-num">' + siparisliOlan + '</b>'],
+          ['Bağ yazılı demirbaş', '<b class="u-num">' + bagliSayisi + '</b> / ' + toplamDemirbas]
+        ]);
+      return;
+    }
+
+    var bagNot = GV.notice({ tone:'ok', icon:'i-link', title:'Sipariş bağı veride yazılı olacak',
+      text:'Bu demirbaş ' + o.kod + ' siparişinden envantere alınmış sayılır. Bağ demirbaş kaydının ' +
+           'kendi alanında tutulur; siparişte ayna alan açılmaz, sipariş tarafı bu bağı demirbaş ' +
+           'kayıtlarını süzerek okur (components.md §9d).' });
+
+    /* Finans yetkisi olmayan rol tutarları görmez — maskeli satır da yazılmaz,
+       yerine ne görülemediği açıkça söylenir (PROMPT.md §5). */
+    if(!canFinans){
+      hedef.innerHTML = bagNot + GV.notice({ tone:'neutral', icon:'i-lock',
+        title:'Tutar dengesi rolünüze kapalı',
+        text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar görüntüleme yetkisi yok; siparişin net ' +
+             'tutarı ve demirbaş grubunun toplamı bu ekranda gösterilmiyor, satın alma tutarı alanı da ' +
+             'forma basılmadı. Sipariş bağını, kimlik ve konum alanlarını düzenlemeye devam edebilirsiniz.' }) +
+        ozetListe([
+          ['Sipariş', '<a href="app-siparis-detay.html?id=' + esc(o.kod) + '">' + esc(o.kod) + '</a>' +
+            sub(F.date(o.tarih) + ' · ' + tedarikciAd(o.tedarikci))],
+          ['Sipariş durumu', GV.badge(o.durum) +
+            (o.teslimKontrol ? ' ' + GV.badge(o.teslimKontrol) : '')],
+          ['Bu siparişten envantere alınan diğer demirbaş', '<b class="u-num">' + diger.length + '</b> kayıt'],
+          ['Bu kayıtla birlikte', '<b class="u-num">' + (diger.length + 1) + '</b> kayıt']
+        ]);
+      return;
+    }
+
+    var girilen = metin(v.alisFiyati) === '' ? 0 : sayi(v.alisFiyati);
+    var toplam  = digerNet + girilen;
+    var net     = sayi(o.tutar);
+    var fark    = net - toplam;
+
+    var denge;
+    if(fark === 0){
+      denge = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Tutar dengesi tutuyor',
+        text:'Bu siparişten envantere alınan demirbaşların net toplamı ' + F.money(toplam) +
+             ', siparişin neti de ' + F.money(net) + '. Sipariş tam olarak demirbaşa dönüşmüş oluyor ' +
+             '(canon.js eksen 15 bu eşitliği her turda doğrular).' });
+    }else if(fark > 0){
+      denge = GV.notice({ tone:'warn', icon:'i-alert', title:'Sipariş netinin bir bölümü henüz demirbaşa dönmedi',
+        text:'Siparişin neti ' + F.money(net) + ', bu kayıtla birlikte demirbaş grubunun toplamı ' +
+             F.money(toplam) + '. Aradaki ' + F.money(fark) + ' için bu siparişten doğan başka demirbaş ' +
+             'kayıtları girilmelidir; sipariş çok kalemli olabilir. Kaydetmenize engel değildir, ancak ' +
+             'grup tamamlanana kadar eksik kalır.' });
+    }else{
+      denge = GV.notice({ tone:'danger', icon:'i-alert', title:'Demirbaş grubu siparişin netini aşıyor',
+        text:'Siparişin neti ' + F.money(net) + ', bu kayıtla birlikte demirbaş grubunun toplamı ' +
+             F.money(toplam) + ' oluyor ve siparişi ' + F.money(-fark) + ' aşıyor. Tutar KDV dahil ' +
+             'girilmiş olabilir: satın alma tutarı NET eksendedir, siparişin brütü ' + F.money(o.toplam) +
+             '. Bu haliyle kaydedilemez.' });
+    }
+
+    hedef.innerHTML = bagNot + denge + ozetListe([
+      ['Sipariş', '<a href="app-siparis-detay.html?id=' + esc(o.kod) + '">' + esc(o.kod) + '</a>' +
+        sub(F.date(o.tarih) + ' · ' + tedarikciAd(o.tedarikci) + (o.talep ? ' · ' + o.talep : ''))],
+      ['Sipariş durumu', GV.badge(o.durum) + (o.teslimKontrol ? ' ' + GV.badge(o.teslimKontrol) : '') +
+        sub('teslim ' + F.date(o.teslimTarihi) + ' (gerçekleşen)')],
+      ['Sipariş net tutarı <span class="u-faint">(KDV hariç — karşılaştırma ekseni)</span>',
+        '<b>' + para(net) + '</b>'],
+      ['Sipariş KDV', paraSade(o.vergi)],
+      ['Sipariş brüt tutarı <span class="u-faint">(KDV dahil — bu eksenle karşılaştırılmaz)</span>',
+        paraSade(o.toplam)],
+      ['Bu siparişten envantere alınan diğer demirbaş', diger.length
+        ? '<b class="u-num">' + diger.length + '</b> kayıt · ' + para(digerNet)
+        : faint('Başka demirbaş yok')],
+      ['Bu kaydın tutarı <span class="u-faint">(forma girilen, KDV hariç)</span>',
+        metin(v.alisFiyati) === '' ? faint('Tutar girilmedi') : para(girilen)],
+      ['Demirbaş grubu toplamı <span class="u-faint">(KDV hariç)</span>', '<b>' + para(toplam) + '</b>'],
+      ['Fark <span class="u-faint">(sipariş neti − grup toplamı)</span>',
+        fark === 0 ? '<span class="badge is-ok no-dot">Yok</span>'
+          : '<b class="' + (fark > 0 ? 'u-num' : 'u-danger') + '">' + F.money(Math.abs(fark)) + '</b>' +
+            sub(fark > 0 ? 'henüz demirbaşa dönmemiş tutar' : 'siparişi aşan tutar')]
+    ]) +
+    (diger.length
+      ? '<div class="gv-summary">' + diger.map(function(x){
+          return '<div class="gv-summary-row">' +
+            '<span class="gv-summary-lbl">' + esc(x.kod) + ' · ' + esc(x.marka + ' ' + x.model) + '</span>' +
+            '<span class="gv-summary-val">' + paraSade(x.alisFiyati) +
+              sub(x.durum + ' · KDV hariç') + '</span></div>';
+        }).join('') + '</div>'
+      : '');
+  }
+
+  function sureOzetiCiz(){
+    var hedef = document.getElementById('sureOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var lisansMi = LISANS_KATEGORI.indexOf(v.kategori) !== -1;
+    var ad = lisansMi ? 'Lisans dönemi' : 'Garanti';
+    var bit = v.garantiBit || null;
+    var bas = v.garantiBas || null;
+    var gun = bit ? F.days(bit) : null;
+
+    var toplamGun = (bas && bit)
+      ? Math.round((new Date(bit + 'T00:00:00') - new Date(bas + 'T00:00:00')) / 86400000) : null;
+    var gecen = (toplamGun != null && gun != null) ? toplamGun - gun : null;
+    var oran  = (toplamGun && gecen != null)
+      ? Math.max(0, Math.min(100, Math.round(gecen / toplamGun * 100))) : null;
+
+    var not;
+    if(!bit){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:ad + ' bitiş tarihi girilmedi',
+        text:'Bitiş tarihi olmayan kayıtta yenileme ve garanti takibi yapılamaz; demirbaş kartında ' +
+             'süre bölümü boş görünür. Donanımda garanti bitişi, lisans ve abonelikte dönem sonu ' +
+             'buraya yazılır.' });
+    }else if(gun < 0){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:ad + ' süresi dolmuş',
+        text:'Bitiş ' + F.date(bit) + ' — sistem tarihine (' + F.date(DB.today) + ') göre ' +
+             Math.abs(gun) + ' gün geçti. ' + (lisansMi
+               ? 'Lisans yenilenmediyse hizmet kesintiye uğrar; yenileme talebi satın alma sürecinden açılır.'
+               : 'Onarım masrafı artık şirkete aittir.') });
+    }else if(gun <= 7){
+      not = GV.notice({ tone:'danger', icon:'i-hourglass', title:'Bitişe 7 günden az kaldı',
+        text:'Bitiş ' + F.date(bit) + ' · ' + gun + ' gün kaldı. ' +
+             (lisansMi ? 'Yenileme talebi bugün açılmalı.' : 'Garanti kapsamındaki işler bu hafta tamamlanmalı.') });
+    }else if(gun <= 30){
+      not = GV.notice({ tone:'warn', icon:'i-calendar', title:'Bitişe 30 günden az kaldı',
+        text:'Bitiş ' + F.date(bit) + ' · ' + gun + ' gün kaldı. ' +
+             (lisansMi ? 'Yenileme talebi satın alma sürecine girmeli.' : 'Garanti kapsamı gözden geçirilmeli.') });
+    }else if(gun <= 60){
+      not = GV.notice({ tone:'info', icon:'i-calendar', title:'Yenileme penceresi açıldı',
+        text:'Bitiş ' + F.date(bit) + ' · ' + gun + ' gün kaldı. 60 günlük yenileme penceresindesiniz.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Süre rahat',
+        text:'Bitiş ' + F.date(bit) + ' · ' + gun + ' gün kaldı. Yenileme eşiği (60 gün) henüz gelmedi.' });
+    }
+
+    var lisansNot = lisansMi ? GV.notice({ tone:'neutral', icon:'i-key',
+      title:'Lisans dönemi garanti alanlarında tutuluyor',
+      text:'Seçilen kategori bir lisans / abonelik. Demirbaş kaydında ayrı lisans anahtarı, koltuk ' +
+           'sayısı, otomatik yenileme ya da yenileme tarihi alanı yok: dönem başlangıç–bitiş çiftinden ' +
+           'okunur, kapsam ise teknik özellik alanına yazılır.',
+      actions:[{ label:'Satın alma talepleri', href:'app-satinalma.html' }] }) : '';
+
+    hedef.innerHTML = not + lisansNot + ozetListe([
+      ['Eksen', esc(ad) + sub(lisansMi ? 'kategori lisans / abonelik' : 'kategori donanım / mobilya')],
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)],
+      ['Satın alma tarihi', v.alisTarihi ? F.date(v.alisTarihi) : faint('Girilmedi')],
+      ['Başlangıç', bas ? F.date(bas) : faint('Girilmedi')],
+      ['Bitiş', bit ? F.date(bit) + ' ' + kalanBadge(bit) : faint('Girilmedi')],
+      ['Toplam süre', toplamGun != null ? '<b class="u-num">' + F.num(toplamGun) + '</b> gün' : faint('—')],
+      ['Kullanılan süre', gecen != null
+        ? '<span class="u-num">' + F.num(Math.max(0, gecen)) + '</span> gün' : faint('—')],
+      ['Süre ilerlemesi', oran != null
+        ? GV.progress(oran, { tone:(gun != null && gun < 0) ? 'danger' : null }) : faint('—')],
+      ['Demirbaş yaşı <span class="u-faint">(satın almadan bugüne)</span>',
+        v.alisTarihi
+          ? '<b class="u-num">' + F.num(Math.max(0, -F.days(v.alisTarihi)) / 365.25, 1) + ' yıl</b>' +
+            sub(F.num(Math.max(0, -F.days(v.alisTarihi))) + ' gün')
+          : faint('—')]
+    ]);
+  }
+
+  function zimmetOzetiCiz(){
+    var hedef = document.getElementById('zimOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var zimmetliMi = v.durum === 'Zimmetli';
+
+    var not;
+    if(zimmetliMi && !aktifZimmet){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Bu tahsisin imzalı tutanağı yok',
+        text:'Durum “Zimmetli” seçili ama demirbaş için aktif zimmet tutanağı bulunmuyor. Bu form ' +
+             'tutanak oluşturmaz: kaydettikten sonra zimmet modülünden ya da demirbaş kartındaki ' +
+             'zimmetleme akışından tutanak açılmalı, personel dijital onayı alınmadan zimmet hukuken ' +
+             'tamamlanmış sayılmaz.',
+        actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' }].concat(
+          duzenle ? [{ label:'Demirbaş kartından zimmetle', href:'app-demirbas-detay.html?id=' + kayit.kod }] : []) });
+    }else if(zimmetliMi && aktifZimmet && v.zimmetli && aktifZimmet.personel !== v.zimmetli){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Kart ile tutanak farklı personel gösteriyor',
+        text:'Formda ' + DB.empName(v.zimmetli) + ', açık tutanakta (' + aktifZimmet.kod + ') ' +
+             DB.empName(aktifZimmet.personel) + ' yazılı. İki kayıt aynı personeli göstermelidir; ' +
+             'devir yapılacaksa önce mevcut tutanak iade ile kapatılmalıdır.',
+        actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' }] });
+    }else if(!zimmetliMi && aktifZimmet){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Açık tutanak kapatılmadı',
+        text:'Durum “' + v.durum + '” seçili ama ' + aktifZimmet.kod + ' tutanağı hâlâ “Aktif”. ' +
+             'Demirbaş iade alındıysa tutanak da kapatılmalıdır; bu form tutanağı kapatmaz.',
+        actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' }] });
+    }else if(zimmetliMi && aktifZimmet){
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Kart ile tutanak aynı personeli gösteriyor',
+        text:aktifZimmet.kod + ' tutanağı ' + DB.empName(aktifZimmet.personel) + ' üzerinde açık ve ' +
+             'formdaki tahsis bilgisiyle örtüşüyor.' });
+    }else{
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Demirbaş şu anda kimseye zimmetli değil',
+        text:'Durum “' + (v.durum || '—') + '” seçili ve açık zimmet tutanağı yok. Zimmetleme, tutanak ' +
+             've dijital personel onayı zimmet modülünde yürür; bu form yalnız kart üzerindeki tahsis ' +
+             'bilgisini yazar.',
+        actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' }] });
+    }
+
+    hedef.innerHTML = not + ozetListe([
+      ['Formdaki durum', GV.badge(v.durum || 'Aktif')],
+      ['Formdaki zimmetli personel', v.zimmetli ? GV.user(v.zimmetli, { sm:true }) : faint('Zimmetsiz')],
+      ['Formdaki zimmet tarihi', v.zimmetTarihi
+        ? F.date(v.zimmetTarihi) + sub(Math.max(0, -F.days(v.zimmetTarihi)) + ' gündür kullanımda')
+        : faint('—')],
+      ['Formdaki son iade tarihi', v.iadeTarihi ? F.date(v.iadeTarihi) : faint('—')],
+      ['Sorumlu departman', v.dep ? esc(DB.depName(v.dep)) : faint('Seçilmedi')],
+      duzenle
+        ? ['Kayıtlı zimmet tutanağı', zimmetler.length
+            ? '<b class="u-num">' + zimmetler.length + '</b> kayıt' +
+              sub((aktifZimmet ? 'aktif ' + aktifZimmet.kod + ' · ' + DB.empName(aktifZimmet.personel)
+                               : 'aktif tutanak yok') +
+                  (imzaBekleyen.length ? ' · ' + imzaBekleyen.length + ' imza bekliyor' : ''))
+            : faint('Tutanak yok')]
+        : ['Zimmet tutanağı', faint('Yeni kaydın tutanağı henüz yok')],
+      ['Sistemdeki toplam tutanak', '<b class="u-num">' + tutanakSayisi + '</b> kayıt']
+    ]);
+  }
+
+  function ozetleriCiz(){ siparisOzetiCiz(); sureOzetiCiz(); zimmetOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    kategori:'Kategori', altKategori:'Alt kategori', marka:'Marka', model:'Model',
+    seri:'Seri numarası', barkod:'Barkod', ozellik:'Teknik özellik',
+    alisTarihi:'Satın alma tarihi', alisFiyati:'Satın alma tutarı (KDV hariç)',
+    tedarikci:'Tedarikçi', siparis:'Bağlı sipariş', garantiBas:'Garanti / lisans başlangıcı',
+    garantiBit:'Garanti / lisans bitişi', lokasyon:'Lokasyon', dep:'Sorumlu departman',
+    durum:'Demirbaş durumu', zimmetli:'Zimmetli personel', zimmetTarihi:'Zimmet tarihi',
+    iadeTarihi:'Son iade tarihi', aktif:'Kayıt durumu'
+  };
+  var BOSALABILEN = ['altKategori','tedarikci','siparis','garantiBas','garantiBit',
+                     'zimmetli','zimmetTarihi','iadeTarihi'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')      return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'alisFiyati') return F.money(sayi(v)) + ' (KDV hariç)';
+    if(k === 'dep')        return DB.depName(v);
+    if(k === 'zimmetli')   return DB.empName(v);
+    if(k === 'tedarikci')  return tedarikciAd(v);
+    if(['alisTarihi','garantiBas','garantiBit','zimmetTarihi','iadeTarihi'].indexOf(k) !== -1)
+      return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    ['marka','model','seri','barkod','ozellik','altKategori','lokasyon'].forEach(function(k){
+      v[k] = metin(v[k]);
+    });
+    if(canFinans) v.alisFiyati = Math.round(sayi(v.alisFiyati));
+    else delete v.alisFiyati;              /* yetkisiz rol tutara HİÇ dokunmaz */
+    v.aktif = !!v.aktif;
+    /* Boş bırakılabilen alanlar veride null tutulur, boş metin yazılmaz. */
+    BOSALABILEN.forEach(function(k){ if(metin(v[k]) === '') v[k] = null; });
+    return v;
+  }
+
+  /* Bu form zimmet tutanağı, sipariş ve fatura YAZMAZ. Girilen değerler bağlı
+     kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce açıkça uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var o = siparisOf(v.siparis);
+
+    if(o && canFinans){
+      var toplam = grupToplam(digerGrup(o.kod)) + sayi(v.alisFiyati);
+      var fark = sayi(o.tutar) - toplam;
+      if(fark > 0){
+        out.push(o.kod + ' siparişinin neti ' + F.money(o.tutar) + ', bu kayıtla birlikte demirbaş ' +
+                 'grubunun toplamı ' + F.money(toplam) + ' oluyor; ' + F.money(fark) +
+                 ' henüz demirbaşa dönmemiş kalıyor.');
+      }
+    }
+    if(o && v.alisTarihi && o.teslimTarihi && v.alisTarihi !== o.teslimTarihi){
+      out.push('Satın alma tarihi ' + F.date(v.alisTarihi) + ' girildi, ' + o.kod + ' siparişinin ' +
+               'gerçekleşen teslim tarihi ise ' + F.date(o.teslimTarihi) + '. Demirbaş envantere teslim ' +
+               'günü girer.');
+    }
+    if(v.durum === 'Zimmetli' && !aktifZimmet){
+      out.push('Demirbaş “Zimmetli” olarak kaydediliyor ama açık bir zimmet tutanağı yok; tutanak bu ' +
+               'formdan doğmaz, zimmet modülünden oluşturulmalıdır.');
+    }
+    if(v.durum !== 'Zimmetli' && aktifZimmet){
+      out.push(aktifZimmet.kod + ' tutanağı hâlâ açık; demirbaş durumu “' + v.durum + '” yapılırsa ' +
+               'tutanak zimmet modülünden kapatılmalıdır.');
+    }
+    if(aktifZimmet && v.zimmetli && aktifZimmet.personel !== v.zimmetli){
+      out.push('Açık tutanakta ' + DB.empName(aktifZimmet.personel) + ' yazılı, formda ' +
+               DB.empName(v.zimmetli) + ' seçili.');
+    }
+    if(v.durum === 'Hurda' && v.aktif){
+      out.push('Durum “Hurda” seçildi ama kayıt aktif bırakılıyor; hurda demirbaş genellikle arşive ' +
+               'alınır ve aktif envanter sayaçlarından düşer.');
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: demirbaş listelerde, sayaçlarda ve zimmet seçimlerinde ' +
+               'görünmeyecek. Zimmet tutanakları ve aktivite geçmişi silinmez.');
+    }
+    if(ARAC_KATEGORI.indexOf(v.kategori) !== -1){
+      out.push('Araç kategorisi seçildi. Araçlar filo modülünde ayrı kayıt olarak yönetilir (sistemde ' +
+               aracSayisi + ' araç kayıtlı); bu form araç kaydı, muayene, sigorta ve yakıt takibi ' +
+               'doğurmaz.');
+    }
+    if(duzenle && canFinans && sayi(v.alisFiyati) !== sayi(kayit.alisFiyati)){
+      out.push('Satın alma tutarı ' + F.money(sayi(kayit.alisFiyati)) + ' → ' + F.money(sayi(v.alisFiyati)) +
+               ' olarak değişiyor; bu alan NET eksendedir ve bağlı siparişin netiyle karşılaştırılır.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         `kod` ve finans yetkisi olmayan rolde `alisFiyati` v'de yoktur, dokunulmaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. Finans yetkisi olmayan
+         rolde tutar forma basılmadığı için 0 yazılır ve bu açıkça duyurulur. */
+      var yeni = {
+        kod:kod, kategori:v.kategori, altKategori:v.altKategori, marka:v.marka, model:v.model,
+        seri:v.seri, ozellik:v.ozellik, alisTarihi:v.alisTarihi,
+        alisFiyati:canFinans ? sayi(v.alisFiyati) : 0, tedarikci:v.tedarikci,
+        garantiBas:v.garantiBas, garantiBit:v.garantiBit, lokasyon:v.lokasyon, dep:v.dep,
+        durum:v.durum, zimmetli:v.zimmetli, zimmetTarihi:v.zimmetTarihi, iadeTarihi:v.iadeTarihi,
+        barkod:v.barkod, siparis:v.siparis, aktif:v.aktif
+      };
+
+      DB.assets.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Demirbaş kaydı oluşturuldu — ' + v.marka + ' ' + v.model + ' · ' + v.kategori +
+              ' · ' + v.lokasyon + (v.siparis ? ' · ' + v.siparis + ' siparişinden' : ''),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-demirbas.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!canFinans && !duzenle){
+      uyari.unshift('Rolünüzde finansal tutar yetkisi olmadığı için satın alma tutarı forma basılmadı; ' +
+                    'kayıt 0 ₺ (KDV hariç) ile açılacak ve tutarı finans yetkisi olan bir kullanıcı ' +
+                    'girmelidir.');
+    }
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz demirbaş kaydı yeni değerlerle yazılır; zimmet tutanağı, ' +
+           'sipariş ve fatura kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Envanter',
+    title:basligi,
+    sub: duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length +
+        ' zorunlu · atanacak kod ' + siradakiKod + '.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-demirbas.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
