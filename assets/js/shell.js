@@ -636,6 +636,7 @@
     'app-tedarikci.html',
     'app-tedarikci-detay.html',
     'app-siparis.html',
+    'app-siparis-detay.html',
     'app-sozlesme.html',
     'app-sozlesme-detay.html',
     'app-fatura.html',
