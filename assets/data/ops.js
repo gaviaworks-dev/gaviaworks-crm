@@ -277,7 +277,24 @@ DB.supplierQuotes = [
   { talep:'SAT-2026-014', tedarikci:'TDR-002', fiyat:186000, teslimSuresi:'5 iş günü', garanti:'3 yıl',
     odeme:'Peşin', teknikUygun:true, puan:4.8, tercih:true, gerekce:'En hızlı teslim, yetkili servis' },
   { talep:'SAT-2026-014', tedarikci:'TDR-001', fiyat:179000, teslimSuresi:'12 iş günü', garanti:'2 yıl',
-    odeme:'30 gün', teknikUygun:true, puan:4.4, tercih:false, gerekce:'Daha ucuz ama teslim uzun' }
+    odeme:'30 gün', teknikUygun:true, puan:4.4, tercih:false, gerekce:'Daha ucuz ama teslim uzun' },
+  { talep:'SAT-2026-014', tedarikci:'TDR-005', fiyat:171000, teslimSuresi:'20 iş günü', garanti:'1 yıl',
+    odeme:'60 gün', teknikUygun:false, puan:2.6, tercih:false, gerekce:'İstenen işlemci seçeneği yok' },
+
+  { talep:'SAT-2026-015', tedarikci:'TDR-003', fiyat:46000, teslimSuresi:'Anında', garanti:'—',
+    odeme:'Yıllık peşin', teknikUygun:true, puan:4.6, tercih:true, gerekce:'Üreticiden doğrudan, mevcut hesap devam eder' },
+  { talep:'SAT-2026-015', tedarikci:'TDR-001', fiyat:44500, teslimSuresi:'3 iş günü', garanti:'—',
+    odeme:'30 gün', teknikUygun:true, puan:3.9, tercih:false, gerekce:'Bayi üzerinden, hesap taşıma gerekiyor' },
+
+  { talep:'SAT-2026-016', tedarikci:'TDR-001', fiyat:19800, teslimSuresi:'7 iş günü', garanti:'3 yıl',
+    odeme:'30 gün', teknikUygun:true, puan:4.5, tercih:false, gerekce:'Mevcut monitörlerle aynı model' },
+  { talep:'SAT-2026-016', tedarikci:'TDR-002', fiyat:23400, teslimSuresi:'4 iş günü', garanti:'2 yıl',
+    odeme:'Peşin', teknikUygun:true, puan:4.1, tercih:false, gerekce:'Daha hızlı teslim, daha pahalı' },
+
+  { talep:'SAT-2026-013', tedarikci:'TDR-005', fiyat:8400, teslimSuresi:'2 iş günü', garanti:'—',
+    odeme:'30 gün', teknikUygun:true, puan:4.3, tercih:true, gerekce:'Anlaşmalı tedarikçi, sipariş verildi' },
+  { talep:'SAT-2026-013', tedarikci:'TDR-001', fiyat:9100, teslimSuresi:'5 iş günü', garanti:'—',
+    odeme:'Peşin', teknikUygun:true, puan:3.7, tercih:false, gerekce:'Daha pahalı' }
 ];
 
 /* ---- Siparişler ---------------------------------------------------------- */
