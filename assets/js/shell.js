@@ -613,6 +613,7 @@
     'app-dokuman-sure.html',
     'app-toplanti-karar.html',
     'app-izin.html',
+    'app-izin-detay.html',
     'app-zaman.html',
     'app-zaman-onay.html',
     'app-egitim.html',

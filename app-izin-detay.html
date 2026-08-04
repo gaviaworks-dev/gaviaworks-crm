@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>İzin Talebi Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="izin">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canOnay = GV.perm.can('onay');
+
+  var id = new URLSearchParams(location.search).get('id') || (DB.leaves[0] || {}).kod;
+  var l  = DB.leaves.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!l){
+    GV.pageHead({ eyebrow:'Personel & İK', title:'İzin Talebi Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'İzin listesi', icon:'i-list', href:'app-izin.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'İzin talebi bulunamadı',
+      desc:'“' + esc(id || '') + '” numaralı izin talebi sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-izin.html">İzin listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(l.kod);
+  document.title = l.kod + ' — İzin Talebi — GaviaWorks CRM';
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride yazılı tekil bağdan türetilir
+     ================================================================= */
+  var e         = DB.emp(l.personel);
+  var dep       = e ? DB.dep(e.dep) : null;
+  var vekil     = l.vekil ? DB.emp(l.vekil) : null;
+  var onaylayan = l.onaylayan ? DB.emp(l.onaylayan) : null;
+  var kap       = DB.capacity.filter(function(c){ return c.personel === l.personel; })[0] || null;
+  var onayKaydi = DB.approvals.filter(function(a){ return a.kayit === l.kod; })[0] || null;
+  var acts      = DB.activities.filter(function(a){ return a.kayit === l.kod; });
+
+  /* İK adımı için makam: İK departmanının (DEP-14) yöneticisi. İzin kaydında
+     İK onay alanı YOK — bu yüzden makam türetilir, karar/tarih türetilmez. */
+  var ikDep  = DB.departments.filter(function(d){ return d.ad === 'İnsan Kaynakları'; })[0] || null;
+  var ikKisi = ikDep ? DB.emp(ikDep.yonetici) : null;
+
+  var turBilinen = DB.leaveTypes.indexOf(l.tur) !== -1;
+
+  /* =================================================================
+     SÜRE — referans DB.today (new Date() ile bugün alınmaz)
+     ================================================================= */
+  function gunFarki(a, b){
+    if(!a || !b) return null;
+    return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  }
+  function enGec(a, b){ return a > b ? a : b; }
+  function enErken(a, b){ return a < b ? a : b; }
+  /* İki izin aralığının kesişimi (uç günler dahil) */
+  function kesisir(a, b){ return a.baslangic <= b.bitis && a.bitis >= b.baslangic; }
+  function ortakGun(a, b){
+    if(!kesisir(a, b)) return 0;
+    return gunFarki(enGec(a.baslangic, b.baslangic), enErken(a.bitis, b.bitis)) + 1;
+  }
+
+  var takvimGun    = gunFarki(l.baslangic, l.bitis);
+  takvimGun = takvimGun == null ? null : takvimGun + 1;          /* uç günler dahil */
+  var gunTutuyor   = takvimGun == null || takvimGun === l.gun;
+
+  var bekliyor   = l.durum === 'Onay bekliyor';
+  var onayli     = l.durum === 'Onaylandı';
+  var reddedildi = l.durum === 'Reddedildi';
+
+  var baslamaKalan = F.days(l.baslangic);
+  var bitisKalan   = F.days(l.bitis);
+  var suruyor      = baslamaKalan != null && bitisKalan != null && baslamaKalan <= 0 && bitisKalan >= 0;
+  var gecmis       = bitisKalan != null && bitisKalan < 0;
+  var yaklasan     = baslamaKalan != null && baslamaKalan > 0;
+
+  function baslangicMetin(){
+    if(baslamaKalan == null) return '<span class="u-faint">—</span>';
+    if(suruyor)  return '<b class="u-num">İzin sürüyor</b>';
+    if(gecmis)   return '<span class="u-faint">' + Math.abs(bitisKalan) + ' gün önce bitti</span>';
+    if(baslamaKalan === 0) return '<b class="u-danger">Bugün başlıyor</b>';
+    return '<b class="u-num">' + baslamaKalan + ' gün sonra başlıyor</b>';
+  }
+
+  /* =================================================================
+     İZİN BAKİYESİ — DB.employees[].izinBakiye KALAN bakiyedir.
+     Kartta "yıllık hak" alanı YOK; hak = kalan + onaylı yıllık kullanım
+     olarak TÜRETİLİR (sabit bir hak günü uydurulmaz).
+     Yalnız "Yıllık izin" bakiyeden düşer — mazeret/hastalık/ücretsiz düşmez.
+     ================================================================= */
+  var izinlerim      = DB.leaves.filter(function(x){ return x.personel === l.personel; });
+  var yillik         = izinlerim.filter(function(x){ return x.tur === 'Yıllık izin'; });
+  var yillikOnayli   = yillik.filter(function(x){ return x.durum === 'Onaylandı'; });
+  var yillikBekleyen = yillik.filter(function(x){ return x.durum === 'Onay bekliyor'; });
+
+  function gunTopla(a){ return a.reduce(function(s, x){ return s + (x.gun || 0); }, 0); }
+
+  var kullanilanGun = gunTopla(yillikOnayli);
+  var bekleyenGun   = gunTopla(yillikBekleyen);
+  var kartBakiye    = e && e.izinBakiye != null ? e.izinBakiye : null;
+  var turetilenHak  = kartBakiye != null ? kartBakiye + kullanilanGun : null;
+  var onaySonrasi   = kartBakiye != null ? kartBakiye - bekleyenGun : null;
+  var bakiyeOran    = (turetilenHak && turetilenHak > 0)
+    ? Math.max(0, Math.min(100, Math.round(kartBakiye / turetilenHak * 100))) : null;
+
+  var yillikMi     = l.tur === 'Yıllık izin';
+  var bakiyeYetmez = yillikMi && kartBakiye != null && l.gun > kartBakiye && !onayli;
+
+  /* Kapasite çapraz kontrolü: DB.capacity[].izin, o personelin bugünden sonra
+     biten (reddedilmemiş) izin günlerinin toplamına eşit olmalıdır. */
+  var yaklasanIzinler = izinlerim.filter(function(x){
+    return x.durum !== 'Reddedildi' && x.bitis >= DB.today;
+  });
+  var yaklasanGun  = gunTopla(yaklasanIzinler);
+  var kapCelisiyor = !!kap && kap.izin !== yaklasanGun;
+
+  /* =================================================================
+     ÇAKIŞMA — aynı departmandaki personelin bu tarih aralığına denk gelen
+     izinleri. Reddedilenler sayılmaz, kaydın kendisi sayılmaz.
+     ================================================================= */
+  var depKod      = e ? e.dep : null;
+  var depPersonel = DB.employees.filter(function(x){ return depKod && x.dep === depKod && x.kod !== l.personel; });
+
+  function cakisanlariBul(kisiler){
+    var kodlar = kisiler.map(function(x){ return x.kod; });
+    return DB.leaves.filter(function(x){
+      return x.kod !== l.kod && x.durum !== 'Reddedildi' &&
+             kodlar.indexOf(x.personel) !== -1 && kesisir(x, l);
+    });
+  }
+  var depCakisan = cakisanlariBul(depPersonel);
+  var disCakisan = cakisanlariBul(DB.employees.filter(function(x){
+    return x.kod !== l.personel && (!depKod || x.dep !== depKod);
+  }));
+  var cakismaVar    = depCakisan.length > 0;
+  var bayrakUyumsuz = !!l.cakisma !== cakismaVar;
+
+  /* Vekilin kendi izni bu aralığa denk geliyor mu — vekâlet çöker */
+  var vekilCakisan = vekil ? DB.leaves.filter(function(x){
+    return x.personel === vekil.kod && x.durum !== 'Reddedildi' && kesisir(x, l);
+  }) : [];
+
+  /* =================================================================
+     DEVREDİLEN İŞLER — izin sahibine atanmış, izin aralığına termini düşen
+     açık görevler. Kapalı durumlar devredilmez.
+     ================================================================= */
+  var kapaliDurum = ['Tamamlandı','İptal edildi','Arşivlendi'];
+  function acikMi(t){ return kapaliDurum.indexOf(t.durum) === -1; }
+
+  var benimGorevler  = DB.tasks.filter(function(t){ return t.sorumlu === l.personel; });
+  var acikGorevler   = benimGorevler.filter(acikMi);
+  var devredilen     = acikGorevler.filter(function(t){
+    return t.termin && t.termin >= l.baslangic && t.termin <= l.bitis;
+  });
+  var gecikmisAcik   = acikGorevler.filter(function(t){ return t.termin && t.termin < l.baslangic; });
+  var sonrakiAcik    = acikGorevler.filter(function(t){ return !t.termin || t.termin > l.bitis; });
+
+  /* =================================================================
+     YARDIMCILAR — dt escape EDİLMEZ (eksen/kaynak işareti render edilmeli),
+     dd çağıran tarafta esc()'lenir.
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  /* Sekme içi ara başlık — ardından gelen `gc-body flush` tablosunu adlandırır */
+  function altBaslik(baslik, ikon, alt){
+    return '<div class="gc-head"><div><h3 class="gc-title">' + ico(ikon) + esc(baslik) + '</h3>' +
+      (alt ? '<div class="gc-sub">' + esc(alt) + '</div>' : '') + '</div></div>';
+  }
+  function personelLink(kod, altMetin){
+    var p = DB.emp(kod);
+    if(!p) return kod ? '<span class="cell-code">' + esc(kod) + '</span>' : null;
+    return '<a href="app-personel-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
+      '<span class="cell-sub">' + esc(altMetin || (p.pozisyon + ' · ' + p.depAd)) + '</span>';
+  }
+  function aralik(x){ return F.date(x.baslangic) + ' – ' + F.date(x.bitis); }
+  function saatDamgasi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* =================================================================
+     ONAY / RET AKIŞLARI — mutasyon sonrası location.reload() YOK (L-15)
+     ================================================================= */
+  function onayAkisi(){
+    if(!canOnay || !bekliyor) return;
+    GV.confirm({
+      title:'İzin talebini onayla',
+      text:(e ? e.ad : l.personel) + ' · ' + l.tur + ' · ' + aralik(l) + ' (' + l.gun + ' gün)' +
+        (cakismaVar ? ' — DİKKAT: aynı departmanda ' + depCakisan.length + ' çakışan izin var.' : '') +
+        (bakiyeYetmez ? ' — DİKKAT: kalan bakiye ' + kartBakiye + ' gün, talep ' + l.gun + ' gün.' : ''),
+      tone:(cakismaVar || bakiyeYetmez) ? 'danger' : 'warn',
+      okLabel:'Onayla'
+    }).then(function(ok){
+      if(!ok) return;
+      var eskiDurum = l.durum;
+      l.durum = 'Onaylandı';
+      l.onayTarihi = DB.today;
+      l.onaylayan = GV.session.emp;
+      if(onayKaydi) onayKaydi.durum = 'Onaylandı';
+      var dusen = 0;
+      if(e && yillikMi && e.izinBakiye != null){
+        dusen = Math.min(e.izinBakiye, l.gun);
+        e.izinBakiye = e.izinBakiye - dusen;
+      }
+      DB.activities.unshift({ kayit:l.kod, tarih:saatDamgasi(), kisi:GV.session.ad,
+        metin:'İzin talebi onaylandı' + (dusen ? ' — yıllık bakiyeden ' + dusen + ' gün düşüldü' : ''),
+        eski:eskiDurum, yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' });
+      GV.toast(l.kod + ' onaylandı', 'ok');
+      setTimeout(function(){ GV.refresh(); }, 700);
+    });
+  }
+
+  function retAkisi(){
+    if(!canOnay || !bekliyor) return;
+    GV.modal({
+      title:'İzin talebini reddet', icon:'i-x-circle', tone:'danger', size:'sm',
+      text:(e ? e.ad : l.personel) + ' · ' + l.tur + ' · ' + aralik(l) + ' (' + l.gun + ' gün)',
+      body:'<div class="field"><label for="retNot">Ret gerekçesi <span class="req">*</span></label>' +
+           '<textarea id="retNot" rows="3" placeholder="Personelin göreceği açıklama — zorunlu"></textarea>' +
+           '<div class="f-hint">Gerekçe izin kartına yazılır ve aktivite geçmişine düşer.</div>' +
+           '<div class="f-err">' + ico('i-alert-circle','ic-sm') + '<span>Ret gerekçesi zorunludur.</span></div></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Reddet', cls:'btn-danger', onClick:function(close, el){
+            var alan = el.querySelector('#retNot');
+            var not  = alan.value.trim();
+            if(!not){
+              alan.closest('.field').classList.add('is-invalid');
+              alan.focus();
+              GV.toast('Ret gerekçesi zorunludur', 'danger');
+              return false;
+            }
+            var eskiDurum = l.durum;
+            l.durum = 'Reddedildi';
+            l.ret = not;
+            l.onayTarihi = DB.today;
+            l.onaylayan = GV.session.emp;
+            if(onayKaydi) onayKaydi.durum = 'Reddedildi';
+            DB.activities.unshift({ kayit:l.kod, tarih:saatDamgasi(), kisi:GV.session.ad,
+              metin:'İzin talebi reddedildi — ' + not, eski:eskiDurum, yeni:'Reddedildi',
+              tone:'danger', icon:'i-x-circle' });
+            GV.toast(l.kod + ' reddedildi', 'ok');
+            setTimeout(function(){ GV.refresh(); }, 700);
+          } }
+      ]
+    });
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Personel & İK', title:'İzin Talebi Detayı',
+    sub:l.kod + ' · ' + (e ? e.ad : l.personel) + ' · ' + l.tur,
+    actions:[
+      { label:'İzin listesi', icon:'i-list', href:'app-izin.html' },
+      { label:'Personel kartı', icon:'i-user', href:'app-personel-detay.html?id=' + l.personel },
+      { label:'Kapasite', icon:'i-gauge', href:'app-kapasite.html' }
+    ]
+  });
+
+  /* =================================================================
+     KAYIT BAŞLIĞI
+     ================================================================= */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(l.kod) + '</span>' +
+        GV.badge(l.durum) +
+        '<span class="tag">' + esc(l.tur) + '</span>' +
+        (cakismaVar ? '<span class="badge is-danger">Departmanda çakışma</span>' : '') +
+        (suruyor ? '<span class="badge is-accent no-dot">İzin sürüyor</span>' : '') +
+        (l.aktif === false ? '<span class="tag">Arşiv</span>' : '') + '</div>' +
+      '<h1>' + esc(e ? e.ad : l.personel) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        (e ? '<span>' + ico('i-user','ic-sm') + '<a href="app-personel-detay.html?id=' + e.kod + '">' + esc(e.pozisyon) + '</a></span>' : '') +
+        '<span>' + ico('i-users','ic-sm') + esc(dep ? dep.ad : (e ? e.depAd : '—')) + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + aralik(l) + '</span>' +
+        '<span>' + ico('i-timer','ic-sm') + l.gun + ' gün</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + 'Vekil ' + esc(vekil ? vekil.ad : 'yok') + '</span>' +
+        '<span>' + ico('i-stamp','ic-sm') + 'Onay makamı ' + esc(onaylayan ? onaylayan.ad : '—') + '</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* =================================================================
+     SEKMELER
+     ================================================================= */
+  var tabs = [
+    { key:'genel',    lbl:'Genel',                 ic:'i-info' },
+    { key:'onay',     lbl:'Onay Akışı',            ic:'i-stamp' },
+    { key:'bakiye',   lbl:'İzin Bakiyesi',         ic:'i-calendar-check' },
+    { key:'cakisma',  lbl:'Çakışma Kontrolü',      ic:'i-alert',  cnt:depCakisan.length },
+    { key:'vekil',    lbl:'Vekil ve Devredilen İşler', ic:'i-user-check', cnt:devredilen.length },
+    { key:'aktivite', lbl:'Aktivite Geçmişi',      ic:'i-activity', cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL — DB.leaves alanlarının tamamı
+     ================================================================= */
+  var pGenel = '<div class="gc-body">' +
+    (gunTutuyor ? '' : GV.notice({ tone:'warn', icon:'i-alert',
+      title:'Gün sayısı takvim aralığıyla uyuşmuyor',
+      text:'Kayıtta ' + l.gun + ' gün yazılı; ' + F.date(l.baslangic) + ' – ' + F.date(l.bitis) +
+           ' aralığı uç günler dahil ' + takvimGun + ' takvim günü. Bakiye ve kapasite hesapları kayıttaki gün sayısını kullanır.' })) +
+    (turBilinen ? '' : GV.notice({ tone:'warn', icon:'i-alert',
+      title:'İzin türü sözlükte yok',
+      text:'“' + l.tur + '” değeri DB.leaveTypes listesinde tanımlı değil. Filtre ve rapor kırılımlarında bu talep dışarıda kalır.' })) +
+
+    sec('Talep Kimliği', dl([
+      ['İzin kodu', '<span class="u-num">' + esc(l.kod) + '</span>'],
+      ['Personel', personelLink(l.personel)],
+      ['Departman', dep
+        ? esc(dep.ad) + ' <span class="cell-sub">' + esc(dep.kod) + ' · yönetici ' + esc(DB.empName(dep.yonetici)) + '</span>'
+        : (e ? esc(e.depAd) : null)],
+      ['İzin türü', '<span class="tag">' + esc(l.tur) + '</span>' +
+        (yillikMi ? ' <span class="cell-sub">yıllık bakiyeden düşer</span>'
+                  : ' <span class="cell-sub">yıllık bakiyeden düşmez</span>')],
+      ['Talep durumu', GV.badge(l.durum)],
+      ['Kayıt durumu', l.aktif === false
+        ? '<span class="tag">Arşivlendi</span>'
+        : '<span class="badge is-ok no-dot">Aktif kayıt</span>']
+    ])) +
+
+    sec('Tarih ve Süre', dl([
+      ['Başlangıç tarihi', GV.dateCell(l.baslangic, { done:gecmis || suruyor })],
+      ['Bitiş tarihi', GV.dateCell(l.bitis, { done:gecmis })],
+      ['Gün sayısı <span class="u-faint">(kayıtta yazılı)</span>', '<b class="u-num">' + l.gun + '</b> gün'],
+      ['Takvim günü <span class="u-faint">(uç günler dahil)</span>', takvimGun != null
+        ? '<b class="u-num">' + takvimGun + '</b> gün ' +
+          (gunTutuyor ? '<span class="badge is-ok no-dot">Tutuyor</span>'
+                      : '<span class="badge is-danger no-dot">Fark var</span>')
+        : null],
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)],
+      ['Zaman konumu', suruyor ? '<span class="badge is-accent no-dot">İzin sürüyor</span>'
+        : gecmis ? '<span class="badge is-neutral no-dot">Geçmiş izin</span>'
+        : '<span class="badge is-info no-dot">Yaklaşan izin</span>'],
+      ['Başlangıca kalan', baslangicMetin()]
+    ])) +
+
+    sec('Gerekçe ve Vekâlet', dl([
+      ['Gerekçe', l.gerekce ? esc(l.gerekce) : null],
+      ['Vekil personel', vekil
+        ? personelLink(vekil.kod)
+        : '<span class="u-faint">Vekil atanmamış</span>'],
+      ['Çakışma bayrağı <span class="u-faint">(kayıtta yazılı)</span>', l.cakisma
+        ? '<span class="badge is-danger no-dot">Çakışma işaretli</span>'
+        : '<span class="badge is-ok no-dot">Temiz</span>'],
+      ['Hesaplanan çakışma <span class="u-faint">(aynı departman)</span>', cakismaVar
+        ? '<b class="u-danger">' + depCakisan.length + ' izinle çakışıyor</b>'
+        : '<span class="u-faint">Aynı departmanda çakışan izin yok</span>']
+    ])) +
+
+    sec('Onay Bilgisi', dl([
+      ['Talep tarihi', l.talepTarihi ? '<span class="cell-date">' + F.date(l.talepTarihi) + '</span>' : null],
+      ['Onaylayan makam', onaylayan ? personelLink(onaylayan.kod) : null],
+      ['Onay / ret tarihi', l.onayTarihi
+        ? '<span class="cell-date">' + F.date(l.onayTarihi) + '</span>'
+        : '<span class="u-faint">Karar verilmedi</span>'],
+      ['Karar süresi', (l.talepTarihi && l.onayTarihi)
+        ? '<b class="u-num">' + gunFarki(l.talepTarihi, l.onayTarihi) + '</b> gün'
+        : null],
+      ['Ret gerekçesi', l.ret ? '<b class="u-danger">' + esc(l.ret) + '</b>' : null]
+    ])) +
+    '</div>';
+
+  /* =================================================================
+     2. ONAY AKIŞI — talep → yönetici onayı → İK kaydı
+     ================================================================= */
+  var yoneticiDurum = bekliyor ? 'Bekliyor' : (onayli ? 'Onaylandı' : (reddedildi ? 'Reddedildi' : l.durum));
+
+  var adimlar = [
+    { rol:'Talep', kisi:(e ? e.ad : l.personel), durum:'Onaylandı', tarih:l.talepTarihi,
+      not:l.gerekce || null },
+    { rol:onayKaydi ? 'Yönetici onayı · ' + onayKaydi.tur : 'Yönetici onayı',
+      kisi:onaylayan ? onaylayan.ad : (onayKaydi ? DB.empName(onayKaydi.onaylayan) : null),
+      durum:yoneticiDurum,
+      tarih:l.onayTarihi,
+      not:l.ret || (bekliyor && onayKaydi ? 'Onay kuyruğunda: ' + onayKaydi.kod + ' · aciliyet ' + onayKaydi.aciliyet : null) },
+    { rol:'İK kaydı', kisi:ikKisi ? ikKisi.ad : null, durum:'Kayıt yok',
+      not:'İzin kaydında İK onay alanı yok — makam DEP-14 yöneticisinden türetildi, karar ve tarih türetilmedi.' }
+  ];
+
+  var onayAksiyon = (canOnay && bekliyor)
+    ? '<div class="u-row u-mt-8">' +
+      '<button type="button" class="btn btn-acc" id="btnOnayla">' + ico('i-check') + ' Onayla</button>' +
+      '<button type="button" class="btn btn-danger" id="btnReddet">' + ico('i-x') + ' Reddet</button>' +
+      '</div>'
+    : '';
+
+  var pOnay = '<div class="gc-body">' +
+    (onayKaydi ? '' : GV.notice({ tone:'warn', icon:'i-alert',
+      title:'Onay kuyruğunda karşılığı yok',
+      text:l.kod + ' için DB.approvals içinde adım kaydı bulunmuyor. Zincir, izin kartındaki ' +
+           'onaylayan / talep tarihi / onay tarihi alanlarından kuruldu; makam ve aciliyet dökümü eksik.' })) +
+    (bekliyor && !canOnay ? GV.notice({ tone:'neutral', icon:'i-lock',
+      title:'Onay yetkiniz yok',
+      text:'Bu talep onay bekliyor, ancak rolünüzde onay yetkisi tanımlı değil. Zinciri görüntüleyebilirsiniz.' }) : '') +
+    (bakiyeYetmez ? GV.notice({ tone:'danger', icon:'i-alert',
+      title:'Kalan bakiye talebi karşılamıyor',
+      text:'Talep ' + l.gun + ' gün yıllık izin; personelin kalan bakiyesi ' + kartBakiye + ' gün. ' +
+           'Onaylanırsa bakiye ' + kartBakiye + ' günün altına inemeyeceği için eksik gün ücretsiz izne dönüşür.' }) : '') +
+    (bekliyor && cakismaVar ? GV.notice({ tone:'danger', icon:'i-users',
+      title:'Onaydan önce çakışma çözülmeli',
+      text:'Aynı departmanda bu tarihlere denk gelen ' + depCakisan.length + ' izin var. ' +
+           'Ayrıntı “Çakışma Kontrolü” sekmesinde.' }) : '') +
+
+    '<div class="u-mt-4">' + GV.chain(adimlar) + '</div>' +
+
+    dl([
+      ['Talep eden', personelLink(l.personel)],
+      ['Talep tarihi', l.talepTarihi ? '<span class="cell-date">' + F.date(l.talepTarihi) + '</span>' : null],
+      ['Onay makamı', onaylayan ? personelLink(onaylayan.kod) : null],
+      ['Talep durumu', GV.badge(l.durum)],
+      ['Karar tarihi', l.onayTarihi ? '<span class="cell-date">' + F.date(l.onayTarihi) + '</span>' : null],
+      ['Bekleme süresi', bekliyor && l.talepTarihi
+        ? '<b class="u-num">' + Math.abs(gunFarki(l.talepTarihi, DB.today)) + '</b> gün bekliyor'
+        : null],
+      ['Onay kuyruğu kaydı', onayKaydi
+        ? '<a href="app-panel-onaylar.html">' + esc(onayKaydi.kod) + '</a>' +
+          ' <span class="cell-sub">' + esc(onayKaydi.tur) + ' · ' + esc(onayKaydi.baslik) + '</span>'
+        : null],
+      ['Kuyruk durumu', onayKaydi ? GV.badge(onayKaydi.durum) : null],
+      ['Onay aciliyeti', onayKaydi ? GV.pri(onayKaydi.aciliyet) : null],
+      ['Kuyruğa giriş tarihi', onayKaydi ? '<span class="cell-date">' + F.date(onayKaydi.tarih) + '</span>' : null],
+      ['İK adımı', ikKisi
+        ? '<span class="u-faint">Kayıt yok</span> <span class="cell-sub">makam ' + esc(ikKisi.ad) + ' (' + esc(ikDep.ad) + ')</span>'
+        : '<span class="u-faint">Kayıt yok</span>'],
+      ['Ret gerekçesi', l.ret ? '<b class="u-danger">' + esc(l.ret) + '</b>' : null]
+    ]) + onayAksiyon + '</div>';
+
+  /* =================================================================
+     3. İZİN BAKİYESİ — karttan ve onaylı izinlerden TÜRETİLİR
+     ================================================================= */
+  var bakiyeUyari = '';
+  if(!e){
+    bakiyeUyari += GV.notice({ tone:'danger', icon:'i-alert', title:'Personel kartı bulunamadı',
+      text:'“' + esc(l.personel) + '” koduyla DB.employees içinde kayıt yok; bakiye hesaplanamıyor.' });
+  } else {
+    bakiyeUyari += GV.notice({ tone:'neutral', icon:'i-info',
+      title:'Yıllık hak alanı veride yok — türetildi',
+      text:'Personel kartında yalnız kalan bakiye (izinBakiye) tutuluyor; yıllık hak günü alanı yok. ' +
+           'Aşağıdaki hak = kalan bakiye + onaylı yıllık izin günleri olarak türetilmiştir. ' +
+           'Yalnız “Yıllık izin” bakiyeden düşer; mazeret, hastalık, ücretsiz izin ve uzaktan çalışma düşmez.' });
+    if(bakiyeYetmez){
+      bakiyeUyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Talep kalan bakiyeyi aşıyor',
+        text:'Kalan bakiye ' + kartBakiye + ' gün, bu talep ' + l.gun + ' gün. Aradaki ' +
+             (l.gun - kartBakiye) + ' gün için ücretsiz izin ya da bakiye düzeltmesi gerekir.' });
+    }
+    if(yillikMi && turetilenHak === 0){
+      bakiyeUyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Yıllık izin hakkı tanımlı değil',
+        text:(e.ad) + ' kartında yıllık izin bakiyesi 0 ve onaylı yıllık izin kaydı yok — ' +
+             'çalışma türü “' + e.calismaTuru + '”. Yıllık izin talebi bu kartla karşılanamaz.' });
+    }
+    if(kapCelisiyor){
+      bakiyeUyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Kapasite kartı izin günüyle çelişiyor',
+        text:'Kapasite kaydında bu personel için ' + kap.izin + ' izin günü yazılı; ' +
+             'bugünden sonra biten reddedilmemiş izinlerinin toplamı ' + yaklasanGun + ' gün. ' +
+             'Kapasite planı bu talep üzerinden güncellenmeli.' });
+    }
+  }
+
+  var pBakiye = '<div class="gc-body">' + bakiyeUyari +
+    (e ? sec('Yıllık İzin Bakiyesi', dl([
+      ['Yıllık izin hakkı <span class="u-faint">(türetilen: kalan + kullanılan)</span>',
+        turetilenHak != null ? '<b class="u-num">' + turetilenHak + '</b> gün' : null],
+      ['Kullanılan <span class="u-faint">(onaylı yıllık izin)</span>',
+        '<b class="u-num">' + kullanilanGun + '</b> gün <span class="cell-sub">' + yillikOnayli.length + ' talep</span>'],
+      ['Bekleyen <span class="u-faint">(onay bekleyen yıllık izin)</span>',
+        '<b class="u-num">' + bekleyenGun + '</b> gün <span class="cell-sub">' + yillikBekleyen.length + ' talep</span>'],
+      ['Kalan <span class="u-faint">(personel kartı)</span>',
+        kartBakiye != null ? '<b class="u-num">' + kartBakiye + '</b> gün' : null],
+      ['Bekleyenler onaylanırsa kalan', onaySonrasi != null
+        ? (onaySonrasi < 0 ? '<b class="u-danger">' + onaySonrasi + '</b> gün'
+                           : '<b class="u-num">' + onaySonrasi + '</b> gün') : null],
+      ['Kalan bakiye oranı', bakiyeOran != null
+        ? GV.progress(bakiyeOran)
+        : '<span class="u-faint">Yıllık izin hakkı türetilemedi</span>'],
+      ['Bu talebin bakiyeye etkisi', yillikMi
+        ? '<b class="u-num">−' + l.gun + '</b> gün <span class="cell-sub">onaylanınca düşer</span>'
+        : '<span class="u-faint">' + esc(l.tur) + ' yıllık bakiyeden düşmez</span>']
+    ])) : '') +
+    '</div>' +
+
+    '<div class="gc-body flush">' +
+    (izinlerim.length
+      ? tbl('<th>İzin</th><th>Tür</th><th>Tarih aralığı</th><th class="num">Gün</th>' +
+            '<th class="num">Bakiye etkisi</th><th>Talep tarihi</th><th>Onaylayan</th><th>Durum</th>',
+          izinlerim.slice().sort(function(a, b){ return String(b.baslangic).localeCompare(String(a.baslangic)); })
+            .map(function(x){
+              var buKayit = x.kod === l.kod;
+              var etki = (x.tur === 'Yıllık izin' && x.durum !== 'Reddedildi') ? '−' + x.gun : '—';
+              return '<tr' + (buKayit ? ' class="is-selected"' : '') + '>' +
+                '<td>' + (buKayit
+                  ? '<span class="cell-main">' + esc(x.kod) + '</span><span class="cell-code">bu kayıt</span>'
+                  : '<a class="cell-main" href="app-izin-detay.html?id=' + x.kod + '">' + esc(x.kod) + '</a>') + '</td>' +
+                '<td><span class="tag">' + esc(x.tur) + '</span></td>' +
+                '<td><span class="cell-date">' + aralik(x) + '</span></td>' +
+                '<td class="num"><b class="u-num">' + x.gun + '</b></td>' +
+                '<td class="num"><span class="u-num">' + etki + '</span></td>' +
+                '<td><span class="cell-date">' + F.date(x.talepTarihi) + '</span></td>' +
+                '<td>' + GV.user(x.onaylayan, { sm:true }) + '</td>' +
+                '<td>' + GV.badge(x.durum) + '</td></tr>';
+            }).join('')) +
+        sayac('<b>' + izinlerim.length + '</b> izin talebi · onaylı ' +
+          izinlerim.filter(function(x){ return x.durum === 'Onaylandı'; }).length +
+          ' · bekleyen ' + izinlerim.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length +
+          ' · yıllık kullanım <b>' + kullanilanGun + '</b> gün',
+          '<a class="btn btn-line btn-sm" href="app-izin.html">' + ico('i-calendar-check','ic-sm') + ' İzin listesi</a>')
+      : GV.empty({ icon:'i-calendar-check', title:'Bu personelin başka izin kaydı yok',
+          desc:'Bakiye geçmişi, personelin onaylanmış izin taleplerinden türetilir.',
+          action:'<a class="btn btn-acc" href="app-izin.html">İzin listesine git</a>' })) +
+    '</div>' +
+
+    (kap ? '<div class="gc-body">' + sec('Kapasite Kartı', dl([
+      ['Haftalık kapasite', '<span class="u-num">' + F.hours(kap.kapasite) + '</span>'],
+      ['Planlanan iş', '<span class="u-num">' + F.hours(kap.planlanan) + '</span>'],
+      ['Doluluk', GV.progress(kap.doluluk)],
+      ['Kapasite kartındaki izin', '<b class="u-num">' + kap.izin + '</b> gün'],
+      ['Yaklaşan izin günleri <span class="u-faint">(hesaplanan)</span>',
+        '<b class="u-num">' + yaklasanGun + '</b> gün ' +
+        (kapCelisiyor ? '<span class="badge is-danger no-dot">Çelişiyor</span>'
+                      : '<span class="badge is-ok no-dot">Tutuyor</span>')]
+    ])) + '</div>' : '');
+
+  /* =================================================================
+     4. ÇAKIŞMA KONTROLÜ — veriden gerçekten hesaplanır
+     ================================================================= */
+  var cakismaNot;
+  if(cakismaVar){
+    cakismaNot = GV.notice({ tone:'danger', icon:'i-users',
+      title:'Aynı departmanda ' + depCakisan.length + ' çakışan izin var',
+      text:esc(dep ? dep.ad : '—') + ' departmanında ' + F.date(l.baslangic) + ' – ' + F.date(l.bitis) +
+           ' aralığına denk gelen izinler aşağıda. Onay öncesi ekip kapasitesi kontrol edilmeli.' });
+  } else if(!depPersonel.length){
+    cakismaNot = GV.notice({ tone:'neutral', icon:'i-info',
+      title:'Departmanda başka personel yok',
+      text:(dep ? dep.ad : '—') + ' departmanında bu personelden başka kayıtlı çalışan bulunmuyor; ' +
+           'departman içi çakışma hesaplanamaz. Şirket geneli karşılaştırması aşağıdadır.' });
+  } else {
+    cakismaNot = GV.notice({ tone:'ok', icon:'i-check-circle',
+      title:'Departman içinde çakışma yok',
+      text:(dep ? dep.ad : '—') + ' departmanındaki diğer ' + depPersonel.length +
+           ' personelin bu tarih aralığına denk gelen izni yok.' });
+  }
+
+  var bayrakNot = bayrakUyumsuz ? GV.notice({ tone:'warn', icon:'i-alert',
+    title:'Kayıttaki çakışma bayrağı hesapla uyuşmuyor',
+    text:'Kayıtta cakisma = ' + (l.cakisma ? 'true' : 'false') + ' yazılı; aynı departmandaki izinlerden ' +
+         'hesaplanan sonuç ' + (cakismaVar ? 'çakışma var' : 'çakışma yok') + '. ' +
+         (l.cakisma && !cakismaVar
+           ? 'Bayrak büyük olasılıkla personel değil, proje takvimi çakışmasını işaretliyor' +
+             (l.ret ? ' (ret gerekçesi: ' + l.ret + ')' : '') + '.'
+           : 'Bayrak güncellenmemiş olabilir.') }) : '';
+
+  function cakismaSatir(x){
+    var xe = DB.emp(x.personel) || {};
+    var ort = ortakGun(x, l);
+    return '<tr class="is-late"><td>' + personelLink(x.personel) + '</td>' +
+      '<td><a class="cell-code" href="app-izin-detay.html?id=' + x.kod + '">' + esc(x.kod) + '</a></td>' +
+      '<td><span class="tag">' + esc(x.tur) + '</span></td>' +
+      '<td><span class="cell-date">' + aralik(x) + '</span></td>' +
+      '<td class="num"><b class="u-num">' + x.gun + '</b></td>' +
+      '<td class="num"><b class="u-danger u-num">' + ort + '</b></td>' +
+      '<td>' + esc(xe.depAd || '—') + '</td>' +
+      '<td>' + GV.badge(x.durum) + '</td></tr>';
+  }
+  var cakismaBaslik = '<th>Personel</th><th>İzin</th><th>Tür</th><th>Tarih aralığı</th>' +
+    '<th class="num">Gün</th><th class="num">Ortak gün</th><th>Departman</th><th>Durum</th>';
+
+  /* Departman personelinin bu aralıktaki durumu — çakışma olmasa da doldurulur */
+  var depDurumTablo = depPersonel.length
+    ? tbl('<th>Personel</th><th>Pozisyon</th><th>Bu aralıktaki durum</th><th>Çakışan izin</th>' +
+          '<th class="num">Ortak gün</th><th>Vekil olduğu izin</th>',
+        depPersonel.map(function(p){
+          var izni = depCakisan.filter(function(x){ return x.personel === p.kod; })[0] || null;
+          var vekilligi = DB.leaves.filter(function(x){ return x.vekil === p.kod && x.durum !== 'Reddedildi' && kesisir(x, l); });
+          return '<tr' + (izni ? ' class="is-late"' : '') + '>' +
+            '<td>' + personelLink(p.kod, p.kod) + '</td>' +
+            '<td class="cell-wrap">' + esc(p.pozisyon) + '</td>' +
+            '<td>' + (izni ? '<span class="badge is-danger no-dot">İzinli</span>'
+                           : '<span class="badge is-ok no-dot">Çalışıyor</span>') + '</td>' +
+            '<td>' + (izni
+              ? '<a class="cell-code" href="app-izin-detay.html?id=' + izni.kod + '">' + esc(izni.kod) + '</a>' +
+                '<span class="cell-sub">' + esc(izni.tur) + '</span>'
+              : '<span class="u-faint">—</span>') + '</td>' +
+            '<td class="num">' + (izni ? '<b class="u-danger u-num">' + ortakGun(izni, l) + '</b>'
+                                       : '<span class="u-faint">0</span>') + '</td>' +
+            '<td>' + (vekilligi.length
+              ? vekilligi.map(function(v){ return '<span class="cell-code">' + esc(v.kod) + '</span>'; }).join(' ')
+              : '<span class="u-faint">—</span>') + '</td></tr>';
+        }).join('')) +
+      sayac('<b>' + depPersonel.length + '</b> diğer departman personeli · ' +
+        depCakisan.length + ' çakışan izin · ' +
+        (depPersonel.length - depCakisan.length) + ' personel bu aralıkta çalışıyor',
+        '<a class="btn btn-line btn-sm" href="app-kapasite.html">' + ico('i-gauge','ic-sm') + ' Kapasite planı</a>')
+    : GV.empty({ icon:'i-users', title:'Departmanda karşılaştırılacak personel yok',
+        desc:(dep ? dep.ad : 'Bu') + ' departmanında bu personelden başka kayıtlı çalışan bulunmuyor, ' +
+             'departman içi çakışma matrisi kurulamaz.',
+        action:'<a class="btn btn-acc" href="app-ayar-departman.html">Departman ayarlarına git</a>' });
+
+  var pCakisma = '<div class="gc-body">' + cakismaNot + bayrakNot +
+    dl([
+      ['Kontrol edilen aralık', '<span class="cell-date">' + aralik(l) + '</span> <span class="cell-sub">' + l.gun + ' gün</span>'],
+      ['Departman', dep ? esc(dep.ad) + ' <span class="cell-sub">' + esc(dep.kod) + '</span>' : null],
+      ['Departmandaki diğer personel', '<b>' + depPersonel.length + '</b> kişi'],
+      ['Departman içi çakışma', cakismaVar
+        ? '<b class="u-danger">' + depCakisan.length + ' izin</b>'
+        : '<span class="badge is-ok no-dot">Yok</span>'],
+      ['Şirket geneli çakışma <span class="u-faint">(departman dışı)</span>', disCakisan.length
+        ? '<b class="u-num">' + disCakisan.length + ' izin</b>'
+        : '<span class="u-faint">Yok</span>'],
+      ['Kayıttaki çakışma bayrağı', l.cakisma
+        ? '<span class="badge is-danger no-dot">İşaretli</span>'
+        : '<span class="badge is-ok no-dot">İşaretsiz</span>'],
+      ['Bayrak ↔ hesap uyumu', bayrakUyumsuz
+        ? '<span class="badge is-warn no-dot">Uyuşmuyor</span>'
+        : '<span class="badge is-ok no-dot">Uyuşuyor</span>']
+    ]) + '</div>' +
+
+    '<div class="gc-body flush">' +
+    (cakismaVar
+      ? tbl(cakismaBaslik, depCakisan.map(cakismaSatir).join('')) +
+        sayac('<b>' + depCakisan.length + '</b> çakışan izin · en uzun kesişim <b>' +
+          depCakisan.reduce(function(m, x){ return Math.max(m, ortakGun(x, l)); }, 0) + '</b> gün',
+          '<a class="btn btn-line btn-sm" href="app-ajanda.html">' + ico('i-calendar','ic-sm') + ' Departman takvimi</a>')
+      : GV.empty({ icon:'i-check-circle', title:'Departman içinde çakışan izin yok',
+          desc:F.date(l.baslangic) + ' – ' + F.date(l.bitis) + ' aralığında ' +
+               (dep ? dep.ad : 'bu') + ' departmanındaki diğer personelin izni bulunmuyor. Talep ekip kapasitesini tek başına etkiliyor.',
+          action:'<a class="btn btn-acc" href="app-ajanda.html">Departman takvimini aç</a>' })) +
+    '</div>' +
+
+    altBaslik('Departman Personelinin Bu Aralıktaki Durumu', 'i-users',
+      (dep ? dep.ad : '—') + ' · ' + aralik(l)) +
+    '<div class="gc-body flush">' + depDurumTablo + '</div>' +
+
+    altBaslik('Şirket Geneli — Aynı Tarihlerde İzinli Diğer Personel', 'i-calendar',
+      'Başka departmanlardaki izinler ekip kapasitesini doğrudan etkilemez, bilgi amaçlıdır') +
+    '<div class="gc-body flush">' +
+    (disCakisan.length
+      ? tbl(cakismaBaslik, disCakisan.map(function(x){
+          return cakismaSatir(x).replace('<tr class="is-late">', '<tr>');
+        }).join('')) +
+        sayac('<b>' + disCakisan.length + '</b> izin · başka departmanlarda, ekip kapasitesini doğrudan etkilemez')
+      : GV.empty({ icon:'i-users', title:'Şirket genelinde de çakışan izin yok',
+          desc:'Bu tarih aralığında başka departmanlarda da izinli personel bulunmuyor.',
+          action:'<a class="btn btn-line" href="app-izin.html">İzin listesine dön</a>' })) +
+    '</div>';
+
+  /* =================================================================
+     5. VEKİL VE DEVREDİLEN İŞLER
+     ================================================================= */
+  var vekilKart;
+  if(!vekil){
+    vekilKart = GV.empty({ icon:'i-user-check', title:'Vekil atanmamış',
+      desc:'Bu talepte vekil personel alanı boş. ' + l.gun + ' günlük izin süresince ' +
+           (e ? e.ad : l.personel) + ' üzerindeki açık işler için sorumluluk devri tanımlı değil.',
+      action:'<a class="btn btn-acc" href="app-izin.html">İzin listesine dön</a>' });
+  } else {
+    var vKap = DB.capacity.filter(function(c){ return c.personel === vekil.kod; })[0] || null;
+    vekilKart =
+      (vekilCakisan.length ? GV.notice({ tone:'danger', icon:'i-alert',
+        title:'Vekil aynı tarihlerde izinli',
+        text:vekil.ad + ' için ' + vekilCakisan.map(function(x){ return x.kod + ' (' + x.tur + ', ' + aralik(x) + ')'; }).join(' · ') +
+             ' kaydı bu izinle çakışıyor. Vekâlet fiilen boşta kalır; başka vekil atanmalı.' }) : '') +
+      (vekil.dep !== (e ? e.dep : null) ? GV.notice({ tone:'neutral', icon:'i-info',
+        title:'Vekil farklı departmanda',
+        text:vekil.ad + ' (' + vekil.depAd + ') izin sahibinin departmanı ' +
+             (dep ? dep.ad : '—') + ' dışından. Teknik devir öncesi bilgi aktarımı gerekebilir.' }) : '') +
+      sec('Vekil Personel', dl([
+        ['Vekil', personelLink(vekil.kod)],
+        ['Departman', esc(vekil.depAd)],
+        ['Çalışma türü', esc(vekil.calismaTuru)],
+        ['Yöneticisi', vekil.yonetici ? GV.user(vekil.yonetici, { sm:true }) : null],
+        ['İletişim', esc(vekil.eposta) + ' <span class="cell-sub">' + esc(vekil.tel) + '</span>'],
+        ['Haftalık kapasite', vKap ? '<span class="u-num">' + F.hours(vKap.kapasite) + '</span>' : null],
+        ['Vekilin doluluğu', vKap ? GV.progress(vKap.doluluk) : null],
+        ['Vekilin kendi izni', vekilCakisan.length
+          ? '<b class="u-danger">' + vekilCakisan.length + ' izin bu aralıkla çakışıyor</b>'
+          : '<span class="badge is-ok no-dot">Bu aralıkta izinli değil</span>'],
+        ['Vekilin açık görev sayısı',
+          '<b>' + DB.tasks.filter(function(t){ return t.sorumlu === vekil.kod && acikMi(t); }).length + '</b>']
+      ]));
+  }
+
+  function gorevSatir(t){
+    return '<tr' + (t.termin && t.termin < DB.today ? ' class="is-late"' : '') + '>' +
+      '<td><a class="cell-main" href="app-gorev-detay.html?id=' + t.kod + '">' + esc(t.baslik) + '</a>' +
+        '<span class="cell-code">' + esc(t.kod) + '</span></td>' +
+      '<td><span class="tag">' + esc(t.tur) + '</span></td>' +
+      '<td>' + (t.proje
+        ? '<a class="cell-code" href="app-proje-detay.html?id=' + t.proje + '">' + esc(DB.projName(t.proje)) + '</a>'
+        : '<span class="u-faint">Projesiz</span>') + '</td>' +
+      '<td>' + GV.pri(t.oncelik) + '</td>' +
+      '<td>' + GV.badge(t.durum) + '</td>' +
+      '<td>' + GV.dateCell(t.termin, { done:false }) + '</td>' +
+      '<td>' + GV.progress(t.ilerleme) + '</td>' +
+      '<td>' + (t.yardimci && t.yardimci.length
+        ? t.yardimci.map(function(y){ return GV.user(y, { sm:true }); }).join(' ')
+        : '<span class="u-faint">—</span>') + '</td></tr>';
+  }
+  var gorevBaslik = '<th>Görev</th><th>Tür</th><th>Proje</th><th>Öncelik</th>' +
+    '<th>Durum</th><th>Termin</th><th>İlerleme</th><th>Yardımcı</th>';
+
+  var pVekil = '<div class="gc-body">' + vekilKart + '</div>' +
+
+    altBaslik('İzin Aralığına Termini Düşen Açık Görevler', 'i-tasks',
+      (e ? e.ad : l.personel) + ' · termin ' + aralik(l) + ' aralığında') +
+    '<div class="gc-body flush">' +
+    (devredilen.length
+      ? tbl(gorevBaslik, devredilen.map(gorevSatir).join('')) +
+        sayac('<b>' + devredilen.length + '</b> görev · termin ' + F.dateShort(l.baslangic) + ' – ' +
+          F.dateShort(l.bitis) + ' aralığında' +
+          (vekil ? ' · vekil <b>' + esc(vekil.ad) + '</b>' : ' · <b class="u-danger">vekil atanmamış</b>'),
+          '<a class="btn btn-line btn-sm" href="app-gorev.html">' + ico('i-tasks','ic-sm') + ' Görev listesi</a>')
+      : GV.empty({ icon:'i-tasks', title:'İzin aralığına düşen açık görev yok',
+          desc:(e ? e.ad : l.personel) + ' üzerindeki açık görevlerin hiçbirinin termini ' +
+               F.date(l.baslangic) + ' – ' + F.date(l.bitis) + ' aralığına denk gelmiyor. ' +
+               'Toplam ' + acikGorevler.length + ' açık görevi var; devir gerekmiyor.',
+          action:'<a class="btn btn-acc" href="app-gorev.html?f_sorumlu=' + l.personel + '">Personelin görevlerini aç</a>' })) +
+    '</div>' +
+
+    (gecikmisAcik.length
+      ? '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
+          title:'İzin başlamadan kapanması gereken gecikmiş görevler',
+          text:'Termini izin başlangıcından önce olan ve hâlâ açık ' + gecikmisAcik.length +
+               ' görev var. İzin başlamadan kapanmazsa fiilen vekile devredilir.' }) + '</div>' +
+        '<div class="gc-body flush">' + tbl(gorevBaslik, gecikmisAcik.map(gorevSatir).join('')) +
+        sayac('<b>' + gecikmisAcik.length + '</b> gecikmiş açık görev · termin ' +
+          F.dateShort(l.baslangic) + ' tarihinden önce') + '</div>'
+      : '') +
+
+    '<div class="gc-body">' + ozetListe([
+      ['Personelin toplam görevi', '<b>' + benimGorevler.length + '</b>'],
+      ['Açık görev', '<b>' + acikGorevler.length + '</b>'],
+      ['İzin aralığına düşen', devredilen.length
+        ? '<b class="u-danger">' + devredilen.length + '</b>' : '<span class="u-faint">0</span>'],
+      ['İzin öncesi geciken', gecikmisAcik.length
+        ? '<b class="u-danger">' + gecikmisAcik.length + '</b>' : '<span class="u-faint">0</span>'],
+      ['İzin sonrasına kalan', '<b>' + sonrakiAcik.length + '</b>'],
+      ['Vekil', vekil
+        ? '<a href="app-personel-detay.html?id=' + vekil.kod + '">' + esc(vekil.ad) + '</a>'
+        : '<span class="u-faint">Atanmamış</span>']
+    ]) + '</div>';
+
+  /* =================================================================
+     6. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body">' +
+    (acts.length ? GV.activity(acts)
+      : GV.empty({ icon:'i-activity', title:'Bu izin talebinde kayıtlı hareket yok',
+          desc:'Talep oluşturma, onay ve ret hareketleri burada listelenir. ' +
+               'Bu kayıt için aktivite geçmişi henüz sisteme işlenmemiş.',
+          action:'<a class="btn btn-line" href="app-izin.html">İzin listesine dön</a>' })) +
+    '</div>';
+
+  var panels = {
+    genel:pGenel, onay:pOnay, bakiye:pBakiye,
+    cakisma:pCakisma, vekil:pVekil, aktivite:pAktivite
+  };
+
+  /* =================================================================
+     SAĞ ÖZET PANELİ
+     ================================================================= */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Personel', e
+        ? '<a href="app-personel-detay.html?id=' + e.kod + '">' + esc(e.ad) + '</a>'
+        : esc(l.personel)],
+      ['Departman', esc(dep ? dep.kisa : (e ? e.depAd : '—'))],
+      ['İzin türü', '<span class="tag">' + esc(l.tur) + '</span>'],
+      ['Başlangıç', GV.dateCell(l.baslangic, { done:gecmis || suruyor })],
+      ['Bitiş', GV.dateCell(l.bitis, { done:gecmis })],
+      ['Gün sayısı', '<b class="u-num">' + l.gun + '</b> gün'],
+      ['Kalan izin bakiyesi', kartBakiye != null
+        ? '<b class="u-num">' + kartBakiye + '</b> gün' : '<span class="u-faint">—</span>'],
+      ['Bakiye oranı', bakiyeOran != null
+        ? GV.progress(bakiyeOran) : '<span class="u-faint">Hak türetilemedi</span>'],
+      ['Vekil', vekil
+        ? '<a href="app-personel-detay.html?id=' + vekil.kod + '">' + esc(vekil.ad) + '</a>'
+        : '<span class="u-faint">Atanmamış</span>'],
+      ['Onay durumu', GV.badge(l.durum)]
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-stamp') + 'Onay</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Onay makamı', onaylayan
+        ? '<a href="app-personel-detay.html?id=' + onaylayan.kod + '">' + esc(onaylayan.ad) + '</a>'
+        : '<span class="u-faint">—</span>'],
+      ['Talep tarihi', '<span class="cell-date">' + F.date(l.talepTarihi) + '</span>'],
+      ['Karar tarihi', l.onayTarihi
+        ? '<span class="cell-date">' + F.date(l.onayTarihi) + '</span>'
+        : '<span class="u-faint">Bekliyor</span>'],
+      ['Onay kuyruğu', onayKaydi
+        ? '<a href="app-panel-onaylar.html">' + esc(onayKaydi.kod) + '</a>'
+        : '<span class="u-faint">Kayıt yok</span>'],
+      ['Aciliyet', onayKaydi ? GV.pri(onayKaydi.aciliyet) : '<span class="u-faint">—</span>'],
+      ['Zaman konumu', suruyor ? '<span class="badge is-accent no-dot">Sürüyor</span>'
+        : gecmis ? '<span class="badge is-neutral no-dot">Geçmiş</span>'
+        : '<span class="badge is-info no-dot">Yaklaşan</span>']
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-alert') + 'Kontroller</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Departman çakışması', cakismaVar
+        ? '<span class="badge is-danger no-dot">' + depCakisan.length + ' izin</span>'
+        : '<span class="badge is-ok no-dot">Yok</span>'],
+      ['Bakiye yeterliliği', !yillikMi
+        ? '<span class="u-faint">Bakiyeden düşmez</span>'
+        : (bakiyeYetmez ? '<span class="badge is-danger no-dot">Yetersiz</span>'
+                        : '<span class="badge is-ok no-dot">Yeterli</span>')],
+      ['Gün / takvim uyumu', gunTutuyor
+        ? '<span class="badge is-ok no-dot">Tutuyor</span>'
+        : '<span class="badge is-warn no-dot">Fark var</span>'],
+      ['Kapasite kaydı', !kap
+        ? '<span class="u-faint">Kart yok</span>'
+        : (kapCelisiyor ? '<span class="badge is-warn no-dot">Çelişiyor</span>'
+                        : '<span class="badge is-ok no-dot">Tutuyor</span>')],
+      ['Devredilecek görev', devredilen.length
+        ? '<b class="u-danger">' + devredilen.length + '</b>' : '<span class="u-faint">Yok</span>'],
+      ['Vekil uygunluğu', !vekil
+        ? '<span class="badge is-warn no-dot">Vekil yok</span>'
+        : (vekilCakisan.length ? '<span class="badge is-danger no-dot">Vekil izinli</span>'
+                               : '<span class="badge is-ok no-dot">Uygun</span>')]
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3))
+      : '<p class="u-sm u-faint">Bu izin talebinde henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* =================================================================
+     AKSİYONLAR — her çizimde yeniden bağlanır (GV.refresh sonrası
+     dinleyici birikmesin diye taze düğümlere bağlanıyor)
+     ================================================================= */
+  var bOnay = mount.querySelector('#btnOnayla');
+  if(bOnay) bOnay.addEventListener('click', onayAkisi);
+  var bRet = mount.querySelector('#btnReddet');
+  if(bRet) bRet.addEventListener('click', retAkisi);
+});
+</script>
+</body>
+</html>
