@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 153 / 274 madde tamam (%56) · 32 kısmen · 89 açık** — 6. oturum, 2026-08-04
+**İLERLEME: 157 / 274 madde tamam (%57) · 32 kısmen · 85 açık** — 6. oturum, 2026-08-04
 > Sayı 237'den 274'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
@@ -282,8 +282,8 @@ kaydet sonrası `location.reload` **yasak**, `GV.refresh` ile biter ve listeye d
 dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` yazılmaz.
 
 #### Satış ve müşteri (8)
-- [ ] `app-lead-form.html` — müşteri adayı (28 alan · §8.1) ← `app-lead.html` · `app-lead-detay.html`
-- [ ] `app-musteri-form.html` — müşteri kartı ← `app-musteri.html` · `app-musteri-detay.html`
+- [x] `app-lead-form.html` — müşteri adayı (28 alan · §8.1) ← `app-lead.html` · `app-lead-detay.html`
+- [x] `app-musteri-form.html` — müşteri kartı ← `app-musteri.html` · `app-musteri-detay.html`
 - [ ] `app-musteri-yetkili-form.html` — müşteri yetkilisi ← `app-musteri-yetkili.html`
 - [ ] `app-musteri-iletisim-form.html` — iletişim kaydı ← `app-musteri-iletisim.html`
 - [ ] `app-referans-form.html` — yönlendiren kişi (21 alan · §9) ← `app-referans.html`
@@ -322,7 +322,7 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 - [ ] `app-arac-kaza-form.html` — kaza / hasar / ceza ← `app-arac-kaza.html`
 
 #### Satın alma ve finans (5)
-- [ ] `app-satinalma-form.html` — satın alma talebi (14 alan · §17) ← `app-satinalma.html`
+- [x] `app-satinalma-form.html` — satın alma talebi (14 alan · §17) ← `app-satinalma.html`
 - [ ] `app-siparis-form.html` — sipariş (18 alan + teslim kontrolü) ← `app-siparis.html`
 - [ ] `app-tedarikci-form.html` — tedarikçi ← `app-tedarikci.html`
 - [ ] `app-sozlesme-form.html` — sözleşme (net/KDV/brüt ekseni) ← `app-sozlesme.html`
@@ -332,7 +332,7 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 - [ ] `app-toplanti-form.html` — toplantı (gündem + katılımcılar) ← `app-toplanti.html`
 
 #### Kuyruktaki tek form olmayan hedef
-- [ ] `duyuru-detay` — `app-panel-duyurular.html` hem liste hem `GV.form` kullanıyor ve duyuruyu
+- [x] `duyuru-detay` — `app-panel-duyurular.html` hem liste hem `GV.form` kullanıyor ve duyuruyu
       **sağ panelde** açıyor. Ayrı ekran gerekmez; `app-panel-duyurular.html`'e `?id=` derin
       bağlantısı eklenip `app-ayar-log.html`'deki hedef ona çevrilecek.
 
