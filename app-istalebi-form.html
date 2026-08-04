@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>İş Talebi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="gorev" data-screen="istalebi">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.departments, DB.employees, DB.dep, DB.depName, DB.emp, DB.empName, DB.today
+     crm.js  → DB.customers
+     work.js → DB.deptRequests, DB.tasks, DB.priorities, DB.projects, DB.activities,
+               DB.proj, DB.projName, DB.task -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.deptRequests.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurulmaz, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'İş Takibi', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen departman talebi sistemde yok.',
+      actions:[{ label:'İş talepleri', cls:'btn-line', href:'app-istalebi.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'İş talebi bulunamadı',
+      desc:'“' + esc(id) + '” numaralı departman talebi bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-istalebi.html">İş talebi listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İş Talebi');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İş Talebi') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'İş Takibi',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İş Talebi',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'İş talepleri', cls:'btn-line', href:'app-istalebi.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Talep düzenleme' : 'Talep açma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'Departman taleplerini görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-istalebi.html">Talep listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-istalebi-detay.html?id=' + kayit.kod + '">Talebi aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* Kabul kararı alan bazlı yetkidir: onay yetkisi olmayan role “Kabul Kararı”
+     bölümü HİÇ basılmaz (devre dışı bırakılmaz — ölü kontrol yasağı).
+     app-istalebi-detay.html'de kabul/red aksiyonları da aynı yetkiye bağlı. */
+  var canOnay = GV.perm.can('onay');
+
+  /* =================================================================
+     SÖZLÜKLER — veride koleksiyon olarak YOK, kümeler ekranlardan alındı
+       · Talep türü: app-istalebi.html'in “Talep türü” filtresindeki altı değer
+         (talep türü için veri katmanında sözlük koleksiyonu yok — aynı ekseni
+         ikinci kez ayrıştırmamak için oradan alındı, bkz. VB-22).
+       · Talep durumu: aynı ekranın “Talep durumu” filtresi.
+       · Onay: veride 'Bekliyor' / 'Onaylandı' geçiyor; 'Reddedildi' değerini
+         app-istalebi-detay.html'in red akışı yazıyor.
+       · Öncelik: DB.priorities sözlüğü (Kritik · Yüksek · Orta · Düşük).
+     ================================================================= */
+  var TURLER = ['Ön analiz talebi','Ekran tasarım talebi','Test talebi',
+                'Hata çözüm talebi','Ekipman talebi','Eksik bilgi talebi'];
+  if(duzenle && kayit.tur && TURLER.indexOf(kayit.tur) === -1) TURLER.push(kayit.tur);
+
+  var DURUMLAR = ['Bekliyor','Devam ediyor','Tamamlandı'];
+  var ONAYLAR  = ['Bekliyor','Onaylandı','Reddedildi'];
+  var GOREV_KAPALI = ['Tamamlandı','İptal edildi','Arşivlendi'];
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  var toplamTalep = DB.deptRequests.length;
+
+  /* Kaynak ile hedef departmanın aynı olduğu kayıt (olmamalı — canlı kanarya) */
+  var ayniDep = DB.deptRequests.filter(function(x){ return x.talepEdenDep === x.talepEdilenDep; }).length;
+
+  /* Talep eden kişi, talep eden departmanda mı? */
+  function kisiDepUyar(kisiKod, depKod){
+    var e = DB.emp(kisiKod), d = DB.dep(depKod);
+    if(!e || !d) return false;
+    return e.dep === depKod || d.yonetici === kisiKod;
+  }
+  var edenUyum = DB.deptRequests.filter(function(x){ return kisiDepUyar(x.talepEden, x.talepEdenDep); }).length;
+  var sorumluUyum = DB.deptRequests.filter(function(x){
+    return !x.sorumlu || kisiDepUyar(x.sorumlu, x.talepEdilenDep); }).length;
+
+  var projeliTalep  = DB.deptRequests.filter(function(x){ return !!x.proje; }).length;
+  var musteriTalep  = DB.deptRequests.filter(function(x){ return !!x.musteri; }).length;
+  var bekleyenOnay  = DB.deptRequests.filter(function(x){ return x.onay === 'Bekliyor'; }).length;
+  var gorevBagli    = DB.deptRequests.filter(function(x){ return x.gorev != null; }).length;
+  /* Ayna alan kanaryası: bağ talebin üstünde (`gorev`) tutulur; görevdeki `talep`
+     alanı components.md §9d yön kuralına göre ikinci yöndür. */
+  var aynaAlan      = DB.tasks.filter(function(t){ return t.talep != null; }).length;
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden
+     ================================================================= */
+  function depAktif(d){
+    return d.aktif !== false ||
+      (duzenle && (d.kod === kayit.talepEdenDep || d.kod === kayit.talepEdilenDep));
+  }
+  function depEtiket(d){
+    var acikTalep = DB.deptRequests.filter(function(x){
+      return x.talepEdilenDep === d.kod && x.durum !== 'Tamamlandı'; }).length;
+    return d.ad + ' · ' + d.kod + ' · yönetici ' + DB.empName(d.yonetici) +
+      (d.aktif === false ? ' · pasif departman' : '') +
+      (acikTalep ? ' · ' + acikTalep + ' açık talep' : '');
+  }
+  function depSecenek(haric){
+    return DB.departments.filter(function(d){ return depAktif(d) && d.kod !== haric; })
+      .map(function(d){ return { value:d.kod, label:depEtiket(d) }; });
+  }
+
+  /* Bir departmanın kişileri: kadrosundaki aktif personel + departman yöneticisi.
+     (DEP-04 · DEP-16 gibi kadrosu boş departmanlarda iş yönetici üzerinden yürür —
+     veride bu iki talep de yöneticiye bağlı.) */
+  function kisiSecenek(depKod){
+    var d = DB.dep(depKod);
+    var list = DB.employees.filter(function(e){ return e.dep === depKod && e.aktif !== false; });
+    if(d && d.yonetici && !list.some(function(e){ return e.kod === d.yonetici; })){
+      var y = DB.emp(d.yonetici);
+      if(y) list = list.concat([y]);
+    }
+    return list.map(function(e){
+      return { value:e.kod, label:e.ad + ' · ' + e.pozisyon +
+        (d && d.yonetici === e.kod ? ' · departman yöneticisi' : '') +
+        (e.dep !== depKod ? ' · ' + e.depAd : '') };
+    });
+  }
+
+  var PROJELER = DB.projects
+    .filter(function(p){ return p.aktif !== false || (duzenle && p.kod === kayit.proje); })
+    .map(function(p){ return { value:p.kod, label:p.ad + ' · ' + p.kod + ' · ' + p.durum +
+      ' · müşteri ' + p.musteriAd }; });
+
+  var MUSTERILER = DB.customers
+    .filter(function(c){ return c.aktif !== false || (duzenle && c.kod === kayit.musteri); })
+    .map(function(c){ return { value:c.kod, label:c.unvan + ' · ' + c.kod + ' · ' + c.sektor }; });
+
+  /* Göreve dönüşüm bağı — yalnız düzenleme modunda. Yeni açılan talebin
+     üretilmiş görevi olamaz; dönüştürme akışı talep kartındadır. */
+  function gorevSecenek(depKod){
+    return DB.tasks
+      .filter(function(t){
+        return t.aktif !== false &&
+          (t.dep === depKod || (duzenle && t.kod === kayit.gorev)); })
+      .map(function(t){ return { value:t.kod, label:t.baslik + ' · ' + t.kod + ' · ' + t.durum +
+        ' · ' + DB.empName(t.sorumlu) }; });
+  }
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    ['sorumlu','proje','musteri','tamamlanma','redNedeni','redTarihi','gorev'].forEach(function(k){
+      formRec[k] = kayit[k] || '';
+    });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    /* Kaynak departman ve talep eden oturumdan gelir — bu bir BAĞ değil, form
+       varsayılanıdır; talebi açan kişi ikisini de değiştirebilir. */
+    var benim = (GV.session && GV.session.emp && DB.emp(GV.session.emp)) ? GV.session.emp : '';
+    var benimDep = (benim && DB.emp(benim).dep) ||
+                   (GV.session && GV.session.dep) || '';
+    if(benimDep && !DB.dep(benimDep)) benimDep = '';
+    formRec = {
+      baslik:'', tur:'', oncelik:'', aciklama:'',
+      talepEdenDep:benimDep, talepEdilenDep:'', talepEden:benim, sorumlu:'',
+      beklenenCikti:'', kabulKriteri:'', proje:'', musteri:'',
+      olusturma:DB.today, termin:'', tamamlanma:'',
+      durum:'Bekliyor', onay:'Bekliyor', redNedeni:'', redTarihi:'',
+      gorev:'', aktif:true
+    };
+  }
+
+  var baslangicKaynak = formRec.talepEdenDep || '';
+  var baslangicHedef  = formRec.talepEdilenDep || '';
+
+  /* =================================================================
+     BAĞLAM — düzenleme modunda kaydın ilişkileri
+     ================================================================= */
+  var kaynakDep = duzenle ? DB.dep(kayit.talepEdenDep) : null;
+  var hedefDep  = duzenle ? DB.dep(kayit.talepEdilenDep) : null;
+  var bagliGorev = duzenle && kayit.gorev ? DB.task(kayit.gorev) : null;
+  var bagliProje = duzenle && kayit.proje ? DB.proj(kayit.proje) : null;
+  var bagliMusteri = duzenle && kayit.musteri
+    ? (DB.customers.filter(function(c){ return c.kod === kayit.musteri; })[0] || null) : null;
+  var acts = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Hedef departmanın mevcut yükü — termin verirken görünür olsun. */
+  var hedefKod    = duzenle ? kayit.talepEdilenDep : baslangicHedef;
+  var hedefGorev  = DB.tasks.filter(function(t){ return t.dep === hedefKod; });
+  var hedefAcik   = hedefGorev.filter(function(t){ return GOREV_KAPALI.indexOf(t.durum) === -1; });
+  var hedefGec    = hedefAcik.filter(function(t){ return t.termin && F.days(t.termin) < 0; });
+  var hedefTalep  = DB.deptRequests.filter(function(x){
+    return x.talepEdilenDep === hedefKod && x.durum !== 'Tamamlandı' &&
+           (!duzenle || x.kod !== kayit.kod); }).length;
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     `dt` escape EDİLMEZ (sabit etiket işaretlemesi), `dd` çağıran tarafta
+     esc()'lenmiş gelir (ders L-14).
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function sub(t){ return ' <span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  var ust = '';
+
+  /* Kanarya: kaynak = hedef olan kayıt veride doğduysa görünür olsun. */
+  if(ayniDep){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', title:'Kaynağı ve hedefi aynı olan talep var',
+      text:'Departman talebi iki AYRI departman arasında kurulur. Şu an ' + ayniDep +
+           ' kayıtta talep eden ve talep edilen departman aynı. Bu form aynı departmanı ' +
+           'seçtirmez; mevcut kayıtları veri katmanı düzeltmelidir.' }) + '</div></section>';
+  }
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı: göreve dönüşüm bağı ---- */
+    var bagAksiyon = [];
+    if(bagliGorev) bagAksiyon.push({ label:'Üretilen görevi aç', cls:'btn-line',
+      href:'app-gorev-detay.html?id=' + bagliGorev.kod });
+    bagAksiyon.push({ label:'Talep kartını aç', cls:'btn-line',
+      href:'app-istalebi-detay.html?id=' + kayit.kod });
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:bagliGorev ? 'ok' : 'info',
+      title:bagliGorev ? 'Bu talep bir göreve dönüşmüş — bağ veride yazılı'
+                       : 'Bu talep henüz göreve dönüşmemiş',
+      text:(bagliGorev
+             ? 'Bağ talebin “gorev” alanında tutulur ve şu an ' + bagliGorev.kod + ' · ' +
+               bagliGorev.baslik + ' görevini gösteriyor (' + bagliGorev.durum + '). Görev ' +
+               'alanları bu formdan düzenlenmez; yalnız bağın kendisi değiştirilebilir ya da ' +
+               'kaldırılabilir. '
+             : 'Talepten görev üretme akışı bu formda değil, talep kartındaki “Göreve dönüştür” ' +
+               'aksiyonundadır; orada üretilen görev hedef departman altında açılır ve bağ ' +
+               'talebin “gorev” alanına yazılır. ') +
+           'Ölçüm: ' + toplamTalep + ' talebin ' + gorevBagli + ' tanesinde görev bağı yazılı.',
+      actions:bagAksiyon }) + '</div></section>';
+
+    /* Ayna alan kanaryası — bağ talebin üstünde tutulur (components.md §9d). */
+    if(aynaAlan){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:'warn', title:'Görev kayıtlarında “talep” ayna alanı var',
+        text:'Şu an ' + aynaAlan + ' görev kaydında “talep” alanı dolu. components.md §9d yön ' +
+             'kuralı bağın yalnız doğan kaydın üstünde tutulmasını söyler; bu form ayna alanı ' +
+             'yazmaz, yalnız talebin “gorev” alanını günceller.' }) + '</div></section>';
+    }
+
+    /* ---- Kayıt özeti ---- */
+    var son = acts[0];
+    var yasGun = kayit.olusturma ? -F.days(kayit.olusturma) : null;
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['Talep numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Konu', esc(kayit.baslik)],
+        ['Talep türü', '<span class="tag">' + esc(kayit.tur) + '</span>'],
+        ['Departman akışı', '<span class="chain-cell"><span class="cc-from">' +
+          esc(kaynakDep ? kaynakDep.kisa : kayit.talepEdenDep) + '</span>' + ico('i-arrow-right','ic-sm') +
+          '<span class="cc-to">' + esc(hedefDep ? hedefDep.kisa : kayit.talepEdilenDep) + '</span></span>' +
+          sub((kaynakDep ? kaynakDep.ad : kayit.talepEdenDep) + ' → ' +
+              (hedefDep ? hedefDep.ad : kayit.talepEdilenDep))],
+        ['İş durumu', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Kabul / onay durumu', GV.badge(kayit.onay) +
+          (kayit.onay === 'Reddedildi' && kayit.redNedeni ? sub(kayit.redNedeni) : '')],
+        ['Öncelik', GV.pri(kayit.oncelik)],
+        ['Talep eden', GV.user(kayit.talepEden, { sm:true })],
+        ['Sorumlu', kayit.sorumlu ? GV.user(kayit.sorumlu, { sm:true }) : null],
+        ['Talep tarihi', GV.dateCell(kayit.olusturma, { done:true }) + sub(F.dateLong(kayit.olusturma))],
+        ['Termin', GV.dateCell(kayit.termin, { done:kayit.durum === 'Tamamlandı' })],
+        ['Tamamlanma', kayit.tamamlanma ? GV.dateCell(kayit.tamamlanma, { done:true }) : null],
+        ['Talep yaşı <span class="u-faint">(bugüne göre)</span>', yasGun != null
+          ? '<b class="u-num">' + F.num(yasGun) + '</b> gün' : null],
+        ['Bağlı proje', bagliProje
+          ? '<a href="app-proje-detay.html?id=' + esc(bagliProje.kod) + '">' + esc(bagliProje.ad) + '</a>' +
+            sub(bagliProje.kod + ' · ' + bagliProje.durum)
+          : null],
+        ['Bağlı müşteri', bagliMusteri
+          ? '<a href="app-musteri-detay.html?id=' + esc(bagliMusteri.kod) + '">' + esc(bagliMusteri.unvan) + '</a>' +
+            sub(bagliMusteri.kod + ' · ' + bagliMusteri.sektor)
+          : null],
+        ['Üretilen görev', bagliGorev
+          ? '<a href="app-gorev-detay.html?id=' + esc(bagliGorev.kod) + '">' + esc(bagliGorev.baslik) + '</a>' +
+            sub(bagliGorev.kod + ' · ' + bagliGorev.durum)
+          : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-istalebi-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Talep kartını aç</a>');
+
+    /* ---- Hedef departmanın yükü ---- */
+    if(hedefKod){
+      ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+        tone:hedefGec.length ? 'warn' : 'neutral',
+        title:hedefGec.length
+          ? 'Hedef departmanda termini geçmiş iş var'
+          : 'Hedef departmanın mevcut yükü',
+        text:(hedefDep ? hedefDep.ad : hedefKod) + ' üzerinde ' + hedefAcik.length +
+             ' açık görev (' + hedefGorev.length + ' görev kaydı) ve bu talep dışında ' +
+             hedefTalep + ' açık departman talebi var' +
+             (hedefGec.length ? '; açık görevlerin ' + hedefGec.length + ' tanesinin termini geçmiş' : '') +
+             '. Termini değiştirirken bu yük dikkate alınmalı.' }) + '</div></section>';
+    }
+
+  }else{
+    /* ---- Yeni kayıt modunda ne olacağı ---- */
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni departman talebi açılıyor',
+        text:'Kaydettiğinizde sıradaki talep numarası atanır, aktivite geçmişine “Talep ' +
+             'oluşturuldu” satırı düşülür ve talep listesine dönülür. Talep, hedef departman ' +
+             'kabul edene kadar “Bekliyor” durumunda kalır; kabul kararı ve göreve dönüştürme ' +
+             'akışı talep kartında yürütülür. Bu form görev üretmez.',
+        actions:[{ label:'İş talepleri', href:'app-istalebi.html' },
+                 { label:'Görev havuzu', href:'app-gorev.html' }] }) +
+      (canOnay
+        ? ''
+        : GV.notice({ tone:'neutral', icon:'i-lock', title:'Kabul kararı alanları basılmadı',
+            text:'Rolünüzde onay yetkisi olmadığı için “Kabul Kararı” bölümü forma konulmadı. ' +
+                 'Yeni talep “Bekliyor” onay durumuyla açılır; kararı hedef departman yöneticisi verir. ' +
+                 'Ölçüm: ' + toplamTalep + ' talebin ' + bekleyenOnay + ' tanesi şu an kabul kararı bekliyor.' })) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-arrow-right') + 'Talep Künyesi</h2>' +
+        '<div class="gc-sub">Departman akışı, kapsam, termin ve kabul ekseni · ' +
+          'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-istalebi.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  function alanDegeri(key, varsayilan){
+    var el = document.querySelector('#formMount [name="' + key + '"]');
+    return el ? el.value : varsayilan;
+  }
+  function onayOf(d){
+    return (d && d.onay != null) ? d.onay : (duzenle ? kayit.onay : 'Bekliyor');
+  }
+
+  var sections = [];
+
+  sections.push({ title:'Talep kimliği',
+    desc:'Talebin konusu, türü ve neden açıldığı. Talep numarası kaydederken sistem ' +
+         'tarafından atanır, elle girilmez. Kayıtta ayrı bir “gerekçe” alanı yoktur; ' +
+         'gerekçeyi açıklama, beklenen çıktı ve kabul kriteri birlikte taşır.',
+    fields:[
+      { key:'baslik', label:'Talep konusu', type:'text', required:true, cols:12,
+        placeholder:'Örn. Rapor merkezi 8 ekran tasarımı',
+        hint:'Ne istendiği tek cümlede yazılır; ayrıntı açıklama alanına girer.',
+        validate:function(v, d){
+          var ayni = DB.deptRequests.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) &&
+                   x.talepEdilenDep === d.talepEdilenDep &&
+                   String(x.baslik).trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
+          return ayni ? 'Aynı hedef departmana aynı konuyla açılmış bir talep var (' + ayni.kod +
+                        '). Konu ayırt edici olmalı ya da mevcut talep güncellenmeli.' : '';
+        } },
+      { key:'tur', label:'Talep türü', type:'select', options:TURLER, required:true, cols:6,
+        placeholder:'Talep türü seçin',
+        hint:'Veride talep türü sözlüğü ayrı bir koleksiyon değil; küme talep listesinin tür ' +
+             'filtresiyle birebir aynıdır (' + TURLER.length + ' değer).' },
+      { key:'oncelik', label:'Öncelik', type:'select', options:DB.priorities, required:true, cols:6,
+        placeholder:'Öncelik seçin',
+        hint:'Öncelik sözlüğü: ' + DB.priorities.join(' · ') + '. Etki kümesi (' +
+             DB.impacts.join(' · ') + ') talep ekseni DEĞİLDİR; etki yalnız göreve ' +
+             'dönüştürme sırasında sorulur.' },
+      { key:'aciklama', label:'Açıklama', type:'textarea', required:true, cols:12, rows:3,
+        placeholder:'Talebin ayrıntısı, bağlamı ve varsa kaynağı…',
+        hint:'Talep göreve dönüştürülürse bu metin görev açıklamasına taşınır.' }
+    ]});
+
+  sections.push({ title:'Departman akışı',
+    desc:'Talep iki AYRI departman arasında kurulur: kaynak departman işi ister, hedef ' +
+         'departman kabul edip yürütür. Aynı departman kaynak ve hedef olarak seçilemez.',
+    fields:[
+      { key:'talepEdenDep', label:'Talep eden departman (kaynak)', type:'select',
+        options:depSecenek(baslangicHedef), required:true, cols:6,
+        placeholder:'Kaynak departman seçin',
+        hint:'Departman değişince talep eden kişi seçenekleri yeniden kurulur. Pasif ' +
+             'departmanlar listelenmez.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(!DB.dep(v)) return 'Seçilen departman kaydı bulunamadı.';
+          return v === d.talepEdilenDep
+            ? 'Kaynak ve hedef departman aynı olamaz — departman kendi içindeki işi talep ' +
+              'değil görev olarak açar.' : '';
+        } },
+      { key:'talepEdilenDep', label:'Talep edilen departman (hedef)', type:'select',
+        options:depSecenek(baslangicKaynak), required:true, cols:6,
+        placeholder:'Hedef departman seçin',
+        hint:'İşi yürütecek departman. Seçim değişince sorumlu seçenekleri yeniden kurulur.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(!DB.dep(v)) return 'Seçilen departman kaydı bulunamadı.';
+          return v === d.talepEdenDep
+            ? 'Hedef departman kaynak departmandan farklı olmalıdır.' : '';
+        } },
+      { key:'talepEden', label:'Talep eden kişi', type:'select',
+        options:kisiSecenek(baslangicKaynak), required:true, cols:6,
+        placeholder:'Önce kaynak departmanı seçin',
+        hint:(duzenle ? 'Talebi açan kişi. ' : 'Oturumdaki kullanıcı seçili geldi; değiştirebilirsiniz. ') +
+             'Kişi kaynak departmanın kadrosunda ya da yöneticisi olmalıdır — ölçüm: ' +
+             toplamTalep + ' talebin ' + edenUyum + ' tanesinde bu tutuyor.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(!DB.emp(v)) return 'Seçilen çalışan kaydı bulunamadı.';
+          return (d.talepEdenDep && !kisiDepUyar(v, d.talepEdenDep))
+            ? 'Talep eden kişi kaynak departmanın kadrosunda değil (' +
+              DB.empName(v) + ' → ' + (DB.emp(v).depAd || '—') + ').' : '';
+        } },
+      { key:'sorumlu', label:'Sorumlu (hedef departmanda)', type:'select',
+        options:kisiSecenek(baslangicHedef), cols:6,
+        placeholder:'Atanmadı — kabul akışında atanır',
+        hint:'İşi yürütecek kişi. Boş bırakılırsa talep sorumlusuz açılır ve hedef departman ' +
+             'kabul ederken atar. Kadrosu boş departmanlarda iş yöneticiye düşer — ölçüm: ' +
+             toplamTalep + ' talebin ' + sorumluUyum + ' tanesinde sorumlu hedef departmanın ' +
+             'kadrosunda ya da yöneticisi.',
+        validate:function(v, d){
+          if(!v){
+            return (d.durum && d.durum !== 'Bekliyor')
+              ? 'İşleme alınmış talepte sorumlu zorunludur — durumu “Bekliyor” yapın ya da ' +
+                'sorumlu atayın.' : '';
+          }
+          if(!DB.emp(v)) return 'Seçilen çalışan kaydı bulunamadı.';
+          return (d.talepEdilenDep && !kisiDepUyar(v, d.talepEdilenDep))
+            ? 'Sorumlu hedef departmanın kadrosunda ya da yöneticisi olmalıdır (' +
+              DB.empName(v) + ' → ' + (DB.emp(v).depAd || '—') + ').' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Kapsam ve beklenen çıktı',
+    desc:'Talebin neyle kapandığı burada yazılır; talep göreve dönüştürülürse bu iki alan ' +
+         'görevin amaç ve kabul kriteri alanlarına taşınır. Proje ve müşteri bağı ' +
+         'zorunlu değildir — iç işleyiş talepleri ikisi de boş açılır.',
+    fields:[
+      { key:'beklenenCikti', label:'Beklenen çıktı', type:'text', required:true, cols:6,
+        placeholder:'Örn. Yazılı fizibilite notu',
+        hint:'Teslim edilecek somut çıktı.' },
+      { key:'kabulKriteri', label:'Kabul kriteri', type:'text', required:true, cols:6,
+        placeholder:'Örn. Risk ve efor tahmini içermeli',
+        hint:'Çıktının kabul edilmesi için tutması gereken koşul.' },
+      { key:'proje', label:'Bağlı proje', type:'select', options:PROJELER, cols:6,
+        placeholder:'Projeye bağlı değil',
+        hint:'Ölçüm: ' + toplamTalep + ' talebin ' + projeliTalep + ' tanesi bir projeye bağlı. ' +
+             'Proje seçilirse müşteri alanı projenin müşterisiyle tutarlı olmalıdır.',
+        validate:function(v, d){
+          if(!v) return '';
+          var p = DB.proj(v);
+          if(!p) return 'Seçilen proje kaydı bulunamadı.';
+          return (d.musteri && p.musteri !== d.musteri)
+            ? 'Proje başka bir müşteriye ait (' + p.musteriAd + '); müşteri alanıyla çelişiyor.' : '';
+        } },
+      { key:'musteri', label:'Bağlı müşteri', type:'select', options:MUSTERILER, cols:6,
+        placeholder:'Müşteriye bağlı değil',
+        hint:'Ölçüm: ' + toplamTalep + ' talebin ' + musteriTalep + ' tanesi bir müşteriye bağlı. ' +
+             'Bağ tahmin edilmez; yalnız gerçekten bilinen müşteri yazılır.',
+        validate:function(v, d){
+          if(!v) return '';
+          var c = DB.customers.filter(function(x){ return x.kod === v; })[0];
+          if(!c) return 'Seçilen müşteri kaydı bulunamadı.';
+          if(!d.proje) return '';
+          var p = DB.proj(d.proje);
+          return (p && p.musteri !== v)
+            ? 'Seçilen proje ' + p.musteriAd + ' müşterisine ait; müşteri alanı onunla aynı olmalıdır.' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Tarihler',
+    desc:'Gün farkları sistem saatinden değil veri ekseninden (' + F.date(DB.today) +
+         ') ölçülür. Tamamlanma tarihi yalnız kapanmış talepte dolar.',
+    fields:[
+      { key:'olusturma', label:'Talep tarihi', type:'date', required:true, cols:4,
+        hint:'Talebin açıldığı gün.',
+        validate:function(v){
+          return (v && v > DB.today) ? 'Talep tarihi ileri bir tarih olamaz.' : '';
+        } },
+      { key:'termin', label:'İstenen termin', type:'date', required:true, cols:4,
+        hint:'Çıktının istendiği son gün. Geçmiş terminli açık talep listede “geciken” sayılır.',
+        validate:function(v, d){
+          return (v && d.olusturma && v < d.olusturma)
+            ? 'Termin, talep tarihinden önce olamaz.' : '';
+        } },
+      { key:'tamamlanma', label:'Tamamlanma tarihi', type:'date', cols:4,
+        hint:'Yalnız “Tamamlandı” durumundaki talepte dolar; açık talepte boş kalır.',
+        validate:function(v, d){
+          if(v && d.olusturma && v < d.olusturma) return 'Tamamlanma tarihi talep tarihinden önce olamaz.';
+          if(v && v > DB.today) return 'Tamamlanma tarihi ileri bir tarih olamaz.';
+          if(!v && d.durum === 'Tamamlandı') return 'Tamamlanmış talepte tamamlanma tarihi zorunludur.';
+          if(v && d.durum !== 'Tamamlandı') return 'Tamamlanma tarihi yazılan talep “Tamamlandı” durumunda olmalıdır.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'İş durumu',
+    desc:'İş durumu talebin yürütme ekseni, onay ise kabul eksenidir; ikisi ayrı alandır. ' +
+         'Durum sözlüğünde “Reddedildi” değeri yoktur — red kararı onay alanına yazılır.',
+    fields:[
+      { key:'durum', label:'İş durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. “Bekliyor”un ötesine geçmiş talebin onayı ' +
+             '“Onaylandı” olmalıdır — ölçüm: veride ' + toplamTalep + ' talebin tamamında bu tutuyor.',
+        validate:function(v, d){
+          if(v && v !== 'Bekliyor' && onayOf(d) !== 'Onaylandı'){
+            return 'İşleme alınmış talebin kabul durumu “Onaylandı” olmalıdır; hedef departman ' +
+                   'kabul etmeden iş başlamaz.';
+          }
+          return '';
+        } },
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — talep listelerinde ve sayaçlarda görünür',
+        hint:'Kapatılırsa talep arşive düşer; bağlı görev, proje ve müşteri kaydı silinmez.',
+        validate:function(v, d){
+          return (!v && d.durum !== 'Tamamlandı' && onayOf(d) !== 'Reddedildi')
+            ? 'Açık talep arşivlenemez — önce tamamlayın ya da reddedin.' : '';
+        } }
+    ]});
+
+  /* Kabul kararı — alan bazlı yetki: onay yetkisi yoksa bölüm HİÇ basılmaz. */
+  if(canOnay){
+    sections.push({ title:'Kabul kararı',
+      desc:'Hedef departmanın kararı. Red kararı talebi kapatmaz: iş durumu olduğu gibi ' +
+           'kalır, karar onay alanında tutulur. Kabul/red akışının kendisi talep kartındadır; ' +
+           'bu bölüm kararı düzeltmek içindir.',
+      fields:[
+        { key:'onay', label:'Kabul / onay durumu', type:'select', options:ONAYLAR,
+          required:true, cols:6,
+          hint:'Veride “Bekliyor” ve “Onaylandı” geçiyor; “Reddedildi” değerini talep ' +
+               'kartının red akışı yazar. Ölçüm: ' + toplamTalep + ' talebin ' + bekleyenOnay +
+               ' tanesi kabul kararı bekliyor.' },
+        { key:'redTarihi', label:'Red tarihi', type:'date', cols:6,
+          hint:'Yalnız reddedilen talepte dolar.',
+          validate:function(v, d){
+            if(onayOf(d) === 'Reddedildi' && !v) return 'Reddedilen talepte red tarihi zorunludur.';
+            if(v && onayOf(d) !== 'Reddedildi') return 'Red tarihi yalnız “Reddedildi” kararında yazılır.';
+            if(v && v > DB.today) return 'Red tarihi ileri bir tarih olamaz.';
+            if(v && d.olusturma && v < d.olusturma) return 'Red tarihi talep tarihinden önce olamaz.';
+            return '';
+          } },
+        { key:'redNedeni', label:'Red gerekçesi', type:'textarea', cols:12, rows:2,
+          placeholder:'Kapasite yok · talep kapsam dışı · eksik bilgi…',
+          hint:'Reddedilen talepte zorunlu, en az 10 karakter. Gerekçe talep kartında ve ' +
+               'aktivite geçmişinde görünür.',
+          validate:function(v, d){
+            var red = onayOf(d) === 'Reddedildi';
+            var s = String(v || '').trim();
+            if(red && s.length < 10) return 'Red gerekçesi zorunludur — en az 10 karakter yazın.';
+            if(!red && s) return 'Red gerekçesi yalnız “Reddedildi” kararında yazılır.';
+            return '';
+          } }
+      ]});
+  }
+
+  /* Göreve dönüşüm bağı — yalnız düzenleme modunda (yeni talebin görevi olamaz). */
+  if(duzenle){
+    sections.push({ title:'Göreve dönüşüm bağı',
+      desc:'Bağ talebin “gorev” alanında tutulur; hedef görevde ayna alan açılmaz ' +
+           '(components.md §9d yön kuralı). Bağ başlık benzerliğinden türetilmez — ' +
+           'yalnız gerçekten üretilmiş görev seçilir.',
+      fields:[
+        { key:'gorev', label:'Üretilen görev', type:'select',
+          options:gorevSecenek(baslangicHedef), cols:12,
+          placeholder:'Göreve dönüştürülmedi',
+          hint:'Seçenekler hedef departmanın aktif görevleridir. Bir görev yalnız bir talebin ' +
+               'çıktısı olabilir. Ölçüm: ' + toplamTalep + ' talebin ' + gorevBagli +
+               ' tanesinde görev bağı yazılı.',
+          validate:function(v, d){
+            if(!v) return '';
+            var g = DB.task(v);
+            if(!g) return 'Seçilen görev kaydı bulunamadı.';
+            if(d.talepEdilenDep && g.dep !== d.talepEdilenDep){
+              return 'Görev başka bir departmanda açılmış (' + DB.depName(g.dep) +
+                     '); talepten doğan görev hedef departmanda olur.';
+            }
+            var baska = DB.deptRequests.filter(function(x){
+              return x.gorev === v && x.kod !== kayit.kod; })[0];
+            if(baska) return g.kod + ' görevi zaten ' + baska.kod + ' talebine bağlı.';
+            return (g.talep && g.talep !== kayit.kod)
+              ? g.kod + ' görevinin kaydında ' + g.talep + ' talebi yazılı; bağ çelişiyor.' : '';
+          } }
+      ]});
+  }
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'istalebi', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     BAĞIMLI SEÇENEKLER — departman değişince yeniden kurulur.
+     Mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze kopyayla
+     değiştirdiği için dinleyici birikmez (ders L-16).
+     ================================================================= */
+  function doldur(key, secenekler, bosMetin){
+    var el = form.el.querySelector('[name="' + key + '"]');
+    if(!el) return false;
+    var eski = el.value;
+    var korunur = secenekler.some(function(o){ return o.value === eski; });
+    el.innerHTML = '<option value="">' + esc(bosMetin) + '</option>' +
+      secenekler.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (o.value === eski && korunur ? ' selected' : '') +
+          '>' + esc(o.label) + '</option>';
+      }).join('');
+    el.value = korunur ? eski : '';
+    return !!eski && !korunur;                 /* seçim düştü mü */
+  }
+
+  function kaynakDegisti(){
+    var kaynak = alanDegeri('talepEdenDep', '');
+    var dusen = 0;
+    if(doldur('talepEdilenDep', depSecenek(kaynak), 'Hedef departman seçin')) dusen++;
+    if(doldur('talepEden', kisiSecenek(kaynak), kaynak ? 'Talep eden kişiyi seçin' : 'Önce kaynak departmanı seçin')) dusen++;
+    if(dusen) GV.toast(dusen + ' alan temizlendi — seçim yeni kaynak departmanla uyumlu değil', 'warn');
+  }
+
+  function hedefDegisti(){
+    var hedef = alanDegeri('talepEdilenDep', '');
+    var dusen = 0;
+    if(doldur('talepEdenDep', depSecenek(hedef), 'Kaynak departman seçin')) dusen++;
+    if(doldur('sorumlu', kisiSecenek(hedef), 'Atanmadı — kabul akışında atanır')) dusen++;
+    if(duzenle && doldur('gorev', gorevSecenek(hedef), 'Göreve dönüştürülmedi')) dusen++;
+    if(dusen) GV.toast(dusen + ' alan temizlendi — seçim yeni hedef departmanla uyumlu değil', 'warn');
+  }
+
+  form.el.addEventListener('change', function(e){
+    if(!e.target || !e.target.name) return;
+    if(e.target.name === 'talepEdenDep')   kaynakDegisti();
+    if(e.target.name === 'talepEdilenDep') hedefDegisti();
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    baslik:'Talep konusu', tur:'Talep türü', oncelik:'Öncelik', aciklama:'Açıklama',
+    talepEdenDep:'Talep eden departman', talepEdilenDep:'Talep edilen departman',
+    talepEden:'Talep eden kişi', sorumlu:'Sorumlu',
+    beklenenCikti:'Beklenen çıktı', kabulKriteri:'Kabul kriteri',
+    proje:'Bağlı proje', musteri:'Bağlı müşteri',
+    olusturma:'Talep tarihi', termin:'İstenen termin', tamamlanma:'Tamamlanma tarihi',
+    durum:'İş durumu', onay:'Kabul / onay durumu', redNedeni:'Red gerekçesi',
+    redTarihi:'Red tarihi', gorev:'Üretilen görev', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.deptRequests.forEach(function(x){
+      var m = /^TLP-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'TLP-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '') return '—';
+    if(k === 'aktif') return v ? 'Aktif' : 'Arşivli';
+    if(k === 'talepEden' || k === 'sorumlu') return DB.empName(v);
+    if(k === 'talepEdenDep' || k === 'talepEdilenDep') return DB.depName(v);
+    if(k === 'proje') return DB.projName(v);
+    if(k === 'musteri'){
+      var c = DB.customers.filter(function(x){ return x.kod === v; })[0];
+      return c ? c.unvan : String(v);
+    }
+    if(k === 'gorev'){ var g = DB.task(v); return g ? g.kod + ' · ' + g.baslik : String(v); }
+    if(k === 'olusturma' || k === 'termin' || k === 'tamamlanma' || k === 'redTarihi') return F.date(v);
+    return String(v);
+  }
+
+  var BOSALTILIR = ['sorumlu','proje','musteri','tamamlanma','redNedeni','redTarihi','gorev'];
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    ['baslik','aciklama','beklenenCikti','kabulKriteri'].forEach(function(k){
+      if(v[k] != null) v[k] = String(v[k]).trim();
+    });
+    v.aktif = !!v.aktif;
+    /* Boş seçim veride null olarak tutulur — '' ya da '—' sentinel'i kullanılmaz. */
+    BOSALTILIR.forEach(function(k){
+      if(!(k in v)) return;
+      v[k] = String(v[k] == null ? '' : v[k]).trim() || null;
+    });
+    return v;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
+      var degisen = 0;
+      var eskiGorev = kayit.gorev || null;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      /* Bağ hedefine yalnız AKTİVİTE satırı düşülür — görevde ayna ALAN açılmaz
+         (components.md §9d): DB.tasks[].talep bu formdan yazılmaz. */
+      if(v.gorev && v.gorev !== eskiGorev){
+        DB.activities.unshift({
+          kayit:v.gorev, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Departman talebi ' + kayit.kod + ' bu göreve bağlandı',
+          eski:null, yeni:kayit.baslik, tone:'accent', icon:'i-tasks'
+        });
+      }
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      /* Forma basılmayan alanlar (yetkiye bağlı kabul kararı, bağ alanı) varsayılan
+         değerleriyle yazılır — kayıt eksik alanla doğmaz. */
+      var yeni = Object.assign({
+        kod:kod, onay:'Bekliyor', redNedeni:null, redTarihi:null,
+        tamamlanma:null, gorev:null, aktif:true
+      }, v);
+      yeni.kod = kod;
+      DB.deptRequests.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Departman talebi oluşturuldu — ' + DB.depName(yeni.talepEdenDep) + ' → ' +
+              DB.depName(yeni.talepEdilenDep),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-istalebi.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'İş Takibi',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İş Talebi',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length + ' zorunlu.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-istalebi.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
