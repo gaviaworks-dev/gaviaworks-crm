@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Satın Alma Talebi Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="satinalma" data-screen="talep">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+  var canOnay   = GV.perm.can('onay');
+
+  var id = new URLSearchParams(location.search).get('id') || (DB.purchases[0] || {}).kod;
+  var p  = DB.purchases.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!p){
+    GV.pageHead({ eyebrow:'Tedarik', title:'Satın Alma Talebi Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Talep listesi', icon:'i-cart', href:'app-satinalma.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Satın alma talebi bulunamadı',
+      desc:'“' + esc(id || '') + '” numaralı satın alma talebi sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-satinalma.html">Talep listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(p.kod);
+  document.title = p.kod + ' — Satın Alma Talebi — GaviaWorks CRM';
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride yazılı tekil bağdan
+     ================================================================= */
+  function ted(kod){ return DB.suppliers.filter(function(s){ return s.kod === kod; })[0] || null; }
+  function tedAd(kod){ var s = ted(kod); return s ? s.unvan : (kod || '—'); }
+
+  var adimlar = DB.purchaseApprovals.filter(function(a){ return a.talep === p.kod; })
+                                    .sort(function(a,b){ return a.sira - b.sira; });
+  var teklifler = DB.supplierQuotes.filter(function(q){ return q.talep === p.kod; })
+                                   .sort(function(a,b){ return a.fiyat - b.fiyat; });
+  var siparisler = DB.orders.filter(function(o){ return o.talep === p.kod; })
+                            .sort(function(a,b){ return String(b.tarih).localeCompare(String(a.tarih)); });
+  var tercih     = teklifler.filter(function(q){ return q.tercih; })[0] || null;
+  var onayKaydi  = DB.approvals.filter(function(a){ return a.kayit === p.kod; })[0] || null;
+  var acts       = DB.activities.filter(function(a){ return a.kayit === p.kod; });
+  var proje      = p.proje ? DB.proj(p.proje) : null;
+  var bekleyen   = adimlar.filter(function(a){ return a.durum === 'Bekliyor'; })[0] || null;
+
+  var enDusuk = teklifler.length ? Math.min.apply(null, teklifler.map(function(q){ return q.fiyat; })) : null;
+  var uygunlar = teklifler.filter(function(q){ return q.teknikUygun; });
+  var enDusukUygun = uygunlar.length ? Math.min.apply(null, uygunlar.map(function(q){ return q.fiyat; })) : null;
+  var maxPuan = teklifler.length ? Math.max.apply(null, teklifler.map(function(q){ return q.puan; })) : null;
+  var uygunsuzSayi = teklifler.length - uygunlar.length;
+
+  var acikTalep    = ['Teslim alındı','İptal'].indexOf(p.durum) === -1;
+  var onayBekliyor = p.durum === 'Onay bekliyor' && p.onayAdim < p.onayToplam;
+  var gecikmeGun   = p.ihtiyacTarihi ? F.days(p.ihtiyacTarihi) : null;
+  var onayYuzde    = Math.round(p.onayAdim / Math.max(1, p.onayToplam) * 100);
+
+  /* =================================================================
+     PARA — components.md §9b
+       DB.purchases[].tahminiMaliyet ve DB.supplierQuotes[].fiyat NET (KDV hariç):
+       her ikisi de doğduğu siparişin DB.orders[].tutar alanıyla birebir eşleşir
+       (8.400 / 28.500 / 64.000). DB.orders[].toplam = tutar + vergi → BRÜT.
+     ================================================================= */
+  function para(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="cell-money">' + F.money(v) + '</span>';
+  }
+  function paraSade(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="u-num">' + F.money(v) + '</span>';
+  }
+  function paraMetin(v){ return canFinans ? F.money(v) : '••••••'; }
+
+  var finansNot = canFinans ? '' : '<div class="gc-body">' + GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Talep ve teklif bilgileri listelenir, para alanları maskelenir.' }) + '</div>';
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function val(v){ return (v == null || v === '' || v === '—') ? null : v; }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(x){
+      var bos = x[1] == null || x[1] === '';
+      return '<div><dt>' + x[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : x[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(x){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + x[0] + '</span>' +
+        '<span class="gv-summary-val">' + x[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+  /* Puan rozeti — TONE sözlüğü sayısal puan tanımaz, ton AÇIKÇA geçilir */
+  function puanRozet(v){
+    if(v == null) return '<span class="u-faint">—</span>';
+    var t = v >= 4.5 ? 'is-ok' : v >= 4 ? 'is-info' : v >= 3.5 ? 'is-warn' : 'is-danger';
+    return GV.badge(F.num(v, 1) + ' / 5', t);
+  }
+  function gunFark(a, b){
+    if(!a || !b) return null;
+    return Math.round((new Date(String(a).slice(0,10) + 'T00:00:00') -
+                       new Date(String(b).slice(0,10) + 'T00:00:00')) / 86400000);
+  }
+  function ihtiyacKalan(){
+    if(gecikmeGun == null) return '<span class="u-faint">—</span>';
+    if(!acikTalep) return '<span class="u-faint">Talep kapandı</span>';
+    if(gecikmeGun < 0) return '<b class="u-danger">' + Math.abs(gecikmeGun) + ' gün gecikti</b>';
+    if(gecikmeGun === 0) return '<b class="u-danger">İhtiyaç tarihi bugün</b>';
+    return '<b class="u-num">' + gecikmeGun + ' gün kaldı</b>';
+  }
+
+  /* =================================================================
+     ONAY AKSİYONU — yalnız yetki + gerçekten onay bekleyen talep
+     ================================================================= */
+  function onayla(){
+    GV.confirm({
+      title:'Satın alma talebini onayla',
+      text:p.kod + ' · ' + p.urun + ' · ' + paraMetin(p.tahminiMaliyet) +
+           ' — onayınızla ' + (p.onayAdim + 1) + '. adım tamamlanacak' +
+           (bekleyen ? ' (' + bekleyen.rol + ').' : '.'),
+      okLabel:'Onayla'
+    }).then(function(ok){
+      if(!ok) return;
+      var saat = DB.today + 'T' + new Date().toTimeString().slice(0,5);
+      if(bekleyen){ bekleyen.durum = 'Onaylandı'; bekleyen.tarih = saat; }
+      var eski = p.durum;
+      p.onayAdim += 1;
+      if(p.onayAdim >= p.onayToplam){
+        p.durum = 'Sipariş verildi';
+        if(onayKaydi) onayKaydi.durum = 'Onaylandı';
+      }
+      DB.activities.unshift({ kayit:p.kod, tarih:saat, kisi:GV.session.ad,
+        metin:'Satın alma talebi onaylandı' + (bekleyen ? ' — ' + bekleyen.rol : ''),
+        eski:eski, yeni:p.durum, tone:'ok', icon:'i-stamp' });
+      GV.toast(p.onayAdim >= p.onayToplam
+        ? p.kod + ' tüm onayları aldı, sipariş aşamasına geçti'
+        : p.kod + ' onaylandı — ' + (p.onayToplam - p.onayAdim) + ' onay kaldı', 'ok');
+      setTimeout(function(){ location.reload(); }, 700);
+    });
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI
+     ================================================================= */
+  var actions = [
+    { label:'Talep listesi', icon:'i-cart', href:'app-satinalma.html' },
+    { label:'Teklif karşılaştır', icon:'i-columns', href:'app-satinalma-teklif.html?q=' + p.kod }
+  ];
+  if(canOnay && onayBekliyor){
+    actions.push({ label:'Onayla', icon:'i-check', cls:'btn-acc', run:onayla });
+  }
+
+  GV.pageHead({
+    eyebrow:'Tedarik', title:'Satın Alma Talebi Detayı',
+    sub:p.kod + ' · ' + p.urun + ' · ' + DB.depName(p.dep),
+    actions:actions
+  });
+
+  /* =================================================================
+     KAYIT BAŞLIĞI
+     ================================================================= */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(p.kod) + '</span>' +
+        GV.badge(p.durum) + GV.pri(p.oncelik) +
+        '<span class="tag">' + esc(p.kategori) + '</span>' +
+        (acikTalep && gecikmeGun != null && gecikmeGun < 0
+          ? '<span class="badge is-danger">İhtiyaç tarihi ' + Math.abs(gecikmeGun) + ' gün geçti</span>' : '') +
+        (p.aktif ? '' : '<span class="tag">Arşiv</span>') + '</div>' +
+      '<h1>' + esc(p.urun) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        '<span>' + ico('i-user','ic-sm') + esc(DB.empName(p.talepEden)) + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + esc(DB.depName(p.dep)) + '</span>' +
+        '<span>' + ico('i-calendar','ic-sm') + 'Talep ' + F.date(p.olusturma) + '</span>' +
+        '<span>' + ico('i-hourglass','ic-sm') + 'İhtiyaç ' + F.date(p.ihtiyacTarihi) + '</span>' +
+        (proje ? '<span>' + ico('i-briefcase','ic-sm') +
+          '<a href="app-proje-detay.html?id=' + esc(proje.kod) + '">' + esc(proje.ad) + '</a></span>' : '') +
+        '<span>' + ico('i-wallet','ic-sm') + esc(p.butceKodu) + '</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* =================================================================
+     SEKMELER
+     ================================================================= */
+  var tabs = [
+    { key:'genel',    lbl:'Genel',              ic:'i-info' },
+    { key:'onay',     lbl:'Onay Akışı',         ic:'i-stamp',  cnt:adimlar.length },
+    { key:'teklif',   lbl:'Toplanan Teklifler', ic:'i-quote',  cnt:teklifler.length },
+    { key:'siparis',  lbl:'Sipariş',            ic:'i-truck',  cnt:siparisler.length },
+    { key:'teslimat', lbl:'Teslimat',           ic:'i-package' },
+    { key:'aktivite', lbl:'Aktivite Geçmişi',   ic:'i-activity', cnt:acts.length }
+  ];
+
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =================================================================
+     1. GENEL — DB.purchases alanlarının tamamı
+     ================================================================= */
+  var birimFiyat = p.miktar ? p.tahminiMaliyet / p.miktar : null;
+
+  var pGenel = finansNot + '<div class="gc-body">' +
+    sec('Talep Kimliği', dl([
+      ['Talep kodu', '<span class="u-num">' + esc(p.kod) + '</span>'],
+      ['Konu', esc(p.urun)],
+      ['Açıklama', esc(p.aciklama)],
+      ['Kategori', '<span class="tag">' + esc(p.kategori) + '</span>'],
+      ['Teknik özellik', val(p.ozellik) ? esc(p.ozellik) : null],
+      ['Miktar', '<b class="u-num">' + F.num(p.miktar) + '</b> adet'],
+      ['Tahmini birim fiyat <span class="u-faint">(KDV hariç)</span>',
+        birimFiyat != null ? paraSade(birimFiyat) : null],
+      ['Tahmini tutar <span class="u-faint">(KDV hariç)</span>', para(p.tahminiMaliyet)]
+    ])) +
+    sec('Talep Sahibi ve Bütçe', dl([
+      ['Talep eden', GV.user(p.talepEden, { sm:true })],
+      ['Departman', esc(DB.depName(p.dep))],
+      ['Bağlı proje', proje
+        ? '<a href="app-proje-detay.html?id=' + esc(proje.kod) + '">' + esc(proje.ad) + '</a>' +
+          ' <span class="cell-sub">' + esc(proje.kod) + '</span>'
+        : '<span class="u-faint">Projeye bağlı değil — genel gider talebi</span>'],
+      ['Bütçe kodu', '<span class="u-num">' + esc(p.butceKodu) + '</span>']
+    ])) +
+    sec('Zaman, Öncelik ve Durum', dl([
+      ['Talep tarihi', F.date(p.olusturma)],
+      ['İhtiyaç tarihi', GV.dateCell(p.ihtiyacTarihi, { done:!acikTalep }) +
+        ' <span class="cell-sub">' + ihtiyacKalan() + '</span>'],
+      ['Öncelik', GV.pri(p.oncelik)],
+      ['Talep durumu', GV.badge(p.durum)],
+      ['Onay ilerlemesi', GV.progress(onayYuzde) +
+        '<span class="cell-sub">' + p.onayAdim + ' / ' + p.onayToplam + ' onay</span>'],
+      ['Kayıt durumu', p.aktif ? GV.badge('Aktif') : GV.badge('Arşiv')]
+    ])) +
+    sec('Gerekçe', dl([
+      ['Talep gerekçesi', esc(p.gerekce)]
+    ])) +
+    sec('Tedarik Özeti', dl([
+      ['Toplanan teklif', teklifler.length
+        ? '<b class="u-num">' + teklifler.length + '</b> teklif' +
+          (uygunsuzSayi ? ' <span class="cell-sub u-danger">' + uygunsuzSayi + ' teknik uygunsuz</span>' : '')
+        : '<span class="u-faint">Henüz teklif toplanmadı</span>'],
+      ['En düşük teklif <span class="u-faint">(KDV hariç)</span>',
+        enDusuk != null ? para(enDusuk) : null],
+      ['Seçilen tedarikçi', tercih
+        ? '<a href="app-tedarikci.html?q=' + esc(tercih.tedarikci) + '">' + esc(tedAd(tercih.tedarikci)) + '</a>' +
+          ' <span class="cell-sub">' + esc(tercih.teslimSuresi + ' · ' + tercih.odeme) + '</span>'
+        : (teklifler.length ? GV.badge('Tercih bekliyor','is-warn') : null)],
+      ['Sipariş', siparisler.length
+        ? siparisler.map(function(o){
+            return '<a href="app-siparis.html?q=' + esc(o.kod) + '">' + esc(o.kod) + '</a> ' + GV.badge(o.durum);
+          }).join(' ')
+        : '<span class="u-faint">Sipariş oluşturulmadı</span>']
+    ])) +
+    '</div>';
+
+  /* =================================================================
+     2. ONAY AKIŞI — DB.purchaseApprovals
+     ================================================================= */
+  var esikNot = GV.notice({
+    tone:'neutral', icon:'i-stamp', title:'Onay makamları tutar eşiğine göre belirlenir',
+    text:'Zincirdeki makamlar talebin tahmini tutarına, kategorisine ve projeye bağlı olup olmadığına göre ' +
+         'Onay Akışları ekranındaki kurallardan üretilir. Bu talebin tahmini tutarı ' +
+         paraMetin(p.tahminiMaliyet) + ' (KDV hariç) ve zinciri ' + p.onayToplam + ' makamdan oluşuyor.',
+    actions:[{ label:'Onay akışı kuralları', href:'app-ayar-onay.html' }] });
+
+  var makamlar = adimlar.length
+    ? adimlar.map(function(a){
+        return '<span class="tag">' + esc(a.sira + '. ' + a.rol) + '</span>';
+      }).join(' ')
+    : null;
+
+  var pOnay = '<div class="gc-body">' + esikNot +
+    (adimlar.length
+      ? '<div class="u-mt-4">' + GV.chain(adimlar.map(function(a){
+          return { rol:a.rol, kisi:DB.empName(a.kisi), durum:a.durum, tarih:a.tarih, not:a.not };
+        })) + '</div>'
+      : '<div class="u-mt-4">' + GV.empty({ icon:'i-stamp', title:'Onay adımları kayıtlı değil',
+          desc:'Talep kartında ' + p.onayAdim + ' / ' + p.onayToplam + ' onay yazılı, ancak zincirin adım kayıtları ' +
+               'sisteme işlenmemiş. Makam ve tarih dökümü bu talep için görüntülenemiyor.',
+          action:'<a class="btn btn-acc" href="app-ayar-onay.html">Onay akışı kurallarına git</a>' }) + '</div>') +
+    dl([
+      ['Onay ilerlemesi', GV.progress(onayYuzde) +
+        '<span class="cell-sub">' + p.onayAdim + ' / ' + p.onayToplam + ' onay</span>'],
+      ['Devrede olan makamlar', makamlar],
+      ['Bekleyen makam', bekleyen
+        ? '<b>' + esc(bekleyen.rol) + '</b> <span class="cell-sub">' + esc(DB.empName(bekleyen.kisi)) + '</span>'
+        : (p.onayAdim >= p.onayToplam ? '<span class="u-ok">Tüm onaylar tamamlandı</span>' : null)],
+      ['Talep durumu', GV.badge(p.durum)],
+      ['Onay kuyruğu kaydı', onayKaydi
+        ? '<a href="app-panel-onaylar.html">' + esc(onayKaydi.kod) + '</a>' +
+          ' <span class="cell-sub">' + esc(onayKaydi.tur) + '</span>'
+        : null],
+      ['Onaylayacak kişi', onayKaydi ? GV.user(onayKaydi.onaylayan, { sm:true }) : null],
+      ['Onay aciliyeti', onayKaydi ? GV.pri(onayKaydi.aciliyet) : null],
+      ['Onaya konu tutar <span class="u-faint">(KDV hariç)</span>',
+        onayKaydi && onayKaydi.tutar != null ? para(onayKaydi.tutar) : null],
+      ['İhtiyaç tarihi', GV.dateCell(p.ihtiyacTarihi, { done:!acikTalep }) +
+        ' <span class="cell-sub">' + ihtiyacKalan() + '</span>']
+    ]) +
+    (canOnay || !onayBekliyor ? '' : GV.notice({ tone:'neutral', icon:'i-lock',
+      title:'Onay yetkiniz yok',
+      text:'Bu talep onay bekliyor, ancak rolünüzde satın alma onaylama yetkisi tanımlı değil. Zinciri görüntüleyebilirsiniz.' })) +
+    '</div>';
+
+  /* =================================================================
+     3. TOPLANAN TEKLİFLER — DB.supplierQuotes (§9c: iki ayrı puan ekseni)
+     ================================================================= */
+  var teklifOzet;
+  if(tercih){
+    var d = tercih.fiyat - enDusuk;
+    teklifOzet = GV.notice({
+      tone:d > 0 ? 'warn' : 'ok',
+      title:d > 0 ? 'En düşük teklif seçilmedi' : 'En düşük teklif seçildi',
+      text:'Tercih: ' + tedAd(tercih.tedarikci) + ' · ' + paraMetin(tercih.fiyat) + ' (KDV hariç)' +
+           (d > 0
+             ? ' — en düşük teklife göre ' + paraMetin(d) + ' (%' + Math.round(d / enDusuk * 100) + ') daha yüksek. Gerekçe: ' + tercih.gerekce
+             : ' — hem en düşük fiyat hem de kayıtlı tercih aynı teklifte. Gerekçe: ' + tercih.gerekce) +
+           (enDusukUygun != null && enDusuk !== enDusukUygun
+             ? ' Not: en düşük fiyatlı teklif teknik olarak uygun değil; teknik uygun en düşük teklif ' +
+               paraMetin(enDusukUygun) + '.'
+             : '') });
+  }else if(teklifler.length){
+    teklifOzet = GV.notice({ tone:'info', title:'Tercih henüz yapılmadı',
+      text:teklifler.length + ' teklif toplandı, karar bekleniyor. En düşük teklif ' + paraMetin(enDusuk) +
+           ' (KDV hariç). Seçim, talebin siparişe dönmesinden önce yapılır.',
+      actions:[{ label:'Teklif karşılaştırma ekranı', href:'app-satinalma-teklif.html?q=' + p.kod }] });
+  }else{
+    teklifOzet = '';
+  }
+
+  var pTeklif = finansNot +
+    (teklifOzet ? '<div class="gc-body">' + teklifOzet + '</div>' : '') +
+    '<div class="gc-body flush">' +
+    (teklifler.length
+      ? tbl('<th>Tedarikçi</th><th class="num">Fiyat (KDV hariç)</th><th>Teslim süresi</th><th>Garanti</th>' +
+            '<th>Ödeme koşulu</th><th>Teknik uygunluk</th><th class="num">Teklif puanı</th>' +
+            '<th class="num">Tedarikçi genel puanı</th><th>Tercih</th>',
+          teklifler.map(function(q){
+            var s = ted(q.tedarikci);
+            return '<tr' + (q.tercih ? ' class="is-selected"' : '') + '>' +
+              '<td class="cell-wrap">' +
+                '<a class="cell-main" href="app-tedarikci.html?q=' + esc(q.tedarikci) + '">' + esc(tedAd(q.tedarikci)) + '</a>' +
+                '<span class="cell-code">' + esc(q.tedarikci) + (s ? ' · ' + esc(s.kategori) : '') + '</span>' +
+                (q.gerekce ? '<span class="cell-sub">' + esc(q.gerekce) + '</span>' : '') + '</td>' +
+              '<td class="num">' + para(q.fiyat) +
+                (q.fiyat === enDusuk ? ' <span class="badge is-ok">En düşük</span>' : '') + '</td>' +
+              '<td>' + esc(q.teslimSuresi) + '</td>' +
+              '<td>' + (val(q.garanti) ? esc(q.garanti) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + esc(q.odeme) + '</td>' +
+              '<td>' + (q.teknikUygun ? GV.badge('Teknik uygun','is-ok') : GV.badge('Teknik uygun değil','is-danger')) + '</td>' +
+              '<td class="num">' + puanRozet(q.puan) +
+                (q.puan === maxPuan ? ' <span class="badge is-ok">En yüksek</span>' : '') + '</td>' +
+              '<td class="num">' + (s ? puanRozet(s.puan) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + (q.tercih ? GV.badge('Tercih edildi','is-ok') : '<span class="u-faint">Seçilmedi</span>') + '</td>' +
+            '</tr>';
+          }).join('')) +
+        sayac('<b>' + teklifler.length + '</b> teklif · en düşük ' + para(enDusuk) +
+          ' <span class="u-faint">(KDV hariç)</span>' +
+          (uygunsuzSayi ? ' · <span class="u-danger">' + uygunsuzSayi + ' teknik uygunsuz</span>' : ''),
+          '<a class="btn btn-line btn-sm" href="app-satinalma-teklif.html?q=' + esc(p.kod) + '">' +
+          ico('i-columns','ic-sm') + ' Karşılaştırma ekranı</a>')
+      : GV.empty({ icon:'i-quote', title:'Bu talep için teklif kaydı yok',
+          desc:'Her satın alma talebi için en az iki tedarikçiden teklif toplanır. Bu talebin teklif toplama adımı henüz sisteme işlenmemiş.',
+          action:'<a class="btn btn-acc" href="app-satinalma-teklif.html">Teklif toplama ekranına git</a>' })) +
+    '</div>' +
+    (teklifler.length
+      ? '<div class="gc-body"><p class="u-xs u-muted u-mt-0">' +
+        esc('İki ayrı puan ekseni vardır: “Teklif puanı” yalnız bu teklife verilen değerlendirmedir ' +
+            '(fiyat, teslim süresi, garanti, ödeme koşulu, teknik uygunluk); “Tedarikçi genel puanı” ' +
+            'tedarikçinin tüm sipariş geçmişinden gelen performans puanıdır ve talepten bağımsızdır.') +
+        '</p></div>'
+      : '');
+
+  /* =================================================================
+     4. SİPARİŞ — DB.orders
+     ================================================================= */
+  var pSiparis = finansNot;
+  if(siparisler.length){
+    pSiparis += '<div class="gc-body flush">' +
+      tbl('<th>Sipariş no</th><th>Tarih</th><th>Tedarikçi</th><th class="num">Tutar (KDV hariç)</th>' +
+          '<th class="num">KDV</th><th class="num">Genel toplam (KDV dahil)</th><th>Teslim tarihi</th><th>Durum</th>',
+        siparisler.map(function(o){
+          return '<tr>' +
+            '<td><a class="cell-main" href="app-siparis.html?q=' + esc(o.kod) + '">' + esc(o.kod) + '</a>' +
+              '<span class="cell-code">' + esc(o.doviz) + '</span></td>' +
+            '<td><span class="cell-date">' + F.date(o.tarih) + '</span></td>' +
+            '<td class="cell-wrap"><a class="cell-main" href="app-tedarikci.html?q=' + esc(o.tedarikci) + '">' +
+              esc(tedAd(o.tedarikci)) + '</a><span class="cell-code">' + esc(o.tedarikci) + '</span></td>' +
+            '<td class="num">' + para(o.tutar) + '</td>' +
+            '<td class="num">' + paraSade(o.vergi) + '</td>' +
+            '<td class="num">' + para(o.toplam) + '</td>' +
+            '<td>' + GV.dateCell(o.teslimTarihi, { done:o.durum === 'Teslim alındı' }) + '</td>' +
+            '<td>' + GV.badge(o.durum) + '</td></tr>';
+        }).join('')) +
+      sayac('<b>' + siparisler.length + '</b> sipariş · bu talepten doğdu',
+        '<a class="btn btn-line btn-sm" href="app-siparis.html?q=' + esc(p.kod) + '">' +
+        ico('i-truck','ic-sm') + ' Sipariş listesi</a>') +
+      '</div>' +
+      '<div class="gc-body">' +
+      siparisler.map(function(o){
+        var fark = gunFark(o.teslimTarihi, p.ihtiyacTarihi);
+        return sec('Sipariş Detayı · ' + o.kod, dl([
+          ['Sipariş no', '<a href="app-siparis.html?q=' + esc(o.kod) + '">' + esc(o.kod) + '</a>'],
+          ['Sipariş tarihi', F.date(o.tarih)],
+          ['Tedarikçi', '<a href="app-tedarikci.html?q=' + esc(o.tedarikci) + '">' + esc(tedAd(o.tedarikci)) + '</a>'],
+          ['Tutar <span class="u-faint">(KDV hariç)</span>', para(o.tutar)],
+          ['KDV', paraSade(o.vergi)],
+          ['Genel toplam <span class="u-faint">(KDV dahil)</span>', para(o.toplam)],
+          ['Para birimi', esc(o.doviz)],
+          ['Sipariş durumu', GV.badge(o.durum)],
+          ['Teslim tarihi', GV.dateCell(o.teslimTarihi, { done:o.durum === 'Teslim alındı' }) +
+            '<span class="cell-sub">' + (o.durum === 'Teslim alındı' ? 'gerçekleşen' : 'planlanan') + '</span>'],
+          ['İhtiyaç tarihine göre', fark == null ? null
+            : (fark > 0
+                ? '<b class="u-danger">' + fark + ' gün sonra</b>'
+                : fark === 0 ? '<b class="u-ok">İhtiyaç tarihinde</b>'
+                : '<b class="u-ok">' + Math.abs(fark) + ' gün önce</b>')],
+          ['Tedarikçi faturası', val(o.fatura) ? '<span class="u-num">' + esc(o.fatura) + '</span>' : null],
+          ['İrsaliye', val(o.irsaliye) ? '<span class="u-num">' + esc(o.irsaliye) + '</span>' : null],
+          ['Talep tahmini ile fark <span class="u-faint">(KDV hariç)</span>',
+            canFinans
+              ? '<b class="u-num' + (o.tutar > p.tahminiMaliyet ? ' u-danger' : '') + '">' +
+                (o.tutar - p.tahminiMaliyet >= 0 ? '+' : '−') + F.money(Math.abs(o.tutar - p.tahminiMaliyet)) + '</b>'
+              : '<span class="cell-mask">••••••</span>']
+        ]));
+      }).join('') +
+      '</div>';
+  }else{
+    pSiparis += '<div class="gc-body flush">' + GV.empty({
+      icon:'i-truck', title:'Bu talepten doğan sipariş yok',
+      desc:'Talep tüm onay adımlarını tamamlayıp tedarikçi tercihi kesinleştiğinde sipariş kaydı oluşturulur. ' +
+           'Şu anki durum: ' + p.durum + ' (' + p.onayAdim + ' / ' + p.onayToplam + ' onay).',
+      action:'<a class="btn btn-acc" href="app-siparis.html">Sipariş listesine git</a>' }) + '</div>';
+  }
+
+  /* =================================================================
+     5. TESLİMAT — DB.orders teslim alanlarından türetilir
+     ================================================================= */
+  var pTeslimat;
+  if(siparisler.length){
+    pTeslimat = '<div class="gc-body">' +
+      siparisler.map(function(o){
+        var teslimEdildi = o.durum === 'Teslim alındı';
+        var fark = gunFark(o.teslimTarihi, p.ihtiyacTarihi);
+        var kalan = F.days(o.teslimTarihi);
+        return sec('Teslimat · ' + o.kod, dl([
+          ['Sipariş', '<a href="app-siparis.html?q=' + esc(o.kod) + '">' + esc(o.kod) + '</a> ' + GV.badge(o.durum)],
+          ['Tedarikçi', '<a href="app-tedarikci.html?q=' + esc(o.tedarikci) + '">' + esc(tedAd(o.tedarikci)) + '</a>'],
+          [teslimEdildi ? 'Teslim tarihi' : 'Planlanan teslim tarihi',
+            GV.dateCell(o.teslimTarihi, { done:teslimEdildi }) +
+            (teslimEdildi ? '' : '<span class="cell-sub">' + F.rel(o.teslimTarihi) + '</span>')],
+          ['Teslim durumu', teslimEdildi ? GV.badge('Teslim alındı') : GV.badge('Teslim bekleniyor','is-warn')],
+          ['Teslim kontrolü', val(o.teslimKontrol)
+            ? GV.badge(o.teslimKontrol, 'is-ok')
+            : '<span class="u-faint">Teslim kontrolü yapılmadı</span>'],
+          ['İrsaliye', val(o.irsaliye) ? '<span class="u-num">' + esc(o.irsaliye) + '</span>' : null],
+          ['Tedarikçi faturası', val(o.fatura) ? '<span class="u-num">' + esc(o.fatura) + '</span>' : null],
+          ['İhtiyaç tarihi', GV.dateCell(p.ihtiyacTarihi, { done:!acikTalep })],
+          ['Zamanlama', fark == null ? null
+            : teslimEdildi
+              ? (fark > 0 ? '<b class="u-danger">İhtiyaç tarihinden ' + fark + ' gün sonra teslim alındı</b>'
+                 : fark === 0 ? '<b class="u-ok">İhtiyaç tarihinde teslim alındı</b>'
+                 : '<b class="u-ok">İhtiyaç tarihinden ' + Math.abs(fark) + ' gün önce teslim alındı</b>')
+              : (kalan != null && kalan < 0
+                 ? '<b class="u-danger">Planlanan teslim ' + Math.abs(kalan) + ' gün gecikti</b>'
+                 : '<b class="u-num">Planlanan teslime ' + (kalan || 0) + ' gün var</b>')],
+          ['Sipariş miktarı', '<b class="u-num">' + F.num(p.miktar) + '</b> adet']
+        ]));
+      }).join('') +
+      GV.notice({ tone:'neutral', icon:'i-info', title:'Teslimat kalem dökümü tutulmuyor',
+        text:'Sistemde teslimat, sipariş kaydının teslim tarihi ve teslim kontrolü alanları üzerinden izlenir. ' +
+             'Kısmi/eksik teslim kalemleri ve iade kayıtları ayrı bir koleksiyonda tutulmadığı için burada listelenemez.' }) +
+      '</div>';
+  }else{
+    pTeslimat = '<div class="gc-body flush">' + GV.empty({
+      icon:'i-package', title:'Teslimat kaydı yok',
+      desc:'Teslimat bilgisi siparişten türetilir. Bu talepten doğmuş bir sipariş olmadığı için teslim tarihi, ' +
+           'irsaliye ve teslim kontrolü bilgisi bulunmuyor.',
+      action:'<a class="btn btn-acc" href="app-siparis.html">Sipariş listesine git</a>' }) + '</div>';
+  }
+
+  /* =================================================================
+     6. AKTİVİTE GEÇMİŞİ
+     ================================================================= */
+  var pAktivite = '<div class="gc-body">' +
+    (acts.length ? GV.activity(acts) : GV.empty({
+      icon:'i-activity', title:'Bu talep için hareket kaydı yok',
+      desc:'Talep üzerinde yapılan durum, onay ve tercih değişiklikleri bu listede birikir. ' +
+           'Onay adımlarının tarihleri Onay Akışı sekmesinde görüntülenir.',
+      action:'<a class="btn btn-line" href="app-satinalma.html">Talep listesine dön</a>' })) +
+    '</div>';
+
+  var panels = {
+    genel:pGenel, onay:pOnay, teklif:pTeklif,
+    siparis:pSiparis, teslimat:pTeslimat, aktivite:pAktivite
+  };
+
+  /* =================================================================
+     SAĞ ÖZET PANELİ
+     ================================================================= */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Talep eden', GV.user(p.talepEden, { sm:true })],
+      ['Departman', esc(DB.depName(p.dep))],
+      ['Talep tarihi', F.date(p.olusturma)],
+      ['İhtiyaç tarihi', GV.dateCell(p.ihtiyacTarihi, { done:!acikTalep })],
+      ['Kalan süre', ihtiyacKalan()],
+      ['Tahmini tutar <span class="u-faint">(KDV hariç)</span>', para(p.tahminiMaliyet)],
+      ['Öncelik', GV.pri(p.oncelik)],
+      ['Onay durumu', GV.badge(p.durum)],
+      ['Onay ilerlemesi', '<b class="u-num">' + p.onayAdim + ' / ' + p.onayToplam + '</b>'],
+      ['Seçilen tedarikçi', tercih
+        ? '<a href="app-tedarikci.html?q=' + esc(tercih.tedarikci) + '">' + esc(tedAd(tercih.tedarikci)) + '</a>'
+        : (teklifler.length ? GV.badge('Tercih bekliyor','is-warn') : '<span class="u-faint">Teklif yok</span>')]
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-quote') + 'Tedarik Kararı</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Toplanan teklif', '<b class="u-num">' + teklifler.length + '</b>'],
+      uygunsuzSayi ? ['Teknik uygunsuz', '<b class="u-danger">' + uygunsuzSayi + '</b>'] : null,
+      enDusuk != null ? ['En düşük teklif <span class="u-faint">(KDV hariç)</span>', para(enDusuk)] : null,
+      tercih ? ['Tercih edilen teklif <span class="u-faint">(KDV hariç)</span>', para(tercih.fiyat)] : null,
+      tercih ? ['Teklif puanı', puanRozet(tercih.puan)] : null,
+      tercih && ted(tercih.tedarikci) ? ['Tedarikçi genel puanı', puanRozet(ted(tercih.tedarikci).puan)] : null,
+      tercih ? ['Teslim süresi', esc(tercih.teslimSuresi)] : null,
+      tercih ? ['Ödeme koşulu', esc(tercih.odeme)] : null,
+      tercih ? ['Garanti', val(tercih.garanti) ? esc(tercih.garanti) : '<span class="u-faint">—</span>'] : null,
+      ['Sipariş', siparisler.length
+        ? '<a href="app-siparis.html?q=' + esc(siparisler[0].kod) + '">' + esc(siparisler[0].kod) + '</a>'
+        : '<span class="u-faint">Yok</span>']
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-stamp') + 'Onay Zinciri</h2></div>' +
+    '<div class="gc-body">' +
+    (adimlar.length
+      ? ozetListe(adimlar.map(function(a){
+          return [esc(a.sira + '. ' + a.rol) + '<span class="cell-sub">' + esc(DB.empName(a.kisi)) + '</span>',
+                  GV.badge(a.durum)];
+        }))
+      : '<p class="u-sm u-faint">Bu talep için onay adımı kaydı yok — talep kartında ' +
+        p.onayAdim + ' / ' + p.onayToplam + ' onay yazılı.</p>') +
+    '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
+      '<p class="u-sm u-faint">Bu talep kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+});
+</script>
+</body>
+</html>

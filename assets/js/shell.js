@@ -629,6 +629,7 @@
     'app-arac-gider.html',
     'app-arac-kaza.html',
     'app-satinalma.html',
+    'app-satinalma-detay.html',
     'app-tedarikci.html',
     'app-siparis.html',
     'app-sozlesme.html',
