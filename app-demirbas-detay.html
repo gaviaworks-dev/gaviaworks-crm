@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Demirbaş Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="demirbas">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+  var canDuzenle = GV.perm.can('duzenle');
+
+  var ilk = (DB.assets && DB.assets[0]) ? DB.assets[0].kod : null;
+  var id = new URLSearchParams(location.search).get('id') || ilk;
+  var a = (DB.assets || []).filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!a){
+    GV.pageHead({ eyebrow:'Demirbaş & Filo', title:'Demirbaş Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Demirbaş listesi', icon:'i-package', href:'app-demirbas.html' },
+               { label:'Zimmetler', icon:'i-clipboard-check', href:'app-zimmet.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Demirbaş bulunamadı',
+      desc:'“' + esc(id || '') + '” kodlu demirbaş envanterde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-demirbas.html">Demirbaş listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  var kod = a.kod;
+  var ad = (a.marka || '') + ' ' + (a.model || '');
+  GV.shell.crumb(kod);
+  document.title = kod + ' — Demirbaş — GaviaWorks CRM';
+
+  /* =====================================================================
+     KAYDA BAĞLI VERİ DİLİMLERİ — hepsi veride YAZILI tekil bağdan gelir
+     ===================================================================== */
+  /* Zimmet bağı: DB.assignments[].demirbas (canonical, L-13) */
+  var zimmetler = (DB.assignments || []).filter(function(z){ return z.demirbas === kod; })
+    .sort(function(x, y){ return String(y.teslimTarihi || '').localeCompare(String(x.teslimTarihi || '')); });
+  var aktifZimmet = zimmetler.filter(function(z){ return z.durum === 'Aktif'; })[0] || null;
+
+  /* Tedarikçi bağı: DB.assets[].tedarikci → DB.suppliers[].kod */
+  var tedarikci = a.tedarikci ? (DB.suppliers || []).filter(function(s){ return s.kod === a.tedarikci; })[0] : null;
+
+  /* Sipariş / talep bağı: demirbaş kaydında BÖYLE BİR ALAN YOK.
+     Aşağıdaki üç okuma savunmacıdır — alan ileride eklenirse ekran kendiliğinden bağlar. */
+  var siparis = a.siparis ? (DB.orders || []).filter(function(o){ return o.kod === a.siparis; })[0] : null;
+  var talep   = a.talep   ? (DB.purchases || []).filter(function(p){ return p.kod === a.talep; })[0] : null;
+  var siparisBagiVar = !!(siparis || talep);
+
+  /* Tedarikçi üzerinden DOLAYLI eşleşme — demirbaşın siparişi DEĞİLDİR, aynı
+     tedarikçiye verilmiş tüm siparişlerdir. Ekranda böyle etiketlenir. */
+  var tedSiparisleri = a.tedarikci
+    ? (DB.orders || []).filter(function(o){ return o.tedarikci === a.tedarikci; })
+        .sort(function(x, y){ return String(y.tarih).localeCompare(String(x.tarih)); })
+    : [];
+  function talepOf(k){ return k ? (DB.purchases || []).filter(function(p){ return p.kod === k; })[0] : null; }
+
+  /* Bakım kaydı: DB.maintenance yalnız `arac` alanı taşır — demirbaş bağı yok.
+     Filtre dürüsttür, bugünkü veride her zaman boş döner. */
+  var bakimlar = (DB.maintenance || []).filter(function(m){ return m.demirbas === kod; });
+
+  var acts = (DB.activities || []).filter(function(x){ return x.kayit === kod; });
+
+  /* =====================================================================
+     PARA EKSENİ — components.md §9b
+       DB.assets[].alisFiyati = NET (KDV hariç). Ölçüm (6. oturum):
+       · DMB-2025-009 (Figma) 42.000 = SAT-2026-015 net `tahminiMaliyet` 42.000
+       · DMB-2025-005 (U2723QE) 21.000 = SAT-2026-016 net `tahminiMaliyet` 21.000
+       · TDR-003 `toplamTutar` 126.000 = 3 × 42.000 (net eksen, §9b'de doğrulanmış)
+       · Brüt olsaydı /1,2 tam liraya inmeliydi: 82.000→68.333,33 · 61.000→50.833,33
+         · 47.000→39.166,67 · 18.500→15.416,67 → inmiyor, alan brüt olamaz.
+     Etikette eksen daima yazılır. Net ve brüt aynı kolonda karışmaz.
+     ===================================================================== */
+  function para(n){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    if(n == null) return '<span class="u-faint">—</span>';
+    return '<span class="cell-money">' + F.money(n) + '</span>';
+  }
+  function paraAlis(){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    if(a.alisFiyati == null) return '<span class="u-faint">—</span>';
+    if(a.alisFiyati === 0) return '<span class="u-faint">Satın alma bedeli yok</span> ' +
+      '<span class="cell-sub">dönemsel abonelik — bedel aylık gidere yazılır</span>';
+    return '<span class="cell-money">' + F.money(a.alisFiyati) + '</span>';
+  }
+  var finansNot = canFinans ? '' : '<div class="gc-body">' + GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Kayıtlar listelenir, para alanları maskelenir.' }) + '</div>';
+
+  /* =====================================================================
+     SÜRE — referans DB.today (new Date() ile bugün alınmaz)
+     Eşikler: süresi doldu · 7 · 15 · 30 · 60 gün
+     ===================================================================== */
+  var lisansMi = ['Yazılım lisansı','Kurumsal abonelik'].indexOf(a.kategori) !== -1;
+  var sureAd   = lisansMi ? 'Lisans dönemi' : 'Garanti';
+  var garantiGun = a.garantiBit ? F.days(a.garantiBit) : null;
+  var garantiBitti = garantiGun != null && garantiGun < 0;
+
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0)   return 'is-danger';
+    if(d <= 7)  return 'is-danger';
+    if(d <= 15) return 'is-warn';
+    if(d <= 30) return 'is-warn';
+    if(d <= 60) return 'is-info';
+    return 'is-ok';
+  }
+  /* Kalan gün sayısal bir eşiktir, sözlükte karşılığı yok — açık ton geçilir (§5). */
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return '<span class="u-faint">—</span>';
+    var metin = d < 0 ? 'Süresi doldu · ' + (-d) + ' gün' : d === 0 ? 'Bugün son gün' : d + ' gün kaldı';
+    return GV.badge(metin, kalanTon(iso));
+  }
+  function tarihKalan(iso){
+    if(!iso) return null;
+    return '<span class="cell-date">' + F.date(iso) + '</span> ' + kalanBadge(iso);
+  }
+  function esikMetni(gun){
+    if(gun == null) return null;
+    if(gun < 0)   return 'Süresi doldu';
+    if(gun <= 7)  return '7 günden az kaldı';
+    if(gun <= 15) return '15 günden az kaldı';
+    if(gun <= 30) return '30 günden az kaldı';
+    if(gun <= 60) return '60 günden az kaldı';
+    return 'Süre rahat';
+  }
+  function notTonu(iso){
+    var t = kalanTon(iso);
+    return t === 'is-danger' ? 'danger' : t === 'is-warn' ? 'warn' : t === 'is-info' ? 'info' : 'ok';
+  }
+
+  var sureToplam = (a.garantiBas && a.garantiBit)
+    ? Math.round((new Date(a.garantiBit + 'T00:00:00') - new Date(a.garantiBas + 'T00:00:00')) / 86400000) : null;
+  var sureGecen = (sureToplam != null && garantiGun != null) ? (sureToplam - garantiGun) : null;
+  var sureOran  = (sureToplam && sureGecen != null)
+    ? Math.max(0, Math.min(100, Math.round(sureGecen / sureToplam * 100))) : null;
+
+  /* Yaş — satın alma tarihinden bugüne */
+  var yasGun = a.alisTarihi ? Math.max(0, -F.days(a.alisTarihi)) : null;
+  var yasYil = yasGun == null ? null : yasGun / 365.25;
+
+  /* =====================================================================
+     ORTAK YARDIMCILAR
+     ===================================================================== */
+  /* dt metinleri yazar tarafından yazılan sabit dizelerdir (eksen etiketi için
+     <span class="u-faint"> içerir) — dt escape EDİLMEZ, dd zaten çağıran
+     tarafta esc()'lenerek gelir. (lessons L-14) */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function sec(baslik, govde, aciklama){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3>' +
+      (aciklama ? '<p>' + esc(aciklama) + '</p>' : '') + '</div>' + govde + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function personel(k){ return k ? GV.user(k, { sm:true }) : '<span class="u-faint">Zimmetsiz</span>'; }
+  function tedarikciLink(kodu, metin){
+    if(!kodu) return '<span class="u-faint">—</span>';
+    return '<a href="app-tedarikci-detay.html?id=' + kodu + '">' + esc(metin || kodu) + '</a>';
+  }
+
+  /* =====================================================================
+     CANONICAL DOĞRULAMA — demirbaş kartı ↔ zimmet kaydı
+     ===================================================================== */
+  var dogrulama = [];
+  if(a.durum === 'Zimmetli' && !aktifZimmet){
+    dogrulama.push({ tone:'warn', icon:'i-alert', title:'Zimmetli demirbaşın tutanağı yok',
+      text:'Kart durumu “Zimmetli” ve ' + (a.zimmetli ? DB.empName(a.zimmetli) : 'bir personel') +
+           ' üzerinde görünüyor, ama zimmet kayıtlarında (DB.assignments) bu demirbaş için aktif tutanak yok. ' +
+           'Zimmet modülünden tutanak oluşturulmalı.' });
+  }
+  if(aktifZimmet && a.zimmetli && aktifZimmet.personel !== a.zimmetli){
+    dogrulama.push({ tone:'danger', icon:'i-alert', title:'Zimmetli personel eşleşmiyor',
+      text:'Demirbaş kartında ' + DB.empName(a.zimmetli) + ', aktif tutanakta (' + aktifZimmet.kod + ') ' +
+           DB.empName(aktifZimmet.personel) + ' yazılı. İki kayıt aynı personeli göstermelidir.' });
+  }
+  if(aktifZimmet && a.zimmetTarihi && aktifZimmet.teslimTarihi !== a.zimmetTarihi){
+    dogrulama.push({ tone:'warn', icon:'i-alert', title:'Zimmet tarihi eşleşmiyor',
+      text:'Kartta ' + F.date(a.zimmetTarihi) + ', tutanakta ' + F.date(aktifZimmet.teslimTarihi) + ' yazılı.' });
+  }
+  if(a.durum !== 'Zimmetli' && aktifZimmet){
+    dogrulama.push({ tone:'warn', icon:'i-alert', title:'Kapatılmamış zimmet tutanağı',
+      text:'Demirbaş durumu “' + a.durum + '” ama ' + aktifZimmet.kod + ' tutanağı hâlâ “Aktif”. ' +
+           'İade alındıysa tutanak da kapatılmalıdır.' });
+  }
+  var imzaBekleyen = zimmetler.filter(function(z){ return z.personelOnay === 'Bekliyor'; });
+  var dogrulamaHtml = dogrulama.map(function(n){ return GV.notice(n); }).join('');
+
+  /* =====================================================================
+     SAYFA BAŞLIĞI — aksiyonların hepsi gerçekten çalışır
+     ===================================================================== */
+  var phActions = [
+    { label:'Demirbaş listesi', icon:'i-package', href:'app-demirbas.html' },
+    { label:'Zimmetler', icon:'i-clipboard-check', href:'app-zimmet.html' }
+  ];
+  if(canDuzenle && a.aktif !== false){
+    if(a.durum === 'Zimmetli') phActions.push({ label:'İade Al', icon:'i-refresh', cls:'btn-acc', run:function(){ iadeAkisi(); } });
+    else phActions.push({ label:'Zimmetle', icon:'i-user-check', cls:'btn-acc', run:function(){ zimmetModal(); } });
+  }
+  GV.pageHead({
+    eyebrow:'Demirbaş & Filo', title:'Demirbaş Detayı',
+    sub:kod + ' · ' + ad + ' · ' + a.kategori,
+    actions:phActions });
+
+  /* =====================================================================
+     KAYIT BAŞLIĞI
+     ===================================================================== */
+  var head =
+    '<div class="gv-rec-head"><div>' +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(kod) + '</span>' +
+        GV.badge(a.durum) + tagOf(a.kategori) + tagOf(a.altKategori) +
+        (a.aktif === false ? '<span class="tag">Pasif kayıt</span>' : '') +
+        (a.arsiv ? '<span class="tag">Arşiv</span>' : '') +
+        (garantiBitti ? '<span class="badge is-danger">' + esc(sureAd) + ' ' + Math.abs(garantiGun) + ' gün önce doldu</span>' : '') + '</div>' +
+      '<h1>' + esc(ad) + '</h1>' +
+      '<div class="gv-rec-meta">' +
+        '<span>' + ico('i-package','ic-sm') + esc(a.ozellik || a.kategori) + '</span>' +
+        '<span>' + ico('i-user-check','ic-sm') + (a.zimmetli ? esc(DB.empName(a.zimmetli)) : 'Zimmetsiz') + '</span>' +
+        '<span>' + ico('i-users','ic-sm') + esc(DB.depName(a.dep)) + '</span>' +
+        '<span>' + ico('i-home','ic-sm') + esc(a.lokasyon) + '</span>' +
+        '<span>' + ico('i-key','ic-sm') + 'Seri ' + esc(a.seri) + '</span>' +
+        '<span>' + ico('i-shield','ic-sm') + esc(sureAd) + ' bitişi ' + F.date(a.garantiBit) + '</span>' +
+      '</div>' +
+    '</div></div>';
+
+  /* =====================================================================
+     SEKMELER
+     ===================================================================== */
+  var tabs = [
+    { key:'genel',     lbl:'Genel',                ic:'i-info' },
+    { key:'zimmet',    lbl:'Zimmet Geçmişi',       ic:'i-user-check',      cnt:zimmetler.length },
+    { key:'garanti',   lbl:'Garanti ve Lisans',    ic:'i-shield' },
+    { key:'satinalma', lbl:'Satın Alma',           ic:'i-cart' },
+    { key:'bakim',     lbl:'Bakım ve Onarım',      ic:'i-wrench',          cnt:bakimlar.length },
+    { key:'aktivite',  lbl:'Aktivite Geçmişi',     ic:'i-activity',        cnt:acts.length }
+  ];
+  var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+    return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+      (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+
+  /* =====================================================================
+     1. GENEL — DB.assets alanlarının TAMAMI
+     ===================================================================== */
+  var pGenel = (dogrulamaHtml ? '<div class="gc-body u-col">' + dogrulamaHtml + '</div>' : '') +
+    '<div class="gc-body">' +
+    sec('Demirbaş Kimliği', dl([
+      ['Demirbaş kodu', '<b class="u-num">' + esc(kod) + '</b>'],
+      ['Kategori', tagOf(a.kategori)],
+      ['Alt kategori', a.altKategori ? tagOf(a.altKategori) : null],
+      ['Marka', esc(a.marka)],
+      ['Model', esc(a.model)],
+      ['Teknik özellik', esc(a.ozellik)],
+      ['Seri numarası', '<span class="u-num">' + esc(a.seri) + '</span>'],
+      ['Barkod / envanter etiketi', '<span class="u-num">' + esc(a.barkod) + '</span>'],
+      ['Durum', GV.badge(a.durum)],
+      ['Kayıt durumu', a.aktif === false
+        ? '<span class="tag">Pasif / arşivlendi</span>'
+        : '<span class="badge is-ok no-dot">Aktif kayıt</span>']
+    ])) +
+
+    sec('Satın Alma ve Tedarik', dl([
+      ['Satın alma tarihi', a.alisTarihi ? F.date(a.alisTarihi) : null],
+      ['Satın alma tutarı <span class="u-faint">(KDV hariç)</span>', paraAlis()],
+      ['Demirbaş yaşı', yasYil == null ? null :
+        '<b class="u-num">' + F.num(yasYil, 1) + ' yıl</b> <span class="cell-sub">' + F.num(yasGun) + ' gün</span>'],
+      ['Tedarikçi', tedarikci
+        ? tedarikciLink(tedarikci.kod, tedarikci.unvan) + ' <span class="cell-sub">' + esc(tedarikci.kod + ' · ' + tedarikci.kategori) + '</span>'
+        : (a.tedarikci ? tedarikciLink(a.tedarikci) : null)],
+      ['Tedarikçi genel puanı <span class="u-faint">(sipariş geçmişi)</span>',
+        tedarikci ? '<b class="u-num">' + F.num(tedarikci.puan, 1) + '</b> / 5' : null],
+      ['Tedarikçi ödeme vadesi', tedarikci ? esc(tedarikci.odemeVadesi) : null],
+      ['Bağlı sipariş / talep', siparisBagiVar
+        ? (siparis ? esc(siparis.kod) : '') + (talep ? ' · ' + esc(talep.kod) : '')
+        : '<span class="u-faint">Demirbaş kaydında sipariş/talep bağı tutulmuyor</span>']
+    ])) +
+
+    sec(sureAd + ' Bilgileri', dl([
+      [(lisansMi ? 'Lisans başlangıcı' : 'Garanti başlangıcı'), a.garantiBas ? F.date(a.garantiBas) : null],
+      [(lisansMi ? 'Lisans bitişi' : 'Garanti bitişi'),
+        a.garantiBit ? GV.dateCell(a.garantiBit, { done:garantiBitti }) + ' ' + kalanBadge(a.garantiBit) : null],
+      [(lisansMi ? 'Lisans süresi' : 'Garanti süresi'),
+        sureToplam != null ? '<b class="u-num">' + F.num(sureToplam) + '</b> gün' : null],
+      ['Süre ilerlemesi', sureOran != null
+        ? GV.progress(sureOran, { tone:garantiBitti ? 'danger' : null }) : null],
+      (lisansMi ? ['Lisans kapsamı <span class="u-faint">(özellik alanından)</span>', esc(a.ozellik)] : null)
+    ])) +
+
+    sec('Konum ve Sorumluluk', dl([
+      ['Lokasyon', esc(a.lokasyon)],
+      ['Departman', esc(DB.depName(a.dep))],
+      ['Zimmetli personel', a.zimmetli ? GV.user(a.zimmetli, { sm:true }) : null],
+      ['Zimmet tarihi', a.zimmetTarihi ? F.date(a.zimmetTarihi) : null],
+      ['Son iade tarihi', a.iadeTarihi ? F.date(a.iadeTarihi) : null],
+      ['Aktif zimmet tutanağı', aktifZimmet
+        ? '<a href="app-zimmet.html">' + esc(aktifZimmet.kod) + '</a> <span class="cell-sub">' +
+          esc(aktifZimmet.tutanak || '') + '</span>'
+        : null]
+    ])) +
+    '</div>';
+
+  /* =====================================================================
+     2. ZİMMET GEÇMİŞİ — DB.assignments[].demirbas bağı
+     ===================================================================== */
+  var zimmetUyari = '';
+  if(imzaBekleyen.length){
+    zimmetUyari += '<div class="gc-body">' + GV.notice({
+      tone:'warn', icon:'i-stamp', title:'İmza bekleyen tutanak var',
+      text:imzaBekleyen.map(function(z){ return z.kod + ' (' + DB.empName(z.personel) + ')'; }).join(' · ') +
+           ' — personel dijital onayı alınmadan zimmet hukuken tamamlanmış sayılmaz.',
+      actions:[{ label:'Zimmet listesi', href:'app-zimmet.html' }] }) + '</div>';
+  }
+
+  var pZimmet = zimmetUyari +
+    '<div class="gc-body">' +
+    sec('Güncel Zimmet', aktifZimmet
+      ? dl([
+          ['Tutanak no', '<b class="u-num">' + esc(aktifZimmet.kod) + '</b>'],
+          ['Personel', GV.user(aktifZimmet.personel, { sm:true }) +
+            ' <span class="cell-sub">' + esc((DB.emp(aktifZimmet.personel) || {}).depAd || '') + '</span>'],
+          ['Teslim tarihi', F.date(aktifZimmet.teslimTarihi) +
+            ' <span class="cell-sub">' + Math.max(0, -F.days(aktifZimmet.teslimTarihi)) + ' gündür kullanımda</span>'],
+          ['Personel onayı', GV.badge(aktifZimmet.personelOnay) +
+            (aktifZimmet.onayTarihi ? ' <span class="cell-sub">' + F.date(aktifZimmet.onayTarihi) + '</span>' : '')],
+          ['Tutanak dosyası', aktifZimmet.tutanak
+            ? '<a data-wip="Zimmet tutanağı">' + ico('i-file','ic-sm') + ' ' + esc(aktifZimmet.tutanak) + '</a>' : null],
+          ['Hasar / eksik notu', aktifZimmet.hasar ? '<span class="badge is-danger">' + esc(aktifZimmet.hasar) + '</span>' : null],
+          ['Zimmet durumu', GV.badge(aktifZimmet.durum)]
+        ])
+      : GV.empty({ icon:'i-user-check', title:'Aktif zimmet yok',
+          desc:'Bu demirbaş şu anda kimseye zimmetli değil — durumu “' + a.durum + '”, lokasyonu ' + a.lokasyon + '.',
+          action:'<a class="btn btn-acc" href="app-zimmet.html">Zimmet listesine git</a>' }),
+      'Güncel tahsis demirbaş kartında, imzalı tutanaklar zimmet modülünde tutulur.') +
+    '</div>' +
+
+    '<div class="gc-body flush">' +
+    (zimmetler.length
+      ? tbl('<th>Tutanak no</th><th>Personel</th><th>Teslim tarihi</th><th>İade tarihi</th><th class="num">Kullanım</th>' +
+            '<th>Personel onayı</th><th>Tutanak</th><th>Hasar / eksik</th><th>Durum</th>',
+          zimmetler.map(function(z){
+            var bit = z.iadeTarihi || DB.today;
+            var gun = Math.round((new Date(bit + 'T00:00:00') - new Date(z.teslimTarihi + 'T00:00:00')) / 86400000);
+            var guncel = aktifZimmet && z.kod === aktifZimmet.kod;
+            return '<tr' + (guncel ? ' class="is-late"' : '') + '>' +
+              '<td><span class="cell-main">' + esc(z.kod) + '</span>' +
+                (guncel ? '<span class="cell-sub">Güncel zimmet</span>' : '') + '</td>' +
+              '<td><a class="cell-main" href="app-personel-detay.html?id=' + z.personel + '">' + esc(DB.empName(z.personel)) + '</a>' +
+                '<span class="cell-sub">' + esc((DB.emp(z.personel) || {}).depAd || '') + '</span></td>' +
+              '<td><span class="cell-date">' + F.date(z.teslimTarihi) + '</span></td>' +
+              '<td>' + (z.iadeTarihi ? '<span class="cell-date">' + F.date(z.iadeTarihi) + '</span>'
+                                     : '<span class="u-faint">Devam ediyor</span>') + '</td>' +
+              '<td class="num"><span class="u-num">' + F.num(gun) + ' gün</span></td>' +
+              '<td>' + GV.badge(z.personelOnay) +
+                (z.onayTarihi ? '<span class="cell-sub">' + F.date(z.onayTarihi) + '</span>' : '') + '</td>' +
+              '<td>' + (z.tutanak ? '<a data-wip="Zimmet tutanağı">' + ico('i-file','ic-sm') + ' ' + esc(z.tutanak) + '</a>'
+                                  : '<span class="u-faint">—</span>') + '</td>' +
+              '<td class="cell-wrap">' + (z.hasar ? '<span class="badge is-danger">' + esc(z.hasar) + '</span>'
+                                                  : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(z.durum) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + zimmetler.length + '</b> zimmet kaydı · aktif ' +
+          zimmetler.filter(function(z){ return z.durum === 'Aktif'; }).length +
+          ' · iade edilen ' + zimmetler.filter(function(z){ return z.durum === 'İade edildi'; }).length +
+          ' · imza bekleyen ' + imzaBekleyen.length,
+          '<a class="btn btn-line btn-sm" href="app-zimmet.html">' + ico('i-clipboard-check','ic-sm') + ' Zimmet listesi</a>')
+      : GV.empty({ icon:'i-clipboard-check', title:'Zimmet tutanağı yok',
+          desc:'Bu demirbaş için imzalı zimmet kaydı bulunmuyor. Tutanak zimmet modülünden oluşturulur.',
+          action:'<a class="btn btn-acc" href="app-zimmet.html">Zimmet listesine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     3. GARANTİ VE LİSANS — eşikler DB.today üzerinden 60/30/15/7 gün
+     ===================================================================== */
+  var garantiNot;
+  if(!a.garantiBit){
+    garantiNot = GV.notice({ tone:'neutral', icon:'i-info', title:sureAd + ' tarihi girilmemiş',
+      text:'Bu demirbaş kaydında ' + sureAd.toLowerCase() + ' bitiş tarihi yok; yenileme takibi yapılamıyor.' });
+  } else if(garantiBitti){
+    garantiNot = GV.notice({ tone:'danger', icon:'i-alert', title:sureAd + ' süresi doldu',
+      text:'Bitiş ' + F.date(a.garantiBit) + ' — bugüne (' + F.date(DB.today) + ') göre ' + Math.abs(garantiGun) + ' gün geçti. ' +
+        (lisansMi ? 'Lisans yenilenmediyse hizmet kesintiye uğrar.' : 'Onarım masrafı artık şirkete aittir.') });
+  } else if(garantiGun <= 7){
+    garantiNot = GV.notice({ tone:'danger', icon:'i-hourglass', title:'Bitişe 7 günden az kaldı',
+      text:'Bitiş ' + F.date(a.garantiBit) + ' · ' + garantiGun + ' gün kaldı. ' +
+        (lisansMi ? 'Yenileme talebi bugün açılmalı.' : 'Garanti kapsamındaki işler bu hafta tamamlanmalı.') });
+  } else if(garantiGun <= 15){
+    garantiNot = GV.notice({ tone:'warn', icon:'i-hourglass', title:'Bitişe 15 günden az kaldı',
+      text:'Bitiş ' + F.date(a.garantiBit) + ' · ' + garantiGun + ' gün kaldı.' });
+  } else if(garantiGun <= 30){
+    garantiNot = GV.notice({ tone:'warn', icon:'i-calendar', title:'Bitişe 30 günden az kaldı',
+      text:'Bitiş ' + F.date(a.garantiBit) + ' · ' + garantiGun + ' gün kaldı. ' +
+        (lisansMi ? 'Yenileme talebi satın alma sürecine girmeli.' : 'Garanti kapsamı gözden geçirilmeli.') });
+  } else if(garantiGun <= 60){
+    garantiNot = GV.notice({ tone:'info', icon:'i-calendar', title:'Yenileme penceresi açıldı',
+      text:'Bitiş ' + F.date(a.garantiBit) + ' · ' + garantiGun + ' gün kaldı. 60 günlük yenileme penceresindesiniz.' });
+  } else {
+    garantiNot = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Süre rahat',
+      text:'Bitiş ' + F.date(a.garantiBit) + ' · ' + garantiGun + ' gün kaldı. Yenileme eşiği (60 gün) henüz gelmedi.' });
+  }
+
+  var lisansNot = lisansMi ? GV.notice({
+    tone:'neutral', icon:'i-key', title:'Lisans dönemi garanti alanlarında tutuluyor',
+    text:'Demirbaş kaydında ayrı lisans anahtarı, koltuk sayısı, otomatik yenileme veya yenileme tarihi alanı yok. ' +
+         'Lisans dönemi garantiBas–garantiBit çiftinden okunur, kapsam bilgisi özellik alanındadır: ' + a.ozellik + '.' }) : '';
+
+  var pGaranti = '<div class="gc-body u-col">' + garantiNot + lisansNot + '</div>' +
+    '<div class="gc-body">' +
+    dl([
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)],
+      [(lisansMi ? 'Lisans başlangıcı' : 'Garanti başlangıcı'), a.garantiBas ? F.date(a.garantiBas) : null],
+      [(lisansMi ? 'Lisans bitişi' : 'Garanti bitişi'),
+        a.garantiBit ? GV.dateCell(a.garantiBit, { done:garantiBitti }) : null],
+      ['Bitişe kalan', a.garantiBit ? kalanBadge(a.garantiBit) : null],
+      ['Eşik durumu', garantiGun == null ? null : GV.badge(esikMetni(garantiGun), kalanTon(a.garantiBit))],
+      [(lisansMi ? 'Lisans süresi' : 'Garanti süresi'),
+        sureToplam != null ? '<b class="u-num">' + F.num(sureToplam) + '</b> gün' : null],
+      ['Kullanılan süre', sureGecen != null ? '<span class="u-num">' + F.num(Math.max(0, sureGecen)) + '</span> gün' : null],
+      ['Süre ilerlemesi', sureOran != null ? GV.progress(sureOran, { tone:garantiBitti ? 'danger' : null }) : null],
+      ['Satın alma tarihi', a.alisTarihi ? F.date(a.alisTarihi) : null],
+      ['Satın alma tutarı <span class="u-faint">(KDV hariç)</span>', paraAlis()],
+      ['Tedarikçi <span class="u-faint">(garanti muhatabı)</span>',
+        tedarikci ? tedarikciLink(tedarikci.kod, tedarikci.unvan) : (a.tedarikci ? tedarikciLink(a.tedarikci) : null)],
+      ['Seri numarası <span class="u-faint">(garanti başvurusunda istenir)</span>', '<span class="u-num">' + esc(a.seri) + '</span>']
+    ]) +
+    (lisansMi
+      ? sec('Yenileme Penceresi', dl([
+          ['Yenileme eşiği', '<span class="u-num">60</span> gün <span class="cell-sub">talep açma penceresi</span>'],
+          ['Pencereye giriş tarihi', a.garantiBit
+            ? F.date(new Date(new Date(a.garantiBit + 'T00:00:00') - 60 * 86400000).toISOString().slice(0, 10)) : null],
+          ['Pencere durumu', garantiGun == null ? null :
+            (garantiGun <= 60
+              ? GV.badge(garantiGun < 0 ? 'Süresi doldu' : 'Pencere açık', kalanTon(a.garantiBit))
+              : GV.badge('Pencere açılmadı', 'is-neutral'))],
+          ['Yenileme talebi <span class="u-faint">(satın alma modülü)</span>',
+            '<a href="app-satinalma.html">Satın alma taleplerini aç</a>']
+        ]), 'Lisans ve aboneliklerde yenileme talebi bitişe 60 gün kala açılır.')
+      : '') +
+    '</div>';
+
+  /* =====================================================================
+     4. SATIN ALMA — demirbaş ↔ sipariş/talep bağı VERİDE YOK
+     ===================================================================== */
+  var eksenNot = GV.notice({
+    tone:'info', icon:'i-wallet', title:'Bu sekmedeki tutarlar KDV hariç (net) — sipariş satırında brüt de gösterilir',
+    text:'Demirbaşın satın alma tutarı net eksendedir: DMB-2025-009’un 42.000 ₺’si SAT-2026-015 talebinin net tahmini ' +
+         'maliyetiyle, DMB-2025-005’in 21.000 ₺’si SAT-2026-016’nın net tahmini maliyetiyle birebir aynıdır. ' +
+         'Sipariş tablosunda net / KDV / brüt ayrı kolonlardadır, aynı kolonda karışmaz.' });
+
+  var bagNot = siparisBagiVar ? '' : GV.notice({
+    tone:'warn', icon:'i-alert', title:'Demirbaş kaydında sipariş/talep bağı yok',
+    text:'Demirbaş kartı yalnız tedarikçiyi tutuyor; hangi siparişten veya satın alma talebinden geldiği veride yazılı değil ' +
+         '(siparis / talep / fatura alanı yok). Aşağıdaki sipariş listesi bu demirbaşın siparişi değildir — ' +
+         'tedarikçinin tüm siparişleridir ve yalnız bilgi amaçlıdır.' });
+
+  var pSatinalma = finansNot + '<div class="gc-body u-col">' + eksenNot + bagNot + '</div>' +
+    '<div class="gc-body">' +
+    sec('Kayıttaki Satın Alma Bilgisi', dl([
+      ['Satın alma tarihi', a.alisTarihi ? F.date(a.alisTarihi) : null],
+      ['Satın alma tutarı <span class="u-faint">(KDV hariç)</span>', paraAlis()],
+      ['Tedarikçi', tedarikci
+        ? tedarikciLink(tedarikci.kod, tedarikci.unvan) + ' <span class="cell-sub">' + esc(tedarikci.kategori) + '</span>'
+        : (a.tedarikci ? tedarikciLink(a.tedarikci) : null)],
+      ['Tedarikçi ödeme vadesi', tedarikci ? esc(tedarikci.odemeVadesi) : null],
+      ['Tedarikçi genel puanı <span class="u-faint">(sipariş geçmişi)</span>',
+        tedarikci ? '<b class="u-num">' + F.num(tedarikci.puan, 1) + '</b> / 5' : null],
+      ['Bağlı sipariş', siparis ? esc(siparis.kod) : null],
+      ['Bağlı satın alma talebi', talep ? esc(talep.kod) : null]
+    ])) +
+    sec('Bu Demirbaşın Siparişi', GV.empty({
+      icon:'i-cart', title:'Sipariş bağı kurulamıyor',
+      desc:'Demirbaş kaydında sipariş, talep veya fatura numarası alanı bulunmuyor. Bağ alanı eklenene kadar ' +
+           'bu demirbaşın hangi siparişten geldiği sistemden okunamaz — tahmin edilmez.',
+      action:'<a class="btn btn-acc" href="app-siparis.html">Sipariş listesine git</a>' })) +
+    '</div>' +
+    (tedSiparisleri.length
+      ? '<div class="gc-body flush">' +
+        tbl('<th>Sipariş no</th><th>Talep</th><th>Sipariş tarihi</th><th>Teslim tarihi</th>' +
+            '<th class="num">Net tutar (KDV hariç)</th><th class="num">KDV</th><th class="num">Brüt tutar (KDV dahil)</th>' +
+            '<th>Teslim kontrolü</th><th>Fatura</th><th>Durum</th>',
+          tedSiparisleri.map(function(o){
+            var t = talepOf(o.talep);
+            var teslimAlindi = o.durum === 'Teslim alındı';
+            return '<tr><td><a class="cell-main" href="app-siparis.html">' + esc(o.kod) + '</a>' +
+                (o.irsaliye && o.irsaliye !== '—' ? '<span class="cell-code">' + esc(o.irsaliye) + '</span>' : '') + '</td>' +
+              '<td class="cell-wrap">' + (t
+                ? '<a class="cell-main" href="app-satinalma-detay.html?id=' + t.kod + '">' + esc(t.urun) + '</a>' +
+                  '<span class="cell-code">' + esc(t.kod) + ' · ' + esc(t.kategori) + '</span>'
+                : (o.talep ? '<span class="cell-code">' + esc(o.talep) + '</span>' : '<span class="u-faint">Talepsiz</span>')) + '</td>' +
+              '<td><span class="cell-date">' + F.date(o.tarih) + '</span></td>' +
+              '<td>' + GV.dateCell(o.teslimTarihi, { done:teslimAlindi }) +
+                '<span class="cell-sub">' + (teslimAlindi ? 'gerçekleşen' : 'planlanan') + '</span></td>' +
+              '<td class="num">' + para(o.tutar) + '</td>' +
+              '<td class="num">' + para(o.vergi) + '</td>' +
+              '<td class="num">' + para(o.toplam) + '</td>' +
+              '<td>' + (o.teslimKontrol ? GV.badge(o.teslimKontrol) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + (o.fatura ? '<span class="cell-code">' + esc(o.fatura) + '</span>' : '<span class="u-faint">Kesilmedi</span>') + '</td>' +
+              '<td>' + GV.badge(o.durum) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + tedSiparisleri.length + '</b> sipariş · ' + esc(tedarikci ? tedarikci.unvan : a.tedarikci) +
+          ' <span class="u-faint">(demirbaş bağı değil, tedarikçi eşleşmesi)</span>',
+          '<a class="btn btn-line btn-sm" href="app-tedarikci-detay.html?id=' + a.tedarikci + '">' +
+            ico('i-truck','ic-sm') + ' Tedarikçi kartı</a>') +
+        '</div>'
+      : '<div class="gc-body">' + sec('Tedarikçinin Siparişleri', GV.empty({
+          icon:'i-cart', title:'Tedarikçiye ait sipariş kaydı yok',
+          desc:(tedarikci ? tedarikci.unvan : 'Bu tedarikçi') + ' için sipariş kaydı bulunmuyor. ' +
+               'Sipariş kayıtları satın alma talebi onaylandığında oluşur.',
+          action:'<a class="btn btn-acc" href="app-siparis.html">Sipariş listesine git</a>' })) + '</div>');
+
+  /* =====================================================================
+     5. BAKIM VE ONARIM — demirbaş bakım kaydı veride yok
+     ===================================================================== */
+  var pBakim = '<div class="gc-body">' +
+    GV.notice({ tone:'neutral', icon:'i-wrench', title:'Bakım kayıtları yalnız filo için tutuluyor',
+      text:'DB.maintenance koleksiyonu araç bakımlarını tutar (arac alanı); demirbaş bakımı / onarımı için ' +
+           'ayrı bir kayıt tipi yok. Demirbaşın onarım süreci şimdilik yalnız durum alanından (Onarımda) izlenir. ' +
+           'Bu demirbaşın güncel durumu: ' + a.durum + '.' }) +
+    '</div>' +
+    '<div class="gc-body">' +
+    (bakimlar.length
+      ? tbl('<th>Bakım no</th><th>Tür</th><th>Planlanan</th><th>Gerçekleşen</th><th>Servis</th><th class="num">Maliyet (KDV hariç)</th><th>Durum</th>',
+          bakimlar.map(function(b){
+            return '<tr><td><span class="cell-main">' + esc(b.kod) + '</span></td>' +
+              '<td>' + tagOf(b.tur) + '</td>' +
+              '<td>' + GV.dateCell(b.planTarihi, { done:b.durum === 'Tamam' }) + '</td>' +
+              '<td>' + (b.gercekTarihi ? '<span class="cell-date">' + F.date(b.gercekTarihi) + '</span>'
+                                       : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + esc(b.servis) + '</td>' +
+              '<td class="num">' + para(b.maliyet) + '</td>' +
+              '<td>' + GV.badge(b.durum) + '</td></tr>';
+          }).join(''))
+      : GV.empty({ icon:'i-wrench', title:'Bakım veya onarım kaydı yok',
+          desc:'Bu demirbaş için kayıtlı bakım, onarım veya servis işlemi bulunmuyor. ' +
+               'Cihaz arızalandığında durumu “Onarımda” yapılır ve zimmet tutanağına hasar notu düşülür.',
+          action:'<a class="btn btn-acc" href="app-demirbas.html">Demirbaş listesine dön</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     6. AKTİVİTE GEÇMİŞİ
+     ===================================================================== */
+  var pAktivite = '<div class="gc-body">' +
+    (acts.length ? GV.activity(acts)
+      : GV.empty({ icon:'i-activity', title:'Demirbaş kartında hareket yok',
+          desc:'Bu demirbaş üzerinde kayıtlı durum, zimmet veya lokasyon değişikliği bulunmuyor. ' +
+               'Yapılan her değişiklik burada listelenir.',
+          action:'<a class="btn btn-line" href="app-demirbas.html">Demirbaş listesine dön</a>' })) +
+    '</div>';
+
+  var panels = {
+    genel:pGenel, zimmet:pZimmet, garanti:pGaranti,
+    satinalma:pSatinalma, bakim:pBakim, aktivite:pAktivite
+  };
+
+  /* =====================================================================
+     SAĞ ÖZET PANELİ
+     ===================================================================== */
+  var aside =
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Durum', GV.badge(a.durum)],
+      ['Kategori', tagOf(a.kategori) + (a.altKategori ? ' ' + tagOf(a.altKategori) : '')],
+      ['Zimmetli personel', personel(a.zimmetli)],
+      ['Departman', esc(DB.depName(a.dep))],
+      ['Lokasyon', esc(a.lokasyon)],
+      ['Satın alma tarihi', a.alisTarihi ? '<span class="cell-date">' + F.date(a.alisTarihi) + '</span>' : '<span class="u-faint">—</span>'],
+      ['Satın alma tutarı <span class="u-faint">(KDV hariç)</span>', paraAlis()],
+      [(lisansMi ? 'Lisans bitişi' : 'Garanti bitişi'), tarihKalan(a.garantiBit) || '<span class="u-faint">—</span>'],
+      ['Seri numarası', '<span class="u-num">' + esc(a.seri) + '</span>'],
+      ['Barkod', '<span class="u-num">' + esc(a.barkod) + '</span>']
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-calendar') + 'Takvim ve Süre</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      [ico('i-shield','ic-sm') + ' ' + esc(sureAd) + ' bitişi<span class="cell-sub">' +
+        (tedarikci ? esc(tedarikci.unvan) : 'Tedarikçi yok') + '</span>',
+        a.garantiBit ? '<span class="cell-date">' + F.dateShort(a.garantiBit) + '</span><br>' + kalanBadge(a.garantiBit)
+                     : '<span class="u-faint">—</span>'],
+      aktifZimmet
+        ? [ico('i-user-check','ic-sm') + ' Zimmet teslimi<span class="cell-sub">' + esc(aktifZimmet.kod) + '</span>',
+           '<span class="cell-date">' + F.dateShort(aktifZimmet.teslimTarihi) + '</span><br>' +
+           '<span class="cell-sub">' + Math.max(0, -F.days(aktifZimmet.teslimTarihi)) + ' gündür kullanımda</span>']
+        : (a.iadeTarihi
+            ? [ico('i-refresh','ic-sm') + ' Son iade<span class="cell-sub">depoya giriş</span>',
+               '<span class="cell-date">' + F.dateShort(a.iadeTarihi) + '</span>']
+            : null),
+      [ico('i-package','ic-sm') + ' Demirbaş yaşı<span class="cell-sub">satın almadan bugüne</span>',
+        yasYil == null ? '<span class="u-faint">—</span>' : '<b class="u-num">' + F.num(yasYil, 1) + ' yıl</b>'],
+      ['Süre ilerlemesi', sureOran != null ? GV.progress(sureOran, { tone:garantiBitti ? 'danger' : null })
+                                           : '<span class="u-faint">—</span>']
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-truck') + 'Tedarik</h2></div>' +
+    '<div class="gc-body">' + ozetListe([
+      ['Tedarikçi', tedarikci ? tedarikciLink(tedarikci.kod, tedarikci.unvan)
+                              : (a.tedarikci ? tedarikciLink(a.tedarikci) : '<span class="u-faint">—</span>')],
+      ['Tedarikçi genel puanı', tedarikci ? '<b class="u-num">' + F.num(tedarikci.puan, 1) + '</b> / 5' : '<span class="u-faint">—</span>'],
+      ['Ödeme vadesi', tedarikci ? esc(tedarikci.odemeVadesi) : '<span class="u-faint">—</span>'],
+      ['Tedarikçi siparişi', tedSiparisleri.length
+        ? '<b>' + tedSiparisleri.length + '</b> kayıt <span class="cell-sub">demirbaş bağı değil</span>'
+        : '<span class="u-faint">Kayıt yok</span>'],
+      ['Zimmet tutanağı', '<b>' + zimmetler.length + '</b>' +
+        (imzaBekleyen.length ? ' <span class="cell-sub">' + imzaBekleyen.length + ' imza bekliyor</span>' : '')]
+    ]) + '</div></section>' +
+
+    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3))
+      : '<p class="u-sm u-faint">Bu demirbaş kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+  mount.innerHTML = head +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div><section class="gv-card">' + tabBar +
+        tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+      '</section></div>' +
+      '<div class="u-col">' + aside + '</div>' +
+    '</div>';
+
+  GV.tabs('#recTabs');
+
+  /* =====================================================================
+     ZİMMETLEME VE İADE — gerçekten çalışır, yalnız düzenleme yetkisiyle
+     ===================================================================== */
+  function zimmetModal(){
+    var uygun = (DB.employees || []).filter(function(e){ return e.aktif; });
+    GV.modal({
+      title:'Demirbaşı Zimmetle', text:ad + ' · ' + kod, icon:'i-user-check', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="zPers">Personel</label><select id="zPers">' +
+          uygun.map(function(e){ return '<option value="' + e.kod + '">' + esc(e.ad + ' — ' + e.depAd) + '</option>'; }).join('') +
+          '</select></div>' +
+        '<div class="field f-col-12"><label for="zTar">Teslim tarihi</label>' +
+          '<input type="date" class="inp" id="zTar" value="' + DB.today + '" max="' + DB.today + '"></div>' +
+        '<div class="field f-col-12"><label class="f-check"><input type="checkbox" id="zTut" checked>' +
+          '<span>Teslim tutanağı oluştur ve personel dijital onayına gönder</span></label></div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Zimmetle', cls:'btn-acc', onClick:function(close, el){
+            var p = el.querySelector('#zPers').value;
+            var t = el.querySelector('#zTar').value;
+            if(!p){ GV.toast('Personel seçilmelidir', 'danger'); return false; }
+            if(!t){ GV.toast('Teslim tarihi zorunludur', 'danger'); return false; }
+            if(F.days(t) > 0){ GV.toast('Teslim tarihi ileri tarihli olamaz', 'danger'); return false; }
+            var imza = el.querySelector('#zTut').checked;
+            var eski = a.durum;
+            var yeni = {
+              kod:'ZMT-' + t.slice(0, 4) + '-' + String(DB.assignments.length + 1).padStart(3, '0'),
+              demirbas:kod, personel:p, teslimTarihi:t, iadeTarihi:null, durum:'Aktif',
+              tutanak:'zimmet-' + kod.toLowerCase() + '.pdf',
+              personelOnay:imza ? 'Bekliyor' : 'Onaylandı', onayTarihi:imza ? null : t,
+              hasar:null, aktif:true
+            };
+            DB.assignments.unshift(yeni);
+            a.durum = 'Zimmetli'; a.zimmetli = p; a.zimmetTarihi = t; a.iadeTarihi = null;
+            DB.activities.unshift({ kayit:kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0, 5),
+              kisi:GV.session.ad, metin:'Demirbaş zimmetlendi — ' + DB.empName(p) + ' (' + yeni.kod + ')',
+              eski:eski, yeni:'Zimmetli', tone:'info', icon:'i-user-check' });
+            GV.toast(kod + ' → ' + DB.empName(p) + ' zimmetlendi', 'ok');
+            setTimeout(function(){ GV.refresh(); }, 700);
+          } }
+      ]
+    });
+  }
+
+  function iadeAkisi(){
+    GV.confirm({
+      title:'Zimmet iadesi',
+      text:(a.zimmetli ? DB.empName(a.zimmetli) : 'Personel') + ' üzerindeki ' + kod +
+           ' iade alınacak, tutanak kapatılacak ve demirbaş depoya girecek.',
+      okLabel:'İade al'
+    }).then(function(ok){
+      if(!ok) return;
+      var eski = a.durum, kisi = a.zimmetli;
+      if(aktifZimmet){ aktifZimmet.durum = 'İade edildi'; aktifZimmet.iadeTarihi = DB.today; }
+      a.durum = 'Depoda'; a.zimmetli = null; a.zimmetTarihi = null; a.iadeTarihi = DB.today;
+      a.lokasyon = a.lokasyon.indexOf('Depo') === 0 ? a.lokasyon : 'Depo · Ankara';
+      DB.activities.unshift({ kayit:kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0, 5),
+        kisi:GV.session.ad, metin:'Zimmet iade alındı' + (kisi ? ' — ' + DB.empName(kisi) : '') +
+          (aktifZimmet ? ' (' + aktifZimmet.kod + ')' : ''),
+        eski:eski, yeni:'Depoda', tone:'ok', icon:'i-refresh' });
+      GV.toast(kod + ' iade alındı, depoya girdi', 'ok');
+      setTimeout(function(){ GV.refresh(); }, 700);
+    });
+  }
+});
+</script>
+</body>
+</html>

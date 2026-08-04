@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Fatura Detayı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="finans" data-screen="fatura">
+<div id="rec"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+  var canFinans = GV.perm.can('finans');
+
+  var id = new URLSearchParams(location.search).get('id') || (DB.invoices[0] || {}).kod;
+  var f  = DB.invoices.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
+  if(!f){
+    GV.pageHead({ eyebrow:'Finans', title:'Fatura Detayı', sub:'Kayıt bulunamadı',
+      actions:[{ label:'Fatura listesi', icon:'i-receipt', href:'app-fatura.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-alert-circle', title:'Fatura bulunamadı',
+      desc:'“' + esc(id || '') + '” numaralı fatura sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-fatura.html">Fatura listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  GV.shell.crumb(f.kod);
+  document.title = f.kod + ' — Fatura — GaviaWorks CRM';
+
+  /* =================================================================
+     İLİŞKİLİ KAYITLAR — hepsi veride yazılı tekil bağdan türetilir
+     ================================================================= */
+  var musteri  = f.musteri   ? DB.customers.filter(function(m){ return m.kod === f.musteri; })[0] : null;
+  var sozlesme = f.sozlesme  ? DB.contracts.filter(function(c){ return c.kod === f.sozlesme; })[0] : null;
+  var proje    = f.proje     ? DB.proj(f.proje) : null;
+  var taksit   = f.milestone ? DB.milestones.filter(function(m){ return m.kod === f.milestone; })[0] : null;
+
+  /* Bu sözleşmenin tüm taksit seti — faturanın planın neresine düştüğünü göstermek için */
+  var sozTaksit = sozlesme
+    ? DB.milestones.filter(function(m){ return m.sozlesme === sozlesme.kod; })
+                   .sort(function(a,b){ return a.taksit - b.taksit; })
+    : [];
+
+  /* Tahsilatlar: yalnız BU faturaya bağlı kayıtlar */
+  var tahsilatlar = DB.payments.filter(function(t){ return t.fatura === f.kod; })
+                               .sort(function(a,b){ return String(a.vade).localeCompare(String(b.vade)); });
+
+  function faturaOfMs(msKod){ return DB.invoices.filter(function(i){ return i.milestone === msKod; })[0] || null; }
+
+  /* =================================================================
+     PARA — components.md §9b, TEK KONVANSİYON
+       f.tutar  = NET (KDV hariç)  ·  f.vergi = KDV  ·  f.toplam = BRÜT (KDV dahil)
+       taksit.odeme   = NET  (= faturanın `tutar`ı)
+       payment.tutar  = BRÜT (= faturanın `toplam`ı)
+       sozlesme.tutar = NET  ·  sozlesme.toplam = BRÜT
+     Net ve brüt aynı kolonda KARIŞMAZ; her etikette eksen yazılıdır.
+     Oranlar da kendi ekseninde bölünür: tahsilat BRÜT / BRÜT, taksit payı NET / NET.
+     ================================================================= */
+  /* Fatura kaydının kendi `doviz` alanı YOK — bağlı sözleşmeden alınır, yoksa ₺ varsayılır. */
+  var kur = sozlesme && sozlesme.doviz ? (sozlesme.doviz === 'TRY' ? '₺' : sozlesme.doviz) : '₺';
+
+  var netTutar  = f.tutar  || 0;   /* NET  */
+  var kdvTutar  = f.vergi  || 0;   /* KDV  */
+  var brutTutar = f.toplam || 0;   /* BRÜT */
+
+  /* KDV oranı fatura kaydında yazılı değil — KDV / net tutardan hesaplanır */
+  var kdvOran   = netTutar ? Math.round(kdvTutar / netTutar * 1000) / 10 : null;
+
+  var hesapBrut = netTutar + kdvTutar;              /* BRÜT — doğrulama için */
+  var brutUyum  = hesapBrut === brutTutar;
+  var brutFark  = hesapBrut - brutTutar;
+
+  var tahsilBrut = tahsilatlar.filter(function(t){ return t.durum === 'Ödendi'; })
+                              .reduce(function(s,t){ return s + (t.tutar || 0); }, 0);   /* BRÜT */
+  var acikBrut   = tahsilatlar.filter(function(t){ return t.durum !== 'Ödendi'; })
+                              .reduce(function(s,t){ return s + (t.tutar || 0); }, 0);   /* BRÜT */
+  var kalanAlacak = brutTutar - tahsilBrut;                                              /* BRÜT */
+  var tahsilOran  = brutTutar ? Math.round(tahsilBrut / brutTutar * 100) : 0;            /* BRÜT / BRÜT */
+
+  /* Taksit karşılığı doğrulaması: milestone.odeme (NET) === fatura.tutar (NET) */
+  var taksitUyum = taksit ? (taksit.odeme || 0) === netTutar : null;
+  var taksitFark = taksit ? (taksit.odeme || 0) - netTutar : 0;
+
+  var sozTaksitNet = sozTaksit.reduce(function(s,m){ return s + (m.odeme || 0); }, 0);   /* NET */
+
+  function para(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="cell-money">' + F.money(v, kur) + '</span>';
+  }
+  function paraSade(v){
+    if(!canFinans) return '<span class="cell-mask" title="Bu alanı görüntüleme yetkiniz yok">••••••</span>';
+    return '<span class="u-num">' + F.money(v, kur) + '</span>';
+  }
+  var finansNot = canFinans ? '' : '<div class="gc-body">' + GV.notice({
+    tone:'neutral', icon:'i-lock', title:'Tutarlar gizli',
+    text:'Rolünüzde finansal tutar görüntüleme yetkisi yok. Kayıtlar listelenir, para alanları maskelenir.' }) + '</div>';
+
+  /* =================================================================
+     SÜRE — referans DB.today (new Date() ile bugün alınmaz).
+     Durum değiştiren aksiyon sonrası yeniden hesaplanır.
+     ================================================================= */
+  function gunFark(a, b){
+    if(!a || !b) return null;
+    return Math.round((new Date(String(b).slice(0,10) + 'T00:00:00') -
+                       new Date(String(a).slice(0,10) + 'T00:00:00')) / 86400000);
+  }
+  var vadeSuresi = gunFark(f.tarih, f.vade);   /* düzenleme → vade, aksiyondan etkilenmez */
+
+  var odendi, vadeGun, gecikti, gecikmeGun, yaklasan, tahsilSuresi, vadesindeTahsil, acts;
+  function hesapla(){
+    odendi     = f.durum === 'Ödendi';
+    vadeGun    = f.vade ? F.days(f.vade) : null;      /* + kaldı · − gecikti */
+    gecikti    = !odendi && vadeGun != null && vadeGun < 0;
+    gecikmeGun = gecikti ? Math.abs(vadeGun) : 0;
+    yaklasan   = !odendi && vadeGun != null && vadeGun >= 0 && vadeGun <= 15;
+    tahsilSuresi = f.odemeTarihi ? gunFark(f.tarih, f.odemeTarihi) : null;
+    /* Vadesinde mi tahsil edilmiş: ödeme tarihi vadeyi geçmemiş mi */
+    vadesindeTahsil = f.odemeTarihi && f.vade ? gunFark(f.odemeTarihi, f.vade) >= 0 : null;
+    acts = DB.activities.filter(function(a){ return a.kayit === f.kod; });
+  }
+  hesapla();
+
+  function vadeMetin(){
+    if(odendi) return '<b class="u-ok">Tahsil edildi</b>';
+    if(vadeGun == null) return '<span class="u-faint">Vade yok</span>';
+    if(vadeGun < 0)   return '<b class="u-danger">' + Math.abs(vadeGun) + ' gün gecikti</b>';
+    if(vadeGun === 0) return '<b class="u-danger">Bugün son gün</b>';
+    return '<b class="u-num">' + vadeGun + ' gün kaldı</b>';
+  }
+
+  /* Tahsilat kaydının gecikmesi: veride yazılı gün, kapanmamış kayıtta DB.today ile doğrulanır */
+  function tahsilatGecikme(t){
+    if(t.durum === 'Ödendi') return 0;
+    var yazili = t.gecikmeGun || 0;
+    var hesap  = t.vade && F.days(t.vade) < 0 ? -F.days(t.vade) : 0;
+    return Math.max(yazili, hesap);
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  /* dt metinleri yazar tarafından yazılan sabit dizelerdir (para ekseni işareti
+     <span class="u-faint"> içerir) — bu yüzden dt escape EDİLMEZ, dd zaten
+     çağıran tarafta esc()'lenerek gelir. (lessons L-14) */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function tbl(head, rows){
+    return '<div class="gv-tablewrap is-mobilescroll"><table class="gtable"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function sayac(text, aksiyon){
+    return '<div class="gc-foot"><span class="gv-count">' + text + '</span>' + (aksiyon || '') + '</div>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sec(baslik, govde){
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>' + esc(baslik) + '</h3></div>' + govde + '</div>';
+  }
+
+  /* =================================================================
+     SAYFA BAŞLIĞI — aksiyonların hepsi gerçekten çalışır
+     ================================================================= */
+  /* Mutasyon deseni app-fatura.html satır aksiyonuyla aynı: fatura durumu ve
+     ödeme tarihi güncellenir, ayrıca kayda aktivite düşülür. Sayfa yeniden
+     yüklenmez — mock veri bellekte tutulduğu için reload değişikliği silerdi. */
+  function odendiIsaretle(){
+    if(!canFinans){ GV.toast('Finansal işlem yetkiniz yok.', 'danger'); return; }
+    if(f.durum === 'Ödendi'){ GV.toast('Bu fatura zaten tahsil edilmiş.', 'info'); return; }
+    GV.confirm({
+      title:'Ödendi olarak işaretle',
+      text:f.musteriAd + ' · ' + f.kod + ' için ' + F.money(brutTutar, kur) +
+           ' (KDV dahil brüt) tutarında tahsilat kaydı oluşturulacak.',
+      okLabel:'Ödendi'
+    }).then(function(ok){
+      if(!ok) return;
+      var eskiDurum = f.durum;
+      f.durum = 'Ödendi';
+      f.odemeTarihi = DB.today;
+      DB.activities.unshift({ kayit:f.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
+        kisi:GV.session.ad,
+        metin:'Fatura ödendi olarak işaretlendi — ' + F.money(brutTutar, kur) + ' (KDV dahil brüt)',
+        eski:eskiDurum, yeni:'Ödendi', tone:'ok', icon:'i-check-circle' });
+      /* Koşul artık tutmuyor: sahte buton bırakılmaz, aksiyon kaldırılır */
+      var btn = document.getElementById('btnOdendi');
+      if(btn) btn.remove();
+      draw();
+      GV.toast(f.kod + ' ödendi olarak işaretlendi', 'ok');
+    });
+  }
+
+  var actions = [
+    { label:'Fatura listesi', icon:'i-receipt', href:'app-fatura.html' },
+    { label:'Tahsilatlar', icon:'i-wallet', href:'app-tahsilat.html' }
+  ];
+  /* "Ödendi işaretle" yalnız düzenleme yetkisi VARSA ve fatura gerçekten ödenmemişse basılır */
+  if(GV.perm.can('duzenle') && !odendi){
+    actions.push({ label:'Ödendi işaretle', icon:'i-check', cls:'btn-acc', id:'btnOdendi', run:odendiIsaretle });
+  }
+
+  GV.pageHead({
+    eyebrow:'Finans', title:'Fatura Detayı',
+    sub:f.kod + ' · ' + f.musteriAd + ' · vade ' + F.date(f.vade),
+    actions:actions
+  });
+
+  /* =================================================================
+     EKRAN — durum değiştiren aksiyondan sonra yeniden çizilir
+     ================================================================= */
+  function draw(){
+    hesapla();
+
+    /* ---- KAYIT BAŞLIĞI: fatura kodu + durum rozeti + müşteri ---- */
+    var head =
+      '<div class="gv-rec-head"><div>' +
+        '<div class="gv-rec-id"><span class="gv-rec-code">' + f.kod + '</span>' +
+          GV.badge(f.durum) +
+          (gecikti ? '<span class="badge is-danger">Vade ' + gecikmeGun + ' gün geçti</span>' : '') +
+          (yaklasan ? '<span class="badge is-warn no-dot">Vadeye ' + vadeGun + ' gün</span>' : '') +
+          (f.aktif === false ? '<span class="tag">Arşiv</span>' : '') + '</div>' +
+        '<h1>' + esc(f.musteriAd) + '</h1>' +
+        '<div class="gv-rec-meta">' +
+          (musteri
+            ? '<span>' + ico('i-building','ic-sm') + '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a></span>'
+            : '<span>' + ico('i-building','ic-sm') + esc(f.musteriAd) + '</span>') +
+          (sozlesme
+            ? '<span>' + ico('i-file-check','ic-sm') + '<a href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' + esc(sozlesme.kod) + '</a></span>'
+            : '<span>' + ico('i-file-check','ic-sm') + 'Sözleşmesiz fatura</span>') +
+          (proje
+            ? '<span>' + ico('i-briefcase','ic-sm') + '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a></span>'
+            : '<span>' + ico('i-briefcase','ic-sm') + 'Projesiz</span>') +
+          (taksit
+            ? '<span>' + ico('i-milestone','ic-sm') + taksit.taksit + '. taksit · ' + esc(taksit.ad) + '</span>'
+            : '<span>' + ico('i-milestone','ic-sm') + 'Taksite bağlı değil</span>') +
+          '<span>' + ico('i-calendar','ic-sm') + 'Düzenleme ' + F.date(f.tarih) + '</span>' +
+          '<span>' + ico('i-hourglass','ic-sm') + 'Vade ' + F.date(f.vade) + '</span>' +
+          '<span>' + ico('i-wallet','ic-sm') +
+            (canFinans ? F.money(brutTutar, kur) + ' (KDV dahil)' : 'Tutar gizli') + '</span>' +
+        '</div>' +
+      '</div></div>';
+
+    /* ---- SEKMELER ---- */
+    var tabs = [
+      { key:'genel',    lbl:'Genel',              ic:'i-info' },
+      { key:'tutar',    lbl:'Tutar Dökümü',       ic:'i-percent' },
+      { key:'tahsilat', lbl:'Tahsilatlar',        ic:'i-wallet',     cnt:tahsilatlar.length },
+      { key:'sozlesme', lbl:'Sözleşme ve Taksit', ic:'i-file-check', cnt:sozTaksit.length },
+      { key:'proje',    lbl:'Proje',              ic:'i-briefcase' },
+      { key:'aktivite', lbl:'Aktivite Geçmişi',   ic:'i-activity',   cnt:acts.length }
+    ];
+
+    var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
+      return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
+        (x.cnt ? '<span class="gv-tab-cnt">' + x.cnt + '</span>' : '') + '</button>';
+    }).join('') + '</div>';
+
+    /* ===============================================================
+       1. GENEL — DB.invoices alanlarının tamamı
+       =============================================================== */
+    var pGenel = '<div class="gc-body">' +
+      sec('Fatura Kimliği', dl([
+        ['Fatura kodu', '<span class="u-num">' + esc(f.kod) + '</span>'],
+        ['Fatura durumu', GV.badge(f.durum)],
+        ['Müşteri', musteri
+          ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>' +
+            ' <span class="cell-sub">' + esc(musteri.kod) + ' · ' + esc(musteri.sektor) + '</span>'
+          : esc(f.musteriAd) + ' <span class="cell-sub">' + esc(f.musteri || '') + '</span>'],
+        ['Müşteri vergi bilgisi <span class="u-faint">(müşteri kartından)</span>',
+          musteri ? esc(musteri.vergiNo) + ' <span class="cell-sub">' + esc(musteri.vergiDairesi) + ' V.D.</span>' : null],
+        ['Bağlı sözleşme', sozlesme
+          ? '<a href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' + esc(sozlesme.kod) + '</a>' +
+            ' <span class="cell-sub">' + esc(sozlesme.ad) + '</span>'
+          : '<span class="u-faint">Sözleşmesiz fatura — tekil hizmet bedeli</span>'],
+        ['Bağlı proje', proje
+          ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+            ' <span class="cell-sub">' + esc(proje.kod) + ' · ' + esc(proje.durum) + '</span>'
+          : '<span class="u-faint">Projeye bağlı değil</span>'],
+        ['Bağlı taksit <span class="u-faint">(ödeme planı)</span>', taksit
+          ? '<b class="u-num">' + taksit.taksit + '. taksit</b> · ' + esc(taksit.ad) +
+            ' <span class="cell-sub">' + esc(taksit.kod) + '</span>'
+          : (f.milestone
+              ? '<span class="cell-code">' + esc(f.milestone) + '</span> <span class="cell-sub">Taksit kaydı bulunamadı</span>'
+              : '<span class="u-faint">Taksite bağlı değil — dönemsel fatura</span>')],
+        ['Kayıt durumu', f.aktif === false
+          ? '<span class="tag">Arşivlendi</span>'
+          : '<span class="badge is-ok no-dot">Aktif kayıt</span>']
+      ])) +
+
+      sec('Tutar ve Vergi', dl([
+        ['Net tutar <span class="u-faint">(KDV hariç · matrah)</span>', '<b>' + para(netTutar) + '</b>'],
+        ['KDV oranı <span class="u-faint">(KDV / net tutardan hesaplandı)</span>',
+          kdvOran == null ? null : '<b class="u-num">%' + kdvOran + '</b>'],
+        ['KDV tutarı', para(kdvTutar)],
+        ['Genel toplam <span class="u-faint">(KDV dahil · brüt)</span>', '<b>' + para(brutTutar) + '</b>'],
+        ['Tutar doğrulaması <span class="u-faint">(net + KDV = brüt)</span>', brutUyum
+          ? '<span class="badge is-ok no-dot">Tutuyor</span>'
+          : '<span class="badge is-danger no-dot">Fark var</span> ' + paraSade(brutFark)],
+        ['Para birimi', sozlesme && sozlesme.doviz
+          ? esc(sozlesme.doviz) + ' <span class="cell-sub">Fatura kaydında para birimi alanı yok — bağlı sözleşme ' +
+            esc(sozlesme.kod) + ' üzerinden alındı</span>'
+          : '<span class="u-faint">Kayıtta yok</span> <span class="cell-sub">Sözleşme bağı olmadığı için ₺ (TRY) varsayıldı</span>']
+      ])) +
+
+      sec('Tarihler', dl([
+        ['Düzenleme tarihi', '<span class="cell-date">' + F.date(f.tarih) + '</span>'],
+        ['Vade tarihi', GV.dateCell(f.vade, { done:odendi }) + ' <span class="cell-sub">' + vadeMetin() + '</span>'],
+        ['Vade süresi <span class="u-faint">(düzenleme → vade)</span>',
+          vadeSuresi == null ? null : '<b class="u-num">' + F.num(vadeSuresi) + '</b> gün'],
+        ['Ödeme tarihi', f.odemeTarihi
+          ? '<span class="cell-date">' + F.date(f.odemeTarihi) + '</span>'
+          : '<span class="u-faint">Tahsil edilmedi</span>'],
+        ['Tahsil süresi <span class="u-faint">(düzenleme → ödeme)</span>',
+          tahsilSuresi == null ? null : '<b class="u-num">' + F.num(tahsilSuresi) + '</b> gün'],
+        ['Vadesinde tahsilat', vadesindeTahsil == null ? null : (vadesindeTahsil
+          ? '<span class="badge is-ok no-dot">Vadesinden önce tahsil edildi</span>'
+          : '<span class="badge is-danger no-dot">Vadeden sonra tahsil edildi</span>')],
+        ['Gecikme <span class="u-faint">(bugüne göre)</span>', gecikti
+          ? '<b class="u-danger u-num">' + gecikmeGun + ' gün</b>'
+          : (odendi ? '<span class="badge is-ok no-dot">Kapandı</span>' : '<span class="u-faint">Gecikme yok</span>')],
+        ['Bugün <span class="u-faint">(sistem tarihi)</span>', '<span class="cell-date">' + F.date(DB.today) + '</span>']
+      ])) +
+
+      sec('İlgili Kişiler', GV.notice({
+          tone:'neutral', icon:'i-info', title:'Fatura kartında sorumlu alanı yok',
+          text:'Fatura kaydı kendi sorumlusunu tutmuyor. Aşağıdaki kişiler tahsilat kaydından, müşteri kartından ' +
+               've bağlı proje kaydından türetilmiştir.' }) +
+        dl([
+          ['Tahsilat sorumlusu <span class="u-faint">(tahsilat kaydından)</span>',
+            tahsilatlar.length && tahsilatlar[0].sorumlu ? GV.user(tahsilatlar[0].sorumlu, { sm:true }) : null],
+          ['Müşteri sorumlusu <span class="u-faint">(müşteri kartından)</span>',
+            musteri && musteri.sorumlu ? GV.user(musteri.sorumlu, { sm:true }) : null],
+          ['Proje yöneticisi <span class="u-faint">(proje kartından)</span>',
+            proje ? GV.user(proje.pm, { sm:true }) : null],
+          ['Müşteri ilişkileri sorumlusu <span class="u-faint">(proje kartından)</span>',
+            proje && proje.musteriSorumlu ? GV.user(proje.musteriSorumlu, { sm:true }) : null]
+        ])) +
+
+      sec('Kayıtta Tutulmayan Alanlar', GV.notice({
+        tone:'neutral', icon:'i-info', title:'Fatura kaydının kapsamı',
+        text:'Fatura kaydı yalnız yukarıdaki alanları tutuyor. Fatura seri / sıra numarası, e-fatura UUID’si, ' +
+             'açıklama satırı, fatura kalemleri ve faturanın kendi para birimi alanı veride yok; ' +
+             'bu alanlar ekranda uydurulmaz.' })) +
+      '</div>';
+
+    /* ===============================================================
+       2. TUTAR DÖKÜMÜ — net → KDV → brüt zinciri, doğrulama ekranda
+       =============================================================== */
+    var tutarUyari = '';
+    if(!brutUyum){
+      tutarUyari += '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Tutar zinciri tutmuyor',
+        text:'Net tutar ' + F.money(netTutar, kur) + ' (KDV hariç) + KDV ' + F.money(kdvTutar, kur) + ' = ' +
+             F.money(hesapBrut, kur) + ', ancak kayıtlı genel toplam ' + F.money(brutTutar, kur) +
+             ' (KDV dahil). Fark ' + F.money(Math.abs(brutFark), kur) + '.' }) + '</div>';
+    }
+    if(taksit && !taksitUyum){
+      tutarUyari += '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Taksit tutarı fatura netiyle eşleşmiyor',
+        text:taksit.kod + ' taksitinin tutarı ' + F.money(taksit.odeme || 0, kur) + ', faturanın net tutarı ' +
+             F.money(netTutar, kur) + ' (ikisi de KDV hariç net). Fark ' + F.money(Math.abs(taksitFark), kur) + '.' }) + '</div>';
+    }
+
+    var pTutar = finansNot + tutarUyari +
+      '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-info',
+        title:'Bu ekranda iki para ekseni vardır',
+        text:'Fatura ve taksit tutarları NET (KDV hariç), tahsilat tutarları BRÜT (KDV dahil) eksendedir. ' +
+             'Zincir: net matrah → KDV → genel toplam. İki eksen aynı kolonda karıştırılmaz.' }) + '</div>' +
+
+      '<div class="gc-body flush">' +
+        tbl('<th>Kalem</th><th>Eksen</th><th>Hesap</th><th class="num">Tutar</th>',
+          '<tr><td class="cell-wrap"><span class="cell-main">Net tutar (matrah)</span>' +
+            '<span class="cell-sub">Faturanın KDV hariç bedeli</span></td>' +
+            '<td><span class="badge is-info no-dot">KDV hariç · NET</span></td>' +
+            '<td><span class="u-faint">Taksit tutarı</span></td>' +
+            '<td class="num">' + paraSade(netTutar) + '</td></tr>' +
+          '<tr><td class="cell-wrap"><span class="cell-main">KDV</span>' +
+            '<span class="cell-sub">' + (kdvOran == null ? 'Oran hesaplanamadı'
+              : 'Oran %' + kdvOran + ' — KDV / net tutardan hesaplandı') + '</span></td>' +
+            '<td><span class="badge is-neutral no-dot">Vergi</span></td>' +
+            '<td><span class="u-faint">Net × ' + (kdvOran == null ? '—' : '%' + kdvOran) + '</span></td>' +
+            '<td class="num">' + paraSade(kdvTutar) + '</td></tr>' +
+          '<tr class="is-selected"><td class="cell-wrap"><span class="cell-main">Genel toplam</span>' +
+            '<span class="cell-sub">Müşteriden tahsil edilecek bedel</span></td>' +
+            '<td><span class="badge is-accent no-dot">KDV dahil · BRÜT</span></td>' +
+            '<td><span class="u-faint">Net + KDV</span></td>' +
+            '<td class="num">' + para(brutTutar) + '</td></tr>') +
+        sayac('Net ' + paraSade(netTutar) + ' <span class="u-faint">(KDV hariç)</span> + KDV ' + paraSade(kdvTutar) +
+          ' = ' + paraSade(hesapBrut) + ' <span class="u-faint">(KDV dahil)</span> · kayıtlı genel toplam ' +
+          paraSade(brutTutar) + ' · ' +
+          (brutUyum ? '<span class="badge is-ok no-dot">Zincir tutuyor</span>'
+                    : '<span class="badge is-danger no-dot">Fark var</span>')) +
+      '</div>' +
+
+      '<div class="gc-body">' + ozetListe([
+        ['Net tutar <span class="u-faint">(KDV hariç)</span>', para(netTutar)],
+        ['KDV <span class="u-faint">(%' + (kdvOran == null ? '—' : kdvOran) + ')</span>', para(kdvTutar)],
+        ['Hesaplanan brüt <span class="u-faint">(net + KDV)</span>', paraSade(hesapBrut)],
+        ['Kayıtlı genel toplam <span class="u-faint">(KDV dahil)</span>', '<b>' + para(brutTutar) + '</b>'],
+        ['Doğrulama farkı', brutUyum ? '<span class="badge is-ok no-dot">Yok</span>' : paraSade(brutFark)],
+        ['Bağlı taksit tutarı <span class="u-faint">(KDV hariç · net)</span>',
+          taksit ? paraSade(taksit.odeme) : '<span class="u-faint">Taksitsiz fatura</span>'],
+        ['Taksit ↔ fatura neti', taksit
+          ? (taksitUyum ? '<span class="badge is-ok no-dot">Birebir aynı</span>'
+                        : '<span class="badge is-danger no-dot">Fark var</span> ' + paraSade(taksitFark))
+          : '<span class="u-faint">Karşılaştırılamaz</span>'],
+        ['Tahsil edilen <span class="u-faint">(KDV dahil · brüt)</span>', para(tahsilBrut)],
+        ['Kalan alacak <span class="u-faint">(KDV dahil · brüt)</span>', '<b>' + para(kalanAlacak) + '</b>'],
+        ['Tahsilat oranı <span class="u-faint">(brüt / brüt)</span>', GV.progress(tahsilOran)]
+      ]) + '</div>';
+
+    /* ===============================================================
+       3. TAHSİLATLAR — tutarlar BRÜT ekseninde
+       =============================================================== */
+    var pTahsilat = finansNot +
+      '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-info',
+        title:'Bu sekmedeki tutarlar KDV dahil (brüt)',
+        text:'Tahsilat kaydının tutarı faturanın brüt genel toplamıdır. Faturanın net tutarı Tutar Dökümü ' +
+             'sekmesindedir; iki eksen aynı kolonda karıştırılmaz.' }) + '</div>' +
+      '<div class="gc-body flush">' +
+      (tahsilatlar.length
+        ? tbl('<th>Tahsilat</th><th>Vade</th><th class="num">Tahsilat tutarı (KDV dahil)</th>' +
+              '<th class="num">Gecikme</th><th>Son aksiyon</th><th>Sorumlu</th><th>Durum</th>',
+            tahsilatlar.map(function(t){
+              var g = tahsilatGecikme(t);
+              return '<tr' + (g > 0 ? ' class="is-late"' : '') + '>' +
+                '<td><a class="cell-main" href="app-tahsilat.html">' + esc(t.kod) + '</a>' +
+                  '<span class="cell-code">' + esc(t.musteriAd) + '</span></td>' +
+                '<td>' + GV.dateCell(t.vade, { done:t.durum === 'Ödendi' }) + '</td>' +
+                '<td class="num">' + para(t.tutar) + '</td>' +
+                '<td class="num">' + (g > 0 ? '<b class="u-danger u-num">' + F.num(g) + ' gün</b>'
+                                            : '<span class="u-faint">—</span>') + '</td>' +
+                '<td class="cell-wrap"><span class="cell-main">' + esc(t.sonAksiyon) + '</span>' +
+                  '<span class="cell-code">' + F.date(t.sonAksiyonTarihi) + '</span></td>' +
+                '<td>' + GV.user(t.sorumlu, { sm:true }) + '</td>' +
+                '<td>' + GV.badge(t.durum) + '</td></tr>';
+            }).join('')) +
+          sayac('<b>' + tahsilatlar.length + '</b> tahsilat kaydı · tahsil edilen ' + para(tahsilBrut) +
+            ' <span class="u-faint">(KDV dahil)</span> · kalan alacak ' + para(kalanAlacak) +
+            ' <span class="u-faint">(KDV dahil)</span>',
+            '<a class="btn btn-line btn-sm" href="app-tahsilat.html">' + ico('i-wallet','ic-sm') + ' Tahsilat listesi</a>')
+        : GV.empty({ icon:'i-wallet', title:'Bu faturaya bağlı tahsilat kaydı yok',
+            desc:'Fatura kesildiğinde vade tarihiyle birlikte tahsilat takibine düşer. Bu fatura için henüz kayıt açılmamış.',
+            action:'<a class="btn btn-acc" href="app-tahsilat.html">Tahsilat listesine git</a>' })) +
+      '</div>' +
+      '<div class="gc-body">' + ozetListe([
+        ['Fatura genel toplamı <span class="u-faint">(KDV dahil)</span>', para(brutTutar)],
+        ['Tahsil edilen <span class="u-faint">(KDV dahil, durumu “Ödendi”)</span>', para(tahsilBrut)],
+        ['Takipteki tahsilat <span class="u-faint">(KDV dahil)</span>', para(acikBrut)],
+        ['Kalan alacak <span class="u-faint">(brüt − tahsil edilen)</span>', kalanAlacak > 0
+          ? '<b class="u-danger">' + para(kalanAlacak) + '</b>'
+          : '<span class="badge is-ok no-dot">Alacak kapandı</span>'],
+        ['Geciken tahsilat', '<b>' + tahsilatlar.filter(function(t){ return tahsilatGecikme(t) > 0; }).length +
+          '</b> / ' + tahsilatlar.length + ' kayıt'],
+        ['Tahsilat oranı <span class="u-faint">(brüt / brüt)</span>', GV.progress(tahsilOran)]
+      ]) + '</div>';
+
+    /* ===============================================================
+       4. SÖZLEŞME VE TAKSİT — milestone.odeme === invoice.tutar doğrulaması
+       =============================================================== */
+    var taksitUyari = '';
+    if(taksit && !taksitUyum){
+      taksitUyari = '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
+        title:'Taksit ↔ fatura neti eşleşmiyor',
+        text:'Ödeme planı gereği ' + taksit.kod + ' taksitinin tutarı (' + F.money(taksit.odeme || 0, kur) +
+             ') faturanın net tutarına (' + F.money(netTutar, kur) +
+             ') birebir eşit olmalıdır. İkisi de KDV hariç nettir. Fark ' +
+             F.money(Math.abs(taksitFark), kur) + '.' }) + '</div>';
+    }
+
+    var pSozlesme;
+    if(!sozlesme && !taksit){
+      pSozlesme = '<div class="gc-body flush">' + GV.empty({
+        icon:'i-file-check', title:'Sözleşmesiz ve taksitsiz fatura',
+        desc:'Bu fatura bir sözleşmeye ya da ödeme planı taksitine bağlanmamış; tekil hizmet bedeli olarak kesilmiştir.',
+        action:'<a class="btn btn-acc" href="app-sozlesme.html">Sözleşme listesine git</a>' }) + '</div>';
+    } else {
+      pSozlesme = finansNot + taksitUyari +
+        '<div class="gc-body">' +
+        (sozlesme
+          ? sec('Bağlı Sözleşme', dl([
+              ['Sözleşme', '<a href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' + esc(sozlesme.ad) + '</a>' +
+                ' <span class="cell-sub">' + esc(sozlesme.kod) + '</span>'],
+              ['Müşteri', esc(sozlesme.musteriAd)],
+              ['Sözleşme durumu', GV.badge(sozlesme.durum)],
+              ['Sözleşme bedeli <span class="u-faint">(KDV hariç · net)</span>', para(sozlesme.tutar)],
+              ['KDV <span class="u-faint">(%' + sozlesme.kdvOran + ')</span>', para(sozlesme.kdv)],
+              ['Sözleşme genel toplamı <span class="u-faint">(KDV dahil · brüt)</span>', '<b>' + para(sozlesme.toplam) + '</b>'],
+              ['Bu faturanın payı <span class="u-faint">(net / net)</span>',
+                sozlesme.tutar ? GV.progress(Math.round(netTutar / sozlesme.tutar * 100)) : null],
+              ['Ödeme planı <span class="u-faint">(sözleşme metni)</span>', esc(sozlesme.odemePlani)],
+              ['Dönem', F.date(sozlesme.baslangic) + ' – ' + F.date(sozlesme.bitis)],
+              ['İmza tarihi', F.date(sozlesme.imzaTarihi)],
+              ['Garanti', sozlesme.garanti && sozlesme.garanti !== '—'
+                ? '<span class="tag">' + esc(sozlesme.garanti) + '</span>' : null]
+            ]))
+          : GV.notice({ tone:'neutral', icon:'i-info', title:'Sözleşmesiz fatura',
+              text:'Bu fatura bir sözleşmeye bağlanmamış; tekil hizmet bedeli olarak kesilmiştir.' })) +
+
+        (taksit
+          ? sec('Faturanın Karşılığı Olan Taksit', dl([
+              ['Taksit sıra no', '<b class="u-num">' + taksit.taksit + '. taksit</b>' +
+                (sozTaksit.length ? ' <span class="cell-sub">' + sozTaksit.length + ' taksitlik plan içinde</span>' : '')],
+              ['Taksit kodu', '<span class="cell-code">' + esc(taksit.kod) + '</span>'],
+              ['Taksit adı', esc(taksit.ad)],
+              ['Planlanan tarih', GV.dateCell(taksit.tarih, { done:taksit.durum === 'Tamamlandı' })],
+              ['Taksit tutarı <span class="u-faint">(KDV hariç · net)</span>', '<b>' + para(taksit.odeme) + '</b>'],
+              ['Fatura net tutarı <span class="u-faint">(KDV hariç · net)</span>', para(netTutar)],
+              ['Doğrulama <span class="u-faint">(taksit tutarı = fatura neti)</span>', taksitUyum
+                ? '<span class="badge is-ok no-dot">Birebir aynı</span>'
+                : '<span class="badge is-danger no-dot">Fark var</span> ' + paraSade(taksitFark)],
+              ['Taksit durumu', GV.badge(taksit.durum)],
+              ['Taksit ödeme durumu', GV.badge(taksit.odemeDurum)],
+              ['Taksit ilerlemesi', GV.progress(taksit.ilerleme)]
+            ]))
+          : GV.notice({ tone:'neutral', icon:'i-info', title:'Taksite bağlı olmayan fatura',
+              text:'Bu fatura ödeme planındaki bir taksitin karşılığı değil. ' +
+                   (sozlesme ? '“' + sozlesme.odemePlani + '” planıyla yürüyen sözleşmede taksit yerine dönemsel fatura kesilir.'
+                             : 'Sözleşme bağı olmadığı için taksit karşılaştırması yapılamaz.') })) +
+        '</div>' +
+
+        (sozTaksit.length
+          ? '<div class="gc-body flush">' +
+            tbl('<th class="num">Taksit</th><th>Taksit adı</th><th>Planlanan tarih</th>' +
+                '<th class="num">Taksit tutarı (KDV hariç)</th><th>Taksit durumu</th><th>Ödeme durumu</th><th>Fatura</th>',
+              sozTaksit.map(function(m){
+                var mf = faturaOfMs(m.kod);
+                var bu = taksit && m.kod === taksit.kod;
+                return '<tr' + (bu ? ' class="is-selected"' : '') + '>' +
+                  '<td class="num"><b class="u-num">' + m.taksit + '</b><span class="cell-code">' + esc(m.kod) + '</span></td>' +
+                  '<td class="cell-wrap"><span class="cell-main">' + esc(m.ad) + '</span>' +
+                    (bu ? '<span class="cell-sub">Bu faturanın taksiti</span>' : '') + '</td>' +
+                  '<td>' + GV.dateCell(m.tarih, { done:m.durum === 'Tamamlandı' }) + '</td>' +
+                  '<td class="num">' + para(m.odeme) + '</td>' +
+                  '<td>' + GV.badge(m.durum) + '</td>' +
+                  '<td>' + GV.badge(m.odemeDurum) + '</td>' +
+                  '<td>' + (mf
+                    ? '<a class="cell-code" href="app-fatura-detay.html?id=' + mf.kod + '">' + esc(mf.kod) + '</a>' + GV.badge(mf.durum)
+                    : '<span class="u-faint">Kesilmedi</span>') + '</td></tr>';
+              }).join('')) +
+            sayac('<b>' + sozTaksit.length + '</b> taksit · toplam ' + para(sozTaksitNet) +
+              ' <span class="u-faint">(KDV hariç)</span> · sözleşme bedeli ' + para(sozlesme ? sozlesme.tutar : 0) +
+              ' <span class="u-faint">(KDV hariç)</span> · ' +
+              (sozlesme && sozTaksitNet === sozlesme.tutar
+                ? '<span class="badge is-ok no-dot">Plan toplamı tutuyor</span>'
+                : '<span class="badge is-danger no-dot">Plan toplamı tutmuyor</span>'),
+              '<a class="btn btn-line btn-sm" href="app-odemeplani.html">' + ico('i-milestone','ic-sm') + ' Ödeme planı ekranı</a>') +
+            '</div>'
+          : '');
+    }
+
+    /* ===============================================================
+       5. PROJE
+       =============================================================== */
+    var pProje = '<div class="gc-body' + (proje ? '' : ' flush') + '">' +
+      (proje
+        ? sec('Bağlı Proje', dl([
+            ['Proje', '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.ad) + '</a>' +
+              ' <span class="cell-sub">' + esc(proje.kod) + '</span>'],
+            ['Müşteri', esc(proje.musteriAd)],
+            ['Proje türü', esc(proje.tur)],
+            ['Durum', GV.badge(proje.durum)],
+            ['Sağlık', GV.badge(proje.saglik)],
+            ['Faz', esc(proje.faz)],
+            ['Proje yöneticisi', GV.user(proje.pm, { sm:true })],
+            ['Teknik sorumlu', proje.teknikSorumlu ? GV.user(proje.teknikSorumlu, { sm:true }) : null],
+            ['Dönem', F.date(proje.baslangic) + ' – ' + F.date(proje.planlananBitis)],
+            ['Gerçek bitiş', proje.gercekBitis ? F.date(proje.gercekBitis) : null],
+            ['İlerleme', GV.progress(proje.ilerleme)],
+            ['Proje sözleşme tutarı <span class="u-faint">(KDV hariç · net)</span>', para(proje.sozlesmeTutari)],
+            ['Bu faturanın payı <span class="u-faint">(net / net)</span>',
+              proje.sozlesmeTutari ? GV.progress(Math.round(netTutar / proje.sozlesmeTutari * 100)) : null],
+            ['Gecikme nedeni', proje.gecikmeNedeni ? esc(proje.gecikmeNedeni) : null]
+          ]))
+        : GV.empty({ icon:'i-briefcase', title:'Projesiz fatura',
+            desc:'Bu fatura bir projeye bağlanmamış — dönemsel bakım / tekil hizmet bedeli olarak kesilmiştir.',
+            action:'<a class="btn btn-acc" href="app-proje.html">Proje listesine git</a>' })) +
+      '</div>';
+
+    /* ===============================================================
+       6. AKTİVİTE GEÇMİŞİ
+       =============================================================== */
+    var pAktivite = '<div class="gc-body">' +
+      (acts.length ? GV.activity(acts)
+        : GV.empty({ icon:'i-activity', title:'Bu faturada kayıtlı hareket yok',
+            desc:'Fatura üzerinde yapılan durum, vade ve tahsilat değişiklikleri burada listelenir.',
+            action:'<a class="btn btn-line" href="app-fatura.html">Fatura listesine dön</a>' })) +
+      '</div>';
+
+    var panels = {
+      genel:pGenel, tutar:pTutar, tahsilat:pTahsilat,
+      sozlesme:pSozlesme, proje:pProje, aktivite:pAktivite
+    };
+
+    /* ---- SAĞ ÖZET PANELİ ---- */
+    var aside =
+      '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
+      '<div class="gc-body">' + ozetListe([
+        ['Müşteri', musteri
+          ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a>'
+          : esc(f.musteriAd)],
+        ['Sözleşme', sozlesme
+          ? '<a href="app-sozlesme-detay.html?id=' + sozlesme.kod + '">' + esc(sozlesme.kod) + '</a>'
+          : '<span class="u-faint">Sözleşmesiz</span>'],
+        ['Bağlı taksit', taksit
+          ? '<b class="u-num">' + taksit.taksit + '. taksit</b> <span class="cell-sub">' + esc(taksit.kod) + '</span>'
+          : '<span class="u-faint">Taksitsiz</span>'],
+        ['Proje', proje
+          ? '<a href="app-proje-detay.html?id=' + proje.kod + '">' + esc(proje.kod) + '</a>'
+          : '<span class="u-faint">Projesiz</span>'],
+        ['Düzenleme tarihi', '<span class="cell-date">' + F.date(f.tarih) + '</span>'],
+        ['Vade', GV.dateCell(f.vade, { done:odendi })],
+        [gecikti ? 'Gecikme' : 'Vadeye kalan', vadeMetin()],
+        ['Ödeme tarihi', f.odemeTarihi
+          ? '<span class="cell-date">' + F.date(f.odemeTarihi) + '</span>'
+          : '<span class="u-faint">Tahsil edilmedi</span>'],
+        ['Durum', GV.badge(f.durum)]
+      ]) + '</div></section>' +
+
+      '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-wallet') + 'Tutar ve Tahsilat</h2></div>' +
+      '<div class="gc-body">' + ozetListe([
+        ['Net tutar <span class="u-faint">(KDV hariç)</span>', para(netTutar)],
+        ['KDV <span class="u-faint">(%' + (kdvOran == null ? '—' : kdvOran) + ')</span>', para(kdvTutar)],
+        ['Genel toplam <span class="u-faint">(KDV dahil)</span>', '<b>' + para(brutTutar) + '</b>'],
+        ['Tahsil edilen <span class="u-faint">(KDV dahil)</span>', para(tahsilBrut)],
+        ['Kalan alacak <span class="u-faint">(KDV dahil)</span>', kalanAlacak > 0
+          ? '<b class="u-danger">' + para(kalanAlacak) + '</b>'
+          : '<span class="badge is-ok no-dot">Alacak kapandı</span>'],
+        ['Tahsilat oranı <span class="u-faint">(brüt / brüt)</span>', GV.progress(tahsilOran)],
+        ['Tahsilat kaydı', '<b>' + tahsilatlar.length + '</b>']
+      ]) + '</div></section>' +
+
+      '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-clipboard') + 'Doğrulama</h2></div>' +
+      '<div class="gc-body">' + ozetListe([
+        ['Net + KDV = brüt', brutUyum
+          ? '<span class="badge is-ok no-dot">Tutuyor</span>'
+          : '<span class="badge is-danger no-dot">Fark var</span>'],
+        ['Taksit tutarı = fatura neti', taksit
+          ? (taksitUyum ? '<span class="badge is-ok no-dot">Tutuyor</span>'
+                        : '<span class="badge is-danger no-dot">Fark var</span>')
+          : '<span class="u-faint">Taksitsiz</span>'],
+        ['Ödeme planı toplamı', sozlesme && sozTaksit.length
+          ? (sozTaksitNet === sozlesme.tutar
+              ? '<span class="badge is-ok no-dot">Sözleşme bedeline eşit</span>'
+              : '<span class="badge is-danger no-dot">Fark var</span>')
+          : '<span class="u-faint">Plan yok</span>'],
+        ['Bugün <span class="u-faint">(sistem tarihi)</span>', '<span class="cell-date">' + F.date(DB.today) + '</span>']
+      ]) + '</div></section>' +
+
+      '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+      '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3))
+        : '<p class="u-sm u-faint">Bu fatura kartında henüz kayıtlı hareket yok.</p>') + '</div></section>';
+
+    mount.innerHTML = head +
+      '<div class="gv-grid gv-grid-aside">' +
+        '<div><section class="gv-card">' + tabBar +
+          tabs.map(function(x){ return '<div role="tabpanel" data-panel="' + x.key + '" hidden>' + panels[x.key] + '</div>'; }).join('') +
+        '</section></div>' +
+        '<div class="u-col">' + aside + '</div>' +
+      '</div>';
+
+    GV.tabs('#recTabs');
+  }
+
+  draw();
+});
+</script>
+</body>
+</html>
