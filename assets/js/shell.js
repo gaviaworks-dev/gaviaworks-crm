@@ -695,7 +695,10 @@
     'app-teklif-form.html',
     'app-proje-form.html',
     'app-gorev-form.html',
-    'app-destek-form.html'
+    'app-destek-form.html',
+    'app-proje-sprint-form.html',
+    'app-proje-test-form.html',
+    'app-proje-hata-form.html'
   ];
   GV.built = BUILT;
 
