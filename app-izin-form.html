@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>İzin Talebi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="izin">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.employees, DB.departments, DB.emp, DB.empName, DB.dep, DB.depName, DB.today
+     hr.js   → DB.leaves, DB.leaveTypes, DB.capacity
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.leaves.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurulmaz, boş forma da düşülmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Personel & İK', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen izin talebi sistemde yok.',
+      actions:[{ label:'İzin listesi', cls:'btn-line', icon:'i-list', href:'app-izin.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'İzin talebi bulunamadı',
+      desc:'“' + esc(id) + '” numaralı izin talebi bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-izin.html">İzin listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  GV.shell.crumb(duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İzin Talebi');
+  document.title = (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İzin Talebi') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var can = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  if(!can){
+    GV.pageHead({
+      eyebrow:'Personel & İK',
+      title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İzin Talebi',
+      sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'İzin listesi', cls:'btn-line', icon:'i-list', href:'app-izin.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'İzin talebi düzenleme' : 'İzin talebi açma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+           'İzin taleplerini görüntüleyebilir ama değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-izin.html">İzin listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-izin-detay.html?id=' + esc(kayit.kod) + '">İzin kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* Karar alanları alan bazlı yetkidir: onay yetkisi olmayan role “Onay Kararı”
+     alanları HİÇ basılmaz (devre dışı bırakılmaz — ölü kontrol yasağı).
+     app-izin-detay.html'deki onay/ret aksiyonları da aynı yetkiye bağlı. */
+  var canOnay = GV.perm.can('onay');
+
+  /* =================================================================
+     SÖZLÜKLER
+       · İzin türü: DB.leaveTypes (6 tür) — PROMPT.md §14 ile birebir.
+       · Talep durumu: app-izin.html'in “Talep durumu” filtresindeki üç değer;
+         veride de yalnız bu üçü geçiyor.
+     ================================================================= */
+  var TURLER  = DB.leaveTypes.slice();
+  if(duzenle && kayit.tur && TURLER.indexOf(kayit.tur) === -1) TURLER.push(kayit.tur);
+  var DURUMLAR = ['Onay bekliyor','Onaylandı','Reddedildi'];
+  var YILLIK   = 'Yıllık izin';
+  var SAATLIK  = 'Saatlik izin';
+
+  /* =================================================================
+     TARİH VE ÇAKIŞMA YARDIMCILARI
+     Ölçüt app-izin-detay.html ile BİREBİR aynıdır — ikinci bir kural
+     tanımlanmaz: aralıklar uç günler dahil kesişiyorsa çakışır,
+     reddedilmiş talepler sayılmaz.
+     ================================================================= */
+  function gunFarki(a, b){
+    if(!a || !b) return null;
+    return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  }
+  function takvimGunu(a, b){
+    var d = gunFarki(a, b);
+    return d == null ? null : d + 1;                 /* uç günler dahil */
+  }
+  function kesisir(a, b){ return a.baslangic <= b.bitis && a.bitis >= b.baslangic; }
+  function ortakGun(a, b){
+    if(!kesisir(a, b)) return 0;
+    var bas = a.baslangic > b.baslangic ? a.baslangic : b.baslangic;
+    var bit = a.bitis    < b.bitis    ? a.bitis    : b.bitis;
+    return gunFarki(bas, bit) + 1;
+  }
+  /* Bu formdaki tarihlerle çakışan izinler. `kimler` personel kodu dizisidir. */
+  function cakisanlar(aralik, kimler){
+    if(!aralik.baslangic || !aralik.bitis || !kimler.length) return [];
+    return DB.leaves.filter(function(x){
+      return (!duzenle || x.kod !== kayit.kod) && x.durum !== 'Reddedildi' &&
+             kimler.indexOf(x.personel) !== -1 && kesisir(x, aralik);
+    });
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  var toplamIzin = DB.leaves.length;
+  var bekleyenTalep = DB.leaves.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length;
+
+  /* Onaylayan makam = personelin yöneticisi mi? */
+  var makamUyum = DB.leaves.filter(function(x){
+    var p = DB.emp(x.personel);
+    return !!p && p.yonetici === x.onaylayan;
+  }).length;
+
+  /* Kayıttaki gün sayısı takvim aralığıyla tutuyor mu? */
+  var gunUyum = DB.leaves.filter(function(x){
+    return takvimGunu(x.baslangic, x.bitis) === x.gun;
+  }).length;
+
+  /* Talep tarihi ≤ izin başlangıcı ve ≤ bugün olan kayıtlar */
+  var talepUyum = DB.leaves.filter(function(x){
+    return x.talepTarihi && x.talepTarihi <= x.baslangic && x.talepTarihi <= DB.today;
+  }).length;
+
+  var vekilliTalep = DB.leaves.filter(function(x){ return !!x.vekil; }).length;
+  var bayrakliTalep = DB.leaves.filter(function(x){ return !!x.cakisma; }).length;
+  var gerekceliTalep = DB.leaves.filter(function(x){
+    return !!x.gerekce && String(x.gerekce).trim() !== ''; }).length;
+
+  /* Karar ekseni: karar tarihi yalnız sonuçlanmış talepte dolar. */
+  var kararUyum = DB.leaves.filter(function(x){
+    return (x.durum === 'Onay bekliyor') === !x.onayTarihi; }).length;
+
+  /* =================================================================
+     SEÇENEK KÜMELERİ — hepsi veriden
+     ================================================================= */
+  function personelAktif(p){
+    return p.aktif !== false || (duzenle && (p.kod === kayit.personel || p.kod === kayit.vekil ||
+                                             p.kod === kayit.onaylayan));
+  }
+  function personelEtiket(p){
+    return p.ad + ' · ' + p.pozisyon + ' · ' + p.depAd +
+      (p.izinBakiye != null ? ' · kalan bakiye ' + p.izinBakiye + ' gün' : '');
+  }
+  function personelSecenek(haric){
+    return DB.employees.filter(function(p){ return personelAktif(p) && p.kod !== haric; })
+      .map(function(p){ return { value:p.kod, label:personelEtiket(p) }; });
+  }
+  /* Vekil listesi izin sahibini dışlar; aynı departmandakiler önce gelir. */
+  function vekilSecenek(personelKod){
+    var e = personelKod ? DB.emp(personelKod) : null;
+    var list = DB.employees.filter(function(p){ return personelAktif(p) && p.kod !== personelKod; });
+    return list.sort(function(a, b){
+      var ad = (e && a.dep === e.dep) ? 0 : 1, bd = (e && b.dep === e.dep) ? 0 : 1;
+      return ad !== bd ? ad - bd : String(a.ad).localeCompare(String(b.ad), 'tr');
+    }).map(function(p){
+      return { value:p.kod, label:p.ad + ' · ' + p.pozisyon + ' · ' + p.depAd +
+        (e && p.dep === e.dep ? ' · aynı departman' : '') };
+    });
+  }
+
+  /* =================================================================
+     FORM KAYDI
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    ['vekil','onayTarihi','ret','gerekce'].forEach(function(k){ formRec[k] = kayit[k] || ''; });
+    formRec.cakisma = kayit.cakisma === true;
+    formRec.aktif   = kayit.aktif !== false;
+  }else{
+    /* Oturumdaki kullanıcı ve yöneticisi form VARSAYILANIDIR, bağ değildir —
+       talebi açan ikisini de değiştirebilir. */
+    var benim = (GV.session && GV.session.emp && DB.emp(GV.session.emp)) ? GV.session.emp : '';
+    var benimYonetici = benim ? (DB.emp(benim).yonetici || '') : '';
+    formRec = {
+      personel:benim, tur:'', gerekce:'',
+      baslangic:'', bitis:'', gun:'', talepTarihi:DB.today,
+      vekil:'', onaylayan:benimYonetici,
+      durum:'Onay bekliyor', onayTarihi:'', ret:'',
+      cakisma:false, aktif:true
+    };
+  }
+
+  var baslangicPersonel = formRec.personel || '';
+
+  /* =================================================================
+     BAĞLAM — düzenleme modunda kaydın ilişkileri
+     ================================================================= */
+  var kayitKisi = duzenle ? DB.emp(kayit.personel) : null;
+  var kayitDep  = kayitKisi ? DB.dep(kayitKisi.dep) : null;
+  var acts = duzenle
+    ? DB.activities.filter(function(x){ return x.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     `dt` / etiket işaretlemesi escape EDİLMEZ, değer tarafı esc()'lenir (ders L-14).
+     ================================================================= */
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozet(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return ' <span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, govde, aksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (aksiyon ? '<div class="gc-head-acts">' + aksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+  function aralikMetni(x){ return F.date(x.baslangic) + ' – ' + F.date(x.bitis); }
+
+  /* =================================================================
+     ÜST BLOK — bağlam kartı / ilişkili kayıt uyarısı / yeni kayıt notu
+     ================================================================= */
+  var ust = '';
+
+  if(duzenle){
+    var son = acts[0];
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'info', title:'Bu talep onay akışına bağlı bir kayıttır',
+      text:'Onay ve ret kararının kendisi izin kartındaki akışta verilir; bu form kararı ve ' +
+           'alanları düzeltmek içindir. Yıllık izinde durum “Onaylandı”ya geçirilirse personel ' +
+           'kartındaki kalan bakiyeden düşülür — geri alındığında bakiye kendiliğinden iade ' +
+           'EDİLMEZ, düzeltme personel kartından yapılır.',
+      actions:[
+        { label:'İzin kartını aç', cls:'btn-line', href:'app-izin-detay.html?id=' + kayit.kod },
+        { label:'Personel kartı', cls:'btn-line', href:'app-personel-detay.html?id=' + kayit.personel },
+        { label:'Kapasite planı', cls:'btn-line', href:'app-kapasite.html' }
+      ] }) + '</div></section>';
+
+    ust += kart('Kayıt Özeti', 'i-info', dl([
+        ['İzin numarası', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Personel', GV.user(kayit.personel, { sm:true }) +
+          sub((kayitKisi ? kayitKisi.pozisyon + ' · ' : '') + (kayitDep ? kayitDep.ad : ''))],
+        ['İzin türü', '<span class="tag">' + esc(kayit.tur) + '</span>' +
+          sub(kayit.tur === YILLIK ? 'yıllık bakiyeden düşer' : 'yıllık bakiyeden düşmez')],
+        ['Talep durumu', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
+        ['Tarih aralığı', '<span class="cell-date">' + aralikMetni(kayit) + '</span>' +
+          sub(F.dateLong(kayit.baslangic))],
+        ['Gün sayısı', '<b class="u-num">' + kayit.gun + '</b> gün'],
+        ['Vekil', kayit.vekil ? GV.user(kayit.vekil, { sm:true }) : null],
+        ['Onay makamı', kayit.onaylayan ? GV.user(kayit.onaylayan, { sm:true }) : null],
+        ['Talep tarihi', kayit.talepTarihi ? GV.dateCell(kayit.talepTarihi, { done:true }) : null],
+        ['Karar tarihi', kayit.onayTarihi ? GV.dateCell(kayit.onayTarihi, { done:true }) : null],
+        ['Ret gerekçesi', kayit.ret ? '<b class="u-danger">' + esc(kayit.ret) + '</b>' : null],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]),
+      '<a class="btn btn-line btn-sm" href="app-izin-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' İzin kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni izin talebi açılıyor',
+        text:'Kaydettiğinizde sıradaki izin numarası atanır, aktivite geçmişine “İzin talebi ' +
+             'oluşturuldu” satırı düşülür ve izin listesine dönülür. Talep, onay makamı karar ' +
+             'verene kadar “Onay bekliyor” durumunda kalır. Ölçüm: ' + toplamIzin + ' izin ' +
+             'talebinin ' + bekleyenTalep + ' tanesi şu an karar bekliyor.',
+        actions:[{ label:'İzin listesi', href:'app-izin.html' },
+                 { label:'Departman takvimi', href:'app-ajanda.html' }] }) +
+      (canOnay ? '' : GV.notice({ tone:'neutral', icon:'i-lock', title:'Onay kararı alanları basılmadı',
+          text:'Rolünüzde onay yetkisi olmadığı için talep durumu, karar tarihi ve ret gerekçesi ' +
+               'alanları forma konulmadı. Talep “Onay bekliyor” durumuyla açılır; kararı seçtiğiniz ' +
+               'onay makamı verir.' })) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<div class="gv-grid gv-grid-aside">' +
+      '<div class="u-col">' +
+        '<section class="gv-card">' +
+          '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-calendar-check') + 'İzin Künyesi</h2>' +
+            '<div class="gc-sub">Personel, tür, tarih aralığı, vekâlet ve onay makamı · ' +
+              'zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+          '<div class="gc-body" id="formMount"></div>' +
+          '<div class="gc-foot">' +
+            '<a class="btn btn-line" href="app-izin.html">Vazgeç</a>' +
+            '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+              (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+          '</div>' +
+        '</section>' +
+        (duzenle
+          ? '<section class="gv-card">' +
+              '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+              '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+          : '') +
+      '</div>' +
+      '<div class="u-col" id="yanKutu"></div>' +
+    '</div>';
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  function durumDegeri(d){
+    if(d && d.durum != null) return d.durum;
+    return duzenle ? kayit.durum : 'Onay bekliyor';
+  }
+
+  var sections = [];
+
+  sections.push({ title:'Talep sahibi ve izin türü',
+    desc:'İzin türü sözlüğü ' + TURLER.length + ' değerden oluşur ve PROMPT.md §14 ile birebir ' +
+         'aynıdır. Yalnız “' + YILLIK + '” yıllık bakiyeden düşer; mazeret, hastalık, ücretsiz ' +
+         'izin, saatlik izin ve uzaktan çalışma bakiyeye dokunmaz.',
+    fields:[
+      { key:'personel', label:'Personel', type:'select', options:personelSecenek(''),
+        required:true, cols:6, placeholder:'Personel seçin',
+        hint:'İzin sahibi. Seçim değişince vekil listesi ve sağdaki bakiye/çakışma özeti ' +
+             'yeniden hesaplanır.',
+        validate:function(v){ return (v && !DB.emp(v)) ? 'Seçilen personel kaydı bulunamadı.' : ''; } },
+      { key:'tur', label:'İzin türü', type:'select', options:TURLER, required:true, cols:6,
+        placeholder:'İzin türü seçin',
+        hint:'Sözlük: ' + TURLER.join(' · ') + '.' },
+      { key:'gerekce', label:'Gerekçe', type:'textarea', required:true, cols:12, rows:2,
+        placeholder:'Örn. Yıllık izin planı · rapor · şehir dışı aile ziyareti',
+        hint:'Gerekçe izin kartında, onay zincirinin ilk adımında ve departman takviminde görünür. ' +
+             'Ölçüm: ' + toplamIzin + ' talebin ' + gerekceliTalep + ' tanesinde gerekçe yazılı.',
+        validate:function(v){
+          return String(v || '').trim().length < 3 ? 'Gerekçe en az 3 karakter olmalıdır.' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Tarih ve süre',
+    desc:'Gün farkları sistem saatinden değil veri ekseninden (' + F.date(DB.today) + ') ölçülür. ' +
+         'Gün sayısı, başlangıç ve bitiş arasındaki takvim günüdür (uç günler dahil) — ölçüm: ' +
+         toplamIzin + ' talebin ' + gunUyum + ' tanesinde bu tutuyor.',
+    fields:[
+      { key:'baslangic', label:'Başlangıç tarihi', type:'date', required:true, cols:4,
+        hint:'İznin ilk günü.' },
+      { key:'bitis', label:'Bitiş tarihi', type:'date', required:true, cols:4,
+        hint:'İznin son günü — tek günlük izinde başlangıçla aynıdır (veride IZN-2026-039 böyle). ' +
+             'Aynı kişinin bu aralığa denk gelen başka izni varsa kaydedilemez.',
+        validate:function(v, d){
+          if(!v || !d.baslangic) return '';
+          if(v < d.baslangic) return 'Bitiş tarihi başlangıçtan önce olamaz.';
+          /* Aynı kişinin çakışan izni — ölçüt app-izin-detay.html ile aynı. */
+          var kendi = cakisanlar({ baslangic:d.baslangic, bitis:v }, d.personel ? [d.personel] : []);
+          if(kendi.length){
+            return 'Bu personelin aynı tarihlere denk gelen izni var: ' +
+              kendi.map(function(x){ return x.kod + ' (' + x.tur + ', ' + aralikMetni(x) + ', ' +
+                ortakGun(x, { baslangic:d.baslangic, bitis:v }) + ' ortak gün)'; }).join(' · ') +
+              '. Bir kişi aynı günde iki izinde olamaz.';
+          }
+          return '';
+        } },
+      { key:'gun', label:'Gün sayısı', type:'number', required:true, cols:4, min:1,
+        hint:'Takvim günü (uç günler dahil). Tarihler değişince otomatik hesaplanır; elle ' +
+             'değiştirirseniz hesap ezilmez. Yalnız “' + SAATLIK + '” türünde takvim gününden ' +
+             'küçük olabilir.',
+        validate:function(v, d){
+          var n = Number(v);
+          if(v === '' || v == null || isNaN(n)) return '';
+          var t = takvimGunu(d.baslangic, d.bitis);
+          if(t == null || t < 1) return '';
+          if(n > t) return 'Gün sayısı takvim aralığını aşamaz — ' + F.date(d.baslangic) + ' – ' +
+            F.date(d.bitis) + ' aralığı uç günler dahil ' + t + ' gün.';
+          if(n < t && d.tur !== SAATLIK) return 'Gün sayısı takvim aralığıyla aynı olmalıdır (' + t +
+            ' gün); yalnız “' + SAATLIK + '” türünde daha küçük olabilir.';
+          return '';
+        } },
+      { key:'talepTarihi', label:'Talep tarihi', type:'date', required:true, cols:6,
+        hint:'Talebin açıldığı gün. İzin başlangıcından ve bugünden sonra olamaz — ölçüm: ' +
+             toplamIzin + ' talebin ' + talepUyum + ' tanesinde bu tutuyor.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(v > DB.today) return 'Talep tarihi ileri bir tarih olamaz (bugün ' + F.date(DB.today) + ').';
+          if(d.baslangic && v > d.baslangic) return 'Talep tarihi izin başlangıcından sonra olamaz.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Vekâlet',
+    desc:'Vekil, izin süresince işleri devralan kişidir ve veride yazılı olan alandır — ' +
+         'departman ya da görev benzerliğinden türetilmez. Ölçüm: ' + toplamIzin + ' talebin ' +
+         vekilliTalep + ' tanesinde vekil atanmış.',
+    fields:[
+      { key:'vekil', label:'Vekil personel', type:'select', options:vekilSecenek(baslangicPersonel),
+        cols:6, placeholder:'Vekil atanmadı',
+        hint:'Boş bırakılabilir; o zaman devir sorumluluğu tanımsız kalır. Vekilin kendi izni ' +
+             'bu aralığa denk geliyorsa vekâlet fiilen boşta kalacağı için kaydedilemez.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(!DB.emp(v)) return 'Seçilen personel kaydı bulunamadı.';
+          if(v === d.personel) return 'Vekil, izne çıkan kişinin kendisi olamaz.';
+          if(!d.baslangic || !d.bitis) return '';
+          var vc = cakisanlar({ baslangic:d.baslangic, bitis:d.bitis }, [v]);
+          return vc.length
+            ? DB.empName(v) + ' aynı tarihlerde izinli (' +
+              vc.map(function(x){ return x.kod + ' · ' + aralikMetni(x); }).join(' · ') +
+              '); vekâlet fiilen boşta kalır. Başka vekil seçin.'
+            : '';
+        } },
+      { key:'cakisma', label:'Proje takvimi çakışma işareti', type:'switch', cols:6,
+        onLabel:'Bu izin bir proje takvimiyle çakışıyor',
+        hint:'Kayıttaki bu işaret personel çakışmasını DEĞİL, proje/teslim takvimi çakışmasını ' +
+             'gösterir (IZN-2026-033: “Marmara Faz 1 teslim haftasıyla çakışıyor”). Personel ' +
+             'çakışması tarihlerden hesaplanır, sağdaki özet kartında görünür. Ölçüm: ' +
+             toplamIzin + ' talebin ' + bayrakliTalep + ' tanesinde bu işaret açık.' }
+    ]});
+
+  /* Onay makamı herkese basılır (talebi açan makamı seçer); karar alanları
+     yalnız onay yetkisi olan role basılır — devre dışı kontrol bırakılmaz. */
+  var onayAlanlari = [
+    { key:'onaylayan', label:'Onay makamı', type:'select', options:personelSecenek(''),
+      required:true, cols:6, placeholder:'Onay makamı seçin',
+      hint:'Talebi karara bağlayacak kişi. Ölçüm: ' + toplamIzin + ' talebin ' + makamUyum +
+           ' tanesinde onay makamı personelin yöneticisidir; personel seçilince yönetici ' +
+           'kendiliğinden gelir, değiştirilebilir.',
+      validate:function(v, d){
+        if(!v) return '';
+        if(!DB.emp(v)) return 'Seçilen personel kaydı bulunamadı.';
+        return v === d.personel ? 'Kişi kendi izin talebini onaylayamaz.' : '';
+      } }
+  ];
+
+  if(canOnay){
+    onayAlanlari.push({ key:'durum', label:'Talep durumu', type:'select', options:DURUMLAR,
+      required:true, cols:6,
+      hint:'Küme: ' + DURUMLAR.join(' · ') + '. “Onaylandı”ya geçirilen ' + YILLIK.toLowerCase() +
+           ' talebi personel kartındaki kalan bakiyeden düşer.' });
+    onayAlanlari.push({ key:'onayTarihi', label:'Karar tarihi', type:'date', cols:6,
+      hint:'Onay ya da ret kararının verildiği gün. Karar verilmemiş talepte boş kalır — ölçüm: ' +
+           toplamIzin + ' talebin ' + kararUyum + ' tanesinde bu eksen tutuyor.',
+      validate:function(v, d){
+        var durum = durumDegeri(d);
+        if(durum !== 'Onay bekliyor' && !v) return 'Karara bağlanmış talepte karar tarihi zorunludur.';
+        if(!v) return '';
+        if(durum === 'Onay bekliyor') return 'Karar tarihi yalnız onaylanmış ya da reddedilmiş talepte yazılır.';
+        if(v > DB.today) return 'Karar tarihi ileri bir tarih olamaz.';
+        if(d.talepTarihi && v < d.talepTarihi) return 'Karar tarihi talep tarihinden önce olamaz.';
+        return '';
+      } });
+    onayAlanlari.push({ key:'ret', label:'Ret gerekçesi', type:'textarea', cols:12, rows:2,
+      placeholder:'Personelin göreceği açıklama — örn. teslim haftasıyla çakışıyor',
+      hint:'Reddedilen talepte zorunlu, en az 10 karakter. Gerekçe izin kartında ve aktivite ' +
+           'geçmişinde görünür.',
+      validate:function(v, d){
+        var red = durumDegeri(d) === 'Reddedildi';
+        var s = String(v || '').trim();
+        if(red && s.length < 10) return 'Ret gerekçesi zorunludur — en az 10 karakter yazın.';
+        if(!red && s) return 'Ret gerekçesi yalnız “Reddedildi” kararında yazılır.';
+        return '';
+      } });
+  }
+
+  sections.push({ title:'Onay makamı ve karar',
+    desc:canOnay
+      ? 'Karar bu formdan da düzeltilebilir; asıl onay/ret akışı izin kartındadır. Bir kişi ' +
+        'kendi talebini onaylayamaz.'
+      : 'Talebi karara bağlayacak makam burada seçilir. Kararın kendisi (durum, karar tarihi, ' +
+        'ret gerekçesi) onay yetkisi gerektirdiği için rolünüze basılmadı.',
+    fields:onayAlanlari });
+
+  sections.push({ title:'Kayıt durumu',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — izin listelerinde, takvimde ve sayaçlarda görünür',
+        hint:'Kapatılırsa talep arşive düşer; personel kartı ve kapasite kaydı silinmez.',
+        validate:function(v, d){
+          return (!v && durumDegeri(d) === 'Onay bekliyor')
+            ? 'Karar bekleyen talep arşivlenemez — önce onaylayın ya da reddedin.' : '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunluSayisi = 0;
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunluSayisi++; }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'izin', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     SAĞ SÜTUN — bakiye ve çakışma özeti.
+     Bakiye TÜRETİLİR, bu yüzden forma elle girilen alan olarak konmaz
+     (ders L-08); yalnız `.gv-summary` kartında gösterilir.
+     ================================================================= */
+  var yanKutu = document.getElementById('yanKutu');
+
+  function ozetCiz(){
+    var d = form.read();
+    var e = d.personel ? DB.emp(d.personel) : null;
+    var dep = e ? DB.dep(e.dep) : null;
+    var durum = durumDegeri(d);
+    var yillikMi = d.tur === YILLIK;
+    var gunSayisi = Number(d.gun) || 0;
+    var takvim = takvimGunu(d.baslangic, d.bitis);
+    var tarihTam = !!(d.baslangic && d.bitis && d.bitis >= d.baslangic);
+
+    /* Bakiye: personel kartındaki `izinBakiye` KALAN bakiyedir; yıllık hak alanı
+       veride yoktur, kalan + onaylı yıllık kullanım olarak türetilir. */
+    var digerIzinler = DB.leaves.filter(function(x){
+      return x.personel === d.personel && (!duzenle || x.kod !== kayit.kod); });
+    var yillikOnayli = digerIzinler.filter(function(x){ return x.tur === YILLIK && x.durum === 'Onaylandı'; });
+    var yillikBekleyen = digerIzinler.filter(function(x){ return x.tur === YILLIK && x.durum === 'Onay bekliyor'; });
+    function gunTopla(a){ return a.reduce(function(s, x){ return s + (x.gun || 0); }, 0); }
+    var kullanilan = gunTopla(yillikOnayli);
+    var bekleyen   = gunTopla(yillikBekleyen);
+    var kartBakiye = e && e.izinBakiye != null ? e.izinBakiye : null;
+    var turetilenHak = kartBakiye != null ? kartBakiye + kullanilan : null;
+    var etki = yillikMi ? gunSayisi : 0;
+    var sonrasi = kartBakiye != null ? kartBakiye - (durum === 'Onaylandı' ? 0 : etki) : null;
+    var bakiyeOran = (turetilenHak && turetilenHak > 0)
+      ? Math.max(0, Math.min(100, Math.round(kartBakiye / turetilenHak * 100))) : null;
+    var bakiyeYetmez = yillikMi && kartBakiye != null && durum !== 'Onaylandı' && gunSayisi > kartBakiye;
+
+    /* Çakışma — ölçüt app-izin-detay.html ile birebir */
+    var aralik = { baslangic:d.baslangic, bitis:d.bitis };
+    var depPersonel = (e && dep) ? DB.employees.filter(function(x){
+      return x.dep === e.dep && x.kod !== e.kod; }) : [];
+    var kendiCakisan = tarihTam ? cakisanlar(aralik, d.personel ? [d.personel] : []) : [];
+    var depCakisan   = tarihTam ? cakisanlar(aralik, depPersonel.map(function(x){ return x.kod; })) : [];
+    var vekilCakisan = (tarihTam && d.vekil) ? cakisanlar(aralik, [d.vekil]) : [];
+    var kap = d.personel ? DB.capacity.filter(function(c){ return c.personel === d.personel; })[0] : null;
+
+    var uyari = '';
+    if(!d.personel || !tarihTam){
+      uyari += GV.notice({ tone:'neutral', icon:'i-info', title:'Kontroller için personel ve tarih gerekir',
+        text:'Personel ile başlangıç ve bitiş tarihini seçtiğinizde bakiye, çakışma ve kapasite ' +
+             'kontrolleri bu kartta hesaplanır.' });
+    }else{
+      if(kendiCakisan.length){
+        uyari += GV.notice({ tone:'danger', icon:'i-alert', title:'Kişinin kendi izniyle çakışıyor',
+          text:(e ? e.ad : d.personel) + ' için ' +
+               kendiCakisan.map(function(x){ return x.kod + ' (' + x.tur + ', ' + aralikMetni(x) + ')'; }).join(' · ') +
+               ' kaydı bu tarihlerle kesişiyor. Bu talep kaydedilemez.' });
+      }
+      if(depCakisan.length){
+        uyari += GV.notice({ tone:'warn', icon:'i-users',
+          title:'Aynı departmanda ' + depCakisan.length + ' çakışan izin var',
+          text:(dep ? dep.ad : '—') + ' departmanında ' + F.date(d.baslangic) + ' – ' + F.date(d.bitis) +
+               ' aralığına denk gelen izinler: ' +
+               depCakisan.map(function(x){ return DB.empName(x.personel) + ' · ' + x.kod + ' · ' +
+                 ortakGun(x, aralik) + ' ortak gün'; }).join(' · ') +
+               '. Kayıt engellenmez; onay öncesi ekip kapasitesi değerlendirilmeli.',
+          actions:[{ label:'Departman takvimi', href:'app-ajanda.html' },
+                   { label:'Kapasite planı', href:'app-kapasite.html' }] });
+      }else if(depPersonel.length){
+        uyari += GV.notice({ tone:'ok', icon:'i-check-circle', title:'Departman içinde çakışma yok',
+          text:(dep ? dep.ad : '—') + ' departmanındaki diğer ' + depPersonel.length +
+               ' personelin bu tarih aralığına denk gelen izni yok.' });
+      }else{
+        uyari += GV.notice({ tone:'neutral', icon:'i-info', title:'Departmanda başka personel yok',
+          text:(dep ? dep.ad : '—') + ' departmanında bu personelden başka kayıtlı çalışan yok; ' +
+               'departman içi çakışma hesaplanamıyor.' });
+      }
+      if(vekilCakisan.length){
+        uyari += GV.notice({ tone:'danger', icon:'i-user-check', title:'Vekil aynı tarihlerde izinli',
+          text:DB.empName(d.vekil) + ' için ' +
+               vekilCakisan.map(function(x){ return x.kod + ' · ' + aralikMetni(x); }).join(' · ') +
+               ' kaydı bu izinle çakışıyor; vekâlet fiilen boşta kalır.' });
+      }
+      if(bakiyeYetmez){
+        uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Kalan bakiye talebi karşılamıyor',
+          text:'Talep ' + gunSayisi + ' gün yıllık izin; ' + (e ? e.ad : d.personel) +
+               ' kartındaki kalan bakiye ' + kartBakiye + ' gün. Aradaki ' + (gunSayisi - kartBakiye) +
+               ' gün için ücretsiz izin ya da bakiye düzeltmesi gerekir. Kayıt engellenmez.' });
+      }
+      if(takvim != null && gunSayisi && gunSayisi !== takvim){
+        uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'Gün sayısı takvim aralığıyla uyuşmuyor',
+          text:'Formda ' + gunSayisi + ' gün yazılı; aralık uç günler dahil ' + takvim + ' takvim günü.' });
+      }
+    }
+
+    yanKutu.innerHTML =
+      '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-alert') +
+        'Kontroller</h2></div><div class="gc-body">' + uyari + '</div></section>' +
+
+      '<section class="gv-card"><div class="gc-head"><div><h2 class="gc-title">' +
+        ico('i-calendar-check') + 'İzin Bakiyesi</h2>' +
+        '<div class="gc-sub">Türetilen değerler — forma elle girilmez</div></div></div>' +
+        '<div class="gc-body">' + ozet([
+          ['Personel', e ? esc(e.ad) : '<span class="u-faint">Seçilmedi</span>'],
+          ['Departman', dep ? esc(dep.kisa) : '<span class="u-faint">—</span>'],
+          ['Yıllık hak <span class="u-faint">(kalan + kullanılan)</span>',
+            turetilenHak != null ? '<b class="u-num">' + turetilenHak + '</b> gün' : '<span class="u-faint">—</span>'],
+          ['Kullanılan <span class="u-faint">(onaylı yıllık)</span>',
+            '<b class="u-num">' + kullanilan + '</b> gün'],
+          ['Bekleyen <span class="u-faint">(diğer talepler)</span>',
+            '<b class="u-num">' + bekleyen + '</b> gün'],
+          ['Kalan <span class="u-faint">(personel kartı)</span>',
+            kartBakiye != null ? '<b class="u-num">' + kartBakiye + '</b> gün' : '<span class="u-faint">—</span>'],
+          ['Bakiye oranı', bakiyeOran != null ? GV.progress(bakiyeOran)
+            : '<span class="u-faint">Hak türetilemedi</span>'],
+          ['Bu talebin etkisi', yillikMi
+            ? (durum === 'Onaylandı' ? '<span class="u-faint">Onaylı — bakiyeye işlendi</span>'
+                                     : '<b class="u-num">−' + gunSayisi + '</b> gün')
+            : '<span class="u-faint">' + (d.tur ? esc(d.tur) + ' bakiyeden düşmez' : 'Tür seçilmedi') + '</span>'],
+          ['Onaylanırsa kalan', sonrasi != null
+            ? (sonrasi < 0 ? '<b class="u-danger">' + sonrasi + '</b> gün'
+                           : '<b class="u-num">' + sonrasi + '</b> gün')
+            : '<span class="u-faint">—</span>']
+        ]) + '</div></section>' +
+
+      '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-gauge') +
+        'Tarih ve Kapasite</h2></div><div class="gc-body">' + ozet([
+          ['Aralık', tarihTam ? '<span class="cell-date">' + F.date(d.baslangic) + ' – ' +
+            F.date(d.bitis) + '</span>' : '<span class="u-faint">Seçilmedi</span>'],
+          ['Takvim günü <span class="u-faint">(uç günler dahil)</span>',
+            takvim != null && takvim > 0 ? '<b class="u-num">' + takvim + '</b> gün' : '<span class="u-faint">—</span>'],
+          ['Formdaki gün sayısı', gunSayisi ? '<b class="u-num">' + gunSayisi + '</b> gün'
+            : '<span class="u-faint">—</span>'],
+          ['Talep durumu', GV.badge(durum)],
+          ['Kendi izniyle çakışma', kendiCakisan.length
+            ? '<span class="badge is-danger no-dot">' + kendiCakisan.length + ' izin</span>'
+            : '<span class="badge is-ok no-dot">Yok</span>'],
+          ['Departman çakışması', depCakisan.length
+            ? '<span class="badge is-warn no-dot">' + depCakisan.length + ' izin</span>'
+            : '<span class="badge is-ok no-dot">Yok</span>'],
+          ['Vekil uygunluğu', !d.vekil
+            ? '<span class="u-faint">Vekil atanmadı</span>'
+            : (vekilCakisan.length ? '<span class="badge is-danger no-dot">Vekil izinli</span>'
+                                   : '<span class="badge is-ok no-dot">Uygun</span>')],
+          ['Kapasite kartındaki izin <span class="u-faint">(gün)</span>', kap
+            ? '<b class="u-num">' + kap.izin + '</b> gün'
+            : '<span class="u-faint">Kapasite kartı yok</span>'],
+          ['Haftalık doluluk', kap ? GV.progress(kap.doluluk) : '<span class="u-faint">—</span>']
+        ]) + '</div></section>';
+  }
+
+  /* =================================================================
+     BAĞIMLI ALANLAR — personel değişince vekil listesi ve onay makamı
+     yeniden kurulur. Mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için dinleyici birikmez (ders L-16).
+     ================================================================= */
+  function alan(key){ return form.el.querySelector('[name="' + key + '"]'); }
+
+  function doldur(key, secenekler, bosMetin){
+    var el = alan(key);
+    if(!el) return false;
+    var eski = el.value;
+    var korunur = secenekler.some(function(o){ return o.value === eski; });
+    el.innerHTML = '<option value="">' + esc(bosMetin) + '</option>' +
+      secenekler.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + (o.value === eski && korunur ? ' selected' : '') +
+          '>' + esc(o.label) + '</option>';
+      }).join('');
+    el.value = korunur ? eski : '';
+    return !!eski && !korunur;                 /* seçim düştü mü */
+  }
+
+  /* Onay makamı, personelin yöneticisinden gelir; kullanıcı elle değiştirdiyse ezilmez. */
+  var makamOtomatik = !duzenle;
+  var sonMakam = formRec.onaylayan || '';
+
+  function personelDegisti(){
+    var p = (alan('personel') || {}).value || '';
+    var dusen = doldur('vekil', vekilSecenek(p), 'Vekil atanmadı');
+    var mEl = alan('onaylayan');
+    if(mEl){
+      if(mEl.value !== sonMakam) makamOtomatik = false;      /* elle değiştirilmiş */
+      if(makamOtomatik){
+        var y = p && DB.emp(p) ? (DB.emp(p).yonetici || '') : '';
+        mEl.value = y;
+        sonMakam = mEl.value;
+      }
+    }
+    if(dusen) GV.toast('Vekil temizlendi — seçilen kişi yeni personelle uyumlu değil', 'warn');
+  }
+
+  /* Gün sayısı tarihlerden hesaplanır; elle girilen değer ezilmez. */
+  var sonHesaplananGun = duzenle ? String(kayit.gun) : '';
+
+  function tarihDegisti(){
+    var b = (alan('baslangic') || {}).value || '';
+    var s = (alan('bitis') || {}).value || '';
+    var gEl = alan('gun');
+    if(!gEl || !b || !s || s < b) return;
+    var t = takvimGunu(b, s);
+    if(t == null || t < 1) return;
+    if(gEl.value === '' || gEl.value === sonHesaplananGun){
+      gEl.value = String(t);
+      sonHesaplananGun = String(t);
+    }
+  }
+
+  form.el.addEventListener('change', function(e){
+    if(!e.target || !e.target.name) return;
+    if(e.target.name === 'personel') personelDegisti();
+    if(e.target.name === 'baslangic' || e.target.name === 'bitis') tarihDegisti();
+    ozetCiz();
+  });
+  form.el.addEventListener('input', function(e){
+    if(!e.target || !e.target.name) return;
+    if(e.target.name === 'gun') ozetCiz();
+  });
+
+  ozetCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    personel:'Personel', tur:'İzin türü', gerekce:'Gerekçe',
+    baslangic:'Başlangıç tarihi', bitis:'Bitiş tarihi', gun:'Gün sayısı',
+    talepTarihi:'Talep tarihi', vekil:'Vekil personel', cakisma:'Proje takvimi çakışma işareti',
+    onaylayan:'Onay makamı', durum:'Talep durumu', onayTarihi:'Karar tarihi',
+    ret:'Ret gerekçesi', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.leaves.forEach(function(x){
+      var m = /^IZN-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'IZN-' + String(DB.today).slice(0,4) + '-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  /* Karşılaştırma normalleştirmesi: null, false ve boş metin aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '') return '—';
+    if(k === 'aktif')   return v ? 'Aktif' : 'Arşivli';
+    if(k === 'cakisma') return v ? 'İşaretli' : 'İşaretsiz';
+    if(k === 'personel' || k === 'vekil' || k === 'onaylayan') return DB.empName(v);
+    if(k === 'baslangic' || k === 'bitis' || k === 'talepTarihi' || k === 'onayTarihi') return F.date(v);
+    if(k === 'gun') return v + ' gün';
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.gerekce = String(v.gerekce == null ? '' : v.gerekce).trim();
+    v.gun     = Number(v.gun);
+    v.vekil   = String(v.vekil == null ? '' : v.vekil).trim() || null;
+    v.cakisma = !!v.cakisma;
+    v.aktif   = !!v.aktif;
+    if('onayTarihi' in v) v.onayTarihi = String(v.onayTarihi == null ? '' : v.onayTarihi).trim() || null;
+    if('ret' in v)        v.ret        = String(v.ret == null ? '' : v.ret).trim() || null;
+    return v;
+  }
+
+  /* Yıllık izin onaylandığında kalan bakiyeden düşülür — kural
+     app-izin-detay.html'in onay akışıyla aynıdır (clamp'li fark). */
+  function bakiyeDus(rec, eskiDurum){
+    if(rec.durum !== 'Onaylandı' || eskiDurum === 'Onaylandı' || rec.tur !== YILLIK) return 0;
+    var e = DB.emp(rec.personel);
+    if(!e || e.izinBakiye == null) return 0;
+    var dusen = Math.min(e.izinBakiye, rec.gun || 0);
+    e.izinBakiye = e.izinBakiye - dusen;
+    if(dusen){
+      DB.activities.unshift({
+        kayit:rec.kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Yıllık izin bakiyesinden ' + dusen + ' gün düşüldü — ' + e.ad,
+        eski:String(e.izinBakiye + dusen) + ' gün', yeni:String(e.izinBakiye) + ' gün',
+        tone:'warn', icon:'i-calendar-check'
+      });
+    }
+    return dusen;
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    /* Departman çakışması kaydı engellemez ama sessizce geçilmez. */
+    var e = DB.emp(v.personel);
+    var depKodlari = e ? DB.employees.filter(function(x){
+      return x.dep === e.dep && x.kod !== e.kod; }).map(function(x){ return x.kod; }) : [];
+    var depCakisan = cakisanlar({ baslangic:v.baslangic, bitis:v.bitis }, depKodlari);
+
+    if(duzenle){
+      var eskiDurum = kayit.durum;
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      var dusen = bakiyeDus(kayit, eskiDurum);
+      if(kayit.durum !== eskiDurum){
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'İzin talebi ' + (kayit.durum === 'Onaylandı' ? 'onaylandı'
+                : kayit.durum === 'Reddedildi' ? 'reddedildi' : 'karar bekliyor duruma alındı') +
+                (kayit.ret ? ' — ' + kayit.ret : ''),
+          eski:eskiDurum, yeni:kayit.durum,
+          tone:kayit.durum === 'Onaylandı' ? 'ok' : kayit.durum === 'Reddedildi' ? 'danger' : 'warn',
+          icon:kayit.durum === 'Reddedildi' ? 'i-x-circle' : 'i-check-circle'
+        });
+      }
+      if(!degisen){
+        GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
+      }else if(depCakisan.length){
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan · departmanda ' +
+          depCakisan.length + ' çakışan izin var', 'warn');
+      }else{
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan' +
+          (dusen ? ' · bakiyeden ' + dusen + ' gün düşüldü' : ''), 'ok');
+      }
+    }else{
+      var kod = yeniKod();
+      /* Forma basılmayan alanlar (yetkiye bağlı karar alanları) varsayılan değerleriyle
+         yazılır — kayıt eksik alanla doğmaz. */
+      var yeni = Object.assign({
+        kod:kod, durum:'Onay bekliyor', onayTarihi:null, ret:null, cakisma:false, aktif:true
+      }, v);
+      yeni.kod = kod;
+      if(!yeni.ret) delete yeni.ret;                 /* ret yalnız reddedilen kayıtta tutulur */
+      DB.leaves.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'İzin talebi oluşturuldu — ' + DB.empName(yeni.personel) + ' · ' + yeni.tur + ' · ' +
+              F.date(yeni.baslangic) + ' – ' + F.date(yeni.bitis) + ' (' + yeni.gun + ' gün)',
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      var dusenYeni = bakiyeDus(yeni, 'Onay bekliyor');
+      if(depCakisan.length){
+        GV.toast(kod + ' oluşturuldu · departmanda ' + depCakisan.length + ' çakışan izin var', 'warn');
+      }else{
+        GV.toast(kod + ' oluşturuldu' + (dusenYeni ? ' · bakiyeden ' + dusenYeni + ' gün düşüldü' : ''), 'ok');
+      }
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-izin.html'; }, 700);
+  }
+
+  GV.pageHead({
+    eyebrow:'Personel & İK',
+    title: duzenle ? kayit.kod + ' · Düzenle' : 'Yeni İzin Talebi',
+    sub:   duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunluSayisi + ' zorunlu.',
+    actions:[
+      { label:'İzin listesi', cls:'btn-line', icon:'i-list', href:'app-izin.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
