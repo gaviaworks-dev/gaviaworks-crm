@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 215 / 280 madde tamam (%77) · 22 kısmen · 43 açık** — 9. oturum, 2026-08-05
+**İLERLEME: 217 / 280 madde tamam (%78) · 23 kısmen · 40 açık** — 9. oturum, 2026-08-05
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
@@ -353,9 +353,13 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
       bağlantısı eklenip `app-ayar-log.html`'deki hedef ona çevrilecek.
 
 ### Wave 13 — Kapanış
-- [ ] Tüm `data-wip` bağlantıların gerçek `href`'e çevrilmesi
-- [ ] Modüller arası veri ilişkisi doğrulaması (§22 — 38 bağlantı)
-- [ ] Canonical veri tutarlılığı taraması (aynı kayıt no = aynı değer)
+- [x] Tüm `data-wip` bağlantıların gerçek `href`'e çevrilmesi → `links.js` **TEMİZ**,
+      kuyrukta **0 hedef**; 141 ekran · 142 BUILT kaydı · kırık/hayalet/yetim yok (9. oturum)
+- [~] Modüller arası veri ilişkisi doğrulaması (§22 — **37** bağlantı, 38 değil) — **doğrulandı 9. oturum**
+      → **33 kurulu · 3 YOK · 1 yarım** (VB-28). Eksik: `customers.lead` · `tasks.kanal` ·
+      `vehicles.siparis`. Yarım: `tasks.destek` 0/25 ve `changeRequests.destek` 0/4 —
+      **alan açık ama bağ yazılmamış**, VB-05 kapanışı fazla iddialıymış
+- [x] Canonical veri tutarlılığı taraması → `canon.js` **TEMİZ, 607 kontrol** (9. oturum)
 - [ ] 1440 / 768 / 390 px QA taraması
 - [ ] Kapanış raporu
 
