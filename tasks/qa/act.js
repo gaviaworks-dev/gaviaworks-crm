@@ -57,7 +57,10 @@ const FINGERPRINT = `(() => {
   const keys = Object.keys(DB).filter(k => Array.isArray(DB[k])).sort();
   let s = '';
   for (const k of keys) s += k + ':' + JSON.stringify(DB[k]) + '|';
-  return { db: s, url: location.href, overlay: document.querySelectorAll('.gv-scrim').length };
+  // scrim + drawer + modal: GV.drawer scrim BASMADAN açılabiliyor ve yalnız
+  // scrim sayan ölçüm, panel açan aksiyonu yanlışlıkla 'ÖLÜ' sayıyordu.
+  return { db: s, url: location.href,
+           overlay: document.querySelectorAll('.gv-scrim, .gv-drawer, .gv-modal').length };
 })()`;
 
 const TOASTS = `Array.from(document.querySelectorAll('.gv-toast')).map(e => ({
@@ -84,7 +87,14 @@ async function ready(page, t) {
 
 /* Confirm modalı açıldıysa Onayla'ya bas (data-act="1"). */
 async function passConfirm(page) {
-  const ok = await page.$('.gv-scrim [data-act="1"]');
+  /* YALNIZ gerçek onay modalı: `GV.confirm` `size:'sm'` + tam iki aksiyon üretir.
+     Önceden herhangi bir `[data-act="1"]`'e basılıyordu; drawer'ın kendi aksiyon
+     butonuna basıp paneli kapatıyor ve aksiyonu 'ÖLÜ' gösteriyordu. */
+  const isConfirm = await page.evaluate(
+    `(() => { const m = document.querySelector('.gv-modal.is-sm');
+       return !!(m && m.querySelectorAll('[data-act]').length === 2); })()`);
+  if (!isConfirm) return false;
+  const ok = await page.$('.gv-modal.is-sm [data-act="1"]');
   if (!ok) return false;
   await ok.click().catch(() => {});
   await page.waitForTimeout(SETTLE);
@@ -116,7 +126,7 @@ function verdict(before, after, toasts, confirmed) {
   console.log(`hedef: ${list.length} ekran`);
 
   const rows = [];
-  let ihlal = 0, denenen = 0, ekran = 0, kayitli = 0;
+  let ihlal = 0, denenen = 0, ekran = 0, kayitli = 0, todoB = 0, todoR = 0;
 
   for (const t of list) {
     const alive = await ready(page, t);
@@ -133,6 +143,10 @@ function verdict(before, after, toasts, confirmed) {
       const sa = document.querySelector('[data-selectall]'); if (sa) { sa.click(); }
       return Array.from(document.querySelectorAll('[data-bulk]')).map(b => b.dataset.bulk);
     })()`);
+    /* UID-27 sonrası: `run`suz aksiyon `disabled` + "bu sürümde yok" olarak basılır.
+       Bu DÜRÜST bir durumdur, ihlal değil — ama sayılır ki görünmez kalmasın. */
+    todoB += await page.evaluate(`document.querySelectorAll('[data-bulk-todo]').length`);
+    todoR += await page.evaluate(`document.querySelectorAll('[data-rowact-todo]').length ? 1 : 0`);
 
     for (const key of bulks) {
       await ready(page, t);
@@ -214,6 +228,7 @@ function verdict(before, after, toasts, confirmed) {
   console.log('\n=== ÖZET ===');
   console.log(`Taranan ekran: ${ekran} · yüklenen kayıt: ${kayitli}`);
   console.log(`Tetiklenen aksiyon: ${denenen}`);
+  console.log(`Devre dışı ("bu sürümde yok"): ${todoB} toplu · ${todoR} ekranda satır aksiyonu — dürüst, ihlal değil`);
   console.log(`  MUTASYON ${say('MUTASYON')} · YÖNLENDİRME ${say('YÖNLENDİRME')} · PANEL ${say('PANEL')} · DÜRÜST RED ${say('DÜRÜST RED')}`);
   console.log(`  🔴 YALAN ${say('🔴 YALAN')} · ⚫ ÖLÜ ${say('⚫ ÖLÜ')}`);
   console.log(bad.length
