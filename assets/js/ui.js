@@ -714,6 +714,10 @@
             var href = typeof a.href === 'function' ? a.href(r) : a.href;
             return href
               ? '<a class="ia' + (a.cls ? ' ' + a.cls : '') + '" href="' + href + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</a>'
+              /* AYNI SÖZLEŞME (UID-27): `href` de `run` da yoksa aksiyon ölüdür —
+                 devre dışı basılır ve durumunu söyler. Toplu işlemle tek kural. */
+              : !a.run
+              ? '<button type="button" class="ia is-todo" disabled data-rowact-todo="' + esc(a.key) + '" title="' + esc(a.label) + ' — bu sürümde yok" aria-label="' + esc(a.label) + ' — bu sürümde yok">' + ico(a.icon,'ic-sm') + '</button>'
               : '<button type="button" class="ia' + (a.cls ? ' ' + a.cls : '') + '" data-rowact="' + esc(a.key) + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</button>';
           }).join('') + '</span></td>';
         }
@@ -800,6 +804,15 @@
       return '<div class="gv-bulk"' + (state.selected.length ? '' : ' hidden') + '>' +
         '<span class="gv-bulk-count"><b>' + state.selected.length + '</b> kayıt seçildi</span>' +
         '<span class="gv-bulk-acts">' + cfg.bulk.map(function(b){
+          /* SÖZLEŞME (UID-27): `run` yoksa aksiyon çalışmıyor demektir. Bu durumda
+             buton DEVRE DIŞI basılır ve durumunu kendisi söyler. Gizlemiyoruz —
+             prototipin işi kapsamı göstermek; gizlemek kapsamı küçük gösterir. */
+          if(!b.run) return '<button type="button" class="btn btn-sm is-todo" disabled' +
+                 ' data-bulk-todo="' + esc(b.key) + '"' +
+                 ' title="Bu sürümde yok — aksiyon henüz uygulanmadı"' +
+                 ' aria-label="' + esc(b.label) + ' — bu sürümde yok">' +
+                 ico(b.icon || 'i-check','ic-sm') + ' ' + esc(b.label) +
+                 ' <span class="gv-todo-tag">bu sürümde yok</span></button>';
           return '<button type="button" class="btn btn-sm' + (b.tone === 'danger' ? ' is-danger' : '') + '" data-bulk="' + esc(b.key) + '">' +
                  ico(b.icon || 'i-check','ic-sm') + ' ' + esc(b.label) + '</button>';
         }).join('') + '<button type="button" class="btn btn-sm" data-bulkclear>' + ico('i-x','ic-sm') + ' Seçimi bırak</button></span>' +
@@ -947,9 +960,15 @@
         b.addEventListener('click', function(){
           var act = cfg.bulk.filter(function(x){ return x.key === b.dataset.bulk; })[0];
           if(!act) return;
+          /* UID-27 / ders L-23: `run` yoksa BAŞARI MESAJI BASILMAZ.
+             Eskiden burada `else GV.toast(... 'kayıt işlendi', 'ok')` vardı:
+             kullanıcı onay veriyor, yeşil "12 kayıt arşivlendi" görüyor, veri
+             değişmiyordu. Ölçüldü: 87 toplu aksiyon, 47 ekran. Bileşen, çağıranın
+             vermediği bir yordamın yerine başarı varsayamaz. `run`suz aksiyon
+             zaten `disabled` basılıyor; bu ikinci savunma hattıdır. */
+          if(!act.run) return;
           var run = function(){
-            if(act.run) act.run(state.selected.slice());
-            else GV.toast(act.label + ' — ' + state.selected.length + ' kayıt işlendi', 'ok');
+            act.run(state.selected.slice());
             state.selected = []; render();
           };
           if(act.confirm){
