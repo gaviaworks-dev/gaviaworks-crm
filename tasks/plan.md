@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 187 / 274 madde tamam (%68) · 32 kısmen · 55 açık** — 8. oturum, 2026-08-05
+**İLERLEME: 193 / 274 madde tamam (%70) · 32 kısmen · 49 açık** — 8. oturum, 2026-08-05
 > Sayı 237'den 274'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
@@ -316,10 +316,10 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 - [x] `app-arac-form.html` — araç (§16 kimlik + satın alma/kiralama) ← `app-arac.html`
 - [x] `app-arac-bakim-form.html` — araç bakım kaydı ← `app-arac-bakim.html`
 - [x] `app-arac-muayene-form.html` — muayene kaydı ← `app-arac-muayene.html`
-- [ ] `app-arac-sigorta-form.html` — sigorta / kasko poliçesi ← `app-arac-sigorta.html`
-- [ ] `app-arac-yakit-form.html` — yakıt / şarj kaydı ← `app-arac-yakit.html`
-- [ ] `app-arac-gider-form.html` — araç gideri (18 kalem) ← `app-arac-gider.html`
-- [ ] `app-arac-kaza-form.html` — kaza / hasar / ceza ← `app-arac-kaza.html`
+- [x] `app-arac-sigorta-form.html` — sigorta / kasko poliçesi ← `app-arac-sigorta.html`
+- [x] `app-arac-yakit-form.html` — yakıt / şarj kaydı ← `app-arac-yakit.html`
+- [x] `app-arac-gider-form.html` — araç gideri (18 kalem) ← `app-arac-gider.html`
+- [x] `app-arac-kaza-form.html` — kaza / hasar / ceza ← `app-arac-kaza.html`
 
 #### Satın alma ve finans (5)
 - [x] `app-satinalma-form.html` — satın alma talebi (14 alan · §17) ← `app-satinalma.html`
@@ -412,10 +412,10 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] E. Menü ve sayfa haritası → `docs/E-menu-sayfa-haritasi.md`
 - [ ] F. Sayfa analizleri
 - [ ] G. Veri modeli
-- [ ] H. İş akışları
+- [x] H. İş akışları → `docs/H-is-akislari.md`
 - [ ] I. API ve teknik servisler
 - [ ] J. Otomasyonlar (tablo)
-- [ ] K. Raporlar
+- [x] K. Raporlar → `docs/K-raporlar.md`
 - [ ] L. Geliştirme yol haritası
 - [ ] M. Eksik ve ek öneriler
 
