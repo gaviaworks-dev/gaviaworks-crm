@@ -806,8 +806,10 @@
         '<span class="gv-bulk-acts">' + cfg.bulk.map(function(b){
           /* SÖZLEŞME (UID-27): `run` yoksa aksiyon çalışmıyor demektir. Bu durumda
              buton DEVRE DIŞI basılır ve durumunu kendisi söyler. Gizlemiyoruz —
-             prototipin işi kapsamı göstermek; gizlemek kapsamı küçük gösterir. */
-          if(!b.run) return '<button type="button" class="btn btn-sm is-todo" disabled' +
+             prototipin işi kapsamı göstermek; gizlemek kapsamı küçük gösterir.
+             İSTİSNA (UID-07): `export:true` maddesinin yordamı BİLEŞENDE —
+             seçili kayıtları `exportRows` ile dışa aktarır, ekran `run` yazmaz. */
+          if(!b.run && !b.export) return '<button type="button" class="btn btn-sm is-todo" disabled' +
                  ' data-bulk-todo="' + esc(b.key) + '"' +
                  ' title="Bu sürümde yok — aksiyon henüz uygulanmadı"' +
                  ' aria-label="' + esc(b.label) + ' — bu sürümde yok">' +
@@ -966,11 +968,13 @@
              değişmiyordu. Ölçüldü: 87 toplu aksiyon, 47 ekran. Bileşen, çağıranın
              vermediği bir yordamın yerine başarı varsayamaz. `run`suz aksiyon
              zaten `disabled` basılıyor; bu ikinci savunma hattıdır. */
-          if(!act.run) return;
-          var run = function(){
-            act.run(state.selected.slice());
-            state.selected = []; render();
-          };
+          if(!act.run && !act.export) return;
+          var run = act.export
+            ? function(){ exportRows(state.selected.slice()); }   /* UID-07: seçim korunur */
+            : function(){
+                act.run(state.selected.slice());
+                state.selected = []; render();
+              };
           if(act.confirm){
             GV.confirm({ title:act.label, text:act.confirm.replace('{n}', state.selected.length),
                          tone:act.tone === 'danger' ? 'danger' : 'warn' })
@@ -1131,6 +1135,16 @@
     }
 
     /* ---- çıktı ---- */
+    /* Biçim seçimi tek yerde üretilir — kapsamlı ve kapsamsız çıktı modalı
+       aynı listeyi kullanır (UID-07: ikinci markup yazılmaz). */
+    function fmtField(){
+      return '<div class="field"><span class="f-lbl">Biçim</span><div class="f-radios">' +
+        [['xlsx','Excel'],['csv','CSV'],['pdf','PDF'],['print','Yazdır']].map(function(f,i){
+          return '<label class="f-radio"><input type="radio" name="expfmt" value="' + f[0] + '"' +
+                 (i === 0 ? ' checked' : '') + '>' + f[1] + '</label>';
+        }).join('') + '</div></div>';
+    }
+
     function openExport(rows){
       var scopes = [
         { key:'filtreli', label:'Filtrelenmiş kayıtlar (' + rows.length + ')' },
@@ -1145,11 +1159,7 @@
             return '<label class="f-radio"><input type="radio" name="expscope" value="' + s.key + '"' +
                    (i === 0 ? ' checked' : '') + '>' + esc(s.label) + '</label>';
           }).join('') + '</div></div>' +
-          '<div class="field u-mt-4"><span class="f-lbl">Biçim</span><div class="f-radios">' +
-          [['xlsx','Excel'],['csv','CSV'],['pdf','PDF'],['print','Yazdır']].map(function(f,i){
-            return '<label class="f-radio"><input type="radio" name="expfmt" value="' + f[0] + '"' +
-                   (i === 0 ? ' checked' : '') + '>' + f[1] + '</label>';
-          }).join('') + '</div></div>',
+          '<div class="u-mt-4">' + fmtField() + '</div>',
         actions:[
           { label:'Vazgeç', cls:'btn-line' },
           { label:'Çıktı Al', cls:'btn-acc', onClick:function(close, el){
@@ -1162,6 +1172,32 @@
             } }
         ]
       });
+    }
+
+    /* UID-07 — SEÇİLİ KAPSAMI DIŞA AKTARMA.
+       `doExport` beş oturumdur generic ama `GV.list` kapanışına kilitliydi
+       (UID-26): toplu işlemdeki "Dışa aktar" onu çağıramıyordu ve 53 ekranda
+       aksiyon boş kalıyordu. Yordam artık dönüş yüzeyinde: `exportRows(kayıtlar
+       ya da id'ler, biçim)`. Biçim verilmezse kullanıcıya sorulur — bileşen
+       kullanıcı adına biçim seçmez. */
+    function exportRows(list, fmt){
+      var rows = (list || []).map(function(x){
+        if(x && typeof x === 'object') return x;
+        return source().filter(function(r){ return String(r[cfg.key]) === String(x); })[0];
+      }).filter(Boolean);
+      if(!rows.length){ GV.toast('Dışa aktarılacak kayıt yok', 'warn'); return 0; }
+      if(fmt){ doExport(rows, fmt); return rows.length; }
+      GV.modal({
+        title:'Çıktı Al', text:rows.length + ' seçili kayıt dışa aktarılacak.', icon:'i-download', size:'sm',
+        body:fmtField(),
+        actions:[
+          { label:'Vazgeç', cls:'btn-line' },
+          { label:'Çıktı Al', cls:'btn-acc', onClick:function(close, el){
+              doExport(rows, el.querySelector('[name=expfmt]:checked').value);
+            } }
+        ]
+      });
+      return rows.length;
     }
 
     function doExport(rows, fmt){
@@ -1226,7 +1262,8 @@
       state:state,
       refresh:render,
       setTab:function(k){ state.tab = k; reset(); render(); },
-      setFilter:function(k, v){ state.filters[k] = v; reset(); render(); }
+      setFilter:function(k, v){ state.filters[k] = v; reset(); render(); },
+      exportRows:exportRows          /* UID-07 — seçili / dışarıdan verilen kapsamı dışa aktarır */
     };
   };
 
