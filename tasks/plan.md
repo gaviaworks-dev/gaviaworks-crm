@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 213 / 280 madde tamam (%76) · 22 kısmen · 45 açık** — 9. oturum, 2026-08-05
+**İLERLEME: 215 / 280 madde tamam (%77) · 22 kısmen · 43 açık** — 9. oturum, 2026-08-05
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
@@ -419,10 +419,10 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 
 ---
 
-## G. DOKÜMAN ÇIKTILARI (§26)
+## G. DOKÜMAN ÇIKTILARI (§26) — ✅ **13/13 TAMAM** (9. oturum)
 
 - [x] A. GaviaCRM incelemesi → `research.md`
-- [ ] B. Yönetici özeti
+- [x] B. Yönetici özeti → `docs/B-yonetici-ozeti.md` (165 satır · 5 eksen + dürüst değerlendirme)
 - [x] C. Modül haritası (tablo) → `docs/C-modul-haritasi.md`
 - [x] D. Rol & yetki matrisi (tablo) → `docs/D-rol-yetki-matrisi.md`
 - [x] E. Menü ve sayfa haritası → `docs/E-menu-sayfa-haritasi.md`
@@ -433,7 +433,7 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] J. Otomasyonlar (tablo) → `docs/J-otomasyonlar.md` (575 satır · 22 kural · 31 bildirim tipi)
 - [x] K. Raporlar → `docs/K-raporlar.md`
 - [x] L. Geliştirme yol haritası → `docs/L-yol-haritasi.md` (786 satır · 9 faz · 24 sprint)
-- [ ] M. Eksik ve ek öneriler
+- [x] M. Eksik ve ek öneriler → `docs/M-eksik-ve-ek-oneriler.md` (166 satır · 25 eksik + 17 öneri)
 
 ---
 
