@@ -96,7 +96,7 @@ DB.assignments = [
     durum:'Aktif', tutanak:'zimmet-2024-003.pdf', personelOnay:'Onaylandı', onayTarihi:'2024-06-14', hasar:null, aktif:true },
   { kod:'ZMT-2025-004', demirbas:'DMB-2025-006', personel:'EMP-008', teslimTarihi:'2025-04-05', iadeTarihi:null,
     durum:'Aktif', tutanak:'zimmet-2025-004.pdf', personelOnay:'Onaylandı', onayTarihi:'2025-04-05', hasar:null, aktif:true },
-  { kod:'ZMT-2025-005', demirbas:'DMB-2025-005', personel:'EMP-016', teslimTarihi:'2025-11-03', iadeTarihi:'2026-05-14',
+  { kod:'ZMT-2025-005', demirbas:'DMB-2025-005', personel:'EMP-015', teslimTarihi:'2025-11-03', iadeTarihi:'2026-05-14',
     durum:'İade edildi', tutanak:'zimmet-2025-005.pdf', personelOnay:'Onaylandı', onayTarihi:'2025-11-03',
     hasar:'Ekran çerçevesinde çizik', aktif:true },
   { kod:'ZMT-2026-006', demirbas:'DMB-2026-012', personel:'EMP-007', teslimTarihi:'2026-01-18', iadeTarihi:null,

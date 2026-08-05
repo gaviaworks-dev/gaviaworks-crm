@@ -68,7 +68,7 @@ DB.lostReasons = ['Bütçe yetersiz','Rakip tercih edildi','Proje ertelendi','İ
 DB.referrers = [
   { kod:'REF-001', ad:'Hakan Demirtaş', tur:'Mevcut müşteri', firma:'Deniz Lojistik A.Ş.', pozisyon:'Bilgi İşlem Müdürü',
     tel:'+90 533 100 00 01', eposta:'hakan@denizlojistik.com', sorumlu:'EMP-002',
-    yonlendirme:6, kazanilan:3, kaybedilen:1, ciro:1740000, donusum:50, sonYonlendirme:'2026-07-18',
+    yonlendirme:6, kazanilan:3, kaybedilen:1, ciro:1740000, donusum:50, sonYonlendirme:'2026-08-02',
     komisyonModeli:'Ciro yüzdesi', komisyonOrani:5, sabitBedel:0, hakedis:49700, odenen:32000, bekleyen:17700,
     durum:'Aktif', aktif:true, not:'Sektöründe geniş ağı var, düzenli yönlendirme yapıyor.' },
   { kod:'REF-002', ad:'Ayten Berk', tur:'İş ortağı', firma:'Berk Danışmanlık', pozisyon:'Kurucu',
@@ -93,7 +93,7 @@ DB.referrers = [
     durum:'Aktif', aktif:true, not:'Site iletişim formu — dönüşüm oranı düşük, nitelik iyileştirilmeli.' },
   { kod:'REF-006', ad:'Linkedin Kampanyası', tur:'Dijital reklam', firma:'—', pozisyon:'—',
     tel:'—', eposta:'—', sorumlu:'EMP-002',
-    yonlendirme:8, kazanilan:1, kaybedilen:5, ciro:420000, donusum:13, sonYonlendirme:'2026-07-22',
+    yonlendirme:8, kazanilan:1, kaybedilen:5, ciro:420000, donusum:13, sonYonlendirme:'2026-07-26',
     komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Q3 kampanyası — maliyet/dönüşüm oranı izleniyor.' },
   { kod:'REF-007', ad:'Murat Sezer', tur:'Danışman', firma:'Sezer Yönetim Danışmanlığı', pozisyon:'Yönetici Ortak',
@@ -103,7 +103,7 @@ DB.referrers = [
     durum:'Aktif', aktif:true, not:'Kurumsal müşterilere ERP dönüşümü öneriyor.' },
   { kod:'REF-008', ad:'Teknoloji Zirvesi 2026', tur:'Etkinlik', firma:'—', pozisyon:'—',
     tel:'—', eposta:'—', sorumlu:'EMP-002',
-    yonlendirme:5, kazanilan:0, kaybedilen:2, ciro:0, donusum:0, sonYonlendirme:'2026-04-11',
+    yonlendirme:5, kazanilan:0, kaybedilen:2, ciro:0, donusum:0, sonYonlendirme:'2026-04-22',
     komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
     durum:'Pasif', aktif:false, not:'Nisan etkinliği — 3 fırsat hâlâ açık.' }
 ];
