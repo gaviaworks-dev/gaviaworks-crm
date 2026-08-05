@@ -20,6 +20,9 @@
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/ops.js"></script>
 <script src="assets/data/work.js"></script>
+<!-- misc.js: eskalasyon gerçek bir `DB.notifications` kaydı yazar (ders L-12 — okunan
+     koleksiyonun dosyası sayfada yüklü olmalı) -->
+<script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
 <script>
@@ -48,6 +51,44 @@ document.addEventListener('gv:ready', function(){
 
   function acik(x){ return ['Kapandı','Çözüldü'].indexOf(x.durum) === -1; }
   function empAd(kod){ return DB.empName(kod); }
+
+  /* ---- ESKALASYON MUTASYONU (UID-30) --------------------------------------
+     Aksiyon eskiden yalnız "eskalasyona alındı, yöneticiye bildirim gönderildi"
+     diyordu; hiçbir yerde karşılığı doğmuyordu. Vaadin veride karşılığı var:
+     bildirim `DB.notifications`, iz `DB.activities`. Hedef, sorumlunun
+     departman yöneticisidir; yoksa politika metnindeki makam yerine sorumlunun
+     kendisi seçilir — makam adı uydurulmaz (L-13).                            */
+  function eskalasyonHedefi(x){
+    var e = DB.emp(x.sorumlu);
+    var d = e ? DB.departments.filter(function(k){ return k.kod === e.dep; })[0] : null;
+    if(d && d.yonetici && d.yonetici !== x.sorumlu) return d.yonetici;
+    return x.sorumlu || null;
+  }
+  function bldKod(){
+    var n = DB.notifications.reduce(function(m, r){
+      var s = +String(r.kod).split('-')[1];
+      return s > m ? s : m;
+    }, 0);
+    return 'BLD-' + (n + 1);
+  }
+  /* Tek talebi eskale eder → hedef kod döner, edilemezse null */
+  function eskaleEt(x){
+    if(!acik(x)) return null;
+    var hedef = eskalasyonHedefi(x);
+    var s = S(x);
+    DB.notifications.unshift({
+      kod:bldKod(), tur:'SLA eskalasyonu',
+      baslik:x.kod + ' eskalasyona alındı',
+      ozet:x.baslik + ' · ' + (s.p ? s.p.kod + ' hedef ' + s.p.etiket : 'politikasız') +
+           ' · geçen süre ' + sure(s.gecen),
+      tarih:DB.today + 'T09:00', kisi:hedef, okundu:false,
+      tone:'danger', link:'app-destek-detay.html?id=' + x.kod
+    });
+    DB.activities.unshift({ kayit:x.kod, tarih:DB.today + 'T09:00', kisi:GV.session.ad,
+      metin:'SLA eskalasyonu başlatıldı', eski:x.slaDurum || '',
+      yeni:empAd(hedef) + ' bilgilendirildi', tone:'danger', icon:'i-trend-up' });
+    return hedef;
+  }
 
   /* ---- Politika eşleşmesi: kategori × öncelik ('Tümü' joker) ------------- */
   function politika(t){
@@ -370,7 +411,10 @@ document.addEventListener('gv:ready', function(){
                    '<span class="f-hint">' + esc((s.p ? s.p.kod + ' · ' : '') +
                      'Hedef ' + (s.p ? s.p.etiket : '—') + ' · geçen süre ' + sure(s.gecen)) + '</span></div>'
           }).then(function(ok){
-            if(ok) GV.toast(x.kod + ' eskalasyona alındı, sorumlu yöneticiye bildirim gönderildi', 'ok');
+            if(!ok) return;
+            var hedef = eskaleEt(x);
+            GV.toast(x.kod + ' eskalasyona alındı — ' + empAd(hedef) + ' kişisine bildirim yazıldı', 'ok', 5000);
+            GV.refresh();
           }); } });
         a.push({ key:'ata', icon:'i-user-check', label:'Sorumluyu değiştir', run:function(x, refresh){
           sorumluModal('Sorumluyu değiştir', x.kod + ' · ' + x.baslik, x.sorumlu, function(kod){
@@ -388,11 +432,12 @@ document.addEventListener('gv:ready', function(){
         b.push({ key:'eskale', label:'Seçilenleri eskale et', icon:'i-trend-up', tone:'danger',
           confirm:'Seçili {n} talep için eskalasyon başlatılacak ve sorumlu yöneticilere bildirim gönderilecek.',
           run:function(ids){
-            var n = ids.filter(function(id){
+            var n = 0;
+            ids.forEach(function(id){
               var x = DB.tickets.filter(function(t){ return t.kod === id; })[0];
-              return x && acik(x);
-            }).length;
-            GV.toast(n + ' talep eskalasyona alındı' +
+              if(x && eskaleEt(x)) n++;
+            });
+            GV.toast(n + ' talep eskalasyona alındı, sorumlu yöneticilere bildirim yazıldı' +
               (n < ids.length ? ' · ' + (ids.length - n) + ' kapalı talep atlandı' : ''), n ? 'ok' : 'info'); } });
         b.push({ key:'ata', label:'Sorumlu ata', icon:'i-user-check', run:function(ids){
           sorumluModal('Toplu sorumlu ataması', ids.length + ' talep için sorumlu belirleyin', null, function(kod){

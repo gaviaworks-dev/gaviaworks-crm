@@ -53,6 +53,79 @@ document.addEventListener('gv:ready', function(){
   function paraExp(v){ return canFinans ? v : ''; }
   function mask(v){ return canFinans ? v : '••••••'; }
 
+  /* ---- toplu işlem mutasyonları (UID-30) -----------------------------
+     İki toplu işlem de eskiden yalnız `GV.toast(... , 'ok')` basıyordu:
+     kullanıcı onay veriyor, "gönderildi" mesajını görüyor, hiçbir yerde
+     karşılığı doğmuyordu. İkisinin de vaat ettiği şeyin veride karşılığı
+     VAR — yenisini icat etmeye gerek yok:
+       · bütçe revizyonu  → `DB.changeRequests` (maliyet etkili değişiklik talebi)
+       · yönetici uyarısı → `DB.notifications` (kişiye giden bildirim)                */
+  function yeniKod(liste, onek){
+    var n = liste.reduce(function(m, r){
+      var p = String(r.kod).split('-');
+      var s = +p[p.length - 1];
+      return s > m ? s : m;
+    }, 0);
+    return onek + ('00' + (n + 1)).slice(-3);
+  }
+
+  function revizyonIste(ids){
+    var yeni = [], atlanan = [];
+    ids.forEach(function(id){
+      var p = DB.projects.filter(function(x){ return x.kod === id; })[0];
+      if(!p){ return; }
+      var acik = DB.changeRequests.filter(function(d){
+        return d.proje === p.kod && d.durum === 'Onay bekliyor' && /Bütçe revizyonu/.test(d.baslik); })[0];
+      if(acik){ atlanan.push(p.kod); return; }
+      var fark = Math.max(0, p.gerceklesenMaliyet - p.butce);
+      var kod = yeniKod(DB.changeRequests, 'DGS-' + String(DB.today).slice(0,4) + '-');
+      DB.changeRequests.unshift({
+        kod:kod, proje:p.kod, baslik:'Bütçe revizyonu — ' + p.ad,
+        talep:'İç', tarih:DB.today, etkiSure:0, etkiMaliyet:fark,
+        durum:'Onay bekliyor', kapsamIci:false,
+        karar:'', sorumlu:p.pm, destek:null, aktif:true
+      });
+      DB.activities.unshift({ kayit:p.kod, tarih:DB.today + 'T09:00', kisi:GV.session.ad,
+        metin:'Bütçe revizyon talebi açıldı (' + kod + ')', eski:F.money(p.butce),
+        yeni:F.money(p.gerceklesenMaliyet), tone:'warn', icon:'i-stamp' });
+      yeni.push(kod);
+    });
+    if(!yeni.length){
+      GV.toast(atlanan.length
+        ? 'Seçili projelerin bütçe revizyon talebi zaten onay bekliyor'
+        : 'Revizyon talebi açılabilecek proje seçilmedi', 'info');
+      return;
+    }
+    GV.toast(yeni.length + ' proje için bütçe revizyon talebi açıldı (' + yeni.join(', ') + ')' +
+      (atlanan.length ? ' · ' + atlanan.length + ' projede zaten açık talep vardı' : ''), 'ok', 6000);
+  }
+
+  function pmUyar(ids){
+    var gonderilen = 0, pmsiz = 0;
+    ids.forEach(function(id){
+      var p = DB.projects.filter(function(x){ return x.kod === id; })[0];
+      if(!p) return;
+      if(!p.pm){ pmsiz++; return; }
+      DB.notifications.unshift({
+        kod:yeniKod(DB.notifications, 'BLD-'),
+        tur:'Bütçe uyarısı',
+        baslik:p.ad + ' bütçe kullanımı %' + kullanim(p),
+        ozet:'Onaylı bütçe ' + F.moneyK(p.butce) + ' · gerçekleşen ' + F.moneyK(p.gerceklesenMaliyet) +
+             (asim(p) ? ' — bütçe aşıldı' : ''),
+        tarih:DB.today + 'T09:00', kisi:p.pm, okundu:false,
+        tone:asim(p) ? 'danger' : 'warn', link:'app-butce.html?q=' + p.kod
+      });
+      DB.activities.unshift({ kayit:p.kod, tarih:DB.today + 'T09:00', kisi:GV.session.ad,
+        metin:'Proje yöneticisine bütçe kullanım uyarısı gönderildi', eski:'',
+        yeni:DB.empName(p.pm), tone:'warn', icon:'i-send' });
+      gonderilen++;
+    });
+    GV.toast(gonderilen
+      ? gonderilen + ' proje yöneticisine bütçe uyarısı bildirimi gönderildi' +
+        (pmsiz ? ' · ' + pmsiz + ' projede yönetici tanımlı değil' : '')
+      : 'Yöneticisi tanımlı proje seçilmedi', gonderilen ? 'ok' : 'info', 5000);
+  }
+
   GV.pageHead({ eyebrow:'Finans', title:'Proje Bütçe ve Maliyet',
     sub:'Sözleşme bedeli, onaylı bütçe, gerçekleşen maliyet ve süre sapması tek ekranda',
     actions:[{ label:'Projeler', icon:'i-briefcase', href:'app-proje.html' },
@@ -308,10 +381,10 @@ document.addEventListener('gv:ready', function(){
     bulk:[
       { key:'revizyon', label:'Bütçe revizyonu iste', icon:'i-stamp',
         confirm:'{n} proje için bütçe revizyon talebi oluşturulacak ve onay akışına düşecek. Onaylıyor musunuz?',
-        run:function(ids){ GV.toast(ids.length + ' proje için bütçe revizyon talebi onay akışına gönderildi', 'ok'); } },
+        run:function(ids){ revizyonIste(ids); } },
       { key:'uyari', label:'Proje yöneticisini uyar', icon:'i-send',
         confirm:'{n} projenin yöneticisine bütçe kullanım uyarısı gönderilecek.',
-        run:function(ids){ GV.toast(ids.length + ' proje yöneticisine bütçe uyarısı gönderildi', 'ok'); } },
+        run:function(ids){ pmUyar(ids); } },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }
     ],
 
