@@ -17,13 +17,13 @@
 
 ## 0. 10. OTURUMDA NE OLDU
 
-### Kapanan borçlar (14)
+### Kapanan borçlar (18 kayıt)
 
 | Kod | Ne çözüldü | Ölçüm |
 |---|---|---|
 | **UID-07** | Seçili kapsamı dışa aktarma — `exportRows` + `bulk[].export` | 53 ekran devre dışıdan çalışır oldu · 51 çıktı aksiyonu dosya üretiyor |
 | **UID-30** | Ekranın kendi `run` gövdesi yalan söylüyordu | **10 yalan → 0** (defterdeki 28 sayısı aracın kendi hatasıydı) |
-| **UID-08 + UID-09** | Kontrol–etiket boşluğu + native kontroller | 2.422 çiftte bitişik **0** · native select **0/732** · native kutu **0/4.154** |
+| **UID-08 + UID-09** | Kontrol–etiket boşluğu + native kontroller | 2.422 çiftte bitişik **0** · native select **0/734** · native kutu **0/4.179** |
 | **UID-11 + UID-25 + UID-28** | KPI maskeleme · çıktı yetki kapısı · kardeş ekran ayrışması | 28 `canFinans ? x : 0` ve 9 elle kapı silindi |
 | **UID-12 + UID-21** | Dış bağlantılar sessizce yanlış küme döndürüyordu | `app-gorev`'e "Tümü" sekmesi · `referans` süzgeci · 3 hiç okunmayan parametre |
 | **UID-24 · UID-29** | Üç değerin ikiye düşmesi · sabit ay | — |
@@ -32,7 +32,7 @@
 | **VB-09** | Yasak inşaat terimi "saha" | defterde 1 kayıt vardı, **5 yerde** bulundu → tam metin taraması 0 |
 | **VB-14 · VB-17 · VB-22** | Sekiz eksenin sözlüğü yoktu | form seçenekleri 1–2 → 4–5 |
 
-### Bu oturumun EN ÖNEMLİ dersi — **L-26**
+### Bu oturumun EN ÖNEMLİ dersi — **L-26 ve L-27**
 
 `act.js` UID-30'u **28 aksiyon / 21 ekran** diye ölçmüştü. Aracın kendisi **beş** yerde
 yanılıyordu; düzeltilince gerçek sayı **10 yalan / 5 ekran**, ölü **0** çıktı:
@@ -49,6 +49,13 @@ yanılıyordu; düzeltilince gerçek sayı **10 yalan / 5 ekran**, ölü **0** �
 
 > **L-25 borcun EKSİK sayılabileceğini söylüyordu; L-26 FAZLA da sayılabileceğini gösterdi.**
 > Ortak kural: sayının **nasıl ölçüldüğü** deftere yazılır, araç sınanmadan koşturulmaz.
+
+**L-27 — araç kendi düzeneğini kuramazsa DURUR.** Kapanış taramasında `xport.js`
+"TEMİZ — **0 kolonun** tamamı temiz" dedi: UID-07 çözümü `ui.js` dönüş bloğuna
+`exportRows` ekleyince yamanın çapası kaymıştı, script hiçbir liste bulamadan 141 ekran
+gezdi ve **hata vermedi**. Artık çapa kaybolursa `throw`, sıfır ölçüm `GEÇERSİZ` +
+`exit 2`. Yakalayan şey raporun içindeki **sayının kendisiydi** — bu yüzden her tarama
+raporunda ekran/kayıt/birim sayısı ayrı ayrı yazılır (L-19).
 
 ### Yeni ortak katman parçaları
 
