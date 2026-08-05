@@ -304,3 +304,20 @@ kayıtta `kaynak === referrer.tur`. Yeni kaynak türü gerekiyorsa **önce `DB.r
 `'6community'` — 10/11 hane vergi numarası değil, bozuk veri. Müşteri formunun doğrulaması
 yakaladı (kayıt düzeltilmeden kaydedilemiyordu). Kooperatif için geçerli biçimde 10 haneli
 bir numaraya çevrildi (`5320148796`). Prototip verisi olduğu için numara temsilîdir.
+
+
+## V-36 · Native tarih kontrolü KORUNUYOR, yerine özel bileşen yazılmıyor
+**Karar (UID-09).** `select`, `checkbox` ve `radio` tasarım sistemine alındı
+(`appearance:none` + token'lı kutu, köşe, odak halkası, işaret). **Tarih alanı
+alınmadı** — yalnız takvim düğmesinin ölçüsü, tıklama alanı ve tonu standartlaştırıldı.
+**Gerekçe:** `input[type=date]` klavyeyle erişilebilir, yerelleştirilmiş, ekran
+okuyucuya tanıdık ve mobilde işletim sisteminin kendi seçicisini açar. Prototipte
+bunun yerine JS ile takvim yazmak **çalışan bir kontrolü daha zayıf bir taklitle
+değiştirmek** olurdu; `gg.aa.yyyy` yer tutucusu tarayıcının yerel biçimidir ve
+CSS ile değiştirilemez. Borç defterindeki "tarih alanı yamalı duruyor" şikâyetinin
+ölçülebilir kısmı (ikon boyutu ve tonu) kapatıldı, kalanı **bilinçli kabul**.
+**Ölçüm notu:** takvim düğmesinin biçimi çalışma zamanında **okunamaz** —
+`getComputedStyle(el,'::-webkit-calendar-picker-indicator')` Chromium'da elementin
+kendi stilini döndürüyor (ölçüldü: `width` = input genişliği). Bu yüzden `ctl.js`
+tarih alanlarını "native" saymaz; kuralın `ui.css`'te **yazılı olduğunu** statik
+olarak doğrular ve görünüm bir kez ekran görüntüsüyle teyit edilir (L-17 tuzağı).
