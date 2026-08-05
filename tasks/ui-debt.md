@@ -1002,3 +1002,65 @@ elle yazılmış kapı silinecek. Nokta yaması yok.
 **Çözüm (kapanış fazında):** Katalog anahtarları ekran tanımlarından **türetilecek** ya da
 `canon.js`'e "her katalog `key`'i bir ekran raporunda karşılık bulur" ekseni eklenecek.
 Proje rapor sayısı defterlerde 12'ye düzeltilecek.
+
+---
+
+## VB-27 · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor
+
+**Nerede:** `assets/data/ops.js` → `DB.surveys`.
+
+**Ölçüm (9. oturum, G dokümanı ajanı buldu, orkestratör bağımsız doğruladı):**
+24 anketin 10'u `ilgili` alanında `PRJ-*` kodu taşıyor; bu 10 kodun **6'sı**
+`DB.projects` içinde **yok**:
+`PRJ-2024-011` · `PRJ-2025-009` · `PRJ-2025-010` · `PRJ-2025-012` · `PRJ-2026-008` · `PRJ-2023-014`.
+Gerçek proje kümesi 8 kayıttır (`PRJ-2026-001..007` + `PRJ-2025-008`).
+Yani proje teslimi anketlerinin yalnız **4'ü** çözülüyor, 6'sı boşluğa bakıyor.
+
+**Neden bugün görünmüyor:** Anket ekranları `ilgili`yi çoğunlukla **metin olarak** basıyor,
+`DB.projects`'te aramıyor. Arayan ilk ekran boş ad ya da `undefined` gösterecek.
+`canon.js`'in **eksen 15**'i bağ hedeflerini doğruluyor ama `DB.surveys[].ilgili`
+o eksende **kayıtlı değil** — bu yüzden 601+ kontrol temiz derken bu altısını görmedi.
+VB-19'la aynı sınıf: **ekseni olmayan hata görünmez.**
+
+**Ayrım — bu bir "bağ değil" savunması değil.** `ilgili` alanı `DST-*` ve `MUS-*`
+kodlarında gerçek bağ olarak kullanılıyor; aynı alanda altı kod hedefsiz.
+Yani sorun alanın tanımında değil, **verinin eksikliğinde**.
+
+**Çözüm (kapanış fazında):** Ya altı proje kaydı `DB.projects`'e yazılacak (anketlerin
+tarihleri 2023–2026 aralığına yayılıyor, geçmiş projeler olarak tutarlı), ya da altı anketin
+`ilgili` alanı var olan projelere çekilecek. Hangisi seçilirse gerekçe `assumptions.md`'ye
+yazılır. Ardından `canon.js`'e **"`DB.surveys[].ilgili` gerçekten var olan bir kaydı gösterir"**
+ekseni girecek — eksen yazılmadan düzeltme kabul edilmez (VB-19 dersi).
+
+---
+
+## UID-26 · Kolon / filtre / çıktı / toplu işlem / kanban yalnız `GV.list` içinde yaşıyor
+
+**Nerede:** `assets/js/ui.js` — `openCols()` · `openFilters()` · `doExport()` ·
+`renderBulk()` · `renderKanban()`. Beşi de `GV.list` kapanışının **içinde** tanımlı.
+
+**Ölçüm (9. oturum):** `components.md` §6 bunları beş yıldır `GV.cols(table)` ·
+`GV.filters(config)` · `GV.export(config)` · `GV.bulk(config)` · `GV.kanban(config)` diye
+**çağrılabilir bileşen** olarak listeliyordu. `ui.js` ve `shell.js` tarandı: gerçek
+`GV.*` yüzeyi **37 üye** ve bu beşi orada **yok**. Ayrıca `GV.notify` · `GV.dateRange` ·
+`GV.help` kodda **hiçbir yerde** tanımlı değil. Sözlük 9. oturumda düzeltildi.
+
+**Asıl borç — sözlük hatası değil, mimari kısıt.** Bu beş yetenek `GV.list`'e
+**kilitli**: liste olmayan bir ekran (detay sekmesi, rapor kartı, matris) kolon
+yönetimi, gelişmiş filtre, çıktı ya da kanban kuramıyor. Borç defterindeki üç madde
+bunun **belirtisi**: UID-06 (ikinci `GV.list` örneği kurulamıyor — `app-egitim.html`
+matrisi elle yazmak zorunda kaldı) · UID-07 (seçili kapsam dışa aktarılamıyor) ·
+UID-17 (dokuz ekran kendi `dl()` yardımcısını yazıyor). Hepsi aynı kök: **ortak katman
+bileşen değil, tek bir dev bileşen.**
+
+**Çözüm (kapanış fazında):** Beş yordam `GV.list` kapanışından çıkarılıp kendi
+sözleşmesiyle `GV.*` yüzeyine alınacak; `GV.list` onları **çağıran** taraf olacak.
+Sıra önemli — önce `doExport` (UID-07'yi de kapatır), sonra `openCols` (UID-06),
+sonra `openFilters`, `renderBulk` (UID-13'ün `show` kapısıyla birlikte), en son
+`renderKanban`. Her adımdan sonra `GV.list` kullanan **tüm** liste ekranları
+1440/768/390'da yeniden doğrulanır. **Nokta yaması yok.**
+
+**Ayrıca:** `GV.notify` sözlükte "panel + sayaç + okundu" diyordu; gerçekte üst bardaki
+zil düz bir `<a href="app-panel-bildirimler.html">` bağlantısı — panel de, okundu
+yordamı da yok. Bildirim merkezi bileşeni **hiç yazılmamış**; PROMPT.md §21'in
+istediği "bildirim merkezi" bugün yalnız ayrı bir ekran olarak var.
