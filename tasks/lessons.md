@@ -20,6 +20,9 @@
 | L-17 | Beş QA script'i `?id=KOD` olan hedefe `?role=` ekleyince adres bozuluyordu; detay ekranları "kayıt yok" durumunda ölçülmüş, sonuç yine de "TEMİZ" çıkmıştı | Araç hedefe parametre eklerken ayracı duruma göre seçer (`?` / `&`). Genel kural: **test aracının "temiz" demesi doğru şeyi ölçtüğü anlamına gelmez** — araç, sonucu önceden bilinen bir kayıtla bir kez sınanır | 2026-08-04 |
 | L-19 | L-17'nin ayraç düzeltmesi yetmedi: `?id=` **hiç verilmezse** detay ekranı boş durumu (ya da sessizce ilk kaydı) basıyor, araç yine "TEMİZ" diyordu | Tarama hedefi **veriden türetilir ve kayıtla doğrulanır** (`rec.js` → `qa-targets.json`). Her tarama raporunda **taranan ekran** ve **gerçekten yüklenen kayıt** sayısı ayrı yazılır; sıfır kayıtla taranan ekran hata sayılır, geçiş sayılmaz | 2026-08-04 |
 | L-20 | On üç ajan aynı anda açıldı; sekizi `response stalled mid-stream` ile düştü ve **sekizinin sekizi de diske tek satır yazmadı** — kesinti tam olarak `Write` çağrısından ÖNCE oldu | (a) Stall ile düşen ajandan **çıktı beklenmez**, yarım dosya aranmaz. L-06'nın "failed dese de dosya çoğu zaman bütündür" okuması **yalnız token limiti** kaynaklı düşüşler için geçerlidir, API stall'ı için değil. (b) Dalga genişliği stall riskini **doğrudan** artırır: tavan **dört ajan**. Beşincisi açılmaz, dalga bitmeden yenisi başlamaz | 2026-08-05 |
+| L-21 | `components.md` beş oturum boyunca kodda karşılığı olmayan **sekiz `GV.*` adı** taşıdı; ekranlar sözlüğe güvenip var olmayan API'yi çağırmaya çalışabilirdi. Düzeltirken **ben de** eksik ölçtüm: yalnız `ui.js` + `shell.js` taradım, `GV.dashboard`'ı (`dashboard.js`) kaçırdım | Bir API sözlüğe yazılmadan önce adı kodda **görülmüş** olmalı; planlanan ama yazılmamış bileşen sözlüğe değil `ui-debt.md`'ye yazılır. Yüzey taranırken **`assets/js/` altındaki TÜM dosyalar** taranır, iki dosya varsayılmaz | 2026-08-05 |
+| L-22 | `DB.tasks[].destek` alanı şemada **vardı** ve VB-05 "bağ yazıldı, kapandı" diye kapatılmıştı; ölçüldüğünde **0/25 kayıtta dolu** çıktı. `canon.js` bunu görmedi çünkü eksen "bağ verilen kod gerçekten var mı" diye soruyor, "bağ **verilmiş mi**" diye sormuyor — boş alan her zaman geçer | **Alan açmak bağ yazmak değildir** (L-13'ün bir adım ilerisi). Bir bağ maddesi kapatılırken alanın **kaç kayıtta dolu olduğu** yazılır; tarama eksenine "her bağ için en az bir kayıt gerçekten bağ taşır" kontrolü eklenir. Kapanmış madde ölçümle **geri açılabilir** | 2026-08-05 |
+| L-23 | `GV.list` `run`'ı olmayan toplu işlemde **yeşil "N kayıt işlendi" başarı mesajı** basıyordu; 79 aksiyon / 47 ekran beş oturum boyunca sahte çalıştı. Hiçbir tarama yakalamadı: konsol temiz, `href` yok, mutasyon olmadığı için `mut.js` de temiz | Ortak bileşen, çağıranın **vermediği** bir yordamın yerine **başarı** varsayamaz. Eksik sözleşmede bileşen ya hiç basmaz ya da açıkça eksik olduğunu söyler — asla "oldu" demez. Genel: **bir hata sınıfı bulunduğunda taramaya ekseni eklenmeden madde kapatılmaz** | 2026-08-05 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -275,3 +278,54 @@ dalgalarda 24 ajanın 24'ü tamamlandı, on üçlü tek dalgada 13'ün 8'i düş
 açılmaz, **dalga bitmeden yeni dalga başlatılmaz**.
 (c) Bu bir hız–dayanıklılık takasıdır ve dayanıklılık kazanır: düşen ajanın maliyeti yalnız
 kendi token'ı değil, **yeniden üretim için ikinci kez ödenen** token'dır.
+
+
+## L-21 · API sözlüğü koddan doğrulanır, iki dosya varsayılmaz
+**Olay:** `components.md` §6 `GV.cols` · `GV.filters` · `GV.export` · `GV.bulk` ·
+`GV.dateRange` · `GV.help` · `GV.kanban` · `GV.notify` adlarını **çağrılabilir bileşen**
+olarak listeliyordu. Kod tarandı: sekizinin sekizi de yok. Beşinin işlevi `GV.list`
+kapanışının **içinde** yaşıyor (`openCols` · `openFilters` · `doExport` · `renderBulk` ·
+`renderKanban`), üçünün kodda hiçbir karşılığı yok. `GV.detail`/`GV.gantt` ile aynı sınıf —
+sözlük, **yapılmak istenen**i yapılmış gibi yazmıştı.
+**İkinci hata (kendi ölçümümde):** düzeltirken "37 üye" yazdım çünkü yalnız `ui.js` ve
+`shell.js` taradım. `GV.dashboard` **`assets/js/dashboard.js`**'te tanımlı ve
+`app-panel.html` tarafından çağrılıyor. Gerçek sayı **38**.
+**Kural:** (a) Sözlüğe bir API satırı yazmadan önce adı `assets/js/` altında **görülmüş**
+olmalı. (b) Yüzey taranırken **dizindeki tüm dosyalar** taranır — "ortak katman = ui.js +
+shell.js" varsayımı yanlıştır. (c) Planlanan ama yazılmamış bileşen sözlüğe değil
+`ui-debt.md`'ye yazılır; sözlük **bugünü** anlatır, niyeti değil.
+
+## L-22 · Alan açmak bağ yazmak değildir
+**Olay:** VB-05 "destek → görev / hata / değişiklik dönüşümü **yazılı**, kapandı" diye
+kapatılmıştı ve `plan.md` maddeyi `[x]` sayıyordu. 9. oturumda ölçüldü:
+`DB.tasks[].destek` **0/25** · `DB.changeRequests[].destek` **0/4** · yalnız
+`DB.bugs[].destek` 2/6 dolu. Yani üç eksenden ikisinde **alan var, değer yok**.
+**Neden görünmedi:** `canon.js` eksen 15 "bağ verilen kod gerçekten var mı" diye soruyor.
+Boş alanda kontrol edilecek değer olmadığı için **her zaman geçiyor** — sahte yeşil.
+**Kural:** (a) Bir bağ maddesi kapatılırken alanın **kaç kayıtta dolu olduğu** ölçülüp
+yazılır; "alan açıldı" cümlesi kapanış gerekçesi sayılmaz. (b) Tarama eksenine
+"§22'nin her bağı için **en az bir kayıt gerçekten bağ taşır**" kontrolü eklenir.
+(c) **Kapanmış madde ölçümle geri açılabilir** — defterdeki `✅` dokunulmaz değildir.
+Bu L-13'ün ("bağ yazılır, türetilmez") bir adım ilerisidir: bağ yazılmalı **ve dolu olmalı**.
+
+## L-23 · Bileşen, çağıranın vermediği yordamın yerine başarı varsayamaz
+**Olay:** `assets/js/ui.js` toplu işlem yönlendiricisi şöyleydi:
+```js
+if(act.run) act.run(state.selected.slice());
+else GV.toast(act.label + ' — ' + state.selected.length + ' kayıt işlendi', 'ok');
+```
+`run` verilmemişse bileşen **yeşil ton (`'ok'`) ile "N kayıt işlendi"** diyor, seçimi
+temizliyor ve listeyi yeniden çiziyor — yani ekran da "bir şey oldu" gibi davranıyor.
+Veri değişmiyor. **Ölçüm: 79 aksiyon, 47 ekran.** Bir kısmı `confirm` de gösteriyor:
+kullanıcı "12 kaydı arşivlemek istediğinize emin misiniz?" onayını veriyor, başarı
+mesajını alıyor, **hiçbir kayıt arşivlenmiyor**.
+**Neden beş oturum yakalanmadı:** `qa.js` konsola bakıyor (hata yok) · `links.js` `href`'e
+bakıyor (buton `href` taşımıyor) · `mut.js` `GV.refresh()` sonrası çoğalma arıyor
+(mutasyon hiç olmadığı için temiz) · `esc.js` metin arıyor. **Hiçbir eksen "buton
+gerçekten bir şey yapıyor mu" diye sormuyordu.**
+**Kural:** (a) Ortak bileşen, çağıranın **vermediği** bir yordamın yerine **başarı**
+varsayamaz. Eksik sözleşmede bileşen ya hiç basmaz ya da eksikliği açıkça söyler —
+asla "oldu" demez. (b) Yedek (fallback) davranış yazarken sorulacak soru: *"bu yedek,
+kullanıcıya olmayan bir şeyi olmuş gibi gösterir mi?"* (c) Genel ve en önemlisi:
+**bir hata sınıfı bulunduğunda taramaya ekseni eklenmeden madde kapatılmaz** —
+UID-27, VB-19 ve VB-28'in üçü de ekseni olmadığı için görünmedi.
