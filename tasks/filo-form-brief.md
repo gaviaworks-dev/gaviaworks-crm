@@ -44,6 +44,12 @@ DB.vehicles (4)        kod plaka marka model modelYili tip renk yakit vites moto
 DB.policies (6)        kod arac tur sirket police baslangic bitis prim teminat acente
                        kalanGun yenileme odeme aktif
                        tur = 'Trafik Sigortası' | 'Kasko'
+                       ⚠ KASKOYA ÖZEL İKİ ALAN: `kaskoBedeli` · `hasarsizlik` — yalnız
+                       kasko kayıtlarında var (6 poliçenin 3'ünde). Alan listesi ilk
+                       kayıttan çıkarıldığı için ilk sürümde eksikti; `tur`'a göre
+                       değişen alan kümesi olan TEK filo koleksiyonu budur.
+                       `app-arac-sigorta.html` ikisini `visible:false` kolon olarak
+                       taşıyor, `app-arac-form.html` `kasko.kaskoBedeli` okuyor.
 
 DB.fuelLogs (5)        kod arac tarih istasyon litre birimFiyat tutar km surucu aktif
 
