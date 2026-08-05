@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yakıt Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="yakit">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees (DB.emp / DB.empName / DB.depName)
+     ops.js  → DB.fuelLogs, DB.vehicles, DB.vehicleExpenses
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.fuelLogs.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez.
+     GV.empty metnini ÖN-ESCAPE ETME: bileşen kendisi escape ediyor (UID-23). */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Araç ve Filo', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen yakıt kaydı filo defterinde yok.',
+      actions:[{ label:'Yakıt kayıtlarına dön', cls:'btn-line', href:'app-arac-yakit.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Yakıt kaydı bulunamadı',
+      desc:'“' + id + '” kodlu yakıt kaydı sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-arac-yakit.html">Yakıt kayıtlarına dön</a>' }) + '</section>';
+    return;
+  }
+
+  /* Başlıkta KAYIT KODU durur (filo-form-brief §4 · ders L-19) — araç plakası alt satırda. */
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Yakıt Kaydı';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function bos(v){ return metin(v) === ''; }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); }); return o;
+  }
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function maske(){ return '<span class="cell-mask">••••</span>'; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function paraSade(v){ return '<span class="u-num">' + F.money(v) + '</span>'; }
+  function litreYaz(v){ return '<span class="u-num">' + F.num(v, 1) + ' L</span>'; }
+  function fiyatYaz(v){ return '<span class="u-num">' + F.num(v, 2) + ' ₺/L</span>'; }
+  function kmYaz(v){ return v == null || v === '' ? faint('—') : '<span class="u-num">' + F.num(v) + ' km</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* =================================================================
+     EKSEN — filo tarafı TEK EKSEN, KDV DAHİL (filo-form-brief §1)
+     Pompa fiyatı zaten KDV dahildir; yakıt tutarı ödenen bedeldir ve
+     poliçe primi, kira, gider kalemleriyle aynı eksende durur.
+     ================================================================= */
+  var PARA_EKSEN = '(KDV dahil)';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  function kapi(baslik, aciklama, ekAksiyon){
+    GV.pageHead({
+      eyebrow:'Araç ve Filo', title:basligi, sub:baslik,
+      actions:[{ label:'Yakıt kayıtlarına dön', cls:'btn-line', href:'app-arac-yakit.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' +
+      GV.errorState({ title:baslik, desc:aciklama }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts = mount.querySelector('.gv-state-acts');
+    if(acts){
+      acts.innerHTML = '<a class="btn btn-line" href="app-arac-yakit.html">Yakıt kayıtlarına dön</a>' +
+        (ekAksiyon || '');
+    }
+  }
+
+  if(!canYaz){
+    kapi('Bu işlem için yetkiniz yok',
+      (duzenle ? 'Yakıt kaydı düzenleme' : 'Yakıt kaydı ekleme') + ' yetkisi rolünüzde (' +
+      GV.session.rolAd + ') tanımlı değil. Yakıt kayıtlarını listede ve araç kartında ' +
+      'görüntüleyebilir, ancak kaydı değiştiremezsiniz.',
+      duzenle ? ' <a class="btn btn-acc" href="app-arac-detay.html?id=' + esc(kayit.arac) +
+                '">Araç kartını aç</a>' : '');
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* Tutar = litre × birim fiyat (ders L-08). Birim fiyat bu formun tek para alanıdır ve
+     `can('finans')` yoksa forma HİÇ basılmaz. Düzenlemede kayıttaki birim fiyat korunur,
+     tutar litreye göre yeniden türetilir. YENİ kayıtta ise birim fiyat olmadan tutar
+     türetilemez — uydurma fiyat yazmak yerine ekleme yolu açıkça kapatılır. */
+  if(!duzenle && !canFinans){
+    kapi('Yeni yakıt kaydı için tutar yetkisi gerekiyor',
+      'Yakıt kaydının tutarı litre × birim fiyat olarak türetilir; birim fiyat finansal bir ' +
+      'tutar alanıdır ve rolünüzde (' + GV.session.rolAd + ') tutar yetkisi tanımlı değil. ' +
+      'Bu yüzden birim fiyat alanı forma hiç basılmadı ve tutarı hesaplanamayan eksik bir kayıt ' +
+      'açılmıyor. Mevcut kayıtları listede görüntüleyebilir, litre ve kilometre değerlerini ' +
+      'düzenleyebilirsiniz.',
+      ' <a class="btn btn-acc" href="app-arac-gider.html">Araç giderleri</a>');
+    return;
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  function aracOf(kod){
+    return kod ? (DB.vehicles.filter(function(v){ return v.kod === kod; })[0] || null) : null;
+  }
+  function aracAd(kod){
+    var a = aracOf(kod);
+    return a ? a.plaka + ' — ' + a.marka + ' ' + a.model : (kod || '—');
+  }
+  /* Düzenlenen kaydın kendisi zincir hesabının dışında tutulur. */
+  function baskaKayitlar(aracKod){
+    return DB.fuelLogs.filter(function(x){
+      return x.arac === aracKod && (!duzenle || x.kod !== kayit.kod);
+    });
+  }
+  function oncekiDolum(aracKod, tarih){
+    return baskaKayitlar(aracKod)
+      .filter(function(x){ return String(x.tarih) < String(tarih); })
+      .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })[0] || null;
+  }
+  function sonrakiDolum(aracKod, tarih){
+    return baskaKayitlar(aracKod)
+      .filter(function(x){ return String(x.tarih) > String(tarih); })
+      .sort(function(a, b){ return String(a.tarih).localeCompare(String(b.tarih)); })[0] || null;
+  }
+  function ayniGun(aracKod, tarih){
+    return baskaKayitlar(aracKod).filter(function(x){ return String(x.tarih) === String(tarih); });
+  }
+
+  var toplamKayit  = DB.fuelLogs.length;
+  var toplamLitre  = DB.fuelLogs.reduce(function(s, x){ return s + sayi(x.litre); }, 0);
+  var toplamTutar  = DB.fuelLogs.reduce(function(s, x){ return s + sayi(x.tutar); }, 0);
+  var fiyatlar     = DB.fuelLogs.map(function(x){ return sayi(x.birimFiyat); });
+  var ortFiyat     = fiyatlar.length ? fiyatlar.reduce(function(s, n){ return s + n; }, 0) / fiyatlar.length : 0;
+  var enDusukFiyat = fiyatlar.length ? Math.min.apply(null, fiyatlar) : 0;
+  var enYuksekFiyat= fiyatlar.length ? Math.max.apply(null, fiyatlar) : 0;
+  var ISTASYONLAR  = distinct(DB.fuelLogs.map(function(x){ return x.istasyon; })).sort();
+
+  /* Tutar türevinin veriyle uyumu ÖLÇÜLÜR — ipucundaki üç örnek varsayılmaz,
+     koleksiyonun tamamı yeniden hesaplanır. */
+  var tutarUyan = DB.fuelLogs.filter(function(x){
+    return Math.round(sayi(x.litre) * sayi(x.birimFiyat)) === Math.round(sayi(x.tutar));
+  }).length;
+
+  /* Aynı tutarın gider defterinde de durduğu ölçülür (filo-form-brief §3 · gider bağı yok). */
+  var giderEsleme = DB.fuelLogs.filter(function(y){
+    return DB.vehicleExpenses.some(function(g){
+      return g.tur === 'Yakıt' && g.arac === y.arac && String(g.tarih) === String(y.tarih) &&
+             Math.round(sayi(g.tutar)) === Math.round(sayi(y.tutar));
+    });
+  }).length;
+
+  /* Filo geneli ortalama tüketim: araç bazında ardışık dolumlar eşlenir.
+     Varsayım (raporda bildirildi): dolumlar tam depo kabul edilir, yani bir dolumun
+     litresi bir önceki dolumdan bu yana gidilen yolu karşılar. */
+  function tuketimCiftleri(){
+    var out = [];
+    distinct(DB.fuelLogs.map(function(x){ return x.arac; })).forEach(function(ak){
+      var sirali = DB.fuelLogs.filter(function(x){ return x.arac === ak; })
+        .sort(function(a, b){ return String(a.tarih).localeCompare(String(b.tarih)); });
+      for(var i = 1; i < sirali.length; i++){
+        var mesafe = sayi(sirali[i].km) - sayi(sirali[i - 1].km);
+        if(mesafe > 0 && sayi(sirali[i].litre) > 0)
+          out.push({ arac:ak, mesafe:mesafe, litre:sayi(sirali[i].litre), tutar:sayi(sirali[i].tutar) });
+      }
+    });
+    return out;
+  }
+  var ciftler   = tuketimCiftleri();
+  var filoMesafe= ciftler.reduce(function(s, c){ return s + c.mesafe; }, 0);
+  var filoLitre = ciftler.reduce(function(s, c){ return s + c.litre; }, 0);
+  var filoTuketim = filoMesafe > 0 ? filoLitre / filoMesafe * 100 : null;
+
+  var elektrikliArac = DB.vehicles.filter(function(v){ return v.yakit === 'Elektrik'; }).length;
+
+  var ARAC_SECENEK = DB.vehicles
+    .filter(function(v){ return v.aktif !== false || (duzenle && v.kod === kayit.arac); })
+    .map(function(v){
+      return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model +
+        (v.durum && v.durum !== 'Aktif' ? ' · ' + v.durum : '') };
+    });
+  var SURUCU_SECENEK = DB.employees.filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' — ' + e.depAd }; });
+
+  /* =================================================================
+     ÖN DOLDURMA — ?arac=ARC-... (filo-form-brief §4)
+     ================================================================= */
+  var onArac = qs.get('arac');
+  var onAracKaydi = onArac ? aracOf(onArac) : null;
+  var onAracGecersiz = !!onArac && !onAracKaydi;
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+  }else{
+    var secili = onAracKaydi ? onAracKaydi.kod : '';
+    var seciliArac = aracOf(secili);
+    formRec = {
+      arac:secili, tarih:DB.today, istasyon:'', litre:'', birimFiyat:'',
+      km:seciliArac ? seciliArac.guncelKm : '',
+      surucu:seciliArac ? (seciliArac.anaSurucu || '') : '', aktif:true
+    };
+  }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Veride yazılı biçim: YKT-YYYY-NNN (üç haneli sıra). */
+  function yeniKod(){
+    var max = 0;
+    DB.fuelLogs.forEach(function(x){
+      var m = /^YKT-\d{4}-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'YKT-' + String(DB.today).slice(0, 4) + '-' + pad(max + 1, 3);
+  }
+  var siradakiKod = duzenle ? kayit.kod : yeniKod();
+
+  var kayitArac = duzenle ? aracOf(kayit.arac) : null;
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var turevNot = GV.notice({
+    tone:'info', icon:'i-fuel',
+    title:'Tutar elle girilmez, litre × birim fiyattan türetilir',
+    text:'Yakıt tutarı ödenen bedeldir ve pompa fiyatı zaten KDV dahil olduğu için filo tarafındaki ' +
+         'bütün kalemlerle (bakım maliyeti, poliçe primi, kira, gider, ceza) aynı eksende durur; ' +
+         'ayrıca KDV ayrıştırması yapılmaz. Hesap tam liraya yuvarlanır. Ölçüm: ' + toplamKayit +
+         ' yakıt kaydının ' + tutarUyan + ' tanesinde kayıtlı tutar, litre × birim fiyatın tam liraya ' +
+         'yuvarlanmış değerine birebir eşit. Ortalama tüketim de aynı biçimde türetilir: iki dolum ' +
+         'arasında gidilen yol, ikinci dolumun litresine bölünür — elle girilen bir tüketim alanı yoktur.',
+    actions:[{ label:'Yakıt kayıtları', href:'app-arac-yakit.html' },
+             { label:'Araç giderleri', href:'app-arac-gider.html' }] });
+
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'Bu formun kapsamı dışında kalanlar',
+    text:'Yakıt kaydı yalnız dolum defterine yazılır: araç kaydındaki güncel kilometre bu formdan ' +
+         'güncellenmez, gider defterine kalem açılmaz ve yakıt fişi belgesi yüklenmez. Veride yakıt ' +
+         'kaydını gider kalemine bağlayan bir alan yok — aynı tutarın iki yerde durduğu ölçüldü: ' +
+         toplamKayit + ' yakıt kaydının ' + giderEsleme + ' tanesi, gider defterinde aynı araç, aynı ' +
+         'tarih ve aynı tutarla “Yakıt” türünde ikinci kez duruyor. Bağ alanı uydurulmaz; iki kayıt ' +
+         'ayrı ekranlardan yürür.' +
+         (elektrikliArac === 0
+           ? ' Liste ekranı “Yakıt ve Şarj Kayıtları” adını taşıyor, ancak koleksiyonda litre ve ₺/L ' +
+             'dışında birim alanı yok ve filoda elektrikli araç bulunmuyor; şarj kaydı için kWh ekseni ' +
+             'bu formda açılmadı.'
+           : ' Filoda ' + elektrikliArac + ' elektrikli araç var; koleksiyonda kWh birimi tutulmadığı ' +
+             'için şarj kaydı da litre alanıyla yazılır.'),
+    actions:[{ label:'Araç giderleri', href:'app-arac-gider.html' },
+             { label:'Doküman merkezi', href:'app-dokuman.html' }] });
+
+  var ust = '';
+
+  if(onAracGecersiz && !duzenle){
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'warn', icon:'i-alert', title:'Adresteki araç kodu filo kaydında yok',
+      text:'“' + onArac + '” kodlu araç filoda bulunmadığı için araç alanı boş açıldı. Aracı listeden ' +
+           'seçebilirsiniz.',
+      actions:[{ label:'Araç listesi', href:'app-arac.html' }] }) + '</div></section>';
+  }else if(onAracKaydi && !duzenle){
+    var onOnceki = oncekiDolum(onAracKaydi.kod, DB.today);
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'info', icon:'i-car', title:'Araç adresten ön doldurdu',
+      text:onAracKaydi.plaka + ' (' + onAracKaydi.kod + ') seçili geldi; sayaç değeri araç kaydındaki ' +
+           'güncel kilometreyle (' + F.num(onAracKaydi.guncelKm) + ' km) başlatıldı ve sürücü olarak ' +
+           'aracın ana sürücüsü öneriliyor. ' +
+           (onOnceki
+             ? 'Aracın son dolumu ' + F.date(onOnceki.tarih) + ' tarihinde ' + F.num(onOnceki.km) +
+               ' km’de yapılmış; yeni kaydın kilometresi bunun altına inemez.'
+             : 'Aracın daha önce yakıt kaydı yok, bu ilk dolum olacak.'),
+      actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + onAracKaydi.kod }] }) +
+      '</div></section>';
+  }
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı (form-brief §8) ---- */
+    var eslesenGider = DB.vehicleExpenses.filter(function(g){
+      return g.tur === 'Yakıt' && g.arac === kayit.arac && String(g.tarih) === String(kayit.tarih) &&
+             Math.round(sayi(g.tutar)) === Math.round(sayi(kayit.tutar));
+    });
+    var aracDolumSayisi = DB.fuelLogs.filter(function(x){ return x.arac === kayit.arac; }).length;
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:eslesenGider.length ? 'warn' : 'info',
+      icon:eslesenGider.length ? 'i-alert' : 'i-link',
+      title:eslesenGider.length
+        ? 'Bu dolumun tutarı gider defterinde de duruyor'
+        : 'Bu kayıt araç koduyla bağlıdır',
+      text:kayit.kod + ' kaydı ' + aracAd(kayit.arac) + ' aracına bağlı; araçta toplam ' +
+           aracDolumSayisi + ' dolum kaydı var. ' +
+           (eslesenGider.length
+             ? 'Gider defterinde aynı araç ve tarihle ' +
+               eslesenGider.map(function(g){ return g.kod; }).join(', ') +
+               ' kalemi de aynı tutarı taşıyor. Veride iki kaydı birbirine bağlayan alan yok; ' +
+               'buradaki litre ya da birim fiyatı değiştirirseniz gider kalemi kendiliğinden ' +
+               'güncellenmez, gider ekranından ayrıca düzeltilmelidir.'
+             : 'Kaydın gider defterinde eşleşen bir kalemi bulunmuyor. Bu form gider kalemi ' +
+               'oluşturmaz ve araç kaydındaki güncel kilometreyi değiştirmez.'),
+      actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + kayit.arac },
+               { label:'Araç giderleri', href:'app-arac-gider.html' },
+               { label:'Yakıt kayıtları', href:'app-arac-yakit.html' }] }) + '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var sonAct = acts[0];
+    var kayitOnceki = oncekiDolum(kayit.arac, kayit.tarih);
+    var kayitMesafe = kayitOnceki ? sayi(kayit.km) - sayi(kayitOnceki.km) : null;
+
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Kayıt kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Araç', kayitArac
+          ? '<a href="app-arac-detay.html?id=' + esc(kayit.arac) + '"><b>' + esc(kayitArac.plaka) +
+            '</b></a>' + sub(kayitArac.marka + ' ' + kayitArac.model + ' · ' + kayitArac.yakit)
+          : faint(kayit.arac + ' · araç kaydı bulunamadı')],
+        ['Dolum tarihi', F.date(kayit.tarih) + sub(F.days(kayit.tarih) === 0 ? 'bugün'
+          : Math.abs(F.days(kayit.tarih)) + ' gün önce')],
+        ['İstasyon', esc(kayit.istasyon)],
+        ['Sürücü', kayit.surucu ? GV.user(kayit.surucu, { sm:true }) : null],
+        ['Alınan yakıt', litreYaz(kayit.litre)],
+        ['Birim fiyat <span class="u-faint">' + PARA_EKSEN + '</span>',
+          canFinans ? fiyatYaz(kayit.birimFiyat) : maske()],
+        ['Tutar <span class="u-faint">' + PARA_EKSEN + '</span>',
+          canFinans
+            ? '<b>' + para(kayit.tutar) + '</b>' +
+              sub(F.num(kayit.litre, 1) + ' L × ' + F.num(kayit.birimFiyat, 2) + ' ₺ · türetilmiş')
+            : maske() + sub('tutar yetkisi rolünüzde yok')],
+        ['Sayaç', kmYaz(kayit.km) +
+          (kayitArac ? sub('araç kaydındaki güncel sayaç ' + F.num(kayitArac.guncelKm) + ' km') : '')],
+        ['Önceki dolum', kayitOnceki
+          ? F.date(kayitOnceki.tarih) + sub(kayitOnceki.kod + ' · ' + F.num(kayitOnceki.km) + ' km' +
+            (kayitMesafe != null ? ' · aradaki yol ' + F.num(kayitMesafe) + ' km' : ''))
+          : faint('Aracın ilk dolumu')],
+        ['Kayıt durumu', kayit.aktif === false
+          ? '<span class="tag">Arşiv kaydı</span>' : GV.badge('Aktif', 'is-ok')],
+        ['Son değiştiren', sonAct ? esc(sonAct.kisi) + sub(F.dt(sonAct.tarih) + ' · ' + sonAct.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-arac-detay.html?id=' + esc(kayit.arac) + '">' +
+        ico('i-external','ic-sm') + ' Araç kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni yakıt kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki kod ' + siradakiKod + ' olarak atanır, kayıt tarihi ' +
+             F.date(DB.today) + ' sistem tarihiyle yazılır ve aktivite geçmişine “Yakıt kaydı ' +
+             'oluşturuldu” satırı düşer, ardından yakıt kayıtları listesine dönülür. Tutar litre × ' +
+             'birim fiyattan türetilir, elle girilmez. Araç kaydındaki güncel kilometre bu formdan ' +
+             'güncellenmez ve gider defterine kalem açılmaz. Ölçüm: defterde ' + toplamKayit +
+             ' dolum kaydı var, toplam ' + F.num(toplamLitre, 1) + ' litre' +
+             (canFinans ? ' ve ' + F.money(toplamTutar) + ' tutar' : '') +
+             '; ortalama pompa fiyatı ' + F.num(ortFiyat, 2) + ' ₺/L (en düşük ' +
+             F.num(enDusukFiyat, 2) + ' · en yüksek ' + F.num(enYuksekFiyat, 2) + ').',
+        actions:[{ label:'Yakıt kayıtları', href:'app-arac-yakit.html' },
+                 { label:'Araç listesi', href:'app-arac.html' },
+                 { label:'Araç giderleri', href:'app-arac-gider.html' }] }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-fuel') + 'Dolum Bilgileri</h2>' +
+        '<div class="gc-sub">' + (duzenle ? 'Kayıt kodu değiştirilmez' : 'Kayıt kodu kaydederken atanır') +
+        ' · tutar litre ve birim fiyattan türetilir · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-wallet') + 'Türetilen Tutar</h2>' +
+        '<div class="gc-sub">Litre ve birim fiyat değiştikçe tutar yeniden hesaplanır; elle ' +
+          'girilebilen bir tutar alanı yoktur.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-arac-gider.html">' + ico('i-receipt','ic-sm') +
+            ' Araç giderleri</a></div></div>' +
+      '<div class="gc-body" id="tutarOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-trend-up') + 'Kilometre Zinciri ve Ortalama Tüketim</h2>' +
+        '<div class="gc-sub">Sayaç değeri aracın önceki dolumundan küçük, sonraki dolumundan ve araç ' +
+          'kaydındaki güncel kilometreden büyük olamaz (referans: sistem tarihi ' + F.date(DB.today) +
+          ').</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-arac-yakit.html">' + ico('i-list','ic-sm') +
+            ' Dolum defteri</a></div></div>' +
+      '<div class="gc-body" id="kmOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + turevNot + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-arac-yakit.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Dolum kaydı',
+    desc:'Yakıtın hangi araca, hangi gün ve hangi istasyonda alındığı. Kayıt kodu sistem tarafından ' +
+         'atanır, elle girilmez.',
+    fields:[
+      { key:'arac', label:'Araç', type:'select', options:ARAC_SECENEK, required:true, cols:6,
+        placeholder:'Araç seçin',
+        hint:'Dolum defteri araç koduna bağlanır; plaka değişse bile bağ kopmaz. Filoda ' +
+             DB.vehicles.length + ' araç kayıtlı.',
+        validate:function(v){
+          if(!v) return '';
+          var a = aracOf(v);
+          if(!a) return 'Seçilen araç filo kaydında bulunamadı.';
+          if(a.aktif === false) return 'Arşivlenmiş araca yeni dolum kaydı yazılmaz.';
+          return '';
+        } },
+
+      { key:'tarih', label:'Dolum tarihi', type:'date', required:true, cols:6,
+        hint:'Sistem tarihi ' + F.date(DB.today) + '; ileri tarihli dolum kaydedilmez. Liste ekranındaki ' +
+             '“Bu Ay” ve “Geçen Ay” sekmeleri bu alandan süzer.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(F.days(v) > 0) return 'Dolum tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+          var a = aracOf(d.arac);
+          if(a && a.alisTarihi && String(v) < String(a.alisTarihi))
+            return 'Dolum tarihi aracın filoya giriş tarihinden (' + F.date(a.alisTarihi) +
+                   ') önce olamaz.';
+          if(a && a.sozlesmeBas && String(v) < String(a.sozlesmeBas))
+            return 'Dolum tarihi kiralama sözleşmesinin başlangıcından (' + F.date(a.sozlesmeBas) +
+                   ') önce olamaz.';
+          return '';
+        } },
+
+      { key:'istasyon', label:'İstasyon', type:'text', required:true, cols:6,
+        placeholder:'Örn. Shell Çankaya',
+        hint:'Defterde geçen istasyonlar: ' + (ISTASYONLAR.length ? ISTASYONLAR.join(' · ') : '—') +
+             '. Serbest metindir; anlaşmalı istasyon sözlüğü veride tutulmuyor.' },
+
+      { key:'surucu', label:'Sürücü', type:'select', options:SURUCU_SECENEK, required:true, cols:6,
+        placeholder:'Sürücü seçin',
+        hint:'Dolumu yapan personel. Aracın ana sürücüsünden farklı biri seçilirse kaydetmeden önce ' +
+             'ayrıca sorulur; yedek sürücü kullanımı olağandır.',
+        validate:function(v, d){
+          if(!v) return '';
+          var e = DB.emp(v);
+          if(!e) return 'Seçilen personel kaydı bulunamadı.';
+          if(!e.aktif) return 'Ayrılmış personele yeni dolum kaydı yazılmaz.';
+          if(!d.arac) return '';
+          return '';
+        } }
+    ]});
+
+  /* ---- Dolum ve tutar · birim fiyat yalnız finans yetkisiyle basılır ---- */
+  var dolumAlanlari = [
+    { key:'litre', label:'Alınan yakıt (litre)', type:'number', required:true, cols:6, min:0,
+      placeholder:'Örn. 52.4',
+      hint:'Ondalık ayırıcı nokta ile yazılır (52.4). Defterdeki toplam ' + F.num(toplamLitre, 1) +
+           ' litre, ortalama dolum ' + (toplamKayit ? F.num(toplamLitre / toplamKayit, 1) : '0') + ' litre.',
+      validate:function(v){
+        if(bos(v)) return '';
+        var n = sayi(v);
+        if(n <= 0) return 'Alınan yakıt sıfırdan büyük olmalıdır.';
+        if(n > 400) return 'Tek dolumda 400 litreden fazla yakıt alınamaz — değeri kontrol edin.';
+        return '';
+      } }
+  ];
+
+  if(canFinans){
+    dolumAlanlari.push({ key:'birimFiyat', label:'Birim fiyat ' + PARA_EKSEN, type:'money',
+      currency:'₺/L', required:true, cols:6, min:0,
+      hint:'Pompa fiyatı zaten KDV dahildir; ayrıca KDV eklenmez. Defterdeki ortalama ' +
+           F.num(ortFiyat, 2) + ' ₺/L (en düşük ' + F.num(enDusukFiyat, 2) + ' · en yüksek ' +
+           F.num(enYuksekFiyat, 2) + '). Kuruş yazmak için ondalık nokta kullanın.',
+      validate:function(v){
+        if(bos(v)) return '';
+        var n = sayi(v);
+        if(n <= 0) return 'Birim fiyat sıfırdan büyük olmalıdır.';
+        if(n > 500) return 'Birim fiyat litre başına 500 ₺’yi aşamaz — değeri kontrol edin.';
+        return '';
+      } });
+  }
+
+  dolumAlanlari.push(
+    { key:'km', label:'Dolum anındaki sayaç (km)', type:'number', required:true, cols:6, min:0,
+      placeholder:'Örn. 68120',
+      hint:'Kilometre sayacı geri alınamaz: aynı aracın daha eski dolumundan küçük, daha yeni ' +
+           'dolumundan ve araç kaydındaki güncel kilometreden büyük olamaz. Ortalama tüketim bu ' +
+           'değerden türetilir.',
+      validate:function(v, d){
+        if(bos(v)) return '';
+        var n = sayi(v);
+        if(n < 0) return 'Kilometre negatif olamaz.';
+        if(!d.arac || !d.tarih) return '';
+        var a = aracOf(d.arac);
+        var onc = oncekiDolum(d.arac, d.tarih);
+        var snr = sonrakiDolum(d.arac, d.tarih);
+        if(onc && n < sayi(onc.km))
+          return 'Sayaç geri gidemez: aynı aracın ' + F.date(onc.tarih) + ' tarihli dolumunda (' +
+                 onc.kod + ') sayaç ' + F.num(onc.km) + ' km idi.';
+        if(snr && n > sayi(snr.km))
+          return 'Sayaç, aracın ' + F.date(snr.tarih) + ' tarihli sonraki dolumunun (' + snr.kod +
+                 ') sayacını (' + F.num(snr.km) + ' km) aşamaz.';
+        if(a && n > sayi(a.guncelKm))
+          return 'Sayaç, araç kaydındaki güncel kilometreyi (' + F.num(a.guncelKm) +
+                 ' km) aşamaz — önce araç kaydındaki kilometre güncellenmelidir.';
+        return '';
+      } }
+  );
+
+  sections.push({ title:'Dolum ve tutar',
+    desc:'Alınan litre ve pompa birim fiyatı. Tutar bu ikisinden türetilir ve tam liraya yuvarlanır; ' +
+         'forma elle girilebilen bir tutar alanı konmaz. Ortalama tüketim de sayaç değerinden türetilir.',
+    fields:dolumAlanlari });
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Dolumun kendisi ile defter kaydının durumu ayrı eksenlerdir; kayıt pasife alınsa da dolum ' +
+         'gerçekleşmiş sayılır, yalnız listelerden ve sayaçlardan düşer.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — yakıt defterinde, tüketim ve maliyet sayaçlarında görünür',
+        hint:'Kapatılırsa kayıt arşive düşer; araç kartındaki yakıt harcaması toplamından ve ortalama ' +
+             'tüketim hesabından çıkar. Kayıt silinmez.' }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunluSayisi = 0;
+  sections.forEach(function(s){
+    (s.fields || []).forEach(function(f){ if(f.required) zorunluSayisi++; });
+  });
+
+  var form = GV.form({
+    mount:'#formMount', id:'yakit', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     TÜREVLER — tek kaynak. Tutar da tüketim de burada hesaplanır.
+     ================================================================= */
+  function birimFiyatOku(v){
+    /* Finans yetkisi yoksa birim fiyat forma hiç basılmadı: düzenlemede kayıttaki
+       değer olduğu gibi korunur (filo-form-brief §1). */
+    if(canFinans) return bos(v.birimFiyat) ? null : sayi(v.birimFiyat);
+    return duzenle ? sayi(kayit.birimFiyat) : null;
+  }
+  function tutarHesapla(v){
+    var l = bos(v.litre) ? null : sayi(v.litre);
+    var bf = birimFiyatOku(v);
+    if(l == null || bf == null || l <= 0 || bf <= 0) return null;
+    return Math.round(l * bf);
+  }
+
+  function tutarOzetiCiz(){
+    var hedef = document.getElementById('tutarOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var l = bos(v.litre) ? null : sayi(v.litre);
+    var bf = birimFiyatOku(v);
+    var tutar = tutarHesapla(v);
+    var ham = (l != null && bf != null) ? l * bf : null;
+
+    var not;
+    if(!canFinans){
+      not = GV.notice({ tone:'neutral', icon:'i-lock', title:'Tutar alanları rolünüze kapalı',
+        text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar yetkisi yok; birim fiyat alanı forma ' +
+             'hiç basılmadı ve kayıttaki birim fiyat olduğu gibi korunuyor. Litre ya da sayaç değerini ' +
+             'değiştirirseniz tutar korunan birim fiyatla yeniden türetilir, ama size gösterilmez. ' +
+             'Litre, kilometre ve tüketim değerlerini düzenlemeye devam edebilirsiniz.' });
+    }else if(tutar == null){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Tutar için litre ve birim fiyat gerekiyor',
+        text:'İki alandan biri boş olduğu sürece tutar hesaplanamaz. Tutar elle girilmez: ' +
+             'litre × birim fiyat çarpımı tam liraya yuvarlanarak yazılır.' });
+    }else{
+      var sapma = ortFiyat ? Math.round(Math.abs(bf - ortFiyat) / ortFiyat * 100) : 0;
+      not = GV.notice({
+        tone:sapma > 25 ? 'warn' : 'ok',
+        icon:sapma > 25 ? 'i-alert' : 'i-check-circle',
+        title:sapma > 25 ? 'Birim fiyat defter ortalamasından uzak' : 'Tutar türetildi',
+        text:F.num(l, 1) + ' litre × ' + F.num(bf, 2) + ' ₺/L = ' + F.num(ham, 2) + ' ₺, tam liraya ' +
+             'yuvarlanarak ' + F.money(tutar) + ' olarak kaydedilecek. ' +
+             (sapma > 25
+               ? 'Girilen birim fiyat, defterdeki ortalamadan (' + F.num(ortFiyat, 2) + ' ₺/L) %' + sapma +
+                 ' sapıyor; pompa fişindeki fiyatı doğrulayın. Kayda engel değildir.'
+               : 'Pompa fiyatı KDV dahil olduğu için tutar da ödenen bedeldir; ayrıca vergi ayrıştırması ' +
+                 'yapılmaz.') });
+    }
+
+    hedef.innerHTML = not + ozetListe([
+      ['Araç', v.arac ? esc(aracAd(v.arac)) + sub(v.arac) : faint('Seçilmedi')],
+      ['Dolum tarihi', v.tarih ? F.date(v.tarih) : faint('Girilmedi')],
+      ['İstasyon', bos(v.istasyon) ? faint('Girilmedi') : esc(v.istasyon)],
+      ['Sürücü', v.surucu ? GV.user(v.surucu, { sm:true }) : faint('Seçilmedi')],
+      ['Alınan yakıt', l == null ? faint('Girilmedi') : litreYaz(l)],
+      ['Birim fiyat <span class="u-faint">' + PARA_EKSEN + '</span>',
+        canFinans ? (bf == null ? faint('Girilmedi') : fiyatYaz(bf)) : maske()],
+      ['Hesap', (l != null && bf != null && canFinans)
+        ? '<span class="u-num">' + F.num(l, 1) + ' L × ' + F.num(bf, 2) + ' ₺/L</span>' +
+          sub('yuvarlanmadan ' + F.num(ham, 2) + ' ₺')
+        : faint(canFinans ? 'Litre ve birim fiyat girilmeli' : 'Tutar yetkisi rolünüzde yok')],
+      ['Türetilen tutar <span class="u-faint">' + PARA_EKSEN + '</span>',
+        !canFinans ? maske()
+          : tutar == null ? faint('Hesaplanamadı')
+          : '<b>' + para(tutar) + '</b>' + sub('kaydedilecek değer · tam lira')],
+      (duzenle && canFinans)
+        ? ['Kayıtlı tutar <span class="u-faint">' + PARA_EKSEN + '</span>',
+           paraSade(kayit.tutar) +
+           (tutar != null && Math.round(sayi(kayit.tutar)) !== tutar
+             ? sub((tutar > sayi(kayit.tutar) ? '+' : '') + F.money(tutar - sayi(kayit.tutar)) +
+                   ' değişecek')
+             : sub('değişiklik yok'))]
+        : null,
+      ['Defter ortalaması <span class="u-faint">' + PARA_EKSEN + '</span>',
+        canFinans
+          ? fiyatYaz(ortFiyat) + sub(toplamKayit + ' kayıt · en düşük ' + F.num(enDusukFiyat, 2) +
+              ' · en yüksek ' + F.num(enYuksekFiyat, 2) + ' ₺/L')
+          : maske()]
+    ]);
+  }
+
+  function kmOzetiCiz(){
+    var hedef = document.getElementById('kmOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var a = aracOf(v.arac);
+    var n = bos(v.km) ? null : sayi(v.km);
+    var l = bos(v.litre) ? null : sayi(v.litre);
+    var tutar = tutarHesapla(v);
+    var onc = (v.arac && v.tarih) ? oncekiDolum(v.arac, v.tarih) : null;
+    var snr = (v.arac && v.tarih) ? sonrakiDolum(v.arac, v.tarih) : null;
+    var esGun = (v.arac && v.tarih) ? ayniGun(v.arac, v.tarih) : [];
+
+    var mesafe = (onc && n != null) ? n - sayi(onc.km) : null;
+    var tuketim = (mesafe != null && mesafe > 0 && l != null && l > 0) ? l / mesafe * 100 : null;
+    var kmBasi  = (mesafe != null && mesafe > 0 && tutar != null) ? tutar / mesafe : null;
+    var menzil  = (tuketim != null && l != null) ? Math.round(l / tuketim * 100) : null;
+
+    var not;
+    if(!v.arac){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Önce araç seçilmeli',
+        text:'Kilometre zinciri ve ortalama tüketim araca göre hesaplanır; araç seçilmeden önceki ' +
+             've sonraki dolum bulunamaz.' });
+    }else if(n == null){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Sayaç değeri girilmedi',
+        text:aracAd(v.arac) + ' aracının araç kaydındaki güncel sayacı ' +
+             (a ? F.num(a.guncelKm) + ' km' : '—') +
+             (onc ? '; son dolumu ' + F.date(onc.tarih) + ' tarihinde ' + F.num(onc.km) + ' km’de yapılmış'
+                  : '; aracın önceki dolum kaydı yok') +
+             '. Ortalama tüketim sayaç girilince türetilir.' });
+    }else if(onc && n < sayi(onc.km)){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Kilometre zinciri kırılıyor',
+        text:'Girilen sayaç ' + F.num(n) + ' km, aracın ' + F.date(onc.tarih) + ' tarihli dolumundaki ' +
+             F.num(onc.km) + ' km değerinin altında. Sayaç geri alınamaz; ya sayaç değeri ya da dolum ' +
+             'tarihi hatalı.' });
+    }else if(snr && n > sayi(snr.km)){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Sonraki dolumun sayacı aşılıyor',
+        text:'Girilen sayaç ' + F.num(n) + ' km, aracın ' + F.date(snr.tarih) + ' tarihli sonraki ' +
+             'dolumundaki ' + F.num(snr.km) + ' km değerinin üzerinde. Defterdeki kilometre sırası ' +
+             'bozulur.' });
+    }else if(a && n > sayi(a.guncelKm)){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Araç kaydındaki sayaç aşılıyor',
+        text:'Girilen sayaç ' + F.num(n) + ' km, araç kaydındaki güncel kilometreden (' +
+             F.num(a.guncelKm) + ' km) büyük. Bu form araç kaydını güncellemez; önce araç formundan ' +
+             'kilometre güncellenmelidir.' });
+    }else if(!onc){
+      not = GV.notice({ tone:'info', icon:'i-info', title:'Aracın ilk dolum kaydı',
+        text:aracAd(v.arac) + ' için defterde daha eski bir dolum yok; ortalama tüketim iki dolum ' +
+             'arasındaki yoldan türetildiği için bu kayıtta hesaplanamaz. İkinci dolumdan sonra ' +
+             'tüketim otomatik oluşur.' });
+    }else if(tuketim == null){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Tüketim hesaplanamıyor',
+        text:'Önceki dolumla aynı sayaç değeri girildi (' + F.num(n) + ' km); iki dolum arasında yol ' +
+             'yok. Litre girilmişse tüketim tanımsız kalır, sayaç değerini doğrulayın.' });
+    }else{
+      var sapmaT = filoTuketim ? Math.round((tuketim - filoTuketim) / filoTuketim * 100) : 0;
+      not = GV.notice({
+        tone:Math.abs(sapmaT) > 35 ? 'warn' : 'ok',
+        icon:Math.abs(sapmaT) > 35 ? 'i-alert' : 'i-check-circle',
+        title:'Ortalama tüketim türetildi',
+        text:F.date(onc.tarih) + ' tarihli dolumdan bu yana ' + F.num(mesafe) + ' km gidilmiş, bu dolumda ' +
+             F.num(l, 1) + ' litre alınmış: ' + F.num(tuketim, 1) + ' L/100 km (' +
+             F.num(mesafe / l, 1) + ' km/L). Hesap tam depo varsayımına dayanır — bir dolumun litresi, ' +
+             'bir önceki dolumdan bu yana gidilen yolu karşılar. ' +
+             (filoTuketim
+               ? 'Filo ortalaması ' + F.num(filoTuketim, 1) + ' L/100 km (' + ciftler.length +
+                 ' dolum çifti üzerinden); bu kayıt ortalamadan %' + Math.abs(sapmaT) + ' ' +
+                 (sapmaT >= 0 ? 'yüksek' : 'düşük') + '.'
+               : 'Filo ortalaması için henüz yeterli dolum çifti yok.') });
+    }
+
+    var esGunNot = esGun.length
+      ? GV.notice({ tone:'warn', icon:'i-calendar', title:'Aynı araca aynı gün için başka dolum var',
+          text:aracAd(v.arac) + ' aracında ' + F.date(v.tarih) + ' tarihli ' + esGun.length +
+               ' dolum kaydı daha bulunuyor (' + esGun.map(function(x){ return x.kod; }).join(', ') +
+               '). Defter yalnız tarihe göre sıralandığı için aynı günlü kayıtlarda kilometre sırası ' +
+               'kesin olarak doğrulanamaz; sayaç değerini fişten kontrol edin.' })
+      : '';
+
+    hedef.innerHTML = not + esGunNot + ozetListe([
+      ['Araç', v.arac ? esc(aracAd(v.arac)) + sub(v.arac) : faint('Seçilmedi')],
+      ['Araç kaydındaki güncel sayaç', a ? kmYaz(a.guncelKm) : faint('—')],
+      ['Önceki dolum', onc
+        ? F.date(onc.tarih) + ' · ' + F.num(onc.km) + ' km' +
+          sub(onc.kod + ' · ' + onc.istasyon + ' · ' + F.num(onc.litre, 1) + ' L')
+        : faint(v.arac ? 'Aracın ilk dolumu' : '—')],
+      ['Bu kaydın sayacı', n == null ? faint('Girilmedi') : kmYaz(n)],
+      ['Sonraki dolum', snr
+        ? F.date(snr.tarih) + ' · ' + F.num(snr.km) + ' km' +
+          sub(snr.kod + ' · ' + snr.istasyon)
+        : faint(v.arac ? 'Defterdeki en yeni dolum' : '—')],
+      ['İki dolum arası yol', mesafe == null ? faint('—')
+        : (mesafe < 0 ? '<b class="u-danger">' + F.num(mesafe) + ' km</b>' : kmYaz(mesafe))],
+      ['Alınan yakıt', l == null ? faint('Girilmedi') : litreYaz(l)],
+      ['Ortalama tüketim', tuketim == null ? faint('Türetilemedi')
+        : '<b class="u-num">' + F.num(tuketim, 1) + ' L/100 km</b>' +
+          sub(F.num(mesafe / l, 1) + ' km/L · türetilmiş, elle girilmez')],
+      ['Filo ortalaması', filoTuketim
+        ? '<span class="u-num">' + F.num(filoTuketim, 1) + ' L/100 km</span>' +
+          sub(ciftler.length + ' dolum çifti · ' + F.num(filoMesafe) + ' km')
+        : faint('Yeterli dolum çifti yok')],
+      ['Tüketim karşılaştırması', (tuketim != null && filoTuketim)
+        ? GV.progress(Math.max(0, Math.min(100, Math.round(filoTuketim / tuketim * 100))),
+            { tone:tuketim > filoTuketim * 1.35 ? 'danger' : tuketim > filoTuketim ? 'warn' : 'ok' }) +
+          sub('filo ortalamasının bu kayda oranı')
+        : faint('—')],
+      canFinans
+        ? ['Kilometre başına maliyet <span class="u-faint">' + PARA_EKSEN + '</span>',
+           kmBasi == null ? faint('Türetilemedi')
+             : '<span class="u-num">' + F.num(kmBasi, 2) + ' ₺/km</span>' +
+               sub('tutar ÷ iki dolum arası yol')]
+        : ['Kilometre başına maliyet', maske()],
+      ['Tahmini menzil', menzil == null ? faint('—')
+        : kmYaz(menzil) + sub('bu tüketimle, alınan yakıtla gidilebilecek yol')]
+    ]);
+  }
+
+  function ozetleriCiz(){ tutarOzetiCiz(); kmOzetiCiz(); }
+
+  /* Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u taze kopyayla
+     değiştirdiği için birikmezler (ders L-16). */
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    arac:'Araç', tarih:'Dolum tarihi', istasyon:'İstasyon', surucu:'Sürücü',
+    litre:'Alınan yakıt', birimFiyat:'Birim fiyat ' + PARA_EKSEN,
+    tutar:'Tutar ' + PARA_EKSEN, km:'Sayaç', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, null, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')      return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'tutar')      return F.money(sayi(v)) + ' ' + PARA_EKSEN;
+    if(k === 'birimFiyat') return F.num(sayi(v), 2) + ' ₺/L ' + PARA_EKSEN;
+    if(k === 'litre')      return F.num(sayi(v), 1) + ' L';
+    if(k === 'km')         return F.num(sayi(v)) + ' km';
+    if(k === 'tarih')      return F.date(v);
+    if(k === 'arac')       return aracAd(v);
+    if(k === 'surucu')     return DB.empName(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.istasyon = metin(v.istasyon);
+    v.aktif    = !!v.aktif;
+    v.litre    = bos(v.litre) ? null : Math.round(sayi(v.litre) * 10) / 10;   /* defterde tek ondalık */
+    v.km       = bos(v.km) ? null : Math.round(sayi(v.km));
+
+    /* Birim fiyat: yetkisiz rolde forma hiç basılmadı, anahtar v'de yok — kayıttaki
+       değere DOKUNULMAZ. Yetkili rolde iki ondalığa yuvarlanır (pompa kuruşu). */
+    if(canFinans){
+      v.birimFiyat = bos(v.birimFiyat) ? null : Math.round(sayi(v.birimFiyat) * 100) / 100;
+    }else{
+      delete v.birimFiyat;
+    }
+
+    /* TUTAR TÜRETİLİR (ders L-08) — forma hiç basılmadı, burada hesaplanır. */
+    var bf = canFinans ? v.birimFiyat : (duzenle ? sayi(kayit.birimFiyat) : null);
+    v.tutar = (v.litre && bf) ? Math.round(v.litre * bf) : null;
+
+    return v;
+  }
+
+  /* Bu form araç kaydını, gider defterini ve belge kaydını YAZMAZ.
+     Girilen değerler bağlı kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var a = aracOf(v.arac);
+    var onc = oncekiDolum(v.arac, v.tarih);
+    var esGun = ayniGun(v.arac, v.tarih);
+
+    if(a && a.durum === 'Serviste'){
+      out.push('Araç şu anda “Serviste” görünüyor; servisteki araca dolum kaydı yazılıyor. Bu form ' +
+               'araç durumunu değiştirmez.');
+    }
+    if(a && a.anaSurucu && v.surucu && v.surucu !== a.anaSurucu){
+      out.push('Dolumu yapan sürücü (' + DB.empName(v.surucu) + ') aracın ana sürücüsünden (' +
+               DB.empName(a.anaSurucu) + ') farklı' +
+               (a.yedekSurucu === v.surucu ? '; seçilen kişi aracın yedek sürücüsü' : '') + '.');
+    }
+    if(a && a.kullanim === 'Ortak kullanım' && !a.anaSurucu){
+      out.push('Araç ortak kullanımda ve ana sürücüsü yok; yakıt maliyeti kişiye değil, sorumlu ' +
+               'departmana (' + DB.depName(a.dep) + ') yazılır.');
+    }
+    if(a && v.km != null && sayi(a.guncelKm) - v.km > 2000){
+      out.push('Sayaç ' + F.num(v.km) + ' km, araç kaydındaki güncel kilometreden (' +
+               F.num(a.guncelKm) + ' km) ' + F.num(sayi(a.guncelKm) - v.km) + ' km geride; geçmiş ' +
+               'tarihli bir fiş giriliyorsa beklenen durumdur.');
+    }
+    if(onc && v.km != null && v.litre){
+      var mesafe = v.km - sayi(onc.km);
+      if(mesafe > 0){
+        var tuk = v.litre / mesafe * 100;
+        if(filoTuketim && tuk > filoTuketim * 1.35){
+          out.push('Türetilen tüketim ' + F.num(tuk, 1) + ' L/100 km, filo ortalamasının (' +
+                   F.num(filoTuketim, 1) + ') belirgin üzerinde; sayaç ya da litre değerini fişten ' +
+                   'doğrulamakta yarar var.');
+        }
+        if(mesafe > 3000){
+          out.push('İki dolum arasında ' + F.num(mesafe) + ' km görünüyor; aradaki dolumlardan biri ' +
+                   'deftere hiç girilmemiş olabilir, bu durumda ortalama tüketim gerçeği yansıtmaz.');
+        }
+      }else if(mesafe === 0){
+        out.push('Sayaç önceki dolumla aynı (' + F.num(v.km) + ' km); iki dolum arasında yol ' +
+                 'görünmüyor ve ortalama tüketim hesaplanamayacak.');
+      }
+    }
+    if(esGun.length){
+      out.push('Aynı araca ' + F.date(v.tarih) + ' tarihinde ' + esGun.length + ' dolum kaydı daha var (' +
+               esGun.map(function(x){ return x.kod; }).join(', ') + '); mükerrer fiş girilmediğinden ' +
+               'emin olun.');
+    }
+    if(v.tarih && F.days(v.tarih) < -60){
+      out.push('Dolum tarihi ' + F.date(v.tarih) + ' — sistem tarihine göre ' +
+               Math.abs(F.days(v.tarih)) + ' gün geride; kapanmış bir döneme kayıt giriliyor olabilir.');
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: dolum, yakıt defterinden, tüketim ortalamasından ve araç ' +
+               'kartındaki yakıt harcaması toplamından düşecek. Kayıt silinmez.');
+    }
+    if(duzenle && norm(kayit.arac) !== norm(v.arac)){
+      out.push('Dolum kaydı ' + aracAd(kayit.arac) + ' aracından ' + aracAd(v.arac) +
+               ' aracına taşınıyor; her iki aracın kilometre zinciri ve tüketim ortalaması değişir.');
+    }
+    if(duzenle && v.tutar != null && Math.round(sayi(kayit.tutar)) !== v.tutar && canFinans){
+      out.push('Türetilen tutar ' + F.money(kayit.tutar) + ' → ' + F.money(v.tutar) +
+               ' olarak değişiyor. Gider defterindeki eşleşen kalem bu formdan güncellenmez.');
+    }
+    if(duzenle && !canFinans && (norm(kayit.litre) !== norm(v.litre))){
+      out.push('Litre değiştiği için tutar, kayıttaki birim fiyatla yeniden türetilecek. Rolünüzde ' +
+               'tutar yetkisi olmadığı için yeni tutar gösterilmiyor.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         Aktivite satırı kaydın KENDİ koduyla yazılır (filo-form-brief §4). */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        /* Tutar türev bir alandır ve finans yetkisi olmayan role gösterilmez:
+           satır yazılır ama eski/yeni değer basılmaz. */
+        var gizli = !canFinans && (k === 'tutar' || k === 'birimFiyat');
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:(k === 'tutar' ? 'Tutar yeniden türetildi (litre × birim fiyat)'
+                               : 'Alan güncellendi: ' + (ALAN_ADI[k] || k)),
+          eski:gizli ? null : gorunur(k, kayit[k]),
+          yeni:gizli ? null : gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. */
+      DB.fuelLogs.unshift({
+        kod:kod, arac:v.arac, tarih:v.tarih, istasyon:v.istasyon, litre:v.litre,
+        birimFiyat:v.birimFiyat, tutar:v.tutar, km:v.km, surucu:v.surucu, aktif:v.aktif
+      });
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Yakıt kaydı oluşturuldu — ' + aracAd(v.arac) + ' · ' + F.num(v.litre, 1) + ' L · ' +
+              v.istasyon,
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-arac-yakit.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    /* Tutar türev olduğu için form doğrulamasının dışında kalır: hesaplanamıyorsa
+       eksik kayıt yazmak yerine kullanıcı durdurulur. */
+    if(v.tutar == null){
+      GV.toast(canFinans
+        ? 'Tutar hesaplanamadı — litre ve birim fiyat sıfırdan büyük olmalı'
+        : 'Tutar hesaplanamadı — kayıttaki birim fiyat okunamıyor', 'danger');
+      form.setDirty(true);
+      return;
+    }
+
+    var uyari = dengeUyarilari(v);
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz dolum defterine yeni değerler yazılır; araç kaydındaki ' +
+           'güncel kilometre, gider defteri ve belge kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Araç ve Filo',
+    title:basligi,
+    sub: duzenle
+      ? (kayitArac ? kayitArac.plaka + ' · ' + kayitArac.marka + ' ' + kayitArac.model + ' · ' : '') +
+        F.date(kayit.tarih) + ' · ' + kayit.istasyon +
+        ' — değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunluSayisi +
+        ' zorunlu · tutar türetilir · atanacak kod ' + siradakiKod + '.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-arac-yakit.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>

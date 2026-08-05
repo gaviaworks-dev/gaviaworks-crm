@@ -76,6 +76,10 @@ const MAP = {
   'app-arac-form.html': 'vehicles',
   'app-arac-bakim-form.html': 'maintenance',
   'app-arac-muayene-form.html': 'inspections',
+  'app-arac-sigorta-form.html': 'policies',
+  'app-arac-yakit-form.html': 'fuelLogs',
+  'app-arac-gider-form.html': 'vehicleExpenses',
+  'app-arac-kaza-form.html': 'accidents',
 };
 
 /* Kaydın GERÇEKTEN yüklendiğinin ölçütü.

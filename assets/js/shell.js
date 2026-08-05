@@ -713,7 +713,11 @@
     'app-toplanti-form.html',
     'app-arac-form.html',
     'app-arac-bakim-form.html',
-    'app-arac-muayene-form.html'
+    'app-arac-muayene-form.html',
+    'app-arac-sigorta-form.html',
+    'app-arac-yakit-form.html',
+    'app-arac-gider-form.html',
+    'app-arac-kaza-form.html'
   ];
   GV.built = BUILT;
 

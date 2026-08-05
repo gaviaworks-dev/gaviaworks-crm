@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kaza veya Ceza Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="kaza">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees (DB.empName)
+     ops.js  → DB.accidents, DB.fines, DB.vehicles, DB.policies, DB.vehicleExpenses
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     İKİ AYRI KOLEKSİYON — TEK KAYITTA BİRLEŞTİRİLMEZ
+     Kaza ve hasar kayıtları DB.accidents (kod öneki KZA-), trafik
+     cezaları DB.fines (kod öneki CEZ-) içinde durur. Liste ekranı
+     ikisini görüntüde birleştirir; YAZMA tarafı birleştirmez:
+     düzenlenen kaydın hangi koleksiyona ait olduğu KOD ÖNEKİNDEN
+     okunur, yeni kayıtta kullanıcı türü seçer ve alan kümesi o
+     seçime göre yeniden kurulur.
+     ================================================================= */
+  var TUR = {
+    kaza:{
+      key:'kaza', ad:'Kaza ve hasar', onek:'KZA', koleksiyon:'DB.accidents',
+      liste:function(){ return DB.accidents; },
+      ikon:'i-car', ton:'is-danger'
+    },
+    ceza:{
+      key:'ceza', ad:'Trafik cezası', onek:'CEZ', koleksiyon:'DB.fines',
+      liste:function(){ return DB.fines; },
+      ikon:'i-receipt', ton:'is-warn'
+    }
+  };
+  function turFromKod(kod){
+    var s = String(kod || '');
+    if(/^KZA-/.test(s)) return TUR.kaza;
+    if(/^CEZ-/.test(s)) return TUR.ceza;
+    return null;
+  }
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kodTur  = id ? turFromKod(id) : null;
+  var kayit   = kodTur ? kodTur.liste().filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+  var tur     = duzenle ? kodTur : null;
+
+  /* Adreste id var ama kayıt yok (ya da önek iki koleksiyondan hiçbirine uymuyor):
+     uydurma yok, boş forma da düşülmez. GV.empty metni ÖN-ESCAPE EDİLMEZ (UID-23). */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Araç ve Filo', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen kaza ya da ceza kaydı bulunamadı.',
+      actions:[{ label:'Kaza ve ceza listesine dön', cls:'btn-line', href:'app-arac-kaza.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Kayıt bulunamadı',
+      desc:'“' + id + '” kodlu kayıt bulunamadı. Kaza ve hasar kayıtları KZA-, trafik cezaları ' +
+           'CEZ- önekiyle tutulur; bağlantı eski ya da önek hatalı olabilir.',
+      action:'<a class="btn btn-acc" href="app-arac-kaza.html">Kaza ve ceza listesine dön</a>' }) +
+      '</section>';
+    return;
+  }
+
+  /* Başlıkta KAYIT KODU durur (ders L-19) — plaka alt satıra yazılır. */
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Kaza veya Ceza Kaydı';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Araç ve Filo', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Kaza ve ceza listesine dön', cls:'btn-line', href:'app-arac-kaza.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Kaza ve ceza kaydı düzenleme' : 'Kaza ve ceza kaydı oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Kayıtları listede ve araç ' +
+           'kartında görüntüleyebilir, ancak değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-arac-kaza.html">Kaza ve ceza listesi</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-arac-detay.html?id=' + esc(kayit.arac) +
+                   '">Araç kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); }); return o;
+  }
+  function birlestir(temel, veriden){
+    var o = temel.slice();
+    veriden.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); });
+    return o;
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function paraSade(v){ return '<span class="u-num">' + F.money(v) + '</span>'; }
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function kart(baslik, ikon, altBaslik, govdeId, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' +
+      '<div class="gc-body" id="' + govdeId + '"></div></section>';
+  }
+
+  /* Gün sayısı sayısal bir eşiktir, TONE sözlüğünde karşılığı yok — ton AÇIKÇA
+     geçilir (components.md §5). Ödeme vadesi eşikleri filo genelindekiyle aynı. */
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0)   return 'is-danger';
+    if(d <= 7)  return 'is-danger';
+    if(d <= 15) return 'is-warn';
+    if(d <= 30) return 'is-warn';
+    return 'is-ok';
+  }
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return faint('—');
+    var m = d < 0 ? 'Vade geçti · ' + (-d) + ' gün' : d === 0 ? 'Bugün son gün' : d + ' gün kaldı';
+    return GV.badge(m, kalanTon(iso));
+  }
+
+  function aracOf(kod){
+    return DB.vehicles.filter(function(v){ return v.kod === kod; })[0] || null;
+  }
+  function aracAd(kod){
+    var v = aracOf(kod);
+    return v ? v.plaka + ' — ' + v.marka + ' ' + v.model : (kod || '—');
+  }
+  function plakaOf(kod){ var v = aracOf(kod); return v ? v.plaka : (kod || '—'); }
+
+  /* =================================================================
+     PARA EKSENİ — filo tarafında TEK EKSEN, KDV DAHİL (ödenen tutar)
+     `DB.accidents[].onarimMaliyet` ve `DB.fines[].tutar` bakım maliyeti,
+     poliçe primi, yakıt ve gider kalemleriyle aynı eksendedir. Tutar
+     alanı finans yetkisi olmayan role forma HİÇ basılmaz; düzenlemede
+     kayıttaki tutara dokunulmaz (anahtar `degerleriOku` içinde düşürülür).
+     ================================================================= */
+  var PARA_EKSEN = '(KDV dahil)';
+
+  /* =================================================================
+     KÜMELER — taban değerler veriden gelenlerle birleştirilir
+     ================================================================= */
+  var KAZA_DURUM = birlestir(['Devam ediyor','Onarımda','Kapandı'],
+                             distinct(DB.accidents.map(function(x){ return x.durum; })));
+  var CEZA_DURUM = birlestir(['Ödenmedi','Ödendi'],
+                             distinct(DB.fines.map(function(x){ return x.durum; })));
+  var EKSPERTIZ  = birlestir(['Bekliyor','Yapıldı','Yapılmadı'],
+                             distinct(DB.accidents.map(function(x){ return x.ekspertiz; })));
+  var CEZA_TUR   = birlestir(['Hız limiti aşımı','Park ihlali'],
+                             distinct(DB.fines.map(function(x){ return x.tur; })));
+
+  var ARAC_SECENEK = DB.vehicles.map(function(v){
+    return { value:v.kod, label:v.plaka + ' — ' + v.marka + ' ' + v.model +
+             (v.aktif === false ? ' (arşiv)' : '') };
+  });
+  var EMP_SECENEK = DB.employees.filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' — ' + e.depAd }; });
+  /* Kayıttaki sürücü pasife alınmışsa seçenek listesinde bulunmaz ve düzenlemede
+     değer sessizce düşerdi — kaydın kendi sürücüsü listeye geri eklenir. */
+  if(duzenle && kayit.surucu && !EMP_SECENEK.some(function(o){ return o.value === kayit.surucu; })){
+    EMP_SECENEK.unshift({ value:kayit.surucu, label:DB.empName(kayit.surucu) + ' — pasif personel' });
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var kazaSayisi   = DB.accidents.length;
+  var cezaSayisi   = DB.fines.length;
+  var acikCezalar  = DB.fines.filter(function(c){ return c.durum === 'Ödenmedi'; });
+  var acikKazalar  = DB.accidents.filter(function(k){ return k.durum !== 'Kapandı'; });
+  var acikCezaTutar = acikCezalar.reduce(function(s, c){ return s + sayi(c.tutar); }, 0);
+  /* Ceza ve kaza kalemi gider defterine OTOMATİK düşmez; gider kaydının kaza ya da
+     cezaya bağ alanı veride yoktur. Kaç gider kaleminin “Ceza” türünde durduğu ölçülür. */
+  var cezaGiderleri = DB.vehicleExpenses.filter(function(g){ return g.tur === 'Ceza'; });
+
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* Yeni kod HER KOLEKSİYON KENDİ ÖNEKİYLE, dizi uzunluğundan değil en yüksek
+     mevcut numaradan +1 üretilir (form-brief §5). */
+  function yeniKod(t){
+    var max = 0, re = new RegExp('^' + t.onek + '-\\d{4}-(\\d+)$');
+    t.liste().forEach(function(x){
+      var m = re.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return t.onek + '-' + String(DB.today).slice(0, 4) + '-' + pad(max + 1, 3);
+  }
+
+  /* =================================================================
+     BAŞLANGIÇ KAYDI
+     `?arac=ARC-...` ile araç ön doldurma her filo formunda desteklenir.
+     ================================================================= */
+  var onArac    = qs.get('arac');
+  var onAracVar = onArac ? !!aracOf(onArac) : false;
+  var turParam  = (qs.get('tur') || '').toLowerCase();
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+  }else{
+    tur = TUR[turParam] || TUR.kaza;
+    formRec = {
+      kayitTuru:tur.key,
+      arac:onAracVar ? onArac : '', tarih:DB.today, surucu:'',
+      /* kaza alanları */
+      konum:'', karsiArac:'', kusurOrani:'', tutanak:'', ekspertiz:'Bekliyor',
+      sigortaDosya:'', onarimServis:'', onarimMaliyet:'', aciklama:'',
+      /* ceza alanları */
+      tur:'', tutar:'', sonOdeme:'', belge:'',
+      durum:tur.key === 'kaza' ? 'Devam ediyor' : 'Ödenmedi',
+      aktif:true
+    };
+  }
+
+  /* Aracın ana ve yedek sürücüsü — sürücü seçimi bununla karşılaştırılır (uyarı, hata değil). */
+  function aracSurucusuMu(aracKod, empKod){
+    var v = aracOf(aracKod);
+    if(!v || !empKod) return null;
+    if(v.anaSurucu === empKod) return 'ana sürücü';
+    if(v.yedekSurucu === empKod) return 'yedek sürücü';
+    return '';
+  }
+
+  /* =================================================================
+     ALAN KÜMELERİ — İKİ KOLEKSİYON, İKİ AYRI KÜME
+     Alanlar tek forma karıştırılmaz; hangi küme kurulacağı `tur`dan gelir.
+     ================================================================= */
+  function turSecimBolumu(){
+    return { title:'Kayıt türü',
+      desc:'Kaza ve hasar kayıtları ile trafik cezaları ayrı koleksiyonlarda tutulur ve alanları ' +
+           'farklıdır. Tür seçimi kaydın kodunu belirler ve aşağıdaki alan kümesini yeniden kurar; ' +
+           'kaydettikten sonra tür değiştirilemez.',
+      fields:[
+        { key:'kayitTuru', label:'Ne kaydediyorsunuz', type:'radio', required:true, cols:12,
+          options:[
+            { value:'kaza', label:'Kaza ve hasar — kod ' + yeniKod(TUR.kaza) },
+            { value:'ceza', label:'Trafik cezası — kod ' + yeniKod(TUR.ceza) }
+          ],
+          hint:'Kaza kaydı konum, karşı araç, kusur oranı, tutanak, ekspertiz, sigorta dosyası ve onarım ' +
+               'alanlarını taşır; ceza kaydı ceza türü, tutar ve son ödeme tarihini. Ölçüm: sistemde ' +
+               kazaSayisi + ' kaza, ' + cezaSayisi + ' ceza kaydı var.' }
+      ]};
+  }
+
+  function kazaBolumleri(){
+    var onarim = [
+      { key:'onarimServis', label:'Onarım servisi', type:'text', cols:6,
+        placeholder:'Örn. Ford Yetkili Servis',
+        hint:'Hasarın onarıldığı servis. Onarım henüz başlamadıysa boş bırakılır; servis bakım kaydı ' +
+             'bu formdan doğmaz, bakım ekranından açılır.' }
+    ];
+    if(canFinans){
+      onarim.push({ key:'onarimMaliyet', label:'Onarım maliyeti ' + PARA_EKSEN, type:'money', cols:6, min:0,
+        hint:'Ödenen onarım bedeli — bakım maliyeti, poliçe primi, yakıt ve gider kalemleriyle aynı ' +
+             'eksende, KDV dahil. Hasar karşı tarafın sigortasından karşılandıysa 0 yazılır (ölçüm: ' +
+             'KZA-2026-002 kusur %0, onarım maliyeti 0). Listede 0 tutar “Sigortadan karşılandı” ' +
+             'olarak gösterilir.',
+        validate:function(v){
+          var s = metin(v);
+          if(s === '') return '';
+          var n = sayi(v);
+          if(n < 0) return 'Onarım maliyeti negatif olamaz.';
+          if(Math.round(n) !== n) return 'Tutar tam lira olarak yazılır (kuruş kullanılmaz).';
+          return '';
+        } });
+    }
+    onarim.push(
+      { key:'durum', label:'Kayıt durumu (süreç)', type:'select', options:KAZA_DURUM, required:true, cols:6,
+        hint:'Küme: ' + KAZA_DURUM.join(' · ') + '. Liste ekranının “Kapananlar” sekmesi Kapandı ve Ödendi ' +
+             'değerlerini birlikte süzer. Ölçüm: ' + kazaSayisi + ' kaza kaydının ' + acikKazalar.length +
+             ' tanesi kapanmadı.' },
+
+      { key:'aciklama', label:'Olay açıklaması', type:'textarea', required:true, cols:12, rows:3,
+        placeholder:'Örn. Karşı taraf tam kusurlu, hasar sigortadan karşılandı.',
+        hint:'Listede kayıt kodunun altında bu metin görünür; kısa ve olayı anlatan bir cümle yazılır.' }
+    );
+
+    return [
+      { title:'Kaza ve hasar bilgileri',
+        desc:'Olayın aracı, günü, yeri ve sürücüsü. Kaza kaydı DB.accidents koleksiyonunda KZA- önekiyle ' +
+             'tutulur; trafik cezasıyla aynı kayıtta birleştirilmez.',
+        fields:[
+          { key:'arac', label:'Araç', type:'select', options:ARAC_SECENEK, required:true, cols:6,
+            placeholder:'Araç seçin',
+            hint:'Kayıt araç koduyla bağlanır; plaka değişse bile bağ kopmaz. Filoda ' +
+                 DB.vehicles.length + ' araç kayıtlı.' },
+
+          { key:'tarih', label:'Olay tarihi', type:'date', required:true, cols:6,
+            hint:'Sistem tarihi ' + F.date(DB.today) + '; ileri tarihli kaza girilmez.',
+            validate:function(v){
+              if(!v) return '';
+              if(F.days(v) > 0) return 'Olay tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+              return '';
+            } },
+
+          { key:'konum', label:'Olay yeri', type:'text', required:true, cols:6,
+            placeholder:'Örn. Eskişehir Yolu, Ankara',
+            hint:'Tutanakta yazılı konum. Liste ekranında gizli kolon olarak tutulur, kolon yönetiminden açılır.' },
+
+          { key:'surucu', label:'Araç sürücüsü', type:'select', options:EMP_SECENEK, required:true, cols:6,
+            placeholder:'Sürücü seçin',
+            hint:'Olay anında aracı kullanan personel; aracın ana sürücüsünden farklı olabilir, farklıysa ' +
+                 'kaydetmeden önce ayrıca sorulur.' },
+
+          { key:'karsiArac', label:'Karşı araç plakası', type:'text', cols:6,
+            placeholder:'Örn. 34 ABC 123',
+            hint:'Tek taraflı kazada boş bırakılır. Karşı araç filo dışı olduğu için kod bağı kurulmaz, ' +
+                 'yalnız plaka metni tutulur.',
+            validate:function(v){
+              var s = metin(v);
+              if(s === '') return '';
+              if(!/^\d{2} [A-Z]{1,3} \d{2,5}$/.test(s))
+                return 'Plaka biçimi “34 ABC 123” gibi olmalıdır: iki haneli il kodu, büyük harf grubu ve numara.';
+              return '';
+            } },
+
+          { key:'kusurOrani', label:'Kendi sürücümüzün kusur oranı', type:'percent', required:true, cols:6,
+            hint:'Tutanak ya da ekspertiz raporunda belirlenen kusur yüzdesi. Karşı taraf tam kusurluysa 0 ' +
+                 'yazılır. Liste ekranı bu değeri “Kusur oranı” kolonunda yüzde olarak gösterir.',
+            validate:function(v){
+              var s = metin(v);
+              if(s === '') return '';
+              var n = sayi(v);
+              if(n < 0 || n > 100) return 'Kusur oranı 0 ile 100 arasında olmalıdır.';
+              if(Math.round(n) !== n) return 'Kusur oranı tam sayı olarak yazılır.';
+              return '';
+            } }
+        ]},
+
+      { title:'Tutanak, ekspertiz ve sigorta',
+        desc:'Olayın belgeleri ve sigorta süreci. Sigorta dosya numarası serbest metindir; poliçe kaydına ' +
+             'kod bağı DEĞİLDİR — poliçe yenileme ve prim ödemesi sigorta ekranından yürür.',
+        fields:[
+          { key:'tutanak', label:'Kaza tutanağı (belge adı)', type:'text', cols:6,
+            placeholder:'Örn. kaza-tutanak-2026-002.pdf',
+            hint:'Belgenin dosya adı. Belge yönetimi doküman merkezinde yürür; bu form dosya yüklemez, ' +
+                 'yalnız belgenin adını kayda yazar.' },
+
+          { key:'ekspertiz', label:'Ekspertiz durumu', type:'select', options:EKSPERTIZ, required:true, cols:6,
+            hint:'Küme: ' + EKSPERTIZ.join(' · ') + '. Ekspertiz raporu kusur oranını ve onarım bedelini ' +
+                 'belirler; yapılmadan kayıt kapatılıyorsa kaydetmeden önce sorulur.' },
+
+          { key:'sigortaDosya', label:'Sigorta dosya numarası', type:'text', cols:12,
+            placeholder:'Örn. AS-2026-99120',
+            hint:'Sigorta şirketinin açtığı hasar dosyası numarası — serbest metindir, sistemdeki poliçe ' +
+                 'kaydına bağ değildir. Poliçe bilgisi araç kartından ve sigorta ekranından okunur.' }
+        ]},
+
+      { title:'Onarım ve süreç durumu',
+        desc:'Hasarın onarımı ve kaydın süreç durumu. Onarım gideri gider defterine bu formdan işlenmez; ' +
+             'gider kalemi araç gider ekranından açılır.',
+        fields:onarim },
+
+      { title:'Kayıt durumu',
+        desc:'Süreç durumu olay ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+        fields:[
+          { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+            onLabel:'Kayıt aktif — kaza listesinde, sayaçlarda ve araç kartında görünür',
+            hint:'Kapatılırsa kayıt arşive düşer; araç, poliçe ve gider kayıtları etkilenmez.' }
+        ]}
+    ];
+  }
+
+  function cezaBolumleri(){
+    var odeme = [];
+    if(canFinans){
+      odeme.push({ key:'tutar', label:'Ceza tutarı ' + PARA_EKSEN, type:'money', required:true, cols:6, min:0,
+        hint:'Tebligattaki ödenecek tutar — filo kalemleriyle aynı eksende, KDV dahil. Erken ödeme indirimi ' +
+             'uygulanacaksa ödenen tutar buraya yazılır. Ölçüm: sistemde ' + acikCezalar.length +
+             ' ödenmemiş ceza, toplam ' + F.money(acikCezaTutar) + '.',
+        validate:function(v){
+          var s = metin(v);
+          if(s === '') return '';
+          var n = sayi(v);
+          if(n <= 0) return 'Ceza tutarı sıfırdan büyük olmalıdır.';
+          if(Math.round(n) !== n) return 'Tutar tam lira olarak yazılır (kuruş kullanılmaz).';
+          return '';
+        } });
+    }
+    odeme.push(
+      { key:'sonOdeme', label:'Son ödeme tarihi', type:'date', required:true, cols:6,
+        hint:'Vadesi geçen ceza liste ekranında gecikmiş satır olarak işaretlenir; 30 · 15 · 7 gün ve vade ' +
+             'aşımı eşikleri filo genelindekiyle aynıdır.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.tarih && v <= d.tarih)
+            return 'Son ödeme tarihi ceza tarihinden (' + F.date(d.tarih) + ') sonra olmalıdır.';
+          return '';
+        } },
+
+      { key:'durum', label:'Ödeme durumu', type:'select', options:CEZA_DURUM, required:true, cols:6,
+        hint:'Küme: ' + CEZA_DURUM.join(' · ') + '. Liste ekranındaki “Ödendi işaretle” satır aksiyonu da ' +
+             'aynı alanı yazar. Ölçüm: ' + cezaSayisi + ' cezanın ' + acikCezalar.length + ' tanesi ödenmedi.' },
+
+      { key:'belge', label:'Ceza tebligatı (belge adı)', type:'text', cols:6,
+        placeholder:'Örn. ceza-2026-005.pdf',
+        hint:'Tebligatın dosya adı. Belge yönetimi doküman merkezinde yürür; bu form dosya yüklemez.' }
+    );
+
+    return [
+      { title:'Trafik cezası bilgileri',
+        desc:'Cezanın aracı, günü, sürücüsü ve türü. Ceza kaydı DB.fines koleksiyonunda CEZ- önekiyle ' +
+             'tutulur; kaza kaydıyla aynı kayıtta birleştirilmez ve konum, kusur oranı, ekspertiz gibi ' +
+             'kaza alanlarını taşımaz.',
+        fields:[
+          { key:'arac', label:'Araç', type:'select', options:ARAC_SECENEK, required:true, cols:6,
+            placeholder:'Araç seçin',
+            hint:'Ceza araç koduyla bağlanır. Plaka değişse bile bağ kopmaz; tebligattaki plaka bilgisi bu ' +
+                 'formdan güncellenmez.' },
+
+          { key:'tarih', label:'Ceza tarihi', type:'date', required:true, cols:6,
+            hint:'İhlalin gerçekleştiği gün (sistem tarihi ' + F.date(DB.today) + '); ileri tarihli ceza girilmez.',
+            validate:function(v){
+              if(!v) return '';
+              if(F.days(v) > 0) return 'Ceza tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+              return '';
+            } },
+
+          { key:'surucu', label:'Araç sürücüsü', type:'select', options:EMP_SECENEK, required:true, cols:6,
+            placeholder:'Sürücü seçin',
+            hint:'İhlal anında aracı kullanan personel. Ceza personele yansıtılacaksa bordro tarafında ayrı ' +
+                 'bir işlemdir; bu form kesinti kaydı üretmez.' },
+
+          { key:'tur', label:'Ceza türü', type:'select', options:CEZA_TUR, required:true, cols:6,
+            placeholder:'Ceza türü seçin',
+            hint:'Küme: ' + CEZA_TUR.join(' · ') + '. Liste ekranında kayıt kodunun altında bu metin görünür.' }
+        ]},
+
+      { title:'Tutar, vade ve ödeme durumu',
+        desc:'Cezanın tutarı ve ödeme takibi. Ödeme kaydı bu formdan finans modülüne aktarılmaz; gider ' +
+             'kalemi araç gider ekranından açılır.',
+        fields:odeme },
+
+      { title:'Kayıt durumu',
+        desc:'Ödeme durumu ceza ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+        fields:[
+          { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+            onLabel:'Kayıt aktif — ceza listesinde, sayaçlarda ve araç kartında görünür',
+            hint:'Kapatılırsa kayıt arşive düşer; ödenmemiş ceza sayacından da düşer.' }
+        ]}
+    ];
+  }
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'Bu formun kapsamı ve veride karşılığı olmayan alanlar',
+    text:'Kaza kaydı ile trafik cezası iki ayrı koleksiyondur ve bu form aynı anda yalnız birine yazar. ' +
+         'Kaza kaydının sigorta dosya numarası serbest metindir, poliçeye kod bağı yoktur; hasar ödemesi, ' +
+         'poliçe yenilemesi ve prim tahsilatı bu formdan yürümez. Ceza ve onarım tutarı gider defterine ' +
+         'otomatik düşmez — gider kaydının kaza ya da cezaya bağ alanı veride yok (ölçüm: gider defterinde ' +
+         '“Ceza” türünde ' + cezaGiderleri.length + ' kalem var, bağ alanı taşımıyorlar). Belge yükleme ' +
+         'doküman merkezinde yürür; burada yalnız belgenin adı tutulur.',
+    actions:[{ label:'Araç giderleri', href:'app-arac-gider.html' },
+             { label:'Sigorta ve kasko', href:'app-arac-sigorta.html' },
+             { label:'Doküman merkezi', href:'app-dokuman.html' }] });
+
+  var ust = '';
+
+  if(duzenle){
+    var aracKayit = aracOf(kayit.arac);
+    var digerKaza = DB.accidents.filter(function(k){ return k.arac === kayit.arac && k.kod !== kayit.kod; });
+    var digerCeza = DB.fines.filter(function(c){ return c.arac === kayit.arac && c.kod !== kayit.kod; });
+    var aracPolice = DB.policies.filter(function(p){ return p.arac === kayit.arac; });
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'info', icon:tur.ikon,
+      title:tur.ad + ' kaydı düzenleniyor — kayıt türü değiştirilemez',
+      text:kayit.kod + ' kodu ' + tur.onek + '- önekiyle başladığı için bu kayıt ' + tur.ad.toLowerCase() +
+           ' koleksiyonunda tutuluyor ve yalnız o koleksiyonun alanları düzenlenebilir. Tür değiştirmek ' +
+           'gerekiyorsa bu kayıt arşive alınıp diğer türde yeni kayıt açılır. Aracın kendi bilgileri, ' +
+           'poliçeleri ve gider kalemleri bu formdan değişmez.',
+      actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + kayit.arac },
+               { label:'Kaza ve ceza listesi', href:'app-arac-kaza.html' }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var son = acts[0];
+    ust += '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-info') + 'Kayıt Özeti</h2>' +
+      '<div class="gc-sub">Kaydın değişmeyen kimliği ve son durumu.</div></div>' +
+      '<div class="gc-head-acts">' +
+        '<a class="btn btn-line btn-sm" href="app-arac-detay.html?id=' + esc(kayit.arac) + '">' +
+        ico('i-external','ic-sm') + ' Araç kartını aç</a></div></div>' +
+      '<div class="gc-body">' + dl([
+        ['Kayıt kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Kayıt türü', '<span class="badge ' + tur.ton + ' no-dot">' + esc(tur.ad) + '</span>' +
+          sub(tur.onek + '- önekli kayıt')],
+        ['Araç', aracKayit
+          ? '<a href="app-arac-detay.html?id=' + esc(kayit.arac) + '"><b>' + esc(aracKayit.plaka) + '</b></a>' +
+            sub(aracKayit.marka + ' ' + aracKayit.model + ' · ' + kayit.arac)
+          : faint('Araç kaydı bulunamadı · ' + kayit.arac)],
+        ['Olay tarihi', F.date(kayit.tarih)],
+        ['Sürücü', kayit.surucu ? GV.user(kayit.surucu, { sm:true }) : null],
+        ['Durum', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv kaydı</span>' : '')],
+        tur.key === 'kaza' ? ['Olay yeri', esc(kayit.konum)] : null,
+        tur.key === 'kaza' ? ['Karşı araç', kayit.karsiArac ? esc(kayit.karsiArac) : faint('Tek taraflı')] : null,
+        tur.key === 'kaza' ? ['Kusur oranı', '<span class="u-num">%' + esc(kayit.kusurOrani) + '</span>'] : null,
+        tur.key === 'kaza' ? ['Ekspertiz', tagOf(kayit.ekspertiz)] : null,
+        tur.key === 'kaza' ? ['Sigorta dosyası', kayit.sigortaDosya
+          ? '<span class="u-num">' + esc(kayit.sigortaDosya) + '</span>' + sub('serbest metin · poliçe bağı yok')
+          : faint('Dosya açılmadı')] : null,
+        tur.key === 'kaza' ? ['Onarım servisi', kayit.onarimServis ? esc(kayit.onarimServis) : null] : null,
+        tur.key === 'ceza' ? ['Ceza türü', tagOf(kayit.tur)] : null,
+        tur.key === 'ceza' ? ['Son ödeme', F.date(kayit.sonOdeme) + ' ' +
+          (kayit.durum === 'Ödendi' ? GV.badge('Ödendi', 'is-ok') : kalanBadge(kayit.sonOdeme))] : null,
+        canFinans
+          ? (tur.key === 'kaza'
+              ? ['Onarım maliyeti <span class="u-faint">' + PARA_EKSEN + '</span>',
+                 sayi(kayit.onarimMaliyet) > 0 ? '<b>' + para(kayit.onarimMaliyet) + '</b>'
+                   : faint('0 ₺ · sigortadan karşılandı')]
+              : ['Ceza tutarı <span class="u-faint">' + PARA_EKSEN + '</span>',
+                 '<b>' + para(kayit.tutar) + '</b>'])
+          : null,
+        ['Belge', tur.key === 'kaza'
+          ? (kayit.tutanak ? esc(kayit.tutanak) : null)
+          : (kayit.belge ? esc(kayit.belge) : null)],
+        ['Araçtaki diğer kayıtlar', (digerKaza.length + digerCeza.length)
+          ? '<b class="u-num">' + (digerKaza.length + digerCeza.length) + '</b> kayıt' +
+            sub(digerKaza.length + ' kaza · ' + digerCeza.length + ' ceza')
+          : faint('Bu araçta başka kaza veya ceza kaydı yok')],
+        ['Araç poliçesi', aracPolice.length
+          ? aracPolice.map(function(p){ return esc(p.tur + ' · ' + p.kod); }).join('<br>') +
+            sub('kaza kaydının sigorta dosyası bu poliçelere bağlı değildir')
+          : faint('Poliçe kaydı yok')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div></section>';
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', icon:'i-alert',
+        title:'Yeni kaza veya ceza kaydı oluşturuluyor',
+        text:'Önce kayıt türünü seçersiniz; alanlar seçime göre yeniden kurulur çünkü kaza ve ceza iki ayrı ' +
+             'koleksiyondur. Kod seçilen türün kendi sayacından atanır (kaza ' + yeniKod(TUR.kaza) +
+             ', ceza ' + yeniKod(TUR.ceza) + '), olay tarihi sistem tarihinden (' + F.date(DB.today) +
+             ') gelir ve aktivite geçmişine kayıt açılış satırı düşer. Ölçüm: sistemde ' + kazaSayisi +
+             ' kaza, ' + cezaSayisi + ' ceza kaydı var; ' + acikCezalar.length + ' ceza ödenmedi.',
+        actions:[{ label:'Kaza ve ceza listesi', href:'app-arac-kaza.html' },
+                 { label:'Araç listesi', href:'app-arac.html' }] }) +
+      (onArac && !onAracVar
+        ? GV.notice({ tone:'warn', icon:'i-alert', title:'Adresteki araç bulunamadı',
+            text:'“' + onArac + '” kodlu araç filo kaydında yok, bu yüzden araç alanı boş açıldı. ' +
+                 'Aracı listeden seçin.',
+            actions:[{ label:'Araç listesi', href:'app-arac.html' }] })
+        : '') +
+      (onAracVar
+        ? GV.notice({ tone:'neutral', icon:'i-car', title:'Araç adresten ön dolduruldu',
+            text:aracAd(onArac) + ' (' + onArac + ') kaydı araç alanına yazıldı; gerekirse ' +
+                 'değiştirebilirsiniz.',
+            actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + onArac }] })
+        : '') +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-alert') +
+        (duzenle ? esc(tur.ad + ' Kaydı') : 'Kayıt Bilgileri') + '</h2>' +
+        '<div class="gc-sub" id="formSub">' +
+        (duzenle ? 'Kayıt kodu ve türü değiştirilmez' : 'Kayıt kodu kaydederken atanır') +
+        ' · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    kart('Kayıt Tutarlılığı', 'i-check-circle',
+      'Girilen değerler kaydedilmeden önce burada özetlenir; tür, kusur oranı, tutar ve ödeme vadesi ' +
+      'birbirine göre yeniden hesaplanır.', 'tutarlilikOzet',
+      '<a class="btn btn-line btn-sm" href="app-arac-kaza.html">' + ico('i-list','ic-sm') +
+        ' Kaza ve ceza listesi</a>') +
+
+    kart('Aracın Filo Geçmişi', 'i-link',
+      'Seçilen aracın diğer kaza, ceza ve poliçe kayıtları. Bu form onların hiçbirini değiştirmez.',
+      'baglarOzet',
+      '<a class="btn btn-line btn-sm" href="app-arac-gider.html">' + ico('i-receipt','ic-sm') +
+        ' Araç giderleri</a>') +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-arac-kaza.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     FORMU KUR — tür değişince alan kümesi yeniden kurulur
+     ================================================================= */
+  var formMount = document.getElementById('formMount');
+  var form = null, sections = [], alanSayisi = 0, zorunluSayisi = 0;
+
+  function sectionsOf(t){
+    return (duzenle ? [] : [turSecimBolumu()])
+      .concat(t.key === 'kaza' ? kazaBolumleri() : cezaBolumleri());
+  }
+
+  function formuKur(){
+    sections = sectionsOf(tur);
+    alanSayisi = 0; zorunluSayisi = 0;
+    sections.forEach(function(s){
+      (s.fields || []).forEach(function(f){ alanSayisi++; if(f.required) zorunluSayisi++; });
+    });
+    /* Aynı `id` ile kurulur: GV.form beforeunload dinleyicisini aynı anahtarla
+       bağladığı için yeniden kurma dinleyici biriktirmez (ders L-16). */
+    form = GV.form({ mount:formMount, id:'kazaceza', record:formRec, sections:sections });
+    basligiYaz();
+  }
+
+  /* Tür değişince girilen değerler korunur: ortak alanlar (araç, tarih, sürücü)
+     yeni kümede de dolu açılır, diğer türün alanları formRec'te bekler. */
+  function turDegistir(yeniTurKey){
+    var t = TUR[yeniTurKey];
+    if(!t || t.key === tur.key) return;
+    var v = form ? form.read() : {};
+    Object.keys(v).forEach(function(k){ formRec[k] = v[k]; });
+    formRec.kayitTuru = t.key;
+    formRec.durum = t.key === 'kaza'
+      ? (KAZA_DURUM.indexOf(formRec.durum) === -1 ? 'Devam ediyor' : formRec.durum)
+      : (CEZA_DURUM.indexOf(formRec.durum) === -1 ? 'Ödenmedi' : formRec.durum);
+    tur = t;
+    formuKur();
+    ozetleriCiz();
+    var sub2 = document.getElementById('formSub');
+    if(sub2) sub2.textContent = t.ad + ' kaydı · kayıt kodu kaydederken atanır · zorunlu alanlar ' +
+                                'yıldızla işaretlidir.';
+    var secili = formMount.querySelector('input[name="kayitTuru"]:checked');
+    if(secili) secili.focus();
+    GV.toast(t.ad + ' alanları yüklendi', 'info');
+  }
+
+  function basligiYaz(){
+    GV.pageHead({
+      eyebrow:'Araç ve Filo',
+      title:basligi,
+      sub: duzenle
+        ? kayit.kod + ' · ' + plakaOf(kayit.arac) + ' · ' + F.date(kayit.tarih) +
+          ' — değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+        : tur.ad + ' · ' + alanSayisi + ' alan, ' + zorunluSayisi + ' zorunlu · atanacak kod ' +
+          yeniKod(tur) + '.',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line', href:'app-arac-kaza.html' },
+        { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+      ]
+    });
+  }
+
+  /* =================================================================
+     CANLI ÖZETLER
+     Dinleyiciler mount düğümünün KENDİSİNE bağlanır; form yeniden
+     kurulduğunda yalnız içerik değişir, dinleyici birikmez (ders L-16).
+     ================================================================= */
+  function tutarlilikCiz(){
+    var hedef = document.getElementById('tutarlilikOzet');
+    if(!hedef || !form) return;
+    var v = form.read();
+    var kaza = tur.key === 'kaza';
+    var surucuRol = aracSurucusuMu(v.arac, v.surucu);
+
+    var uyari = [];
+    if(v.arac && v.surucu && surucuRol === '')
+      uyari.push('seçilen sürücü aracın ana ya da yedek sürücüsü değil');
+    if(kaza && metin(v.kusurOrani) !== '' && sayi(v.kusurOrani) === 0 && canFinans &&
+       sayi(v.onarimMaliyet) > 0)
+      uyari.push('kusur %0 olduğu halde onarım maliyeti girildi');
+    if(kaza && sayi(v.kusurOrani) > 0 && !metin(v.sigortaDosya))
+      uyari.push('kusurlu kazada sigorta dosya numarası boş');
+    if(kaza && v.durum === 'Kapandı' && v.ekspertiz === 'Yapılmadı')
+      uyari.push('ekspertiz yapılmadan kayıt kapatılıyor');
+    if(!kaza && v.durum === 'Ödenmedi' && v.sonOdeme && F.days(v.sonOdeme) < 0)
+      uyari.push('son ödeme tarihi geçmiş, ceza hâlâ ödenmemiş');
+    if(!kaza && v.durum === 'Ödendi' && canFinans && metin(v.tutar) === '')
+      uyari.push('ceza ödendi işaretli ama tutar boş');
+
+    var not;
+    if(uyari.length){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Alanlar henüz tutarlı değil',
+        text:'Şu an: ' + uyari.join(' · ') + '. Bunlar kaydetmeye engel değildir, kaydetmeden önce ' +
+             'onayınız istenir.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Alanlar tutarlı görünüyor',
+        text:tur.ad + ' kaydının alanları birbiriyle uyumlu: sürücü araca tanımlı, ' +
+             (kaza ? 'kusur oranı ile onarım tutarı ve sigorta dosyası birbirini destekliyor.'
+                   : 'ödeme durumu ile vade ve tutar birbirini destekliyor.') });
+    }
+
+    var paraNot = canFinans
+      ? GV.notice({ tone:'neutral', icon:'i-wallet', title:'Tutar ödenen bedel eksenindedir',
+          text:(kaza ? 'Onarım maliyeti' : 'Ceza tutarı') + ' KDV dahil ödenen tutardır — bakım maliyeti, ' +
+               'poliçe primi, yakıt ve gider kalemleriyle aynı eksende. Bu tutar gider defterine ' +
+               'otomatik düşmez; gider kalemi araç gider ekranından açılır.' })
+      : GV.notice({ tone:'neutral', icon:'i-lock', title:'Tutar alanı rolünüze kapalı',
+          text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar yetkisi yok; ' +
+               (kaza ? 'onarım maliyeti' : 'ceza tutarı') + ' alanı forma hiç basılmadı ve bu ekranda ' +
+               'gösterilmiyor. Kaydın diğer alanlarını düzenlemeye devam edebilirsiniz.' });
+
+    hedef.innerHTML = not + paraNot + ozetListe([
+      ['Kayıt türü', '<span class="badge ' + tur.ton + ' no-dot">' + esc(tur.ad) + '</span>' +
+        sub(duzenle ? kayit.kod + ' · tür değiştirilemez' : 'atanacak kod ' + yeniKod(tur))],
+      ['Araç', v.arac ? esc(aracAd(v.arac)) + sub(v.arac) : faint('Seçilmedi')],
+      ['Olay tarihi', v.tarih ? F.date(v.tarih) : faint('Girilmedi')],
+      ['Sürücü', v.surucu
+        ? GV.user(v.surucu, { sm:true }) +
+          (surucuRol ? sub('aracın ' + surucuRol + 'ü') : sub('araca tanımlı sürücü değil'))
+        : faint('Seçilmedi')],
+      kaza ? ['Olay yeri', metin(v.konum) ? esc(v.konum) : faint('Girilmedi')] : null,
+      kaza ? ['Karşı araç', metin(v.karsiArac) ? esc(v.karsiArac) : faint('Tek taraflı kaza')] : null,
+      kaza ? ['Kusur oranı', metin(v.kusurOrani) === '' ? faint('Girilmedi')
+        : '<span class="u-num">%' + sayi(v.kusurOrani) + '</span>' +
+          sub(sayi(v.kusurOrani) === 0 ? 'karşı taraf tam kusurlu'
+            : sayi(v.kusurOrani) === 100 ? 'kendi sürücümüz tam kusurlu' : 'kusur paylaşımlı')] : null,
+      kaza ? ['Ekspertiz', v.ekspertiz ? tagOf(v.ekspertiz) : faint('Seçilmedi')] : null,
+      kaza ? ['Sigorta dosyası', metin(v.sigortaDosya)
+        ? '<span class="u-num">' + esc(v.sigortaDosya) + '</span>' + sub('serbest metin · poliçe bağı yok')
+        : faint('Dosya açılmadı')] : null,
+      kaza ? ['Onarım servisi', metin(v.onarimServis) ? esc(v.onarimServis) : faint('Girilmedi')] : null,
+      (kaza && canFinans) ? ['Onarım maliyeti <span class="u-faint">' + PARA_EKSEN + '</span>',
+        metin(v.onarimMaliyet) === '' ? faint('Girilmedi')
+          : sayi(v.onarimMaliyet) === 0 ? faint('0 ₺ · sigortadan karşılandı')
+          : '<b>' + para(sayi(v.onarimMaliyet)) + '</b>'] : null,
+      !kaza ? ['Ceza türü', v.tur ? tagOf(v.tur) : faint('Seçilmedi')] : null,
+      (!kaza && canFinans) ? ['Ceza tutarı <span class="u-faint">' + PARA_EKSEN + '</span>',
+        metin(v.tutar) === '' ? faint('Girilmedi') : '<b>' + para(sayi(v.tutar)) + '</b>'] : null,
+      !kaza ? ['Son ödeme', v.sonOdeme
+        ? F.date(v.sonOdeme) + ' ' + (v.durum === 'Ödendi' ? GV.badge('Ödendi', 'is-ok') : kalanBadge(v.sonOdeme))
+        : faint('Girilmedi')] : null,
+      !kaza ? ['Ceza yaşı', v.tarih
+        ? Math.max(0, -sayi(F.days(v.tarih))) + ' gün önce' : faint('—')] : null,
+      ['Durum', v.durum ? GV.badge(v.durum) : faint('Seçilmedi')],
+      ['Kayıt durumu', v.aktif ? GV.badge('Aktif kayıt', 'is-ok') : GV.badge('Arşivlenecek', 'is-warn')],
+      ['Belge', metin(kaza ? v.tutanak : v.belge)
+        ? esc(kaza ? v.tutanak : v.belge) + sub('dosya adı · yükleme doküman merkezinde')
+        : faint('Belge adı girilmedi')]
+    ]);
+  }
+
+  function baglarCiz(){
+    var hedef = document.getElementById('baglarOzet');
+    if(!hedef || !form) return;
+    var v = form.read();
+    var aracKod = v.arac;
+
+    if(!aracKod){
+      hedef.innerHTML = GV.notice({ tone:'neutral', icon:'i-car', title:'Araç seçilmedi',
+        text:'Araç seçildiğinde o aracın diğer kaza, ceza ve poliçe kayıtları burada özetlenir. Kayıt araç ' +
+             'koduyla bağlanır; plaka değişse bile bağ kopmaz.',
+        actions:[{ label:'Araç listesi', href:'app-arac.html' }] });
+      return;
+    }
+
+    var v2 = aracOf(aracKod);
+    var kazalar = DB.accidents.filter(function(k){ return k.arac === aracKod && (!duzenle || k.kod !== kayit.kod); });
+    var cezalar = DB.fines.filter(function(c){ return c.arac === aracKod && (!duzenle || c.kod !== kayit.kod); });
+    var acik    = cezalar.filter(function(c){ return c.durum === 'Ödenmedi'; });
+    var acikTut = acik.reduce(function(s, c){ return s + sayi(c.tutar); }, 0);
+    var police  = DB.policies.filter(function(p){ return p.arac === aracKod; });
+    var kasko   = police.filter(function(p){ return p.tur === 'Kasko'; })[0] || null;
+    var giderler = DB.vehicleExpenses.filter(function(g){ return g.arac === aracKod; });
+
+    hedef.innerHTML = GV.notice({ tone:'info', icon:'i-link',
+      title:'Bu kayıtlar araç koduyla bağlıdır ve buradan değiştirilmez',
+      text:(v2 ? v2.plaka + ' (' + aracKod + ')' : aracKod) + ' aracında ' + kazalar.length +
+           ' kaza, ' + cezalar.length + ' ceza ve ' + police.length + ' poliçe kaydı var' +
+           (duzenle ? ' (düzenlenen kayıt sayılmadı)' : '') + '. Poliçe yenileme, prim ödemesi ve gider ' +
+           'kalemleri kendi ekranlarından yürür; bu form yalnız ' + tur.ad.toLowerCase() + ' kaydını yazar.',
+      actions:[{ label:'Araç kartı', href:'app-arac-detay.html?id=' + aracKod },
+               { label:'Sigorta ve kasko', href:'app-arac-sigorta.html' },
+               { label:'Araç giderleri', href:'app-arac-gider.html' }] }) +
+      ozetListe([
+        ['Araç', v2
+          ? '<a href="app-arac-detay.html?id=' + esc(aracKod) + '"><b>' + esc(v2.plaka) + '</b></a>' +
+            sub(v2.marka + ' ' + v2.model + ' · ' + v2.modelYili + ' model')
+          : faint('Araç kaydı bulunamadı · ' + aracKod)],
+        ['Araç durumu', v2 ? GV.badge(v2.durum) : faint('—')],
+        ['Ana sürücü', v2 && v2.anaSurucu ? GV.user(v2.anaSurucu, { sm:true }) : faint('Atanmadı')],
+        ['Yedek sürücü', v2 && v2.yedekSurucu ? GV.user(v2.yedekSurucu, { sm:true }) : faint('Yok')],
+        ['Diğer kaza kaydı', kazalar.length
+          ? '<b class="u-num">' + kazalar.length + '</b> kayıt' +
+            sub(kazalar.map(function(k){ return k.kod + ' · ' + F.date(k.tarih) + ' · ' + k.durum; }).join(' · '))
+          : faint('Kaza kaydı yok')],
+        ['Diğer ceza kaydı', cezalar.length
+          ? '<b class="u-num">' + cezalar.length + '</b> kayıt' +
+            sub(acik.length ? acik.length + ' tanesi ödenmedi' : 'tamamı ödendi')
+          : faint('Ceza kaydı yok')],
+        canFinans && acik.length
+          ? ['Ödenmemiş ceza <span class="u-faint">' + PARA_EKSEN + '</span>',
+             '<b class="u-danger">' + F.money(acikTut) + '</b>' +
+             sub('en yakın vade ' + F.date(acik[0].sonOdeme))]
+          : null,
+        ['Trafik sigortası', police.filter(function(p){ return p.tur === 'Trafik Sigortası'; })[0]
+          ? (function(p){ return F.date(p.bitis) + ' ' + kalanBadge(p.bitis) + sub(p.sirket + ' · ' + p.kod); })(
+              police.filter(function(p){ return p.tur === 'Trafik Sigortası'; })[0])
+          : faint('Poliçe yok')],
+        ['Kasko', kasko
+          ? F.date(kasko.bitis) + ' ' + kalanBadge(kasko.bitis) +
+            sub(kasko.sirket + ' · ' + kasko.kod + ' · ' + kasko.teminat)
+          : faint('Kasko poliçesi yok')],
+        ['Hasar dosyası bağı', faint('Veride kod bağı yok · sigorta dosya numarası serbest metindir')],
+        ['Gider kalemi', giderler.length
+          ? '<b class="u-num">' + giderler.length + '</b> kalem' +
+            sub('gider kaydının kaza ya da cezaya bağ alanı yok')
+          : faint('Gider kaydı yok')]
+      ]);
+  }
+
+  function ozetleriCiz(){ tutarlilikCiz(); baglarCiz(); }
+
+  formMount.addEventListener('input', function(e){
+    if(e.target && e.target.name) ozetleriCiz();
+  });
+  formMount.addEventListener('change', function(e){
+    if(!e.target || !e.target.name) return;
+    if(!duzenle && e.target.name === 'kayitTuru'){ turDegistir(e.target.value); return; }
+    ozetleriCiz();
+  });
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    arac:'Araç', tarih:'Olay tarihi', surucu:'Sürücü', durum:'Durum', aktif:'Kayıt durumu',
+    /* kaza */
+    konum:'Olay yeri', karsiArac:'Karşı araç plakası', kusurOrani:'Kusur oranı',
+    tutanak:'Kaza tutanağı', ekspertiz:'Ekspertiz durumu', sigortaDosya:'Sigorta dosya numarası',
+    onarimServis:'Onarım servisi', onarimMaliyet:'Onarım maliyeti ' + PARA_EKSEN,
+    aciklama:'Olay açıklaması',
+    /* ceza */
+    tur:'Ceza türü', tutar:'Ceza tutarı ' + PARA_EKSEN, sonOdeme:'Son ödeme tarihi', belge:'Ceza tebligatı'
+  };
+  var PARA_ALAN = ['onarimMaliyet','tutar'];
+  var SAYISAL   = ['kusurOrani','onarimMaliyet','tutar'];
+  var METINSEL  = ['konum','karsiArac','tutanak','sigortaDosya','onarimServis','aciklama','belge'];
+  var TARIH     = ['tarih','sonOdeme'];
+  /* Boş bırakılabilen alanlar veride null tutulur, boş metin yazılmaz. */
+  var BOSALABILEN = ['karsiArac','tutanak','sigortaDosya','onarimServis','belge'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, null, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')               return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(PARA_ALAN.indexOf(k) !== -1) return F.money(sayi(v)) + ' ' + PARA_EKSEN;
+    if(k === 'kusurOrani')          return '%' + sayi(v);
+    if(k === 'arac')                return aracAd(v);
+    if(k === 'surucu')              return DB.empName(v);
+    if(TARIH.indexOf(k) !== -1)     return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+    delete v.kayitTuru;                        /* tür form kontrolüdür, kayda yazılmaz */
+
+    METINSEL.forEach(function(k){ if(k in v) v[k] = metin(v[k]); });
+    if(v.karsiArac) v.karsiArac = v.karsiArac.toUpperCase();
+    v.aktif = !!v.aktif;
+
+    SAYISAL.forEach(function(k){
+      if(!(k in v)) return;                    /* finans yetkisi yoksa tutar anahtarı hiç yok */
+      v[k] = metin(v[k]) === '' ? '' : Math.round(sayi(v[k]));
+    });
+    BOSALABILEN.forEach(function(k){ if(k in v && metin(v[k]) === '') v[k] = null; });
+
+    /* Yetkisiz rol tutarlara HİÇ dokunmaz — anahtarlar v'den düşürülür. */
+    if(!canFinans) PARA_ALAN.forEach(function(k){ delete v[k]; });
+    return v;
+  }
+
+  /* Bu form araç kaydını, poliçeyi ve gider kalemini YAZMAZ.
+     Girilen değerler bağlı kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var kaza = tur.key === 'kaza';
+    var arac = aracOf(v.arac);
+    var rol  = aracSurucusuMu(v.arac, v.surucu);
+
+    if(arac && rol === ''){
+      out.push('Seçilen sürücü ' + DB.empName(v.surucu) + ', ' + arac.plaka + ' aracının ana ya da yedek ' +
+               'sürücüsü değil. Araç tahsisi bu formdan değişmez, araç kaydından yürür.');
+    }
+    if(arac && arac.aktif === false){
+      out.push('Araç ' + arac.plaka + ' arşiv kaydında; kayıt yine de araca bağlanır ama aktif filo ' +
+               'listelerinde görünmez.');
+    }
+    if(!arac){
+      out.push('Seçilen araç filo kaydında bulunamadı; kayıt kod bağıyla yazılacak ama araç kartında ' +
+               'gösterilemeyecek.');
+    }
+    if(kaza){
+      if(canFinans && sayi(v.kusurOrani) === 0 && sayi(v.onarimMaliyet) > 0){
+        out.push('Kusur oranı %0 olduğu halde ' + F.money(sayi(v.onarimMaliyet)) + ' onarım maliyeti ' +
+                 'giriliyor. Karşı taraf tam kusurluysa onarım genellikle karşı sigortadan karşılanır ve ' +
+                 'tutar 0 kalır (ölçüm: KZA-2026-002 kusur %0, onarım maliyeti 0).');
+      }
+      if(sayi(v.kusurOrani) > 0 && !v.sigortaDosya){
+        out.push('Kusurlu kazada sigorta dosya numarası girilmedi; hasar dosyası açılmadıysa onarım bedeli ' +
+                 'şirkette kalır. Bu alan serbest metindir, poliçe kaydına bağ kurmaz.');
+      }
+      if(v.ekspertiz === 'Yapılmadı' && v.durum === 'Kapandı'){
+        out.push('Ekspertiz yapılmadan kayıt “Kapandı” olarak işaretleniyor; kusur oranı ve onarım bedeli ' +
+                 'ekspertiz raporuna dayanmayacak.');
+      }
+      if(v.durum !== 'Kapandı' && v.tarih && F.days(v.tarih) < -60){
+        out.push('Olay tarihi ' + F.date(v.tarih) + ' — 60 günden eski bir kaza hâlâ “' + v.durum +
+                 '” durumunda kalıyor.');
+      }
+      if(canFinans && metin(v.onarimMaliyet) === ''){
+        out.push('Onarım maliyeti boş bırakıldı; liste ekranında tutar “Sigortadan karşılandı” olarak ' +
+                 'görünür. Sigortadan karşılandıysa 0 yazmak daha nettir.');
+      }
+    }else{
+      if(v.durum === 'Ödenmedi' && v.sonOdeme && F.days(v.sonOdeme) < 0){
+        out.push('Son ödeme tarihi ' + F.date(v.sonOdeme) + ' üzerinden ' + Math.abs(F.days(v.sonOdeme)) +
+                 ' gün geçti ve ceza ödenmemiş görünüyor; gecikme zammı bu formda hesaplanmaz.');
+      }
+      if(v.durum === 'Ödendi' && canFinans && metin(v.tutar) === ''){
+        out.push('Ceza “Ödendi” işaretli ama tutar boş; ödenen tutar olmadan filo maliyeti eksik kalır.');
+      }
+      if(canFinans && metin(v.tutar) !== ''){
+        out.push('Ceza tutarı gider defterine otomatik düşmez. Ölçüm: gider defterinde “Ceza” türünde ' +
+                 cezaGiderleri.length + ' kalem var ve hiçbirinin ceza koduna bağ alanı yok — gider ' +
+                 'kalemi gerekiyorsa araç gider ekranından ayrıca açılır.');
+      }
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: listede, sayaçlarda ve araç kartında görünmeyecek. Araç, poliçe ve ' +
+               'gider kayıtları silinmez.');
+    }
+    if(duzenle && norm(kayit.arac) !== norm(v.arac)){
+      out.push('Kayıt ' + plakaOf(kayit.arac) + ' aracından ' + plakaOf(v.arac) + ' aracına taşınıyor; ' +
+               'her iki aracın kaza ve ceza sayaçları değişecek.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         `kod` ve finans yetkisi olmayan rolde tutar anahtarları v'de yoktur, dokunulmaz.
+         Kayıt kendi koleksiyonunda yerinde güncellenir; diğer koleksiyona taşınmaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod(tur);
+      var yeni;
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur; iki koleksiyonun
+         alanları birbirine karıştırılmaz. */
+      if(tur.key === 'kaza'){
+        yeni = {
+          kod:kod, arac:v.arac, tarih:v.tarih, konum:v.konum, surucu:v.surucu,
+          karsiArac:v.karsiArac, kusurOrani:v.kusurOrani, tutanak:v.tutanak, ekspertiz:v.ekspertiz,
+          sigortaDosya:v.sigortaDosya, onarimServis:v.onarimServis,
+          onarimMaliyet:canFinans ? v.onarimMaliyet : null,
+          durum:v.durum, aciklama:v.aciklama, aktif:v.aktif
+        };
+        DB.accidents.unshift(yeni);
+      }else{
+        yeni = {
+          kod:kod, arac:v.arac, tarih:v.tarih, surucu:v.surucu, tur:v.tur,
+          tutar:canFinans ? v.tutar : null, sonOdeme:v.sonOdeme, durum:v.durum,
+          belge:v.belge, aktif:v.aktif
+        };
+        DB.fines.unshift(yeni);
+      }
+
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:tur.ad + ' kaydı oluşturuldu — ' + plakaOf(v.arac) + ' · ' + F.date(v.tarih) + ' · ' +
+              DB.empName(v.surucu) + ' · ' + v.durum,
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-arac-kaza.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!canFinans && !duzenle){
+      uyari.unshift('Rolünüzde finansal tutar yetkisi olmadığı için ' +
+                    (tur.key === 'kaza' ? 'onarım maliyeti' : 'ceza tutarı') + ' alanı forma basılmadı; ' +
+                    'kayıt bu alan boş olarak açılacak ve tutarı finans yetkisi olan bir kullanıcı girmelidir.');
+    }
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz ' + tur.ad.toLowerCase() + ' kaydı yeni değerlerle yazılır; ' +
+           'araç kaydı, poliçeler ve gider kalemleri olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  formuKur();
+  ozetleriCiz();
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
