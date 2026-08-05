@@ -21,6 +21,7 @@
 | L-19 | L-17'nin ayraç düzeltmesi yetmedi: `?id=` **hiç verilmezse** detay ekranı boş durumu (ya da sessizce ilk kaydı) basıyor, araç yine "TEMİZ" diyordu | Tarama hedefi **veriden türetilir ve kayıtla doğrulanır** (`rec.js` → `qa-targets.json`). Her tarama raporunda **taranan ekran** ve **gerçekten yüklenen kayıt** sayısı ayrı yazılır; sıfır kayıtla taranan ekran hata sayılır, geçiş sayılmaz | 2026-08-04 |
 | L-20 | On üç ajan aynı anda açıldı; sekizi `response stalled mid-stream` ile düştü ve **sekizinin sekizi de diske tek satır yazmadı** — kesinti tam olarak `Write` çağrısından ÖNCE oldu | (a) Stall ile düşen ajandan **çıktı beklenmez**, yarım dosya aranmaz. L-06'nın "failed dese de dosya çoğu zaman bütündür" okuması **yalnız token limiti** kaynaklı düşüşler için geçerlidir, API stall'ı için değil. (b) Dalga genişliği stall riskini **doğrudan** artırır: tavan **dört ajan**. Beşincisi açılmaz, dalga bitmeden yenisi başlamaz | 2026-08-05 |
 | L-24 | `act.js` hedef listesini iki kez yanlış kaynaktan aldı (`__dirname` → repo yolu; sonra HTTP kökü → `index.html`). İkisinde de **hata vermedi**, sessizce 62 ekran tarayıp "TEMİZ" dedi. Ayrıca aynı araç `GV.drawer`'ı panel saymadı ve 16 aksiyonu yanlışlıkla "ölü" gösterdi | Hedef listesi üretimi **tek ortak yardımcıda** yapılır (`qa-lib.allScreens()` → `shell.js` BUILT), boş dönerse **hata fırlatır**. Hiçbir script kendi listesini kurmaz, kendi repo yolunu sabitlemez. Yeni tarama aracı, **sonucu önceden bilinen** en az bir olumlu ve bir olumsuz vakayla sınanmadan koşturulmaz | 2026-08-05 |
+| L-26 | `act.js` UID-30'u **28 aksiyon / 21 ekran** diye ölçmüştü; aracın kendisi dört yerde yanılıyordu (çıktı modalını onay modalı sanma · girdi soran modalı kendi onaylama · görünmeyen butona tıklama · satır aksiyonunu yalnız ilk satırda deneme). Düzeltilince gerçek sayı **10 yalan / 5 ekran**, ⚫ ölü **0** çıktı | **Ölçüm aracı borcu eksik de sayabilir, fazla da** (L-25'in tersi). Yeni bir hüküm eklenirken sorulacak soru: *"bu hüküm hangi sağlıklı davranışı ihlal gösterir?"* Araç bir aksiyonu ihlal sayarken **ölçemediği** bir yol varsa (ikinci adım, ön koşul, görünmezlik) onu **ayrı sayaçta** raporlar — sessizce ne yeşile ne kırmıza yazar. Ayrıca **ihlal maskelenemez**: bir satırda yalan söyleyen aksiyon başka satırda dürüst davranınca temiz sayılmaz | 2026-08-05 |
 | L-25 | `ui-debt.md` UID-27'yi **79 aksiyon / 47 ekran** diye kaydetmişti; ölçüm ekseni kurulunca gerçek sayı **129 / 65** çıktı. Kayıt yalnız `bulk[]`e bakmıştı (satır aksiyonları ve kaydet düğmeleri kapsam dışı) ve statik regex iç içe nesneleri yanlış ayrıştırıyordu | **Ölçüm ekseni olmadan yazılan borç kaydı borcu EKSİK sayar.** Borç defterine sayı yazılırken sayının **nasıl ölçüldüğü** de yazılır; statik `grep`/regex ile sayılan bir borç "tahmin" olarak işaretlenir, çalışma zamanı ölçümü gelince **güncellenir**. Eksik sayılan borç, kapatma planını da eksik boyutlandırır | 2026-08-05 |
 | L-21 | `components.md` beş oturum boyunca kodda karşılığı olmayan **sekiz `GV.*` adı** taşıdı; ekranlar sözlüğe güvenip var olmayan API'yi çağırmaya çalışabilirdi. Düzeltirken **ben de** eksik ölçtüm: yalnız `ui.js` + `shell.js` taradım, `GV.dashboard`'ı (`dashboard.js`) kaçırdım | Bir API sözlüğe yazılmadan önce adı kodda **görülmüş** olmalı; planlanan ama yazılmamış bileşen sözlüğe değil `ui-debt.md`'ye yazılır. Yüzey taranırken **`assets/js/` altındaki TÜM dosyalar** taranır, iki dosya varsayılmaz | 2026-08-05 |
 | L-22 | `DB.tasks[].destek` alanı şemada **vardı** ve VB-05 "bağ yazıldı, kapandı" diye kapatılmıştı; ölçüldüğünde **0/25 kayıtta dolu** çıktı. `canon.js` bunu görmedi çünkü eksen "bağ verilen kod gerçekten var mı" diye soruyor, "bağ **verilmiş mi**" diye sormuyor — boş alan her zaman geçer | **Alan açmak bağ yazmak değildir** (L-13'ün bir adım ilerisi). Bir bağ maddesi kapatılırken alanın **kaç kayıtta dolu olduğu** yazılır; tarama eksenine "her bağ için en az bir kayıt gerçekten bağ taşır" kontrolü eklenir. Kapanmış madde ölçümle **geri açılabilir** | 2026-08-05 |
@@ -365,3 +366,28 @@ zamanı ölçümü geldiğinde kayıt **güncellenir** ve eski sayı gerekçesiy
 (c) Eksik sayılan borç yalnız rapor hatası değildir — **kapatma planını da eksik
 boyutlandırır**; UID-27 "tek satırlık düzeltme" sanılıyordu, gerçekte ardında
 28 aksiyonluk ikinci bir sınıf (UID-30) vardı.
+
+
+## L-26 · Ölçüm aracı borcu fazla da sayabilir
+**Olay:** UID-30 defterde **28 aksiyon / 21 ekran** yazıyordu; sayı `act.js`'in ilk
+koşumundan gelmişti. 10. oturumda araç dört ayrı yerde yanlış hüküm verdiği ölçüldü:
+1. **Çıktı modalını onay modalı sandı.** `GV.confirm` `is-sm` + iki aksiyondur; UID-07'nin
+   çıktı modalı da öyle — ama **girdi sorar**. Araç "Çıktı Al"a basıyor, dosya iniyor,
+   veri değişmiyor, toast yeşil → 🔴 YALAN. Gerçekte 51 aksiyon dosya üretiyordu.
+2. **Girdi soran modalı kendi onayladı.** "km gir", "sorumlu seç", "iade gerekçesi"
+   panelleri boş onaylanınca ekran haklı olarak reddediyordu; araç bunu aksiyonun
+   suçu saydı. 19 aksiyon.
+3. **Görünmeyen butona tıkladı.** Seçilebilir satır yoksa (boş sekme, kanban görünümü)
+   toplu işlem barı gizlidir; Playwright tıklaması sessizce düşüyor → ⚫ ÖLÜ. 2 aksiyon.
+4. **Satır aksiyonunu yalnız ilk satırda denedi.** İlk satır ön koşulu sağlamıyorsa
+   ("bu kayıt zaten onaylı") yordam dürüstçe reddediyor; araç `'info'` tonunu dürüst
+   red saymadığı için "ölü" yazıyordu. 13 aksiyon.
+**Ölçüm:** düzeltmelerden sonra **10 yalan / 5 ekran**, ⚫ ölü **0**. Borç %180 fazla sayılmıştı.
+**Kural:** (a) Yeni bir hüküm yazılırken sorulacak soru: *"bu hüküm hangi **sağlıklı**
+davranışı ihlal gösterir?"* — L-24'ün "olumlu ve olumsuz vakayla sına" kuralının
+tamamlayıcısı. (b) Araç **ölçemediği** yolu (modalın ikinci adımı, sağlanmayan ön koşul,
+görünmeyen buton) sessizce yeşile ya da kırmızıya yazmaz; **ayrı sayaçta** raporlar.
+(c) **İhlal maskelenemez:** bir satırda yalan söyleyen aksiyon, başka satırda dürüst
+davrandı diye temiz sayılmaz — yalnız "ölü" hükmü daha iyi bir sonuçla gölgelenebilir.
+(d) L-25 ile birlikte okunur: **ölçüm ekseni yoksa borç eksik, ölçüm aracı sınanmamışsa
+borç fazla sayılır.** İkisinde de sayının **nasıl ölçüldüğü** deftere yazılır.

@@ -1316,7 +1316,53 @@ sessizce geçer — çünkü kontrol edilecek değer yoktur.
 
 ---
 
-## UID-30 · Ekranın kendi `run` gövdesi yalan söylüyor — 28 aksiyon / 21 ekran
+## ~~UID-30~~ · Ekranın kendi `run` gövdesi yalan söylüyor — **10 ihlal / 5 ekran** · 6'sı çözüldü (10. oturum)
+
+> ### ⚠️ SAYI DÜZELTMESİ — BORCU BU KEZ ARAÇ ŞİŞİRDİ (L-25'in tersi)
+> Bu madde **"28 aksiyon / 21 ekran"** diye kayıtlıydı. 10. oturumda `act.js`
+> dört ayrı yanlış hüküm veriyordu; düzeltilince gerçek sayı **10 yalan / 5 ekran**
+> çıktı ve **⚫ ÖLÜ sıfırlandı**. Yani borç, ölçüm aracının kendi hatalarıyla
+> **%180 fazla** sayılmıştı. L-25 borcun eksik sayılabileceğini söylüyordu;
+> bu kayıt **fazla da sayılabileceğini** gösteriyor. İkisinin ortak dersi aynı:
+> **ölçüm aracı da ölçülmeden güvenilmez** (L-17 · L-24).
+>
+> | Aracın yanlış hükmü | Neden yanlıştı | Kaç kayıt düştü |
+> |---|---|---|
+> | Çıktı modalını **onay modalı** sandı | `GV.confirm` gibi `is-sm` + iki aksiyon; ama **girdi sorar**. Araç "Çıktı Al"a basıyor, dosya iniyor, veri değişmiyor → 🔴 YALAN | UID-07 sonrası 51 çıktı aksiyonu |
+> | **Girdi soran** modalı kendi onaylıyordu | "km gir", "sorumlu seç" panelleri boş onaylanınca ekran haklı olarak reddediyordu | 19 aksiyon (artık PANEL, ikinci adım *ölçülmedi* diye ayrı sayılıyor) |
+> | **Görünmeyen** toplu işlem butonuna tıklıyordu | Seçilebilir satır yoksa (boş sekme · kanban) bar gizli; tıklama sessizce düşüyor → ⚫ ÖLÜ | 2 aksiyon (`app-pipeline` · `app-zaman` `disa`) |
+> | Satır aksiyonunu **yalnız ilk satırda** deniyordu | İlk satır ön koşulu sağlamıyorsa (zaten onaylı kayıt) yordam dürüstçe reddediyor, araç "ölü" sayıyordu. Ayrıca `'info'` tonlu red **dürüst red** sayılmıyordu | 13 aksiyon (`app-komisyon` · `app-satinalma` · `app-zimmet` · `app-istalebi` · `app-toplanti` · `app-demirbas` · 5 form kaydet …) |
+>
+> **Beşinci düzeltme — maskeleme yasağı:** çok satır denemesi eklendiğinde bir satırda
+> **yalan** söyleyip başka satırda dürüstçe reddeden aksiyon "temiz" görünmeye başladı.
+> Kural yazıldı: **🔴 YALAN maskelenemez**, yalnız ⚫ ÖLÜ daha iyi bir sonuçla gölgelenebilir.
+> Bu kural olmasaydı `app-destek-sla` `eskale` sessizce temiz sayılacaktı.
+>
+> **Beş form kaydet düğmesi (`app-arac-form` · `-gider-` · `-kaza-` · `-sigorta-` ·
+> `app-satinalma-form`) hatalı kayıttı:** elle ölçüldü — alan değiştirilip kaydedildiğinde
+> beşi de kaydı yazıp listeye dönüyor. Ölü değiller; araç değişiklik yapmadan kaydettiği
+> için "hiçbir şey olmadı" sanıyordu.
+
+### ✅ Çözülen 6 (10. oturum)
+
+| Ekran | Aksiyon | Ne yapıldı |
+|---|---|---|
+| `app-butce` | `revizyon` (toplu) | Gerçek **`DB.changeRequests`** kaydı açılıyor (`etkiMaliyet` = bütçe aşımı, `durum:'Onay bekliyor'`, `sorumlu` = proje yöneticisi) + aktivite kaydı. Açık talebi olan proje atlanıyor ve **söyleniyor** |
+| `app-butce` | `uyari` (toplu) | Proje yöneticisine gerçek **`DB.notifications`** kaydı + aktivite. Yöneticisi olmayan proje atlanıyor ve söyleniyor |
+| `app-destek-sla` | `eskale` (satır + toplu) | Sorumlunun **departman yöneticisine** bildirim + talebe aktivite kaydı. Hedef veriden çözülüyor (`DB.departments[].yonetici`), politika metnindeki makam adı **uydurulmuyor** (L-13). `misc.js` sayfaya eklendi (L-12) |
+| `app-ayar-otomasyon` | `ac` / `kapat` (toplu) | **Gerçekten değişen** kural sayılıyor; hepsi zaten aktifse `'info'` tonuyla öyle deniyor |
+| `app-ayar-otomasyon` | `dene` (satır) | Kuru çalıştırma tanımı gereği hiçbir şeyi değiştirmez; sonuç artık **panelde** gösteriliyor (tetikleyici · koşul · eşleşen kayıt · kural durumu), yeşil "oldu" mesajı yok |
+
+### ⏳ Kalan 4 — ikisi de VERİ EKSENİ istiyor, tutarlılık turunda
+
+| Ekran | Aksiyon | Engel |
+|---|---|---|
+| `app-dokuman-sure` | `hatirlat` (satır + toplu) | **VB-29** — "şu kayda şu tarihte hatırlatma gönderildi" ekseni hiçbir koleksiyonda yok |
+| `app-panel-duyurular` | `oku` (satır + toplu) | Okundu bilgisi sayfa-yerel `READ` nesnesinde ve **tarihten türetiliyor** (`F.days(a.tarih) <= -14`) — kalıcı okuma ekseni yok. VB-29 ile **aynı sınıf**, aynı turda |
+
+---
+
+## UID-30 (özgün kayıt) · Ekranın kendi `run` gövdesi yalan söylüyor — 28 aksiyon / 21 ekran
 
 **UID-27'nin kardeşi ama farklı sınıf.** UID-27'de *bileşen* çağıranın vermediği
 yordamın yerine başarı varsayıyordu; burada yordam **var**, çağrılıyor, ama içi
