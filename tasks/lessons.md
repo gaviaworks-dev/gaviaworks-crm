@@ -18,6 +18,7 @@
 | L-12 | Ekran config'i `DB.priorities` okuyordu ama sayfa `work.js`'i yüklemiyordu; gelişmiş filtre **açılınca** patlıyordu, sayfa açılışında değil | Ekranın okuduğu her `DB.<koleksiyon>` için o koleksiyonun tanımlı olduğu veri dosyası sayfada yüklü olmalı. Sayfa açılışına bakan QA bunu göremez — statik tarayıcı her wave sonunda koşulur (`dbref.js`) | 2026-08-04 |
 | L-18 | `GV.refresh()` `.page-main` dışına basılan açık yan paneli kapatmıyordu: dinleyici birikiyor (7→10) ve panelde eski veri ekranda kalıyordu | Yeniden çizim açık `.gv-scrim`/`.gv-drawer` düğümlerini kapatır; overlay üreten bileşen kapatıcısını düğüme asar (`__gvClose`). **Mount'u tazelemek ekranı tazelemek değildir** | 2026-08-04 |
 | L-17 | Beş QA script'i `?id=KOD` olan hedefe `?role=` ekleyince adres bozuluyordu; detay ekranları "kayıt yok" durumunda ölçülmüş, sonuç yine de "TEMİZ" çıkmıştı | Araç hedefe parametre eklerken ayracı duruma göre seçer (`?` / `&`). Genel kural: **test aracının "temiz" demesi doğru şeyi ölçtüğü anlamına gelmez** — araç, sonucu önceden bilinen bir kayıtla bir kez sınanır | 2026-08-04 |
+| L-19 | L-17'nin ayraç düzeltmesi yetmedi: `?id=` **hiç verilmezse** detay ekranı boş durumu (ya da sessizce ilk kaydı) basıyor, araç yine "TEMİZ" diyordu | Tarama hedefi **veriden türetilir ve kayıtla doğrulanır** (`rec.js` → `qa-targets.json`). Her tarama raporunda **taranan ekran** ve **gerçekten yüklenen kayıt** sayısı ayrı yazılır; sıfır kayıtla taranan ekran hata sayılır, geçiş sayılmaz | 2026-08-04 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -233,3 +234,20 @@ işlemedi sanıyor. Bu, L-15'in ("toast çıktı ≠ işlem oldu") görünen iki
 kapatılabilmesi bileşenin sözleşmesinin parçasıdır, çağıranın elindeki referansa bırakılmaz.
 (c) Genel ders: **"mount'u tazeledim" ile "ekran tazelendi" aynı şey değildir.** Mount dışına
 basan her şey (modal, drawer, toast, tooltip) yeniden çizim planına ayrıca yazılır.
+
+## L-19 · Tarama hedefi kayıtla doğrulanmadan tarama geçerli sayılmaz
+**Olay:** L-17'de beş script'in ayraç hatası düzeltildi (`?id=KOD?role=` → `&role=`).
+Ama asıl boşluk kapanmamıştı: `tabs.js` / `esc.js` / `mut.js` / `listen.js` hedefe
+**hiç `?id=` verilmeden** çağrılabiliyordu. O zaman detay ekranı ya "kayıt bulunamadı"
+boş durumunu basıyor, ya da (`app-demirbas-detay` gibi ekranlarda) sessizce
+`DB.<koleksiyon>[0]`'a düşüyordu. İki durumda da araç "TEMİZ" diyordu.
+**Ölçüm (7. oturum, düzeltilmiş harness):** 26 detay ekranı gerçek kayıt koduyla tarandı —
+`tabs.js` **223 sekme tıklaması**, 26/26 kayıt yüklendi. `mut.js` ve `listen.js` 29 hedefte
+(26 detay + 3 form) 29/29 kayıt yükledi. `esc.js` 108 ekranın tamamını taradı, detay ve form
+hedefleri `?id=` ile açıldı.
+**Kural:** (a) Tarama hedefi elle yazılmaz — `rec.js` hedefi **veriden türetir**, kaydın
+gerçekten yüklendiğini ölçer (`.gv-rec-code` metni = kod · formda başlık + dolu alan sayısı)
+ve `qa-targets.json`'a yazar. (b) Her tarama raporu iki sayı verir: **taranan ekran** ve
+**gerçekten yüklenen kayıt**. Sıfır kayıtla taranan ekran hata sayılır. (c) L-17'nin genel
+dersinin bir adım ilerisi: aracın doğru adresi kurması yetmez, **doğru kaydı yüklediği de
+ölçülür** — yoksa yeşil, ekranın değil boş durumun yeşilidir.

@@ -305,6 +305,8 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.invoices[].tutar / .vergi / .toplam` | net / KDV / brüt | `toplam = tutar + vergi`; `tutar` = milestone `odeme` |
 | `DB.payments[].tutar` | **BRÜT** | Faturanın `toplam`ı |
 | `DB.projects[].sozlesmeTutari` | **NET** | Sözleşmenin `tutar`ı |
+| `DB.employees[].maas` · `.saatlikUcret` | **BRÜT** | Aylık maaş ve saatlik ücret çalışan brütüdür; işveren SGK payı **dahil değildir**. `app-personel-detay` "Aylık brüt maaş" ekseniyle aynı. `saatlikUcret` anahtarı yalnız o eksende çalışanda vardır (16 kaydın 1'i); orada `maas:0` "uygulanmaz" işaretidir |
+| `DB.projects[].butce` · `.gerceklesenMaliyet` | **NET** | İç bütçe ve gerçekleşen maliyet — müşteriye kesilen bedel değil, şirketin kendi gider ekseni. 8 projenin 8'inde `butce ≤ sozlesmeTutari`; `gerceklesenMaliyet` bütçeyi aşabilir (PRJ-2026-006: 139.000 / 120.000). `app-proje-detay` ve `app-proje-form` "(KDV hariç)" etiketiyle basar |
 | `DB.customers[].bekleyenTahsilat` | **BRÜT** | Açık (durumu `Ödendi` olmayan) tahsilatlarının toplamı. 12 müşterinin 12'sinde birebir doğrulandı |
 | `DB.customers[].toplamCiro` | **NET** | Ömür boyu net ciro; DB'deki sözleşmelerinin `tutar` toplamından **küçük olamaz** |
 | `DB.quotes[].araToplam` · `.indirim` · `.vergi` · `.toplam` | net / net / KDV / **BRÜT** | Zincir: `net = araToplam − indirim` → `vergi = net × vergiOran/100` → `toplam = net + vergi`. Doğrulandı, 3/3 teklifte tutar |
@@ -313,6 +315,9 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.purchases[].tahminiMaliyet` | **NET** | Talebin tahmini bedeli. Doğan siparişin `tutar`ı ile birebir (3/3 doğrulandı) |
 | `DB.supplierQuotes[].fiyat` | **NET** | Teklif edilen bedel — talep ve sipariş ile aynı eksende |
 | `DB.orders[].tutar / .vergi / .toplam` | net / KDV / **BRÜT** | `toplam = tutar + vergi` |
+| `DB.analyses[].maliyet` | **NET, indirim öncesi** | Alan adı yanıltıcı: iç maliyet değil, **teklifin `araToplam`'ı**. Teklife dönmüş 3 analizin 3'ünde birebir; indirim sonrası netle 2/3, brütle 0/3. Ad **VB-16** ile düzeltilecek |
+| `DB.referrers[].ciro` · `.sabitBedel` | **NET** | Yönlendirenin getirdiği **ömür boyu** net ciro; `DB.customers[].toplamCiro` ile aynı eksen. Bağlı müşterilerin toplamından **küçük olamaz** (sistem öncesi yönlendirmeler dahildir) — 8 kaydın 4'ünde birebir, 4'ünde büyük |
+| `DB.referrers[].hakedis` · `.odenen` · `.bekleyen` | **NET** | Komisyon kayıtlarından türetilir: `hakedis = Σ DB.commissions[referans].tutar` · `odenen = Σ durum:'Ödendi'` · `bekleyen = hakedis − odenen`. 8 kaydın 8'inde birebir doğrulandı. (`hakedis` alan adı **VB-04** ile yeniden adlandırılacak) |
 | `DB.suppliers[].toplamTutar` | **NET** | Ömür boyu iş hacmi. Ölçüldü: brüt olsaydı /1,2 tam liraya inerdi, 6 tedarikçinin 3'ünde inmiyor. TDR-003: 126.000 / 3 = 42.000 = `SAT-2026-015` net `tahminiMaliyet`i |
 
 **Ödeme planı bütünlüğü:** Projeli her sözleşmenin taksit seti `DB.milestones`'ta **tamdır** —

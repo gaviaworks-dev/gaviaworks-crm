@@ -1,215 +1,162 @@
 # Handoff — GaviaWorks CRM
 
-> Bu dosya, **sıfırdan gelen bir Claude'un hiçbir şey sormadan** işe devam
-> edebilmesi için yazıldı. Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/components.md`
-> → `tasks/lessons.md` → `tasks/ui-debt.md`.
+> Sıfırdan gelen bir Claude'un **hiçbir şey sormadan** devam etmesi için yazıldı.
+> Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/components.md` → `tasks/lessons.md` → `tasks/ui-debt.md`.
 >
-> **İLK İŞ:** QA script'lerini kur (bölüm 4). Script'ler `tasks/qa/` altında **repoda
-> izleniyor** — yeniden yazma, kopyala.
-> **`tasks/detay-brief.md`** = detay ekranı subagent sözleşmesi.
-> **`tasks/form-brief.md`** = **form ekranı** subagent sözleşmesi (6. oturumda yazıldı).
-> Yeni ekran yazdıracaksan ajana **önce ilgili brief'i okut**; prompt'ta yalnız ekrana özel
-> kapsamı ver.
-> **`tasks/ui-debt.md`** = arayüz + veri borç defteri. Üretim sırasında görülen sorunlar
-> oraya yazılır, **o an düzeltilmez**; hepsi `plan.md` sonundaki
-> **FAZ: UI ve UX KALİTE GEÇİŞİ** içinde ortak katmanda çözülür.
+> **İLK İŞ:** QA kurulumu (bölüm 4). Script'ler `tasks/qa/` altında **repoda izleniyor** — yeniden
+> yazma, kopyala. Kurulumdan sonra **`node rec.js`** koş: tarama hedeflerini o üretir (ders **L-19**).
+> **`tasks/form-brief.md`** = form ekranı sözleşmesi · **`tasks/detay-brief.md`** = detay ekranı sözleşmesi.
+> **`tasks/ui-debt.md`** = arayüz + veri borç defteri. Üretim sırasında görülen sorun oraya yazılır,
+> **o an düzeltilmez** (istisna: ölçülmüş, kök nedeni ortak katmanda olan gerçek hata).
 
-**Güncelleme:** 2026-08-04 (6. oturum sonu) · **108 ekran** · 25 detay · **3 form ekranı**
-**plan.md ilerleme:** başındaki tek satırda tutuluyor — işaretli / toplam madde.
-**Son tam tarama (bu oturumda koşuldu):**
-`gate.js` **525 sayfa yüklemesi (105 ekran × 5 rol)** — konsol hatası 0, boş sayfa 0,
-kırık istek 0 (3 form ekranı eklendikten SONRA koşulmadı, 7. oturumun ilk işi) ·
-`canon.js` **601 kontrol** temiz (445'ti; eksen 15, 16, 17 eklendi) ·
-`dbref.js` **108 ekran** temiz · `links.js` temiz, **33 hedef kuyrukta** (hepsi form) ·
-`esc.js` · `mut.js` · `listen.js` · `grip-qa.js` temiz · üç form ekranı canlıda (HTTP 200).
+**Güncelleme:** 2026-08-04, 7. oturum sonu · **132 ekran** · 26 detay · **27 form ekranı**
+**plan.md:** **181 / 274 madde (%66)** · 32 kısmen · 61 açık
+**Form kuyruğu: 36 hedefin 27'si bitti, 9 kaldı** (aşağıda liste)
+
+**Son taramalar (hepsi bu oturumda, DÜZELTİLMİŞ harness ile):**
+`gate.js` 540 yükleme (108×5 rol, form ekranları eklenmeden önce) · `rec.js` **53/53 hedef** ·
+`tabs.js` 26 detay, 26/26 kayıt, 223 sekme · `esc.js` 108 ekran · `mut.js` / `listen.js` 44+ hedef ·
+`canon.js` **601 kontrol** · `dbref.js` **132 ekran** · `links.js` temiz.
 
 ---
 
-## 1. BU OTURUMDA (6.) NE YAPILDI
+## 1. KALAN İŞ — SIRAYLA
 
-### İŞ 1 — plan.md gerçeğe hizalandı
-Defter 27 madde işaretli görünüyordu, oysa 105 ekran canlıdaydı. Yayındaki ekranlar
-madde madde karşılaştırıldı:
-- **B. Roller** kapandı (27 rol `DB.roles`'ta, 20 yetki ekseni `DB.permMatrix`'te).
-- Wave 2–8 maddeleri gerçek duruma çekildi; **`[~]` kısmen** işareti tutarlı kullanıldı.
-- **E. Veri modeli** ve **F. İş akışları (22 akış)** madde madde işaretlendi.
-- **H. Kabul kriterleri** dürüstçe işaretlendi — 8 tam, 6 kısmen, gerekçeleriyle.
-- Dosyanın başına **tek satır ilerleme özeti** kondu.
-- **FAZ: UI ve UX KALİTE GEÇİŞİ** bölümü genişletildi: ui-debt'teki **her madde**
-  (UID-01..19 + VB-04/06) alt madde olarak yazıldı, sistem geneli denetimler ayrı
-  başlığa alındı, yöntem **dört kurala** indirildi.
-- **Wave 12b — FORM EKRANLARI** bölümü eklendi: 36 form hedefi ekran ekran madde.
+### A. Form kuyruğu: 9 hedef (hepsi filo + iki tekil)
+`node links.js` çıktısı **canlı kuyruktur**, elle sayma.
 
-### İŞ 2 — VB-05 / VB-07 / VB-08 tek turda kapandı
-Üçü de aynı sınıftı: **bağ veride yazılı değildi, ekranlar tahminle kuruyordu.**
-Ayrıntı `ui-debt.md` sonundaki "ÇÖZÜM KAYDI" bloğunda, gerekçeler `assumptions.md`
-**V-28..V-33**'te.
+| Ekran | Kaynak liste | Not |
+|---|---|---|
+| `app-arac-form.html` | `app-arac.html` | §16 kimlik + satın alma/kiralama |
+| `app-arac-bakim-form.html` | `app-arac-bakim.html` | |
+| `app-arac-muayene-form.html` | `app-arac-muayene.html` | sonuç Geçti/Kaldı + sonraki muayene |
+| `app-arac-sigorta-form.html` | `app-arac-sigorta.html` | trafik + kasko ayrı poliçe ekseni |
+| `app-arac-yakit-form.html` | `app-arac-yakit.html` | |
+| `app-arac-gider-form.html` | `app-arac-gider.html` | 18 gider kalemi |
+| `app-arac-kaza-form.html` | `app-arac-kaza.html` | kaza / hasar / ceza tek ekran |
+| `app-destek-paket-form.html` | `app-destek-paket.html` | **kota aritmetiği**: `kullanilan + kalan = aylikSaat × ay` bozulmayacak |
+| `app-performans-form.html` | `app-performans.html` | otomatik karar YOK, karar desteği |
 
-| Açılan alan | Not |
+**Üretim yöntemi (7. oturumda oturdu, aynen uygula):**
+1. **Aynı anda en fazla 3 ajan**, her biri tek dosya. Prompt'a şu üç maddeyi MUTLAKA yaz:
+   - "**Playwright kurma, HTTP sunucu başlatma, `tasks/qa/` kopyalama**" — yoksa ajan başına
+     10+ dakika QA kurulumuna gider, tam taramayı zaten orkestratör koşar.
+   - "**Yorum satırlarında bile var olmayan bir `DB.<koleksiyon>` adı yazma**" — `dbref.js`
+     yorumu da okuma sayıyor, iki ajan bu tuzağa düştü.
+   - "**`GV.empty({desc})` ve `GV.notice` metinlerini ön-escape etme**" — bileşen zaten escape
+     ediyor (UID-23).
+2. **Ajanları başlat → TEK bekleme yap → topla.** Ara kontrol için shell açma. Bekleme kalıbı:
+   `until [ -f a ] && [ -f b ] && [ -f c ]; do sleep 30; done; sleep 90`
+3. Gelen dosyayı doğrula: satır sayısı · `<style>` 0 · `href="#"` 0 · `<body>` etiketi ·
+   inline script `node --check`.
+4. `shell.js` **`BUILT`** dizisine + `tasks/qa/rec.js` **MAP**'ine ekle.
+5. QA: `node rec.js` → `qa.js` → `esc.js` → `mut.js` → `listen.js` → `dbref.js` → `links.js`.
+   **Hedef kodunu tahmin etme**, `qa-targets.json`'dan al (bir kez yanlış tahmin edildi, harness
+   yakaladı — L-19 çalışıyor).
+6. Dosya dosya stage → commit → push → **`plan.md`'yi aynı turn içinde işaretle**
+   (başlıktaki ilerleme satırı da güncellenir).
+
+### B. Doküman çıktıları — **hiç ele alınmadı**
+`plan.md` **G. DOKÜMAN ÇIKTILARI**: PROMPT.md **§26**'nın B'den M'ye 12 çıktısı.
+Kolon şemaları §26'da yazılı (C modül haritası 7 kolon, D yetki matrisi 9 kolon,
+J otomasyonlar 6 kolon). Kaynak: `plan.md` + `components.md` + `assets/data/*.js` —
+**uydurulmaz, türetilir**. Çıktı yeri: **`docs/`** (yeni klasör, gitignored DEĞİL;
+`docs/screenshots/` gitignored ama `docs/*.md` değil).
+Sıra: B yönetici özeti · C modül haritası · D rol/yetki matrisi · E menü ve sayfa haritası ·
+F sayfa analizleri · G veri modeli · H iş akışları · I API ve teknik servisler ·
+J otomasyonlar · K raporlar · L yol haritası · M eksik ve ek öneriler.
+
+### C. Wave 13 kapanış
+- Tüm `data-wip` bağlantıların gerçek `href`'e dönmesi (form kuyruğu bitince kendiliğinden).
+- **UID-20**: form ekranlarına **düzenleme modundan bağlantı** — `GV.list` `rowActions`'a
+  "Düzenle" + detay ekranlarının `GV.pageHead` aksiyonlarına "Düzenle". **Tüm formlar bitince
+  tek turda**; parça parça yapmak `links.js` kuyruğunu yanıltır.
+- PROMPT.md §22'deki **38 modüller arası bağlantının** doğrulanması.
+- `gate.js` tam süpürmesi (132 ekran × 5 rol ≈ 660 yükleme, ~10 dk, arka planda koş;
+  çıktıyı dosyaya yaz — `| tail` pipe'ı bitene kadar hiçbir şey yazmaz).
+- 1440/768/390 tam tarama + kapanış raporu.
+
+### D. FAZ: UI ve UX KALİTE GEÇİŞİ
+**Ekran üretimi bitmeden başlanmaz.** `ui-debt.md`'de **21 açık UID + 14 açık VB**.
+En büyük üçü:
+- **VB-19** — teklif → sözleşme aktarımı **KDV'yi iki kez uyguluyor** (3/3 sistematik, iki ajan
+  bağımsız doğruladı). Zincirin çapası olduğu için taksit–fatura–tahsilat–ciro ile **aynı turda**.
+- **UID-23** — `GV.empty` `desc` **43 ekranda çift escape**. Tek süpürme + sözleşme yazımı.
+- **VB-14/17/22** — altı eksenin sözlüğü yok (kanal · süre birimi · proje durum/sağlık/faz ·
+  hata durumu · teslim kontrolü). Üçü aynı sınıf, tek turda.
+
+---
+
+## 2. BU OTURUMDA (7.) NE YAPILDI — ÖZET
+
+### İŞ 1 — sahte yeşiller temizlendi (ders **L-19**)
+L-17'nin ayraç düzeltmesi yetmemişti: dört tarayıcı hedefe **hiç `?id=` verilmeden**
+çağrılabiliyordu; o zaman detay ekranı boş durumu (ya da sessizce ilk kaydı) basıyor, araç
+yine "TEMİZ" diyordu. Kalıcı çözüm iki yeni dosya:
+- **`tasks/qa/rec.js`** — her detay/form ekranı için veriden gerçek kayıt kodu seçer, kaydın
+  yüklendiğini ölçer, `qa-targets.json`'a yazar.
+- **`tasks/qa/qa-lib.js`** — dört tarayıcı hedefi oradan okur; `?id=` taşıyan hedefte kayıt
+  yüklenmediyse **hata sayar**. Her rapor artık iki sayı verir: taranan ekran · yüklenen kayıt.
+
+Düzeltilmiş harness ile yeniden koşulan taramaların hepsi temiz çıktı — ekranlarda hata yoktu,
+**hatalı olan araçtı**.
+
+### İŞ 2 — form ekranları: 3 → 27 (24 yeni ekran)
+Satış/müşteri 8/8 · proje-görev 7/7 · destek-iş talebi 2/3 · personel 2/3 · demirbaş-filo 2/9 ·
+satın alma-finans 5/5 · toplantı 1/1.
+
+### Ortak katmanda düzeltilen GERÇEK hatalar (hepsi ölçülerek)
+| Nerede | Hata |
 |---|---|
-| `DB.tasks[].destek` · `DB.bugs[].destek` · `DB.changeRequests[].destek` | Ad **`destek`** seçildi: `changeRequests.talep` zaten "talebi açan taraf" ekseniydi (V-28) |
-| `DB.bugs[].test` · `.sprint` | `sprint` = hatanın **ele alındığı** sprint (V-32) |
-| `DB.tests[].moduller` (**dizi**) · `.sprint` | Tekil `modul` yetmezdi: bir regresyon koşumu üç modülü tarıyor (V-31) |
-| `DB.deliveries[].moduller` (**dizi**) · `.test` | Zincir artık test → hata → teslim → taksit olarak uçtan uca okunuyor |
-| `DB.assets[].siparis` | `alisFiyati` **NET** ekseni de yazıldı |
+| `ui.css` | **Anahtar (switch) görünmüyordu** — `.field label{display:block}` `.f-switch{inline-flex}`'i eziyordu, `.sw` genişliği **0**. Düzeltme sonrası 40×24 px. Regresyon: `tasks/qa/swtest.js` |
+| `ui.js` | **`required` radyoda hiç çalışmıyordu** — doğrulama grubun ilk düğmesini okuyordu, `read()` doğru okuyordu; eşitlendi |
+| `app-musteri-detay.html` | iletişim kodu dizi uzunluğundan · `sonIletisim` koşulsuz yazılıyordu (geçmişe dönük kayıt tarihi geri çekiyordu) · sözlükte olmayan `Mesaj` kanalı |
+| `app-istalebi.html` | "Göreve dönüştür" kodu dizi uzunluğundan **ve** hiçbir bağ yazmıyordu |
+| `app-izin.html` | bakiye düşümü clamp'siz — bakiye eksiye düşebiliyordu (detay ekranı clamp'liydi) |
+| `app-proje-hata-detay.html` | yasak ayna alan `DB.tasks[].hata` yazıyordu (canon statik veride göremiyordu) |
+| `app-proje-test-form.html` | arşivli projeye koşum açılabiliyordu |
+| `ops.js` | SLA yorumu yanlış alanı gösteriyordu (`cozum` değil `etiket`) |
+| `app-demirbas-detay.html` | yorum "sipariş alanı yok" diyordu, oysa VB-07'de yazılmıştı |
 
-**Açılmayan alan:** `DB.tasks[].hata` — ters yön (`DB.bugs[].gorev`) zaten yazılıydı.
-İki yönlü bağ ayrışır; `canon.js` bu alanın **doğmadığını** kontrol eder (V-29).
+### Veriye yazılan eksenler (hepsi ölçülerek doğrulandı)
+`DB.referrers` sayaçları ve `ciro` (NET, ömür boyu) · `DB.analyses[].maliyet` (teklifin indirim
+öncesi neti — ad yanıltıcı, VB-16) · `isgucu` saat ekseni · `DB.tests` senaryo sayım eşitliği
+(5/5, durumdan bağımsız) · `DB.suppliers` ömür boyu sayaçları (kart ≥ sistemden hesaplanan, 6/6) ·
+`components.md` §9b'ye üç yeni satır (`projects.butce/gerceklesenMaliyet`, `employees.maas`,
+`analyses.maliyet`, `referrers.ciro/hakedis`).
 
-**Yan bulgular:** şiddet→etki ihlali düzeltildi (`HTA-2026-071` Kritik iken `GRV-2026-101`
-etkisi Yüksek'ti → Çok yüksek) · `SIP-2026-008` teslim alınmıştı ama envanter karşılığı yoktu,
-üç demirbaş eklendi (`DMB-2026-013/014/015`, Σ net 28.500 = siparişin neti).
-
-**Bağsız bırakılanlar uydurulmadı** — 9 kümenin gerekçesi V-30'da tablo hâlinde.
-
-### Ortak katmanda çözülen GERÇEK hatalar (hepsi ölçülerek doğrulandı)
-
-**1. QA harness'ı yanlış şeyi ölçüyordu (ders L-17).** Beş script hedef adrese
-`'?role=' + role` ekliyordu; hedef zaten `?id=KOD` taşıdığı için adres `?id=KOD?role=sahip`
-oluyor ve **kayıt bulunamıyordu**. Ölçüm: `app-destek-detay.html?id=DST-2026-118`
-düzeltmeden önce **2 sekme**, sonra **6 sekme**. Yani 5. oturumun "25 detay ekranı
-tabs.js'ten geçti" kaydı **boş durum ekranını** ölçmüştü. Düzeltildi.
-
-**2. `GV.refresh()` açık yan paneli kapatmıyordu (ders L-18).** Overlay `.page-main`
-dışına basılır, mount tazelenince ölmez. Ölçüm: bir tazeleme → `document` dinleyicisi
-**7 → 10**. İki kat zarar: dinleyici birikmesi **ve** panelde eski verinin ekranda kalması.
-Çözüm: `GV.refresh` açık `.gv-scrim`/`.gv-drawer` düğümlerini kapatır; `GV.modal`/`GV.drawer`
-kapatıcısını düğüme asar (`__gvClose`).
-
-**3. `GV.form` her çağrıda `window`'a yeni `beforeunload` bağlıyordu.** L-16 sınıfı.
-`GV.on` ile tekil anahtara çevrildi (`cfg.id`). 36 form ekranı bu bileşene dayanacaktı.
-
-**4. `components.md` §4 gerçeği anlatmıyordu.** `onSubmit`/`submitLabel` diye seçenek yok
-(bileşen kaydet butonu basmaz); `multiselect`, `daterange`, `tags`, `user`, `customer`,
-`project`, `richtext` tipleri **yok** — tanımsız tip sessizce `text` oluyor. Sözlük düzeltildi.
-
-### İŞ 3 — form ekranları başladı
-`tasks/form-brief.md` yazıldı (detay brief'inin form karşılığı). `duyuru-detay` kuyruktan
-düşürüldü: duyurunun ayrı ekranı gerekmiyordu, `app-panel-duyurular.html`'e `?id=` derin
-bağlantısı eklendi ve `app-ayar-log.html` hedefi ona çevrildi.
-
-**Üretilen üç form ekranı** (`app-lead-form` · `app-musteri-form` · `app-satinalma-form`):
-üçü de iki modlu (`?id=` düzenleme), yetki kapılı, `GV.refresh` ile biten, `qa.js` + `esc.js` +
-`mut.js` + `listen.js` temiz. `BUILT`'e kaydedildi, kuyruk **36 → 33**.
-
-**Ajan raporlarından çıkan ve ÖLÇÜLEREK doğrulanan üç veri bulgusu:**
-
-**1. `kaynak` sözlüğe bağlı değildi — sessiz veri kaybı (assumptions V-34).**
-İki ajan bağımsız bildirdi: 9 kayıt `kaynak:'Referans'` taşıyordu ama `'Referans'`
-`DB.refTypes`'ta **yoktu**. `app-lead.html` ve `app-musteri.html` kaynak filtreleri
-`options:DB.refTypes` kullandığı için **en kalabalık grubu hiç eşleştiremiyordu**.
-Sözlüğe 18. tür eklenmedi (PROMPT.md §9 17 tür der); dokuzunun da `referans` bağı zaten
-yazılıydı, `kaynak` yönlendirenin `tur`'una hizalandı. `'Referans'` bir tür değil,
-**bağın kendisiydi**. `canon.js` **eksen 17** bunu artık her turda doğruluyor.
-
-**2. `onayAdim` "çelişkisi" çelişki değildi — yazılı olmayan eksendi.**
-Ajan "SAT-2026-015'te onayAdim=1 ama onaylanan adım 0" diye bildirdi. Ölçüldü:
-`onayAdim` = **bulunulan adım sırası**, onaylanan adım sayısı DEĞİL. 6 talebin 6'sı bu
-eksende tutarlı. Eksen `ops.js` başlığına yazıldı, `canon.js` **eksen 16** doğruluyor.
-**Ders:** ajan raporu gerçek bir boşluğu gösterdi (eksen yazılı değildi) ama vardığı sonuç
-yanlıştı — ikisi de ancak ölçünce ayrıldı.
-
-**3. `MUS-2023-012.vergiNo = '6community'`** — bozuk dize, form doğrulaması yakaladı (V-35).
+### Yeni borç kayıtları
+**VB-12..25** (14 madde) ve **UID-21..24**. Tamamı `ui-debt.md`'de ölçümüyle yazılı.
 
 ---
 
-## 2. ORTAK KATMAN — 6. OTURUMDA DEĞİŞENLER
-
-### `assets/js/shell.js`
-- **`GV.refresh()`** artık açık modal / yan paneli de kapatır (L-18).
-
-### `assets/js/ui.js`
-- `GV.form` — `beforeunload` `GV.on` ile tekil anahtara bağlandı; dönüşe `isDirty()` ve `el` eklendi.
-- `GV.modal` / `GV.drawer` — kapatıcı düğüme asılıyor (`el.__gvClose`).
-
-### `assets/data/work.js` · `ops.js`
-- Bağ alanları + koleksiyon başlıklarına **yazılı eksen sözleşmeleri** (bölüm 1, İŞ 2).
-- `DB.assets` 12 → **15 kayıt**.
-
-### `tasks/`
-- **`form-brief.md` — YENİ.** Form ekranı subagent sözleşmesi.
-- `components.md` — **§9d yeni**: modüller arası bağ alanı sözleşmesi + yön kuralı.
-  §4 (`GV.form`) gerçeğe göre yeniden yazıldı. §9'a üç yeni koleksiyon sözleşmesi.
-- `lessons.md` — **L-17** (QA aracı yanlış ölçüyordu) · **L-18** (overlay yeniden çizim).
-- `assumptions.md` — **V-28..V-33**.
-- `ui-debt.md` — VB-05/07/08 kapandı işaretlendi + çözüm kaydı · **VB-09 yeni**
-  (`MOD-009` "Saha ekip yönetimi" yasak inşaat terimi taşıyor, VB-04 ile aynı turda).
-- `tasks/qa/canon.js` — **eksen 15** (445 → 521 kontrol) · beş script'te adres düzeltmesi.
-
----
-
-## 3. YENİ EKRAN EKLEME
-
-### Form ekranı
-1. Ajana **`tasks/form-brief.md`**'yi okut + ekrana özel kapsamı ver.
-   **Aynı anda en fazla 3 ajan**, her biri tek dosya.
-2. Gelen dosyayı `shell.js` **`BUILT`** dizisine ekle (tek yer).
-3. Hassas ekransa `SCREEN_PERM`'e de yaz.
-4. QA: `qa.js` → `esc.js` → `mut.js` → `listen.js` (form ekranında sekme yok, `tabs.js` gerekmez).
-   Ayrıca **iki modu da** aç: `app-x-form.html` (yeni) ve `app-x-form.html?id=KOD` (düzenleme).
-5. Dosya dosya stage → commit → push → `plan.md` işaretle (**aynı turn içinde**).
-
-### Detay ekranı
-Aynı akış, brief `tasks/detay-brief.md`, QA'ye `tabs.js` de girer.
-
-### Şablon
-```html
-<body data-sec="BÖLÜM" data-screen="EKRAN">
-<div id="rec"></div>
-<script src="assets/data/...js"></script>   <!-- okunan HER koleksiyonun dosyası -->
-<script src="assets/js/shell.js"></script>
-<script src="assets/js/ui.js"></script>
-<script>
-document.addEventListener('gv:ready', function(){ /* GV.pageHead + markup */ });
-</script></body>
-```
-`SECTIONS` anahtarları: `panel · satis · musteri · proje · gorev · destek · sohbet ·
-personel · varlik · satinalma · finans · dokuman · toplanti · rapor · ayarlar`
-(**`proje`**, `projeler` değil.)
-
----
-
-## 4. QA KOMUTLARI
+## 3. QA KOMUTLARI
 
 ```bash
-# Kurulum — script'ler repoda, YENİDEN YAZMA
 SP=<scratchpad>
 cd $SP && npm init -y && npm i playwright@1.62.1
 mkdir -p $SP/qa-run && cp <repo>/tasks/qa/*.js $SP/qa-run/
 ln -sfn $SP/node_modules $SP/qa-run/node_modules
-```
-> **`qa-run/` ayrı dizin, bilinçli** — ders **L-06 iki kez oldu**: subagent kendi geçici
-> script'ini scratchpad köküne yazıp orkestratörünkini ezdi. Orkestratör scratchpad
-> kökünden **hiçbir script çalıştırmaz.**
 
-```bash
-# Sunucu — TEK THREAD'Lİ python -m http.server KULLANMA
 cd <repo> && python3 -c "
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 ThreadingHTTPServer(('127.0.0.1',8791), SimpleHTTPRequestHandler).serve_forever()" &
 
 cd $SP/qa-run
+node rec.js                       # ÖNCE BU — qa-targets.json üretir
 node qa.js "app-x.html" [rol]     # 1440/768/390 · konsol · taşma · <style> · href="#"
-node tabs.js "app-x.html" "sahip,ik,stajyer"   # HER sekmeyi tıklar (L-12 sınıfı)
-node esc.js "app-x.html"          # etikette ham HTML (L-14) — konsol temizken de olur
-node mut.js "app-x.html"          # 2× GV.refresh idempotent mi (L-15)
-node listen.js "app-x.html"       # dinleyici birikiyor mu (L-16, L-18)
-node canon.js                     # 15 canonical eksen → "TEMİZ — 521 kontrol"
-node dbref.js                     # yüklenmeyen veri dosyası (L-12)
-node links.js                     # kırık hedef + BUILT + üretilmemiş hedef kuyruğu
-node gate.js                      # tüm ekranlar × 5 rol (~3 dk sürer, arka planda koş)
-node grip-qa.js                   # rail tutamağı (UID-01 regresyonu)
-
-# Canlı doğrulama (push sonrası ~1-2 dk)
-curl -s -o /dev/null -w "%{http_code}\n" https://gaviaworks-dev.github.io/gaviaworks-crm/app-x.html
+node tabs.js                      # hedefsiz çağrı = qa-targets.json'daki 26 detay ekranı
+node esc.js                       # 108+ ekran; detay/form hedefleri ?id= ile açılır
+node mut.js · node listen.js      # hedefsiz çağrı = tüm doğrulanmış hedefler
+node canon.js                     # 601 kontrol
+node dbref.js · node links.js · node swtest.js · node grip-qa.js
+node gate.js > gate-out.txt       # tüm ekranlar × 5 rol, ~10 dk, arka planda
 ```
 
-> **L-17 uyarısı:** Detay/form ekranını `?id=` ile tararken script'ler artık ayracı doğru
-> seçiyor. Yine de yeni bir tarayıcı yazarsan **sonucu önceden bilinen bir kayıtla sına** —
-> "6 sekme görmeliyim, 6 gördüm mü?" Aracın "TEMİZ" demesi doğru şeyi ölçtüğü anlamına gelmez.
+> **L-19:** Her tarama raporunda **taranan ekran** ve **yüklenen kayıt** sayısı ayrı yazılır.
+> Sıfır kayıtla taranan ekran varsa tarama **geçersizdir**, "TEMİZ" yazsa bile.
 
-**Commit:** `git add -A` **yasak**, dosya adıyla tek tek. Conventional Commits, İngilizce.
-`gh auth switch --user gaviaworks-dev` gerekebilir. Commit sonu:
+**Commit:** `git add -A` yasak, dosya adıyla tek tek. Conventional Commits, İngilizce. Sonu:
 ```
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
@@ -217,56 +164,23 @@ Claude-Session: https://claude.ai/code/session_01AFZ22KYDzKSD4GXaoq6gpi
 
 ---
 
-## 5. SIRADAKİ İŞ
+## 4. ÇALIŞMA MODELİ
 
-`node links.js` çıktısındaki "henüz üretilmemiş hedefler" **canlı kuyruktur** — elle sayma.
-Bu oturum sonunda **form ekranları** dışında kuyrukta hedef kalmadı.
+- **Orkestratör:** ortak katmanın tek sahibi — `assets/**`, `tasks/**`, `BUILT`, QA, commit, push.
+- **Subagent:** tek HTML ekranı, başka dosya yok, git yok, QA kurulumu yok. **En fazla 3.**
+- Ajan raporlarındaki iddialar **ölçülerek** doğrulanır. 7. oturumda 24 ajan raporu
+  **dokuz gerçek hata** ve **beş yazılmamış eksen** ortaya çıkardı; bir iddiada da ajan haklı
+  çıkıp prompt'u düzeltti (`app-komisyon-form` `data-sec`).
+- Arayüz sorunu düzeltilmez, `ui-debt.md`'ye yazılır.
+- **Bekleme disiplini:** ajanları başlat → tek bekleme → topla. Yoklama döngüsü yasak
+  (6.–7. oturumda bu hata yapıldı, 30'dan fazla gereksiz shell ve büyük token kaybı).
 
-### Kuyruk (öncelik sırasıyla)
-0. **İLK İŞ: `gate.js` tam süpürmesi.** Üç form ekranı `BUILT`'e eklendikten sonra tam
-   tarama koşulmadı (~3 dk sürer, arka planda koş).
-1. **Form ekranları — kuyruğun tamamı, 33 hedef.** `plan.md` **Wave 12b**'de ekran ekran madde hâlinde,
-   kaynak liste ekranlarıyla birlikte yazılı. Sözleşme `tasks/form-brief.md`.
-   Aynı anda en fazla 3 ajan; ortak katman, `BUILT` kaydı ve commit orkestratörde.
-2. **Wave 13 kapanış:** `data-wip` süpürmesi · §22'deki 38 modüller arası bağlantının
-   doğrulanması · canonical tarama · 1440/768/390 tam tarama · kapanış raporu.
-3. **FAZ: UI ve UX KALİTE GEÇİŞİ** — `ui-debt.md`'de **18 açık UID + 3 açık VB**.
-   **Ekran üretimi bitmeden bu faza başlanmaz.** plan.md sonundaki bölümde madde madde yazılı.
+## 5. DERSLER — `tasks/lessons.md` (L-01..L-19)
+En sık ihlal edilen: **L-12** (okunan koleksiyonun dosyası yüklü olmalı) · **L-13** (bağ yazılır,
+türetilmez) · **L-14** (etiket escape) · **L-15** (`GV.refresh`, reload değil) ·
+**L-16/L-18** (dinleyici ve overlay) · **L-19** (tarama hedefi kayıtla doğrulanır).
 
-### Açık borçlar — özeti (tamamı `tasks/ui-debt.md`'de)
-| # | Konu |
-|---|---|
-| UID-02..14 | mobil satır aksiyonu · kare thumbnail · `GV.upload` File · `scope('gor')` · sayaç global · toplu çıktı · kontrol/etiket boşluğu · native kontroller · yan panel başlığı · KPI ₺0 · "Tümü" sekmesi · `bulk[].show` · detay tablosu ≤760px |
-| UID-15 | Dört eski detay ekranı shell iskeletini elle kopyalıyor |
-| UID-16 | Detay ekranlarının aktivite sekmesi her kayıtta boş — `DB.activities` kod öneki kapsamı |
-| UID-17 | Dokuz detay ekranı kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl()` |
-| UID-18 | `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor |
-| UID-19 | Tablo toplam satırı için ortak sınıf yok |
-| **VB-04** | `hakedis` alan adı rename'i (etiketler temizlendi, alanlar duruyor) |
-| **VB-06** | Fatura ve tahsilat mutasyonları birbirini kapatmıyor |
-| **VB-09** | `MOD-009` "Saha ekip yönetimi" — yasak inşaat terimi, VB-04 ile aynı turda |
-| **VB-10** | Onay akışı yapılandırması hiçbir `DB.*` koleksiyonunda yok — `app-ayar-onay.html` ile form ekranı aynı eşik tablosunu **iki yerde** tutuyor |
-| **VB-11** | `butceKodu` bir koleksiyona bağlı değil (`DB.budgets` yok) — yeni bütçe kodu forma girilemiyor |
-| **UID-20** | Form ekranlarına **düzenleme modundan bağlantı yok**; iki modu da destekleyen form için ikinci mod erişilemez. Tüm formlar bitince tek turda bağlanacak |
-
----
-
-## 6. ÇALIŞMA MODELİ
-
-- **Orkestratör (ana Claude):** ortak katmanın **tek sahibi**. `assets/**`, `tasks/**`,
-  `BUILT`, `SECTIONS`, `SEC_BY_ROLE`, QA, commit, push.
-- **Subagent:** **tek bir HTML ekranı** yazar, başka hiçbir dosyaya dokunmaz. **Aynı anda en fazla 3.**
-- Ajan raporlarındaki "eksik bileşen" / "veri çelişkisi" notları **ciddiye alınır** ama
-  körü körüne alınmaz: her iddia **ölçülerek** doğrulanır.
-- Arayüz sorunu görülürse **düzeltilmez**, `ui-debt.md`'ye yazılır.
-
-## 7. BİLİNEN TUZAKLAR — `tasks/lessons.md` (L-01..L-18)
-En sık ihlal edilen beşi: **L-12** (okunan koleksiyonun dosyası yüklü olmalı) ·
-**L-13** (bağ yazılır, türetilmez) · **L-14** (etiket escape) · **L-15** (`GV.refresh`,
-reload değil) · **L-16/L-18** (dinleyici birikmesi ve overlay). Hepsi brief dosyalarında yazılı.
-
-**Genel ders — üç ikiz:**
-"konsol temiz" ≠ "ekran doğru" (L-14) ·
-"toast çıktı" ≠ "işlem oldu" (L-15) ·
-**"test aracı TEMİZ dedi" ≠ "doğru şeyi ölçtü" (L-17).**
-Üçü de ayrı ayrı yanılttı; üçü de ancak **beklenen sonucu önceden yazıp** karşılaştırınca çıktı.
+**Genel ders — dört ikiz:**
+"konsol temiz" ≠ "ekran doğru" (L-14) · "toast çıktı" ≠ "işlem oldu" (L-15) ·
+"test aracı TEMİZ dedi" ≠ "doğru şeyi ölçtü" (L-17) ·
+**"araç doğru adresi kurdu" ≠ "doğru kaydı yükledi" (L-19).**

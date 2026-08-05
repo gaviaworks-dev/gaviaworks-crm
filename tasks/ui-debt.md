@@ -319,6 +319,10 @@ kurulacak. Sonra dördü 1440/768/390'da yeniden doğrulanacak. **Nokta yaması 
 veri kapsamı eksik. PROMPT.md "aktivite ve değişiklik geçmişi" kabul kriteri (§28) bu hâliyle
 karşılanmıyor.
 
+**Ek ölçüm (7. oturum, form ekranları):** `REF-*` ve `YTK-*` önekleri için de `DB.activities`'te
+**tek satır yok** — `app-referans-form`, `app-referans-detay` ve `app-musteri-yetkili-form`
+düzenleme modunda her kayıtta boş durum basıyor. Kod öneki listesine bu ikisi de girer.
+
 **Not:** Bu bir arayüz borcu değil **veri borcu**; buraya yazıldı çünkü etkisi arayüzde görünüyor
 ve çözümü tek yerde (veri katmanı). Detay ekranı üretimi bittiğinde hangi kod öneklerinin
 aktivite beklediği kesinleşecek, tek turda yazılacak — parça parça eklemek canonical taramayı
@@ -608,3 +612,348 @@ dosyaya dokunur). Orkestratörün adımı olarak `handoff.md` bölüm 3'e yazıl
 **Çözüm:** `GV.list` `rowActions`'a "Düzenle" (`perm:'duzenle'`, `show(row)` ile arşivli/kilitli
 kayıtta gizli) ve detay ekranlarının `GV.pageHead` aksiyonlarına "Düzenle" **tek turda**, tüm
 form ekranları bittikten sonra eklenecek — parça parça eklemek `links.js` kuyruğunu yanıltır.
+
+---
+
+## VB-12 · Yetkili bağı kodla değil ADLA kuruluyor
+
+**Nerede:** `DB.tickets[].acan` · `DB.interactions[].kontak` — ikisi de düz metin kişi adı tutuyor.
+`app-destek-detay.html` bağı `yetkili.ad === ticket.acan` metin eşleşmesiyle kuruyor.
+
+**Sorun:** components.md **§9d**'nin tek kuralına aykırı — bağ veride **kod** olarak yazılmalı.
+Ad değişince bağ sessizce kopar. `app-musteri-yetkili-form.html` bunu idare etmek zorunda kaldı:
+(a) ad benzersizliğini zorunlu kıldı, (b) ad değişince aynı firmadaki eşleşen satırları birlikte
+güncelleyip aktiviteye ayrı satır yazdı. Ölçüldü: `Sibel Yurtsever` → `Sibel Yurtsever Kaya`
+değişikliğinde `DST-2026-120` birlikte güncellendi. Firma değişiminde kaskad **bilinçli olarak
+çalışmıyor** (eski kayıtlar eski firmaya ait).
+
+**Çözüm (kapanış fazında):** `DB.tickets[].yetkili` ve `DB.interactions[].kontakKod` alanları
+`YTK-*` koduyla açılacak, mevcut metin eşleşmeleri koda çevrilecek, `canon.js`'e "yetkili bağı
+gerçekten var olan bir `DB.contacts` kaydını gösterir" ekseni girecek. Ekranlardaki ad kaskadı
+o zaman silinecek. **VB-13 ile aynı turda** — ikisi de kişi kimliği ekseni.
+
+---
+
+## VB-13 · `DB.referrers` ile `DB.contacts` aynı kişiyi iki kez tutuyor
+
+**Nerede:** `assets/data/crm.js`.
+
+**Sorun:** `REF-001 Hakan Demirtaş` ≡ `YTK-001` (aynı telefon `+90 533 100 00 01`, aynı e-posta,
+aynı pozisyon) · `REF-004 Serdar Kılıç` ≡ `YTK-014` (aynı telefon `…00 04`, aynı e-posta).
+Telefon havuzu bile ortak (`+90 533 100 00 XX` serisi iki koleksiyona bölünmüş). Aralarında
+bağ alanı yok; birinde ad ya da unvan değişirse diğeri sessizce eskir. PROMPT.md §28'in
+"aynı bilgi tekrar girilmiyor" kabul kriteri bu hâliyle karşılanmıyor.
+
+**Çözüm (kapanış fazında):** `DB.referrers[].kontak` alanı açılacak (yönlendiren aynı zamanda bir
+müşteri yetkilisiyse `YTK-*` kodunu taşır); iki kayıt arasındaki ortak alanların hangisinin
+kaynak olduğu `assumptions.md`'ye yazılacak. `canon.js`'e "bağlı yönlendiren ile yetkilinin
+iletişim bilgileri birebir aynıdır" ekseni girecek. **VB-12 ile aynı turda.**
+
+---
+
+## VB-14 · İletişim kanalı ekseni üç yerde farklı, sözlüğü yok
+
+**Nerede:** `DB.interactions[].tur` — karşılık gelen bir `DB.*` sözlüğü **yok**.
+
+**Sorun:** Aynı eksen üç yerde farklı tanımlıydı: veride yalnız `Toplantı · Telefon · E-posta`
+geçiyor · `app-musteri-iletisim.html` süzgeci `Ziyaret`i de sayıyor · `app-musteri-detay.html`
+iletişim modalı ayrıca **`Mesaj`** sunuyordu — hiçbir kayıtta ve hiçbir sözlükte geçmeyen
+beşinci değer. Sözlük olmadığı için her ekran kendi listesini yazıyor.
+
+**Şimdi yapılan (nokta yaması değil, uydurulmuş değerin geri alınması):** modaldaki `Mesaj`
+kaldırıldı, kanal listesi liste ekranının dört değerine hizalandı.
+
+**Çözüm (kapanış fazında):** `DB.interactionTypes` sözlüğü açılacak (`refTypes` ile aynı desen);
+liste süzgeci, iletişim formu ve müşteri detayı modalı aynı sözlükten beslenecek;
+`canon.js`'e "`DB.interactions[].tur` sözlükte tanımlıdır" ekseni girecek — 6. oturumdaki
+`kaynak` ↔ `refTypes` (eksen 17) ile birebir aynı sınıf.
+
+---
+
+## UID-21 · `app-referans.html` "yönlendirdiği adaylar" bağlantısı yanlış eksende süzüyor
+
+**Nerede:** `app-referans.html` satır aksiyonu → `app-lead.html?t=tumu&f_kaynak=<tur>`.
+
+**Sorun:** Bağlantı adayları yönlendirenin **türüne** göre süzüyor, kişisine göre değil.
+REF-001 satırından gidildiğinde "Mevcut müşteri" kaynaklı **tüm** adaylar geliyor; o kişinin
+getirdikleri değil. Gerçek bağ `DB.leads[].referans` alanında **yazılı**, ama ne `app-lead.html`
+ne `app-musteri.html` süzgeçlerinde `referans` anahtarı var — ekran bu yüzden türe düşmüş.
+Bağlantı çalışıyor ama **yanlış küme** döndürüyor: UID-12 ile aynı sınıf (sahte buton değil,
+sessiz yanlış sonuç, bu yüzden daha tehlikeli).
+
+**Çözüm (kapanış fazında, UID-12 ile aynı turda):** `app-lead.html` ve `app-musteri.html`
+süzgeçlerine `referans` anahtarı eklenecek (seçenekler `DB.referrers`), bağlantılar
+`?t=tumu&f_referans=REF-00X` hedefine çevrilecek. `app-referans-detay.html`'in
+"Yönlendirdiği adaylar" sekmesi zaten yazılı bağı kullanıyor — ölçüt oradan alınacak.
+
+---
+
+## VB-15 · `DB.documents`'ta yönlendiren / yetkili bağ alanı yok
+
+**Nerede:** `DB.documents` (misc.js).
+
+**Sorun:** PROMPT.md §9 yönlendiren kartında "Belgeler" alanı istiyor (sözleşme, kimlik,
+banka bilgisi). `DB.documents` yalnız müşteri ve sözleşme eksenlerinde bağ taşıyor;
+`referans` alanı yok. `app-referans-form.html` bu yüzden belge alanını **yalnız görsel**
+bırakmak zorunda kaldı ve kaydederken `belgeler` anahtarını siliyor — uydurma alan yazmıyor.
+Aynı boşluk `GV.form`'un `type:'file'` alanının kalıcılaştırılamamasıyla birleşiyor (UID-04).
+
+**Çözüm (kapanış fazında):** `DB.documents[].referans` (ve gerekiyorsa `.yetkili`) bağ alanı
+açılacak; `canon.js`'e "belge bağı gerçekten var olan bir kaydı gösterir" ekseni girecek.
+UID-04 (`GV.upload` `onFile`) ile aynı turda — biri veri, biri bileşen tarafı.
+
+---
+
+## VB-16 · `DB.analyses[].maliyet` alan adı ekseni yanlış anlatıyor
+
+**Nerede:** `assets/data/crm.js` → `DB.analyses`.
+
+**Sorun:** Ad "maliyet" diyor, **ölçülen eksen satış fiyatı**: teklife dönmüş üç analizin
+üçünde de `maliyet` = `DB.quotes[].araToplam` (612.000 · 428.000 · 298.000 — indirim öncesi
+NET). İndirim sonrası netle 2/3, brütle 0/3 tutuyor. Yani alan iç maliyet değil, teklifin
+çıkış fiyatı. Bir ekran bunu "maliyet" sanıp kârlılık hesaplarsa **sonuç sessizce yanlış** olur.
+
+**Şimdi yapılan:** Eksen `crm.js` başlığına ve components.md §9b'ye **yazıldı**; ekranlar
+etikette "(KDV hariç — teklif ara toplamı ekseni)" diyor.
+
+**Çözüm (VB-04 ile aynı turda):** Alan `tahminiBedel` olarak yeniden adlandırılacak —
+`hakedis` rename'iyle aynı sınıf, aynı turda, `canon.js` ekseniyle birlikte.
+
+---
+
+## VB-17 · Süre birimi ve iş gücü birimi sözlüksüz
+
+**Nerede:** `DB.analyses[].sureBirim` · `DB.analyses[].isgucu`.
+
+**Sorun:** `sureBirim` için sözlük yok; dört kaydın dördü de `'hafta'` olduğu için
+`app-onanaliz-form.html` **tek seçenekli** bir select basmak zorunda kaldı — kullanıcı
+gerçek bir seçim yapamıyor. `isgucu` alanının birimi (saat mi adam-gün mü) ne alan adında
+ne yorumda yazılıydı; ölçülen değerler (420 · 360 · 260 · 190) saat eksenine uyuyor ve bu
+artık `crm.js` başlığında yazılı, ama **sözlük hâlâ yok**.
+
+**Çözüm (kapanış fazında):** `DB.timeUnits = ['saat','gün','hafta','ay']` sözlüğü açılacak;
+ön analiz formu, detay ekranı ve raporlar aynı sözlükten beslenecek.
+
+---
+
+## VB-18 · `DB.commissions` şema tekdüzeliği: `arsiv` anahtarı ve `'—'` sentinel'i
+
+**Nerede:** `assets/data/crm.js` → `DB.commissions`.
+
+**Sorun (ölçüldü, 6 kayıt):** (a) `arsiv` anahtarı yalnız `KOM-2025-006`'da var; kalan beşinde
+`undefined`. Form kaydettiğinde açık `false` yazıyor, yani düzenlenen kayıtta anahtar doğuyor —
+şema kayıttan kayda değişiyor. (b) `KOM-2026-005.onay = '—'` **gerçek bir değer** olarak
+kullanılıyor; oysa components.md §9 `DB.deliveries[].musteriOnay` için "`'—'` sentinel'i
+kullanılmaz" diyor. Aynı proje içinde iki karşıt konvansiyon.
+
+**Çözüm (kapanış fazında):** `arsiv` altı kaydın altısına da yazılacak; `onay` için
+`'—'` yerine `'Onay gerekmiyor'` gibi sözlük değeri seçilecek ve `GV.badge` tonuna alınacak.
+`canon.js`'e "her komisyon kaydı aynı anahtar kümesini taşır" ekseni girecek.
+
+---
+
+## VB-19 · Teklif → sözleşme aktarımı para eksenini kaydırıyor (KDV iki kez)
+
+**Nerede:** `DB.contracts[].tutar` ↔ `DB.quotes[].toplam`.
+
+**Ölçüm (teklifi yazılı 3 sözleşmenin 3'ü — sistematik, rastlantı değil):**
+
+| Sözleşme | `contract.tutar` | Teklif | Teklif **neti** | Teklif **brütü** |
+|---|---|---|---|---|
+| SZL-2026-021 | 600.000 | TKL-2026-012 | 500.000 | **600.000** |
+| SZL-2026-020 | 354.000 | TKL-2026-009 | 295.000 | **354.000** |
+| SZL-2025-018 | 1.104.000 | TKL-2025-007 | 920.000 | **1.104.000** |
+
+`contract.tutar` üçünde de teklifin **brütüne** eşit. components.md §9b `contract.tutar`'ı
+**NET** olarak tanımlıyor ve sözleşme kendi içinde bu tanıma uyuyor (`tutar + kdv = toplam`),
+bu yüzden `canon.js` eksen 9/10/11 çelişki görmüyor. Sonuç: teklifin KDV'si sözleşmede
+**bir kez daha** uygulanıyor — SZL-2026-021 müşteriye 720.000 olarak görünüyor, oysa teklif
+600.000 brütle iletilmişti.
+
+**Neden şimdi düzeltilmedi:** `contract.tutar` zincirin çapası — `DB.milestones[].odeme`
+toplamı, `DB.invoices[].tutar`, `DB.payments[].tutar` ve `DB.customers[].toplamCiro` hepsi
+ona bağlı (§9b). Tek bir alanı düzeltmek zinciri kırar; üçü de aynı turda taşınmalı.
+
+**Çözüm (kapanış fazında, tek turda):** Üç sözleşmenin `tutar`ı teklifin **netine** çekilecek,
+`kdv`/`toplam` yeniden hesaplanacak, bağlı taksit–fatura–tahsilat–ciro zinciri aynı turda
+yeniden dengelenecek; `canon.js`'e **"teklifi olan sözleşmenin `tutar`ı teklifin netine eşittir"**
+ekseni girecek. Bu eksen bugün var olmadığı için hata beş oturum boyunca görünmedi.
+
+---
+
+## VB-20 · Proje kaydında iki eksen çakışması: `aktif`/`arsiv` ve `faz`/durum
+
+**Nerede:** `assets/data/work.js` → `DB.projects`.
+
+**Sorun (ölçüldü, 8 kayıt):**
+1. **`aktif` ve `arsiv` aynı ekseni iki alanla anlatıyor.** `GV.list` `arsiv === true || aktif === false`
+   diyerek ikisini de arşiv sayıyor. Yalnız `PRJ-2025-008`'de `arsiv:true` var ve o kayıtta `aktif`
+   da `true` — yani iki alan **çelişebilir** ve hangisinin kazandığı yalnız liste bileşeninde yazılı.
+   `app-proje-form.html` ikisini de ayrı anahtar olarak açmak zorunda kaldı, yoksa bir kaydı
+   arşivden çıkarmak imkânsızdı.
+2. **`faz` alanında iki eksen dolaşıyor:** değerler `Faz 1` ve **`Tamamlandı`**. "Tamamlandı" bir
+   faz değil, bir **durum**. `durum` alanı zaten var.
+3. **Sözlük yok:** proje `durum`, `saglik` ve `faz` kümeleri hiçbir `DB.*` koleksiyonunda tanımlı
+   değil; form kümeyi liste ekranının süzgecinden ve mevcut kayıtlardan türetmek zorunda kaldı.
+   (`Askıda` durumu süzgeçte ve `GV.badge` tonlarında var ama 0 kayıtta kullanılıyor.)
+
+**Ek bulgu — sözleşmesiz sözleşme bedeli:** `PRJ-2026-007` (336.000) ve `PRJ-2025-008` (960.000)
+`sozlesmeTutari` taşıyor ama `DB.contracts` içinde `proje` alanı onları gösteren kayıt **yok**.
+Sözleşmesi olan 6 projenin 6'sında bedel sözleşmenin netiyle birebir.
+
+**Çözüm (kapanış fazında):** `arsiv` tek arşiv ekseni olarak kalacak, `aktif` pasif/aktif ekseninde
+netleştirilecek ve `GV.list` kuralı components.md'ye yazılacak · `faz` değerleri faz ekseninde
+düzeltilecek · `DB.projectStatuses` / `DB.projectPhases` / `DB.healthLevels` sözlükleri açılacak ·
+iki sözleşmesiz projeye ya sözleşme yazılacak ya bedelleri kaldırılacak.
+`canon.js`'e "sözleşme bedeli olan projenin sözleşmesi vardır ve net eşittir" ekseni girecek.
+
+---
+
+## UID-22 · `app-proje.html` sağlık rozetinde gereksiz yerel ton haritası
+
+**Nerede:** `app-proje.html` — sağlık kolonu.
+
+**Sorun:** Ekran `İyi / Dikkat / Riskli` için kendi `is-ok / is-warn / is-danger` eşlemesini yazıyor;
+oysa üç değer de artık `ui.js` TONE sözlüğünde tanımlı. components.md §5'e göre yerel ton haritası
+yazmak, sözlükte olmayan değerler için **açık ton geçme** kuralının yanlış uygulanmasıdır.
+
+**Çözüm (kapanış fazında):** Yerel harita silinip `GV.badge(v)` çağrısına düşülecek; aynı deseni
+kuran başka ekran var mı diye `is-ok'` içeren yerel eşlemeler taranacak.
+
+---
+
+## VB-21 · Ekran başlığı (eyebrow) ekseni proje modülünde üç farklı değer taşıyor
+
+**Nerede:** `app-proje-hata.html` → `eyebrow:'Projeler'` · `app-proje-hata-detay.html` →
+`'Proje Yönetimi'` · `shell.js` `SECTIONS.proje.eyebrow` → **`'Teslimat'`**.
+
+**Sorun:** Aynı bölümün üstbaşlığı üç ekranda üç farklı okunuyor; kullanıcı bölüm değiştirdiğini
+sanıyor. Doğru kaynak `shell.js`'teki `SECTIONS` kaydıdır — `GV.pageHead` `eyebrow`'u ekrandan
+aldığı için her ekran kendi metnini yazabiliyor.
+
+**Çözüm (kapanış fazında):** `GV.pageHead` `eyebrow` verilmediğinde `SECTIONS[sec].eyebrow`'a
+düşecek; ekranlardaki elle yazılmış eyebrow'lar taranıp bölüm kaydıyla çelişenler silinecek.
+
+---
+
+## VB-22 · Proje modülünde üç sözlük eksik
+
+**Nerede:** `DB.projects[].durum` · `.saglik` · `.faz` · `DB.bugs[].durum` · `.tekrarlanabilir` ·
+`DB.tests[].sonuc`.
+
+**Sorun:** Hiçbirinin `DB.*` sözlüğü yok. Üç form ekranı (proje · hata · test koşumu) kümeleri
+liste ekranlarının süzgeçlerinden ve mevcut kayıtlardan **türetmek zorunda kaldı**. Sonuç:
+veride hiç kullanılmayan bir değer (örn. proje `Askıda`) forma girmiyor, veride tek değer varsa
+select tek seçenekli kalıyor (VB-17 ile aynı sınıf).
+
+**Çözüm (kapanış fazında):** `DB.projectStatuses` · `DB.healthLevels` · `DB.projectPhases` ·
+`DB.bugStatuses` · `DB.reproLevels` · `DB.testResults` sözlükleri açılacak; liste süzgeçleri,
+formlar ve `GV.badge` tonları aynı kaynaktan beslenecek. VB-14 ve VB-17 ile **aynı turda** —
+üçü de "eksen var, sözlüğü yok" sınıfı.
+
+**VB-20 eki — `aktif` ekseni koleksiyondan koleksiyona değişiyor.** `DB.sprints`'in **6 kaydının
+6'sında `aktif` alanı hiç yok**, oysa `GV.list` `aktif === false`'u arşiv sayıyor ve sprint liste
+ekranının toplu "Arşivle" işlemi bu alanı yazıyor. Yani bileşen bir alan bekliyor, veri onu
+taşımıyor; yeni yazılan kayıtlarda alan doğuyor ve şema kayıttan kayda değişiyor. Aynı tur:
+`aktif`/`arsiv` sözleşmesi components.md'ye yazılıp **tüm koleksiyonlarda** eşitlenecek.
+
+---
+
+## VB-23 · Teslim onayı üç ekranda üç farklı yürütülüyor
+
+**Nerede:** `app-proje-teslim.html` (satır aksiyonu + toplu işlem) · `app-proje-teslim-detay.html`
+(`onayAkisi`) · `app-proje-teslim-form.html`.
+
+**Sorun (ajan raporundan, ekranlar okunarak doğrulandı):**
+1. **Mutasyon ayrışması:** liste ekranı müşteri onayını işlerken yalnız `musteriOnay` +
+   `onayTarihi` yazıyor; detay ekranı "teslim durumu ile müşteri onayı aynı eksende tutulur"
+   diyerek `durum`'u da `Onaylandı` yapıyor. Aynı işlem iki ekranda iki farklı sonuç bırakıyor.
+2. **Yetki ayrışması:** liste `can('onay')`, detay `can('duzenle')` soruyor.
+3. **Gizli hata:** `app-proje-teslim.html` `mobile()` render'ı onayı ikili okuyor
+   (`onayBekler(t) ? 'bekliyor' : 'onayladı'`); sözlükteki üçüncü değer **`Revizyon istendi`**
+   mobil satırda yeşil "Müşteri onayladı" olarak çıkar. Veride o değer bugün yok — hata gizli.
+4. Aynı ekranın `musteriOnay` süzgeci de yalnız `Onaylandı`/`Bekliyor` sunuyor;
+   `Revizyon istendi` filtrelenemiyor.
+
+**Çözüm (kapanış fazında):** Onay mutasyonu **tek yerde** tanımlanacak
+(`GV.delivery.approve(kod, karar)` gibi), üç ekran da onu çağıracak; yetki ekseni tek olacak;
+mobil render üçüncü değeri de basacak; süzgeç sözlüğün tamamını sunacak. VB-06 (fatura ↔ tahsilat
+kapanışı) ile **aynı sınıf** — iki ekran aynı işlemi farklı yürütüyor.
+
+---
+
+## VB-24 · `doluluk` ekseni iki koleksiyonda birden yaşıyor
+
+**Nerede:** `DB.employees[].doluluk` ↔ `DB.capacity[].doluluk`.
+
+**Ölçüm:** 16 personelin 10'unda kapasite kaydı var ve **10/10 birebir eşit**; kalan 6'sında
+(EMP-001/002/011/012/013/014) kapasite kaydı yok, yalnız personel kartındaki sayı duruyor.
+Aynı sayı iki yerde tutulduğu için biri güncellenince diğeri sessizce eskir (L-08).
+`app-personel-form.html` bu yüzden alanı **hiç düzenlemiyor**.
+
+**Ek:** `DB.company.calisanSayisi` (16) bugün personel sayısına eşit ama **hiçbir ekran okumuyor**
+ve hiçbir mutasyon güncellemiyor — yeni personel eklendiğinde sessizce eskiyecek üçüncü kopya.
+
+**Çözüm (kapanış fazında):** Doluluk tek kaynağa indirilecek (`DB.capacity` tercih edilir,
+kapasite planı ekseni orada); `DB.employees[].doluluk` ya kaldırılacak ya da türetilen okuma
+hâline gelecek. `calisanSayisi` da türetilecek. `canon.js`'e "kapasite kaydı olan personelin
+doluluğu kapasite kaydıyla aynıdır" ekseni girecek.
+
+---
+
+## UID-23 · `GV.empty` `desc` alanı 43 ekranda çift escape ediliyor
+
+**Nerede:** `GV.empty({desc:…})` çağrılarının tamamı — **43 ekran** (grep ile sayıldı).
+
+**Sorun:** Bileşen `desc`'i **kendisi escape ediyor** (`ui.js` → `'<p>' + esc(c.desc) + '</p>'`),
+ama ekranlar da `esc(id)` ile ön-escape yapıyor. Sonuç çift escape: `&` içeren bir kayıt kodu
+ekranda `&amp;` olarak **yazı hâlinde** görünür. Ders **L-14**'ün ikizi — orada escape
+edilmemesi gereken yer escape edilmişti, burada iki kez ediliyor.
+
+**Bugünkü etki sıfır** (kayıt kodları `LEAD-2026-001` biçiminde, özel karakter taşımıyor);
+hata **gizli**, ilk özel karakterli kodda görünür olacak. `esc.js` bunu yakalamıyor çünkü
+tarayıcı ham HTML **etiketi** arıyor, HTML **varlığı** (`&amp;`) aramıyor.
+
+**Kök neden:** `components.md` §6 `GV.empty` satırında hangi tarafın escape ettiği yazılı değil;
+ilk ekran ön-escape yazdı, kalan 42'si kopyaladı.
+
+**Çözüm (kapanış fazında, tek turda):** Sözleşme components.md'ye yazılacak — **`title` ve `desc`
+düz metin alır, bileşen escape eder; `action` HTML'dir, escape edilmez.** 43 ekrandaki
+`esc(...)` ön-escape'i tek süpürmede kaldırılacak ve `esc.js`'e HTML varlığı (`&amp;` · `&lt;`)
+araması eklenerek regresyon kilitlenecek. **Nokta yaması yok** — 43'ü birden.
+
+---
+
+## VB-25 · `DB.milestones[].odemeDurum` bağlı faturanın ayna alanı
+
+**Nerede:** `DB.milestones[].odemeDurum` ↔ `DB.invoices[].durum` / `DB.payments[].durum`.
+
+**Ölçüm:** Taksitli 15 faturanın **15'inde** taksitin `odemeDurum`'u bağlı faturanın tahsilat
+durumuyla örtüşüyor — yani alan bağımsız bir eksen değil, **türetilmiş bir kopya**.
+components.md §9d "bağ doğan kayıtta tutulur, hedefte ayna alan açılmaz" kuralına aykırı.
+Fatura durumu `app-fatura-form.html` ya da `app-fatura.html`'den değiştiğinde taksit sessizce
+ayrışır; form bu yüzden kaydetmeden önce `GV.confirm` ile uyarmak zorunda kaldı.
+
+**Ek bulgu — iki sözlük, tek olgu:** fatura durumu (`Ödendi/Ödenmedi/Gecikti`) ile tahsilat
+durumu (`Ödendi/Gecikti/Bekliyor`) aynı olguyu farklı kümelerle anlatıyor. Ayrıca `Gecikti`
+`vade < DB.today`'den **türetilebilir** — saklanan türev (L-08).
+
+**Çözüm (VB-06 ile aynı turda):** `odemeDurum` ya kaldırılıp taksit ekranları faturadan okuyacak,
+ya da `GV.fin.settleInvoice()` yordamı içinde tek yerde güncellenecek; iki durum sözlüğü tek
+kümede birleşecek; `Gecikti` türetilecek. `canon.js`'e "taksitin ödeme durumu bağlı faturasının
+durumuyla aynıdır" ekseni girecek.
+
+---
+
+## UID-24 · `teslimKontrol` üç değeri listede ikiye iniyor
+
+**Nerede:** `app-siparis.html` — teslim kontrolü kolonu ve teslim alma modali.
+
+**Sorun:** Modal `Tam` / `Eksik` / `İade` yazıyor; kolon ise
+`x.teslimKontrol === 'Tam' ? 'Tamam' : 'Kısmi'` diyor. Yani **`Eksik` ve `İade` listede
+ayırt edilemiyor** — ikisi de "Kısmi" görünüyor, oysa `İade` seçildiğinde sipariş durumu
+`İptal`e çekiliyor. Kullanıcı listeye bakıp iade edilmiş siparişi eksik teslimattan ayıramıyor.
+Ayrıca `Eksik` ve `İade` `GV.badge` TONE sözlüğünde yok.
+
+**Çözüm (kapanış fazında):** Kolon üç değeri de basacak; `Eksik`(warn) ve `İade`(danger)
+ton sözlüğüne girecek; `teslimKontrol` kümesi VB-22'nin sözlük turunda koleksiyona alınacak.

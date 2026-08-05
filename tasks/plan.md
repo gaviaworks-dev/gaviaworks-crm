@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 157 / 274 madde tamam (%57) · 32 kısmen · 85 açık** — 6. oturum, 2026-08-04
+**İLERLEME: 181 / 274 madde tamam (%66) · 32 kısmen · 61 açık** — 7. oturum, 2026-08-04
 > Sayı 237'den 274'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
@@ -284,35 +284,35 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 #### Satış ve müşteri (8)
 - [x] `app-lead-form.html` — müşteri adayı (28 alan · §8.1) ← `app-lead.html` · `app-lead-detay.html`
 - [x] `app-musteri-form.html` — müşteri kartı ← `app-musteri.html` · `app-musteri-detay.html`
-- [ ] `app-musteri-yetkili-form.html` — müşteri yetkilisi ← `app-musteri-yetkili.html`
-- [ ] `app-musteri-iletisim-form.html` — iletişim kaydı ← `app-musteri-iletisim.html`
-- [ ] `app-referans-form.html` — yönlendiren kişi (21 alan · §9) ← `app-referans.html`
-- [ ] `app-komisyon-form.html` — referans komisyonu ← `app-komisyon.html`
-- [ ] `app-onanaliz-form.html` — ön analiz (28 değerlendirme alanı · §10) ← `app-onanaliz.html`
-- [ ] `app-teklif-form.html` — teklif + kalemler (25 alan · §10) ← `app-teklif.html`
+- [x] `app-musteri-yetkili-form.html` — müşteri yetkilisi ← `app-musteri-yetkili.html`
+- [x] `app-musteri-iletisim-form.html` — iletişim kaydı ← `app-musteri-iletisim.html`
+- [x] `app-referans-form.html` — yönlendiren kişi (21 alan · §9) ← `app-referans.html`
+- [x] `app-komisyon-form.html` — referans komisyonu ← `app-komisyon.html`
+- [x] `app-onanaliz-form.html` — ön analiz (28 değerlendirme alanı · §10) ← `app-onanaliz.html`
+- [x] `app-teklif-form.html` — teklif + kalemler (25 alan · §10) ← `app-teklif.html`
 
 #### Proje ve görev (7)
-- [ ] `app-proje-form.html` — proje (24 alan + teknik envanter) ← `app-proje.html`
-- [ ] `app-proje-sprint-form.html` — sprint ← `app-proje-sprint.html`
-- [ ] `app-proje-test-form.html` — test koşumu (kapsam modülleri + sprint) ← `app-proje-test.html`
-- [ ] `app-proje-hata-form.html` — hata kaydı (şiddet→etki eşlemesi) ← `app-proje-hata.html`
-- [ ] `app-proje-degisiklik-form.html` — değişiklik talebi (süre/maliyet etkisi) ← `app-proje-degisiklik.html`
-- [ ] `app-proje-teslim-form.html` — teslim (kapsam + taksit bağı) ← `app-proje-teslim.html`
-- [ ] `app-gorev-form.html` — görev (50+ alan, alt görev, bağımlılık) ← `app-gorev.html`
+- [x] `app-proje-form.html` — proje (24 alan + teknik envanter) ← `app-proje.html`
+- [x] `app-proje-sprint-form.html` — sprint ← `app-proje-sprint.html`
+- [x] `app-proje-test-form.html` — test koşumu (kapsam modülleri + sprint) ← `app-proje-test.html`
+- [x] `app-proje-hata-form.html` — hata kaydı (şiddet→etki eşlemesi) ← `app-proje-hata.html`
+- [x] `app-proje-degisiklik-form.html` — değişiklik talebi (süre/maliyet etkisi) ← `app-proje-degisiklik.html`
+- [x] `app-proje-teslim-form.html` — teslim (kapsam + taksit bağı) ← `app-proje-teslim.html`
+- [x] `app-gorev-form.html` — görev (50+ alan, alt görev, bağımlılık) ← `app-gorev.html`
 
 #### Destek ve iş talebi (3)
-- [ ] `app-destek-form.html` — destek talebi (18 alan, SLA) ← `app-destek.html`
+- [x] `app-destek-form.html` — destek talebi (18 alan, SLA) ← `app-destek.html`
 - [ ] `app-destek-paket-form.html` — bakım paketi ← `app-destek-paket.html`
-- [ ] `app-istalebi-form.html` — departmanlar arası iş talebi (§13) ← `app-istalebi.html`
+- [x] `app-istalebi-form.html` — departmanlar arası iş talebi (§13) ← `app-istalebi.html`
 
 #### Personel ve İK (3)
-- [ ] `app-personel-form.html` — personel (23 alan, maaş maskeleme) ← `app-personel.html`
-- [ ] `app-izin-form.html` — izin talebi (bakiye, vekil, çakışma) ← `app-izin.html`
+- [x] `app-personel-form.html` — personel (23 alan, maaş maskeleme) ← `app-personel.html`
+- [x] `app-izin-form.html` — izin talebi (bakiye, vekil, çakışma) ← `app-izin.html`
 - [ ] `app-performans-form.html` — performans değerlendirme ← `app-performans.html`
 
 #### Demirbaş ve filo (9)
-- [ ] `app-demirbas-form.html` — demirbaş (28 alan · §15) ← `app-demirbas.html`
-- [ ] `app-zimmet-form.html` — zimmet / iade tutanağı ← `app-zimmet.html`
+- [x] `app-demirbas-form.html` — demirbaş (28 alan · §15) ← `app-demirbas.html`
+- [x] `app-zimmet-form.html` — zimmet / iade tutanağı ← `app-zimmet.html`
 - [ ] `app-arac-form.html` — araç (§16 kimlik + satın alma/kiralama) ← `app-arac.html`
 - [ ] `app-arac-bakim-form.html` — araç bakım kaydı ← `app-arac-bakim.html`
 - [ ] `app-arac-muayene-form.html` — muayene kaydı ← `app-arac-muayene.html`
@@ -323,13 +323,13 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 
 #### Satın alma ve finans (5)
 - [x] `app-satinalma-form.html` — satın alma talebi (14 alan · §17) ← `app-satinalma.html`
-- [ ] `app-siparis-form.html` — sipariş (18 alan + teslim kontrolü) ← `app-siparis.html`
-- [ ] `app-tedarikci-form.html` — tedarikçi ← `app-tedarikci.html`
-- [ ] `app-sozlesme-form.html` — sözleşme (net/KDV/brüt ekseni) ← `app-sozlesme.html`
-- [ ] `app-fatura-form.html` — fatura ← `app-fatura.html`
+- [x] `app-siparis-form.html` — sipariş (18 alan + teslim kontrolü) ← `app-siparis.html`
+- [x] `app-tedarikci-form.html` — tedarikçi ← `app-tedarikci.html`
+- [x] `app-sozlesme-form.html` — sözleşme (net/KDV/brüt ekseni) ← `app-sozlesme.html`
+- [x] `app-fatura-form.html` — fatura ← `app-fatura.html`
 
 #### Toplantı (1)
-- [ ] `app-toplanti-form.html` — toplantı (gündem + katılımcılar) ← `app-toplanti.html`
+- [x] `app-toplanti-form.html` — toplantı (gündem + katılımcılar) ← `app-toplanti.html`
 
 #### Kuyruktaki tek form olmayan hedef
 - [x] `duyuru-detay` — `app-panel-duyurular.html` hem liste hem `GV.form` kullanıyor ve duyuruyu
