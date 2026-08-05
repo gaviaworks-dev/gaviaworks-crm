@@ -489,7 +489,10 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [ ] **UID-04** · `GV.upload` `File` nesnesini geri vermiyor → `onFile(file, meta)` geri çağrısı
 - [ ] **UID-05** · `GV.perm.scope('gor')` liste ekranlarında uygulanmıyor → `GV.list`'e `scopeField` sözleşmesi
 - [ ] **UID-06** · `GV.list` kayıt sayacı global → `countTarget` + mount kökü içinde arama
-- [ ] **UID-07** · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor → `exportRows(rows, format)`
+- [x] **UID-07** · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor — **çözüldü 10. oturum**
+      → önce fizibilite ölçüldü (`tasks/qa/xport.js`: 141 ekran · 68 liste · 623 kolon · 6.335 hücre;
+      **tamamen taşımayan kolon 0**, %0,7 kısmi ve hepsi yer tutucu metin). Sonra `exportRows(list, fmt)`
+      dönüş yüzeyine alındı + `bulk[].export:true` sözleşmesi; **53 ekran** devre dışıdan çalışır oldu
 - [ ] **UID-08** · Kontrol ile etiketi arasında boşluk yok → tek taban kural (aşağıda ayrıca)
 - [ ] **UID-09** · Native form kontrolleri tasarım sisteminde değil (aşağıda ayrıca)
 - [ ] **UID-10** · Yan panelde başlık / kaydırılan içerik ayrımı yok (+ para birimi eki, filtre sayacı)
@@ -509,6 +512,9 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       (13 yalan · 15 ölü). Toplu kök neden yok, tek tek incelenir
 - [ ] **VB-29** · `hatirlat` aksiyonunun veri ekseni yok → `DB.reminders` ya da bağ alanı
 - [ ] **act.js kalıcı tarama setinde** — her turda koşulur, sayı artarsa regresyon
+      (10. oturumda üç yanlış hüküm düzeltildi: çıktı modalını onay modalı sanıyordu ·
+      girdi soran modalı kendi onaylıyordu · görünmeyen toplu işlem butonunu "ölü" sayıyordu)
+- [ ] **xport.js kalıcı tarama setinde** — kolon tanımı çıktıyı besliyor mu (UID-07 ekseni)
 - [ ] **UID-26** · Kolon/filtre/çıktı/toplu/kanban `GV.list` içine kilitli → `GV.*` yüzeyine alınacak
       (UID-06 · UID-07 · UID-17'nin ortak kökü)
 - [ ] **UID-28** · Maskeleme kararı kardeş ekranlar arasında ayrışıyor (UID-11 · UID-25 ile aynı tur)

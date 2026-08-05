@@ -139,7 +139,51 @@ ikinci `GV.list` örneğine çevrilecek.
 
 ---
 
-## UID-07 · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor
+## ✅ UID-07 · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor — ÇÖZÜLDÜ (2026-08-05, 10. oturum)
+
+**Önce fizibilitenin cevaplanmayan yarısı ölçüldü** (9. oturumda statik analiz beceremedi):
+yeni tarama ekseni **`tasks/qa/xport.js`** `ui.js`'i bellekte yamalayıp her `GV.list`
+örneğinin `visibleCols()` + `source()` çiftini okuyor ve her hücre için iki değeri
+karşılaştırıyor — EKRAN (`render`) ile ÇIKTI (`exportValue` ‖ `r[key]`, `doExport` ile birebir).
+
+| Ölçüm | Sonuç |
+|---|---|
+| Taranan ekran | **141** · `GV.list` kuran **68** · yüklenen kayıt **706** |
+| Çıktıya giren kolon | **623** · ölçülen hücre **6.335** |
+| **Tamamen taşımayan kolon** | **0** |
+| Ekranda dolu / çıktıda boş hücre | **47 (%0,7)**, 16 ekranda, hepsi **kısmi** |
+
+**Kolon tanımı yetmeyen ekran yok.** 47 hücrenin 47'si aynı sınıf: veri alanı boş ya da `'—'`
+iken ekranın **yer tutucu metin** basması (`Zimmetsiz` · `Süresiz` · `Proje dışı` ·
+`Tercih bekliyor` · `Vekil yok`). Çıktı bilgi kaybetmiyor, yalnız yer tutucu yerine boş hücre
+yazıyor — CSV/Excel için **doğru olan da budur**. Yani `exportRows` yazmanın önünde engel yoktu.
+
+**Aracın kendi sınaması (L-24):** olumsuz vaka `app-lead.html` `yonlendiren` kolonu —
+`LEAD-2026-006` `kaynak:'Organik arama'` ama `yonlendiren:'—'`; araç 12 kaydın 2'sinde
+"ekranda dolu, çıktıda boş" dedi, veri elle doğrulandı. Olumlu vaka aynı ekranın `firma`
+(`exportValue` yazılı) ve `butce` (alan kayıtta var) kolonları — temiz raporlandı.
+
+**Çözüm — ortak katmanda, ekran başına `run` yazılmadan:**
+1. `ui.js`'e **`exportRows(list, fmt)`** eklendi ve `GV.list` **dönüş yüzeyine** çıktı.
+   Liste hem kayıt nesnesi hem kayıt anahtarı kabul ediyor; biçim verilmezse kullanıcıya
+   soruyor; kapsam boşsa `warn` tonlu uyarı basıyor (**asla sessiz başarı demiyor**).
+2. Biçim seçim markup'ı (`fmtField`) tek yerde üretiliyor — çıktı modalı ve seçili-kapsam
+   modalı **aynı listeyi** kullanıyor, ikinci markup doğmadı.
+3. **`bulk[].export:true`** sözleşmesi: bu maddenin yordamı bileşende. **53 ekranda**
+   `{ key:'disa', … }` maddesine tek anahtar eklendi; 53 kez aynı `run` closure'ını yazmak
+   "aynı mantık ikinci kez yazılmaz" kuralını çiğnerdi.
+   *Karar gerekçesi:* alternatif, her ekranın `GV.list` dönüşünü değişkene alıp
+   `run:function(ids){ L.exportRows(ids); }` yazmasıydı — 53 kopya, üstelik `L` henüz
+   atanmadan config okunduğu için kırılgan closure sırası. Bileşen tarafı seçildi.
+4. Seçim çıktı sonrası **korunuyor** (mutasyon değil; kullanıcı aynı seçimle ikinci biçimi
+   de alabilir).
+
+**Ölçülen sonuç:** `act.js` yeni hüküm **ÇIKTI** (dosya gerçekten indi) ile 141 ekranda
+**51 çıktı aksiyonu** doğruladı; "bu sürümde yok" damgası **85 → 32** toplu aksiyona indi.
+
+---
+
+## UID-07 (özgün kayıt) · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor
 
 **Nerede:** `GV.list` `bulk[].run(ids)` — tüm liste ekranları.
 

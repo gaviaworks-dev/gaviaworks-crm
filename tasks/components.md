@@ -48,7 +48,7 @@ GV.list({
   filters:[{key,label,type:'select|multi|date|daterange|number|text',options}],
   views:['table','card','kanban'],
   kanban:{ groupBy:'durum' },
-  bulk:[{key,label,icon,confirm}],
+  bulk:[{key,label,icon,confirm,run,export}],
   rowActions:[{icon,label,href}],
   search:{ fields:[...], extra:function(r){ return DB.emp(r.kisi).ad; } },  // türetilmiş arama metni
   pageSize:10,
@@ -78,6 +78,24 @@ mobil kart görünümü **aynı veri kaynağından** üretilir (ikinci markup ya
   buton bırakmak yasak olduğu için, satıra uymayan aksiyon (zaten onaylanmış kaydı onaylama,
   sözleşmesi olmayan kayıtta "sözleşmeyi aç") bu yordamla elenir. `onRender` içinde DOM'dan
   buton silmek **artık gerekmez**.
+- **`run` yoksa aksiyon `disabled` + "bu sürümde yok" basılır** (UID-27 · ders L-23).
+  Bileşen, çağıranın vermediği yordamın yerine **başarı varsaymaz**.
+
+### `bulk[]` sözleşmesi
+`{ key, label, icon, tone, confirm, run, export }`
+- `run(ids)` — seçili kayıt anahtarlarını alır. Yoksa madde `disabled` + "bu sürümde yok"
+  basılır (`rowActions` ile **tek kural**, UID-27).
+- **`export:true`** — "seçilenleri dışa aktar" maddesinin yordamı **bileşendedir**; ekran
+  `run` yazmaz. Bileşen seçili kayıtları `exportRows` ile dışa aktarır, biçimi kullanıcıya
+  sorar ve **seçimi korur** (çıktı yıkıcı bir işlem değildir). 53 ekran bu maddeyi kullanır;
+  53 kez aynı `run` closure'ını yazmak components.md'nin "aynı mantık ikinci kez yazılmaz"
+  kuralına aykırı olurdu (UID-07).
+
+### `GV.list` dönüş yüzeyi
+`{ state, refresh, setTab(k), setFilter(k,v), exportRows(kayıtlarYaDaIdler, biçim?) }`
+- **`exportRows`** (UID-07) — dizideki her öğe kayıt nesnesi **ya da** kayıt anahtarı olabilir;
+  bulunamayan atılır, hiç kalmazsa `warn` tonlu uyarı basılır (asla sessiz "başarı" demez).
+  `biçim` verilmezse (`xlsx|csv|pdf|print`) kullanıcıya sorulur.
 
 ## 3. Detay Ekranı — `GV.tabs(sel)` + kayıt markup'ı
 
@@ -268,7 +286,7 @@ GV.report({
 | Chip şeridi | `GV.chipbar(el)` | taşınca oklu kaydırma |
 | Kolon yöneticisi | **`GV.list` içi** — `openCols()` (ui.js) | göster/gizle · sırala · genişlik · kayıtlı görünüm (`localStorage` `gv.cols.<id>`). ⚠️ `GV.cols()` **yoktur**, dışarıdan çağrılamaz |
 | Filtre drawer | **`GV.list` içi** — `openFilters()` (ui.js) | `cfg.filters[]`'ten kurulur, aktif filtre çipleri. ⚠️ `GV.filters()` **yoktur** |
-| Çıktı | **`GV.list` içi** — `doExport(rows, fmt)` (ui.js) | `cfg.export[]` formatları. ⚠️ `GV.export()` **yoktur**; seçili kapsamı dışa aktarma da yok (UID-07) |
+| Çıktı | **`GV.list` içi** — `doExport(rows, fmt)` · dışarıya `api.exportRows(rows, fmt)` | `cfg.export[]` formatları. ⚠️ `GV.export()` **yoktur** (bağımsız bileşen değil), ama seçili kapsam artık dışa aktarılabiliyor: dönüş yüzeyindeki `exportRows` + `bulk[].export` (UID-07 kapandı). Kolonun çıktıya ne taşıdığı `exportValue`'dan, yoksa `r[key]`'den gelir — `xport.js` her turda ölçer |
 | Tarih aralığı | **hiç yok** | ⚠️ `GV.dateRange()` kodda **hiçbir yerde tanımlı değil**. Tarih aralığı bugün `filters[].type:'daterange'` ile `GV.list` içinde kurulur |
 | Toplu işlem barı | **`GV.list` içi** — `renderBulk()` (ui.js) | `cfg.bulk[]`'ten kurulur. ⚠️ `GV.bulk()` **yoktur**; `bulk[]`'te `show`/yetki kapısı da yok (UID-13) |
 | KPI kartı | `.kpi-grid > .kpi-card` (**`.gv-` öneki YOK**) | `.kpi-ico` + `.kpi-num` + `.kpi-lbl` + `.kpi-meta`; `GV.list`/`GV.report` `kpis:[]` config'inden basılır |
@@ -410,6 +428,8 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | `listen.js "a.html" [rol]` | 3× `GV.refresh()` sonrası `document` üzerindeki **net** dinleyici sayısının artmadığını ölçer (L-16). Çağrı değil net sayılır — `GV.on` her turda söküp bağlar | `TEMİZ — N ekran` |
 | `esc.js ["a.html"] [rol]` | Etiket düğümlerinde **ham HTML metni** arar — escape edilmemesi gereken yer escape edilmişse `<span …>` ekranda yazı olarak görünür. Konsol hatası vermez, `qa.js` göremez | `TEMİZ — N ekran` |
 | `grip-qa.js` | Rail tutamağı: geometri, yüzey rengi, hover yakalama noktaları, odak, içerik örtme | `TEMİZ — tüm ölçümler geçti` |
+| `act.js` | **"Bu buton gerçekten bir şey yapıyor mu?"** Her toplu işlem / satır aksiyonu / form kaydet tetiklenir, DB parmak izi karşılaştırılır. Hüküm: MUTASYON · YÖNLENDİRME · PANEL · ÇIKTI · DÜRÜST RED (sağlıklı) · 🔴 YALAN · ⚫ ÖLÜ (ihlal). Ölçülemeyenler ayrı sayılır: girdi soran panelin ikinci adımı, ulaşılamayan toplu işlem (L-23) | `TEMİZ` + ihlal sayısı |
+| `xport.js` | **"Çıktı ekrandaki bilgiyi taşıyor mu?"** `ui.js` bellekte yamalanıp her `GV.list` örneğinin kolonları ve kayıtları okunur; her hücrenin EKRAN değeri (`render`) ile ÇIKTI değeri (`exportValue` ‖ `r[key]`) karşılaştırılır (UID-07) | `TEMİZ — N kolon` |
 
 > `canon2.js` / `canon3.js` / `ref.js` **artık yok** — üçü de `canon.js` içinde birleşti.
 > Eski `qa-links.js` kendi hardcode ettiği 8 sayfalık listeye göre karar veriyordu ve
