@@ -356,6 +356,28 @@ head('17) Kaynak türü ↔ refTypes ↔ yönlendiren');
   });
 });
 
+
+/* ---- 18. Teklif → sözleşme aktarımı KDV'yi İKİ KEZ uygulamaz ---------------
+   VB-19. `DB.contracts[].tutar` **NET** eksendedir (components.md §9b) ve teklifi
+   yazılı bir sözleşmede teklifin **netine** eşit olmalıdır — brütüne değil.
+   8. oturumda ölçüldü: teklifi yazılı 3 sözleşmenin **3'ünde de** `tutar`, teklifin
+   BRÜTÜNE eşitti (600.000 / 354.000 / 1.104.000), yani KDV zincirde ikinci kez
+   uygulanıyordu. Zincirin geri kalanı bu yanlış çapaya göre tutarlı olduğu için
+   (Σ taksit = tutar, fatura = taksit, tahsilat = fatura brütü, ciro = Σ tutar)
+   eksen 9/10/11 bunu GÖREMİYORDU — bu yüzden ayrı eksen olarak yazıldı. */
+head('18) Teklif → sözleşme neti (VB-19)');
+DB.contracts.forEach(c => {
+  if (!c.teklif) return;
+  const q = DB.quotes.filter(x => x.kod === c.teklif)[0];
+  say(!!q, c.kod + ' teklif=' + c.teklif + ' → DB.quotes içinde yok');
+  if (!q) return;
+  const net = (q.araToplam || 0) - (q.indirim || 0);
+  const brut = q.toplam;
+  say(c.tutar === net,
+    c.kod + ' tutar=' + c.tutar + ' ≠ ' + q.kod + ' neti ' + net +
+    (c.tutar === brut ? ' — teklifin BRÜTÜ alınmış, KDV iki kez uygulanıyor (VB-19)' : ''));
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
