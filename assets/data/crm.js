@@ -66,42 +66,42 @@ DB.lostReasons = ['Bütçe yetersiz','Rakip tercih edildi','Proje ertelendi','İ
      Doğrulama: REF-002 ciro 2.270.000 >= bağlı müşterilerin toplamCiro'su (2.170.000);
      KOM-2026-001 = 640.000 × %5 = 32.000. `sabitBedel` de NET. */
 DB.referrers = [
-  { kod:'REF-001', ad:'Hakan Demirtaş', tur:'Mevcut müşteri', firma:'Deniz Lojistik A.Ş.', pozisyon:'Bilgi İşlem Müdürü',
+  { kod:'REF-001', ad:'Hakan Demirtaş', tur:'Mevcut müşteri', firma:'Deniz Lojistik A.Ş.', pozisyon:'Bilgi İşlem Müdürü', kontak:'YTK-001',
     tel:'+90 533 100 00 01', eposta:'hakan@denizlojistik.com', sorumlu:'EMP-002',
     yonlendirme:6, kazanilan:3, kaybedilen:1, ciro:1740000, donusum:50, sonYonlendirme:'2026-08-02',
     komisyonModeli:'Ciro yüzdesi', komisyonOrani:5, sabitBedel:0, hakedis:49700, odenen:32000, bekleyen:17700,
     durum:'Aktif', aktif:true, not:'Sektöründe geniş ağı var, düzenli yönlendirme yapıyor.' },
-  { kod:'REF-002', ad:'Ayten Berk', tur:'İş ortağı', firma:'Berk Danışmanlık', pozisyon:'Kurucu',
+  { kod:'REF-002', ad:'Ayten Berk', tur:'İş ortağı', firma:'Berk Danışmanlık', kontak:null, pozisyon:'Kurucu',
     tel:'+90 533 100 00 02', eposta:'ayten@berkdanismanlik.com', sorumlu:'EMP-002',
     yonlendirme:5, kazanilan:3, kaybedilen:1, ciro:2270000, donusum:60, sonYonlendirme:'2026-07-29',
     komisyonModeli:'Sabit bedel', komisyonOrani:0, sabitBedel:25000, hakedis:50000, odenen:25000, bekleyen:25000,
     durum:'Aktif', aktif:true, not:'Kurumsal dönüşüm projelerinde birlikte çalışıyoruz.' },
-  { kod:'REF-003', ad:'Kerem Aydın', tur:'Personel', firma:'Gavia Works', pozisyon:'Genel Müdür',
+  { kod:'REF-003', ad:'Kerem Aydın', tur:'Personel', firma:'Gavia Works', kontak:null, pozisyon:'Genel Müdür',
     tel:'+90 532 000 00 01', eposta:'kerem@gaviaworks.com', sorumlu:'EMP-001',
     yonlendirme:5, kazanilan:4, kaybedilen:0, ciro:2450000, donusum:80, sonYonlendirme:'2026-06-30',
     komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Kişisel ağdan gelen talepler.' },
-  { kod:'REF-004', ad:'Serdar Kılıç', tur:'Eski müşteri', firma:'Kılıç Tekstil', pozisyon:'Genel Müdür',
+  { kod:'REF-004', ad:'Serdar Kılıç', tur:'Eski müşteri', firma:'Kılıç Tekstil', pozisyon:'Genel Müdür', kontak:'YTK-014',
     tel:'+90 533 100 00 04', eposta:'serdar@kilictekstil.com', sorumlu:'EMP-014',
     yonlendirme:3, kazanilan:2, kaybedilen:1, ciro:1140000, donusum:67, sonYonlendirme:'2026-05-14',
     komisyonModeli:'Ciro yüzdesi', komisyonOrani:3, sabitBedel:0, hakedis:11400, odenen:11400, bekleyen:0,
     durum:'Aktif', aktif:true, not:'2024 e-ticaret projesi müşterimizdi.' },
-  { kod:'REF-005', ad:'Web Formu', tur:'Web formu', firma:'gaviaworks.com', pozisyon:'—',
+  { kod:'REF-005', ad:'Web Formu', tur:'Web formu', firma:'gaviaworks.com', kontak:null, pozisyon:'—',
     tel:'—', eposta:'info@gaviaworks.com', sorumlu:'EMP-014',
     yonlendirme:11, kazanilan:2, kaybedilen:6, ciro:420000, donusum:18, sonYonlendirme:'2026-08-01',
     komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Site iletişim formu — dönüşüm oranı düşük, nitelik iyileştirilmeli.' },
-  { kod:'REF-006', ad:'Linkedin Kampanyası', tur:'Dijital reklam', firma:'—', pozisyon:'—',
+  { kod:'REF-006', ad:'Linkedin Kampanyası', tur:'Dijital reklam', firma:'—', kontak:null, pozisyon:'—',
     tel:'—', eposta:'—', sorumlu:'EMP-002',
     yonlendirme:8, kazanilan:1, kaybedilen:5, ciro:420000, donusum:13, sonYonlendirme:'2026-07-26',
     komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Q3 kampanyası — maliyet/dönüşüm oranı izleniyor.' },
-  { kod:'REF-007', ad:'Murat Sezer', tur:'Danışman', firma:'Sezer Yönetim Danışmanlığı', pozisyon:'Yönetici Ortak',
+  { kod:'REF-007', ad:'Murat Sezer', tur:'Danışman', firma:'Sezer Yönetim Danışmanlığı', kontak:null, pozisyon:'Yönetici Ortak',
     tel:'+90 533 100 00 07', eposta:'murat@sezerdanismanlik.com', sorumlu:'EMP-002',
     yonlendirme:2, kazanilan:1, kaybedilen:0, ciro:1104000, donusum:50, sonYonlendirme:'2026-07-08',
     komisyonModeli:'Ciro yüzdesi', komisyonOrani:7, sabitBedel:0, hakedis:47600, odenen:0, bekleyen:47600,
     durum:'Aktif', aktif:true, not:'Kurumsal müşterilere ERP dönüşümü öneriyor.' },
-  { kod:'REF-008', ad:'Teknoloji Zirvesi 2026', tur:'Etkinlik', firma:'—', pozisyon:'—',
+  { kod:'REF-008', ad:'Teknoloji Zirvesi 2026', tur:'Etkinlik', firma:'—', kontak:null, pozisyon:'—',
     tel:'—', eposta:'—', sorumlu:'EMP-002',
     yonlendirme:5, kazanilan:0, kaybedilen:2, ciro:0, donusum:0, sonYonlendirme:'2026-04-22',
     komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
@@ -196,7 +196,16 @@ DB.customers = [
     etiketler:['Arşiv'] }
 ];
 
-/* ---- Müşteri yetkilileri ---------------------------------------------- */
+/* ---- Müşteri yetkilileri -----------------------------------------------
+   KİŞİ KİMLİĞİ EKSENİ (VB-12 · VB-13 — 11. oturumda koda çevrildi):
+   Bir müşteri yetkilisini gösteren her alan `YTK-*` **KODU** taşır, ad değil.
+   Ad değişince bağ kopmaz; ad tek yerde, bu koleksiyonda tutulur.
+     · `DB.tickets[].acan`        → talebi açan yetkili
+     · `DB.interactions[].kontak` → görüşülen yetkili (aday görüşmesinde **null**,
+                                     ad `DB.leads[].yetkili` alanından okunur)
+     · `DB.referrers[].kontak`    → yönlendiren aynı zamanda bir müşteri yetkilisiyse
+   Okuma her zaman `DB.contactName(kod)` üzerinden yapılır; ekranlar ad karşılaştırması
+   yapmaz. `canon.js` eksen 24 bağların hedefini ve müşteri tutarlılığını doğrular. */
 DB.contacts = [
   { kod:'YTK-001', musteri:'MUS-2024-001', ad:'Hakan Demirtaş', pozisyon:'Bilgi İşlem Müdürü', tel:'+90 533 100 00 01', eposta:'hakan@denizlojistik.com', birincil:true, karar:true, aktif:true },
   { kod:'YTK-002', musteri:'MUS-2024-001', ad:'Sibel Yurtsever', pozisyon:'Operasyon Direktörü', tel:'+90 533 100 00 22', eposta:'sibel@denizlojistik.com', birincil:false, karar:true, aktif:true },
@@ -432,21 +441,21 @@ DB.quoteItems = [
 
 /* ---- İletişim geçmişi -------------------------------------------------- */
 DB.interactions = [
-  { kod:'ILT-001', musteri:'MUS-2024-001', lead:null, tur:'Toplantı', tarih:'2026-07-30T14:00', kisi:'EMP-002', kontak:'Hakan Demirtaş',
+  { kod:'ILT-001', musteri:'MUS-2024-001', lead:null, tur:'Toplantı', tarih:'2026-07-30T14:00', kisi:'EMP-002', kontak:'YTK-001',
     konu:'Q4 bakım paketi yenileme', ozet:'Mevcut paketin kapsamı gözden geçirildi, ek SLA talebi var.', sonuc:'Teklif hazırlanacak' },
-  { kod:'ILT-002', musteri:'MUS-2024-002', lead:null, tur:'Telefon', tarih:'2026-08-01T10:30', kisi:'EMP-013', kontak:'Dr. Emine Karataş',
+  { kod:'ILT-002', musteri:'MUS-2024-002', lead:null, tur:'Telefon', tarih:'2026-08-01T10:30', kisi:'EMP-013', kontak:'YTK-003',
     konu:'Mobil uygulama teslim tarihi', ozet:'Teslim 6 Ağustos olarak teyit edildi.', sonuc:'Teslim toplantısı planlandı' },
-  { kod:'ILT-003', musteri:'MUS-2025-003', lead:null, tur:'E-posta', tarih:'2026-06-24T09:15', kisi:'EMP-012', kontak:'Cengiz Solmaz',
+  { kod:'ILT-003', musteri:'MUS-2025-003', lead:null, tur:'E-posta', tarih:'2026-06-24T09:15', kisi:'EMP-012', kontak:'YTK-005',
     konu:'Geciken fatura hatırlatması', ozet:'FTR-2026-018 için ikinci hatırlatma gönderildi.', sonuc:'Yanıt alınamadı' },
-  { kod:'ILT-004', musteri:null, lead:'LEAD-2026-004', tur:'Toplantı', tarih:'2026-07-31T15:30', kisi:'EMP-014', kontak:'Tuğçe Aslan',
+  { kod:'ILT-004', musteri:null, lead:'LEAD-2026-004', tur:'Toplantı', tarih:'2026-07-31T15:30', kisi:'EMP-014', kontak:null,
     konu:'Mobil uygulama kapsamı', ozet:'POS entegrasyonu ve sadakat kuralları konuşuldu.', sonuc:'Teknik değerlendirme başlatıldı' },
-  { kod:'ILT-005', musteri:null, lead:'LEAD-2026-001', tur:'Toplantı', tarih:'2026-07-27T11:00', kisi:'EMP-014', kontak:'Av. Selçuk Onaran',
+  { kod:'ILT-005', musteri:null, lead:'LEAD-2026-001', tur:'Toplantı', tarih:'2026-07-27T11:00', kisi:'EMP-014', kontak:'YTK-010',
     konu:'Teklif sunumu', ozet:'Teklif kalemleri tek tek açıklandı, müvekkil portalı öne çıktı.', sonuc:'Karar için 2 hafta süre istendi' },
-  { kod:'ILT-006', musteri:'MUS-2026-010', lead:null, tur:'Telefon', tarih:'2026-05-30T16:45', kisi:'EMP-013', kontak:'Yusuf Balaban',
+  { kod:'ILT-006', musteri:'MUS-2026-010', lead:null, tur:'Telefon', tarih:'2026-05-30T16:45', kisi:'EMP-013', kontak:'YTK-012',
     konu:'Memnuniyetsizlik geri bildirimi', ozet:'Destek yanıt süreleri ve revizyon sayısından şikâyet.', sonuc:'Eskalasyon açıldı' },
-  { kod:'ILT-007', musteri:'MUS-2025-005', lead:null, tur:'Toplantı', tarih:'2026-08-02T13:00', kisi:'EMP-003', kontak:'Ahmet Vural',
+  { kod:'ILT-007', musteri:'MUS-2025-005', lead:null, tur:'Toplantı', tarih:'2026-08-02T13:00', kisi:'EMP-003', kontak:'YTK-007',
     konu:'Faz 2 kapsam onayı', ozet:'Faz 2 modülleri önceliklendirildi.', sonuc:'Kapsam dokümanı gönderilecek' },
-  { kod:'ILT-008', musteri:'MUS-2026-011', lead:null, tur:'Toplantı', tarih:'2026-08-02T09:00', kisi:'EMP-007', kontak:'Elif Şentürk',
+  { kod:'ILT-008', musteri:'MUS-2026-011', lead:null, tur:'Toplantı', tarih:'2026-08-02T09:00', kisi:'EMP-007', kontak:'YTK-013',
     konu:'AI skorlama POC sonuçları', ozet:'Model doğruluğu %87, kabul kriterinin üzerinde.', sonuc:'Canlıya alma planlanacak' }
 ];
 
@@ -468,3 +477,24 @@ DB.commissions = [
   { kod:'KOM-2025-006', referans:'REF-004', kisi:'Serdar Kılıç', musteri:'MUS-2025-003', firma:'Anadolu Perakende Ticaret Ltd.',
     ciro:380000, oran:3, tutar:11400, hakedisTarihi:'2025-06-10', durum:'Ödendi', odemeTarihi:'2025-06-28', onay:'Onaylandı', aktif:true, arsiv:true }
 ];
+
+/* ---- Arama yardımcıları (org.js'teki DB.emp / DB.empName ile aynı desen) ----
+   Kişi kimliği ekseni koda çevrildiğinde (VB-12) ekranların ad çözmek için
+   `DB.contacts.filter(...)` yazması gerekiyordu; bu, her ekranda tekrarlanan
+   bir arama demekti. Tek yerde. */
+DB.contact     = function(kod){ return DB.contacts.filter(function(c){ return c.kod === kod; })[0] || null; };
+DB.contactName = function(kod){ var c = DB.contact(kod); return c ? c.ad : '—'; };
+DB.referrer    = function(kod){ return DB.referrers.filter(function(r){ return r.kod === kod; })[0] || null; };
+/* Bir iletişim kaydının muhatabının ADI. `kontak` bir `YTK-*` kodudur; ADAY
+   görüşmesinde null olur ve ad adayın kendi `yetkili` alanından okunur — aday
+   henüz müşteri olmadığı için `DB.contacts`'ta karşılığı yoktur ve ad ikinci kez
+   yazılmaz (VB-12). Beş ekran aynı düşüşü yazmak zorunda kalmasın diye burada. */
+DB.interactionContact = function(i){
+  if(!i) return '—';
+  if(i.kontak) return DB.contactName(i.kontak);
+  if(i.lead){
+    var l = DB.leads.filter(function(x){ return x.kod === i.lead; })[0];
+    if(l && l.yetkili) return l.yetkili;
+  }
+  return '—';
+};
