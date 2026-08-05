@@ -957,3 +957,40 @@ Ayrıca `Eksik` ve `İade` `GV.badge` TONE sözlüğünde yok.
 
 **Çözüm (kapanış fazında):** Kolon üç değeri de basacak; `Eksik`(warn) ve `İade`(danger)
 ton sözlüğüne girecek; `teslimKontrol` kümesi VB-22'nin sözlük turunda koleksiyona alınacak.
+
+---
+
+## UID-25 · Rapor çıktısı 73 raporda yetki kapısız
+
+**Nerede:** `app-rapor-gorev.html` · `app-rapor-filo.html` · `app-rapor-proje.html` ·
+`app-rapor-personel.html` · `app-rapor-referans.html` — `GV.report` / `GV.list` `export`
+seçeneği.
+
+**Sorun (K dokümanı ölçtü):** `export` seçeneğinin `disaAktar` yetkisine bağlanması yalnız
+**müşteri ve finans** rapor ekranlarında yapılmış. Kalan beş ekranda çıktı butonu **her role**
+basılıyor — `disaAktar` yetkisi 27 rolün 14'ünde var, yani 13 rol görmemesi gereken bir
+butonu görüyor. Toplam **73 rapor** bu durumda. UID-13 (toplu işlemde `show`/yetki kapısı yok)
+ile aynı sınıf: yetki kontrolü bileşende değil, ekran başına bırakılmış.
+
+**Çözüm (kapanış fazında):** `GV.report` ve `GV.list` `export` seçeneği `disaAktar` yetkisini
+**bileşende** kontrol edecek; yetkisiz rolde çıktı şeridi hiç basılmayacak. İki ekrandaki
+elle yazılmış kapı silinecek. Nokta yaması yok.
+
+---
+
+## VB-26 · Rapor kataloğu ile kurulmuş raporlar anahtar düzeyinde ayrışıyor
+
+**Nerede:** `app-rapor.html` katalogu (99 girdi) ↔ sekiz rapor ekranındaki gerçek tanımlar
+(103 rapor).
+
+**Ölçüm (K dokümanı):** Katalogda olup ekranı olmayan rapor **yok** — fark iki yerde:
+**finans** ekranının 16 etiketi tutuyor ama **9 `key` tutmuyor**; **proje** ekranının
+**8 katalog girdisinin hiçbiri** ekrandaki 12 raporla eşleşmiyor. Katalog girdileri
+`deep:false` olduğu için derin bağlantı kurulmuyor ve **hata bugün görünmüyor**;
+`deep:true` yapıldığı anda 17 katalog kartı yanlış rapora ya da hiçbir yere gider.
+
+**Ek:** proje rapor sayısı **12**, plan.md ve handoff'ta yazılı "8" değil.
+
+**Çözüm (kapanış fazında):** Katalog anahtarları ekran tanımlarından **türetilecek** ya da
+`canon.js`'e "her katalog `key`'i bir ekran raporunda karşılık bulur" ekseni eklenecek.
+Proje rapor sayısı defterlerde 12'ye düzeltilecek.
