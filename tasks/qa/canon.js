@@ -378,6 +378,32 @@ DB.contracts.forEach(c => {
     (c.tutar === brut ? ' — teklifin BRÜTÜ alınmış, KDV iki kez uygulanıyor (VB-19)' : ''));
 });
 
+/* ---------- 19. Hatırlatma ve duyuru okuma eksenleri (VB-29 · UID-30) ----------
+   İki yeni veri ekseni. Kural (L-23 · VB-19 dersi): eksen yazılmadan madde
+   kapatılmaz — buradaki kontrol olmazsa hatırlatma kaydı yetim kalabilir ve
+   kimse fark etmez. `okuyanlar` da aynı sınıf: kişi kodu gerçek olmalı. */
+head('19) Hatırlatma kaydı ↔ hedef kayıt · duyuru okuyanları');
+const KOD_HAVUZ = [].concat(
+  DB.documents.map(x => x.kod), DB.invoices.map(x => x.kod), DB.payments.map(x => x.kod),
+  DB.contracts.map(x => x.kod), DB.tickets.map(x => x.kod), DB.policies.map(x => x.kod),
+  DB.maintenance.map(x => x.kod), DB.inspections.map(x => x.kod));
+const KISI_HAVUZ = [].concat(DB.employees.map(e => e.kod), DB.customers.map(c => c.kod));
+(DB.reminders || []).forEach(r => {
+  say(KOD_HAVUZ.indexOf(r.kayit) !== -1, r.kod + ' kayit=' + r.kayit + ' → hiçbir koleksiyonda yok');
+  say(DB.employees.some(e => e.kod === r.gonderen), r.kod + ' gonderen=' + r.gonderen + ' → personel değil');
+  say(KISI_HAVUZ.indexOf(r.alici) !== -1, r.kod + ' alici=' + r.alici + ' → personel ya da müşteri değil');
+  say(!!r.tarih && !!r.kanal && !!r.durum, r.kod + ' tarih/kanal/durum eksik');
+});
+say((DB.reminders || []).length > 0, 'DB.reminders boş — hatırlatma ekseni yazılı ama dolu değil (L-22)');
+DB.announcements.forEach(a => {
+  say(Array.isArray(a.okuyanlar), a.kod + ' okuyanlar dizisi yok');
+  (a.okuyanlar || []).forEach(k => {
+    say(DB.employees.some(e => e.kod === k), a.kod + ' okuyan=' + k + ' → personel değil');
+  });
+});
+say(DB.announcements.some(a => (a.okuyanlar || []).length > 0),
+    'Hiçbir duyuruda okuyan yok — okuma ekseni açık ama boş (L-22)');
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

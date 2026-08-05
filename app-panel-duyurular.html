@@ -28,14 +28,25 @@ document.addEventListener('gv:ready', function(){
   var canEkle = GV.perm.can('ekle');
   var canDuzenle = GV.perm.can('duzenle');
 
-  /* ---- Okuma durumu ------------------------------------------------------
-     DB.announcements kayıtlarında kişi bazlı okuma alanı YOK (veri uydurulmaz).
-     Okuma durumu oturum sahibi için ekran belleğinde tutulur; başlangıç kuralı:
-     yayınından 14 günden fazla geçmiş duyurular okunmuş sayılır.               */
-  var READ = {};
-  DB.announcements.forEach(function(a){ READ[a.kod] = F.days(a.tarih) <= -14; });
-  function okundu(x){ return !!READ[x.kod]; }
-  function setRead(x, v){ READ[x.kod] = !!v; }
+  /* ---- Okuma durumu (UID-30 · veri ekseni açıldı) -------------------------
+     ESKİDEN: okuma durumu sayfa-yerel bir nesnede tutuluyor ve **tarihten
+     türetiliyordu** ("14 günden eski duyuru okunmuş sayılır"). İki ayrı kusur:
+     (a) türetilmiş değer durum gibi davranıyordu (L-08), (b) "Okundu işaretle"
+     aksiyonu hiçbir yere yazmadığı için yeşil mesaj basıp veriyi değiştirmiyordu.
+     ŞİMDİ: `DB.announcements[].okuyanlar` — duyuruyu okuyan personel kodları.
+     Okuma KİŞİ BAZLIDIR, oturum sahibinin kodu üzerinden okunur ve yazılır.   */
+  function okuyanlar(x){
+    if(!Array.isArray(x.okuyanlar)) x.okuyanlar = [];
+    return x.okuyanlar;
+  }
+  function okundu(x){ return okuyanlar(x).indexOf(GV.session.emp) !== -1; }
+  function setRead(x, v){
+    var l = okuyanlar(x), i = l.indexOf(GV.session.emp);
+    if(v && i === -1) l.push(GV.session.emp);
+    if(!v && i !== -1) l.splice(i, 1);
+  }
+  /* Kaç kişi okudu — yayın sahibi için anlamlı, listede kolon olarak gösterilir */
+  function okumaSayisi(x){ return okuyanlar(x).length; }
 
   /* ---- Hedef kitle -------------------------------------------------------
      dep boşsa duyuru tüm şirkete gider; tek departman veya departman dizisi
@@ -141,7 +152,12 @@ document.addEventListener('gv:ready', function(){
       { key:'okundu', label:'Okundu durumu', render:function(x){
           return okundu(x) ? GV.badge('Okundu', 'is-ok no-dot') : GV.badge('Okunmadı', 'is-warn no-dot'); },
         sortValue:function(x){ return okundu(x) ? 1 : 0; },
-        exportValue:function(x){ return okundu(x) ? 'Okundu' : 'Okunmadı'; } }
+        exportValue:function(x){ return okundu(x) ? 'Okundu' : 'Okunmadı'; } },
+      /* Okuma artık veride yazılı olduğu için kaç kişiye ulaştığı da okunabiliyor. */
+      { key:'okuyan', label:'Okuyan kişi', cellClass:'num', visible:false,
+        render:function(x){ return '<span class="u-num">' + okumaSayisi(x) + ' / ' + DB.employees.length + '</span>'; },
+        sortValue:function(x){ return okumaSayisi(x); },
+        exportValue:function(x){ return okumaSayisi(x); } }
     ],
     filters:[
       { key:'yazan', label:'Yayınlayan', type:'select',
@@ -191,8 +207,14 @@ document.addEventListener('gv:ready', function(){
           .then(function(ok){ if(ok){ x.aktif = false; GV.toast('Duyuru arşivlendi', 'ok'); refresh(); } }); } }] : []),
     bulk:[
       { key:'oku', label:'Okundu işaretle', icon:'i-check', run:function(ids){
-          ids.forEach(function(id){ READ[id] = true; });
-          GV.toast(ids.length + ' duyuru okundu işaretlendi', 'ok'); } }
+          var n = 0;
+          ids.forEach(function(id){
+            var x = DB.announcements.filter(function(a){ return a.kod === id; })[0];
+            if(x && !okundu(x)){ setRead(x, true); n++; }
+          });
+          GV.toast(n
+            ? n + ' duyuru okundu işaretlendi' + (n < ids.length ? ' · ' + (ids.length - n) + ' zaten okunmuştu' : '')
+            : 'Seçili duyuruların hepsi zaten okunmuş', n ? 'ok' : 'info'); } }
     ].concat(canDuzenle ? [{ key:'arsiv', label:'Arşivle', icon:'i-archive', tone:'danger',
         confirm:'{n} duyuru arşive alınacak.', run:function(ids){
           DB.announcements.forEach(function(a){ if(ids.indexOf(a.kod) !== -1) a.aktif = false; });

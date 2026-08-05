@@ -38,6 +38,41 @@ document.addEventListener('gv:ready', function(){
   /* Gizlilik maskesi — 'Gizli' ve 'Kişisel veri' dokümanlarında doküman ADI,
      log/denetim yetkisi olmayan rollerde maskelenir. Kod, tür ve tarihler açık kalır. */
   function masked(x){ return !canLog && (x.gizlilik === 'Gizli' || x.gizlilik === 'Kişisel veri'); }
+
+  /* ---- Hatırlatma kaydı (VB-29 · UID-30) ---------------------------------
+     Aksiyon eskiden yalnız yeşil toast basıyordu; "şu kayda şu tarihte
+     hatırlatma gönderildi" ekseni hiçbir koleksiyonda yoktu. `DB.reminders`
+     açıldı; aksiyon artık gerçek kayıt yazıyor ve alıcının bildirim kutusuna
+     da düşüyor (iki ayrı olgu: gönderim logu + kullanıcı bildirimi).        */
+  function htrKod(){
+    var n = DB.reminders.reduce(function(m, r){
+      var x = +String(r.kod).split('-')[2];
+      return x > m ? x : m;
+    }, 0);
+    return 'HTR-' + String(DB.today).slice(0,4) + '-' + ('00' + (n + 1)).slice(-3);
+  }
+  function bldKod(){
+    var n = DB.notifications.reduce(function(m, r){
+      var x = +String(r.kod).split('-')[1];
+      return x > m ? x : m;
+    }, 0);
+    return 'BLD-' + (n + 1);
+  }
+  function hatirlatmaYaz(x){
+    var alici = x.yukleyen;
+    DB.reminders.unshift({
+      kod:htrKod(), kayit:x.kod, tur:'Doküman yenileme', tarih:DB.today + 'T09:00',
+      kanal:'Sistem içi', gonderen:GV.session.emp, alici:alici, durum:'Gönderildi'
+    });
+    DB.notifications.unshift({
+      kod:bldKod(), tur:'Belge süresi',
+      baslik:etiket(x) + ' yenileme hatırlatması',
+      ozet:'Son kullanma ' + F.date(x.sonKullanma) + ' · ' + kalanText(x),
+      tarih:DB.today + 'T09:00', kisi:alici, okundu:false,
+      tone:kalan(x) < 0 ? 'danger' : 'warn', link:'app-dokuman-sure.html?q=' + x.kod
+    });
+    return alici;
+  }
   function adHtml(x){
     return masked(x)
       ? '<span class="cell-mask" title="Bu dokümanın adını görüntüleme yetkiniz yok">••••••</span>'
@@ -193,7 +228,11 @@ document.addEventListener('gv:ready', function(){
                  ' kişisine gönderilecek. Son kullanma ' + F.date(x.sonKullanma) + ' · ' + kalanText(x) +
                  (d < 0 ? ' (süre dolmuş)' : '') + '.',
             okLabel:'Hatırlatmayı gönder', tone:d < 0 ? 'danger' : 'warn' })
-            .then(function(ok){ if(ok) GV.toast('Hatırlatma ' + DB.empName(x.yukleyen) + ' kişisine gönderildi', 'ok'); }); } },
+            .then(function(ok){
+              if(!ok) return;
+              var alici = hatirlatmaYaz(x);
+              GV.toast('Hatırlatma ' + DB.empName(alici) + ' kişisine gönderildi ve kayda yazıldı', 'ok');
+              GV.refresh(); }); } },
       { key:'versiyon', icon:'i-upload', label:'Yeni versiyon yükle', run:function(x, refresh){
           var yeniSon = yilEkle(x.sonKullanma);
           var up;
@@ -230,11 +269,15 @@ document.addEventListener('gv:ready', function(){
       { key:'hatirlat', label:'Hatırlatma gönder', icon:'i-bell',
         confirm:'Seçili {n} doküman için yenileme hatırlatması, dokümanları yükleyen kişilere gönderilecek.',
         run:function(ids){
-          var kisi = ids.map(function(k){
+          var kisi = [], n = 0;
+          ids.forEach(function(k){
             var d = scope().filter(function(x){ return x.kod === k; })[0];
-            return d ? d.yukleyen : null;
-          }).filter(function(v,i,s){ return v && s.indexOf(v) === i; });
-          GV.toast(ids.length + ' doküman için ' + kisi.length + ' kişiye hatırlatma gönderildi', 'ok'); } },
+            if(!d) return;
+            var alici = hatirlatmaYaz(d);
+            n++;
+            if(alici && kisi.indexOf(alici) === -1) kisi.push(alici);
+          });
+          GV.toast(n + ' doküman için ' + kisi.length + ' kişiye hatırlatma yazıldı', n ? 'ok' : 'info'); } },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }
     ],
 

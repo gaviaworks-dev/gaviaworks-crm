@@ -326,6 +326,27 @@ DB.messages = [
   { kanal:'KNL-001', kod:'MSG-4406', kisi:'EMP-001', tarih:'2026-08-03T09:12', metin:'Bu hafta ekip toplantısı Salı 09:30. Gündem: sprint durumu, riskler, haftanın öncelikleri.', tepki:['👍','✅'] }
 ];
 
+/* ---- Hatırlatmalar (VB-29) ---------------------------------------------
+   "Şu kayda, şu tarihte, şu kişiye hatırlatma gönderildi" ekseni hiçbir
+   koleksiyonda yoktu; bu yüzden `hatirlat` aksiyonları yalnız yeşil toast
+   basıyor, hiçbir yerde iz bırakmıyordu (UID-30 · 🔴 yalan).
+
+   `DB.notifications`'tan FARKI: bildirim **kullanıcıya düşen kutu kaydıdır**
+   (okundu/okunmadı ekseni vardır); hatırlatma ise **kayda ilişkin gönderim
+   olayıdır** (kim, ne zaman, hangi kanaldan, hangi kayıt için). Aynı olay iki
+   kayıt üretebilir: hatırlatma logu + alıcının bildirimi.
+
+   `kayit` alanı bağın kendisidir (`DOK-*` · `FTR-*` · `PAY-*` …) ve
+   `canon.js` bunun gerçekten var olan bir kaydı gösterdiğini doğrular. */
+DB.reminders = [
+  { kod:'HTR-2026-001', kayit:'DOK-2026-208', tur:'Doküman yenileme', tarih:'2026-07-28T09:10',
+    kanal:'E-posta', gonderen:'EMP-001', alici:'EMP-011', durum:'Gönderildi' },
+  { kod:'HTR-2026-002', kayit:'DOK-2026-211', tur:'Doküman yenileme', tarih:'2026-08-01T10:05',
+    kanal:'Sistem içi', gonderen:'EMP-001', alici:'EMP-015', durum:'Gönderildi' },
+  { kod:'HTR-2026-003', kayit:'FTR-2026-028', tur:'Ödeme hatırlatması', tarih:'2026-07-30T14:40',
+    kanal:'E-posta', gonderen:'EMP-012', alici:'MUS-2025-005', durum:'Gönderildi' }
+];
+
 /* ---- Bildirimler (PROMPT.md §21 — 31 tip) ------------------------------- */
 DB.notifications = [
   { kod:'BLD-9001', tur:'Görev gecikmesi', baslik:'GRV-2026-101 termini geçti', ozet:'iOS PDF indirme hatası — 2 gün gecikti',
@@ -358,13 +379,17 @@ DB.notifications = [
 DB.announcements = [
   { kod:'DUY-2026-014', baslik:'Ağustos ekip toplantısı takvimi', ozet:'Haftalık toplantılar Salı 09:30\'a alındı.',
     icerik:'Ağustos ayı boyunca haftalık ekip toplantıları Salı günleri 09:30\'da yapılacaktır. Katılım tüm ekip için zorunludur.',
-    yazan:'EMP-001', tarih:'2026-08-03', oncelik:'Orta', dep:null, aktif:true },
+    yazan:'EMP-001', tarih:'2026-08-03', oncelik:'Orta', dep:null, aktif:true,
+    okuyanlar:['EMP-003','EMP-008'] },
   { kod:'DUY-2026-013', baslik:'Yıllık izin planlaması', ozet:'Eylül-Aralık izin planlarınızı 15 Ağustos\'a kadar girin.',
     icerik:'Yılın kalan dönemi için izin planlarının sisteme girilmesi gerekmektedir. Çakışma kontrolü otomatik yapılacaktır.',
-    yazan:'EMP-011', tarih:'2026-07-28', oncelik:'Yüksek', dep:null, aktif:true },
+    yazan:'EMP-011', tarih:'2026-07-28', oncelik:'Yüksek', dep:null, aktif:true,
+    okuyanlar:['EMP-011','EMP-002','EMP-003','EMP-005','EMP-008','EMP-013'] },
   { kod:'DUY-2026-012', baslik:'Yeni gizlilik politikası yürürlükte', ozet:'KVKK kapsamında güncellenen politika yayımlandı.',
     icerik:'Müşteri verisi barındıran tüm sistemler için yeni gizlilik ve saklama politikası yürürlüğe girmiştir.',
-    yazan:'EMP-001', tarih:'2026-07-15', oncelik:'Yüksek', dep:null, aktif:true }
+    yazan:'EMP-001', tarih:'2026-07-15', oncelik:'Yüksek', dep:null, aktif:true,
+    okuyanlar:['EMP-001','EMP-002','EMP-003','EMP-004','EMP-005','EMP-006','EMP-008','EMP-009',
+               'EMP-011','EMP-012','EMP-013','EMP-014','EMP-015'] }
 ];
 
 /* ---- Otomasyon kuralları (PROMPT.md §21, §26-J) ------------------------- */
