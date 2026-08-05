@@ -1184,3 +1184,53 @@ Aynı deseni kuran başka sekme var mı diye `slice(0,7) ===` taraması yapılac
 
 **Çözüm (kapanış fazında):** Ay `DB.today`'den türetilecek. Tarama sırasında
 bulunacak benzer sabitlerle **aynı turda**.
+
+---
+
+## VB-28 · §22'nin 37 bağından üçü veride hiç yok, biri şemada var ama boş
+
+**Ölçüm (9. oturum, Wave 13 kapanışı — 37 bağın 37'si tek tek veriye soruldu):**
+
+> **Önce sayım düzeltmesi:** `plan.md` ve `handoff.md` **"38 bağlantı"** diyor.
+> `PROMPT.md` §22 sayıldı: **37 madde**. (Araç → Sigorta ve Araç → Kasko ayrı madde
+> yazılmış ama tek koleksiyonda `tur` alanıyla ayrışıyor — `Trafik Sigortası` / `Kasko`.)
+
+**Sonuç: 33 bağ kurulu · 3 bağ YOK · 1 bağ yarım.**
+
+### Kurulu olmayan üç bağ
+
+| § | Bağ | Ölçüm |
+|---|---|---|
+| 6 | **Kazanılan satış → Müşteri** | `DB.customers`'ta **`lead` alanı yok**. Müşterinin hangi adaydan doğduğu yazılı değil; yalnız `kaynak` ve `referans` var — ikisi de kanal bilgisi, kayıt bağı değil. `app-lead-detay`'ın "Müşteriye dönüştür" aksiyonu gerçek `DB.customers` kaydı üretiyor ama **geldiği adayı işaretlemiyor** |
+| 15 | **Sohbet mesajı → Görev** | `DB.tasks`'ta **`kanal` ya da `mesaj` alanı yok**. `app-sohbet.html` sohbetten görev üretiyor (16 alanlı devir) ama görev **hangi mesajdan doğduğunu taşımıyor**; geri izleme yok |
+| 24 | **Satın alma → Araç** | `DB.vehicles`'ta **`siparis` alanı yok**. Demirbaş tarafında `DB.assets[].siparis` VB-07'de açıldı, **araç tarafı atlandı** — oysa §22 ikisini de istiyor |
+
+### Yarım kalan bağ — VB-05'in kapanış kaydı DÜZELTİLMELİ
+
+`ui-debt.md` VB-05 ve `plan.md` Wave 9 maddesi "destek → görev / hata / değişiklik
+dönüşümü **yazılı**, VB-05 kapandı" diyor. Ölçüm:
+
+| Alan | Şemada | Gerçekten dolu |
+|---|---|---|
+| `DB.tasks[].destek` | ✅ var | **0 / 25** |
+| `DB.bugs[].destek` | ✅ var | 2 / 6 |
+| `DB.changeRequests[].destek` | ✅ var | **0 / 4** |
+
+Yani **alan açıldı, bağ yazılmadı** — üç eksenden yalnız biri (hata) gerçek değer taşıyor.
+VB-05 kapanışı bu hâliyle **fazla iddialı**; doğrusu "hata ekseni kapandı, görev ve
+değişiklik ekseni açık". Ders **L-13**'ün ("bağ yazılır, türetilmez") bir adım ilerisi:
+**alan açmak bağ yazmak değildir.** Boş alan, `canon.js`'in bağ hedefi kontrolünden de
+sessizce geçer — çünkü kontrol edilecek değer yoktur.
+
+**Neden görünmedi:** `canon.js` eksen 15 "bağ verilen kod gerçekten var mı" diye soruyor,
+"bağ **verilmiş mi**" diye sormuyor. Boş alan her zaman geçer.
+
+**Çözüm (kapanış fazında):**
+1. Üç eksik bağ alanı açılacak: `DB.customers[].lead` · `DB.tasks[].kanal` (ya da `.mesaj`) ·
+   `DB.vehicles[].siparis`. Mevcut örtük eşleşmeler ölçülüp yazılacak; eşleşme yoksa
+   **uydurulmayacak**, gerekçesi `assumptions.md`'ye geçecek (L-13).
+2. `DB.tasks[].destek` ve `DB.changeRequests[].destek` için gerçek eşleşme aranacak;
+   bulunmazsa VB-05'in kapanış metni düzeltilecek — **kapanmış madde geri açılabilir.**
+3. `canon.js`'e yeni eksen: **"§22'nin her bağı için en az bir kayıt gerçekten bağ taşır"**.
+   Bu eksen bugün olmadığı için üç eksik bağ ve bir boş alan dört oturum boyunca görünmedi.
+4. `plan.md` ve `handoff.md`'deki "38 bağlantı" ifadesi **37**'ye düzeltilecek.
