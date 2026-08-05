@@ -182,7 +182,11 @@
     'İade edildi':'neutral',
     /* satın alma — teklif değerlendirmesi ve teslim (DB.supplierQuotes, DB.orders) */
     'Teknik uygun':'ok', 'Teknik uygun değil':'danger',
-    'Tercih edildi':'ok', 'Tercih bekliyor':'warn', 'Teslim bekleniyor':'warn', 'Tam':'ok',
+    'Tercih edildi':'ok', 'Tercih bekliyor':'warn', 'Teslim bekleniyor':'warn',
+    /* teslim kontrolü üç değerlidir (UID-24): listede 'Eksik' ve 'İade' aynı
+       "Kısmi" etiketine düşürülüyordu — oysa 'İade' seçilince sipariş İPTAL'e
+       çekiliyor. Kullanıcı iade edilmiş siparişi eksik teslimattan ayıramıyordu. */
+    'Tam':'ok', 'Eksik':'warn', 'İade':'danger',
     /* entegrasyon / sistem */
     /* 'Planlandı' görev durumlarında zaten tanımlı (info), tekrar yazılmaz */
     'Bağlı':'ok', 'Bağlı değil':'neutral', 'Hata':'danger', 'Senkronda':'accent'

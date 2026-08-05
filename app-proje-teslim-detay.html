@@ -21,6 +21,7 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
@@ -254,14 +255,10 @@ document.addEventListener('gv:ready', function(){
             if(!GV.perm.can('duzenle')){ GV.toast('Bu kaydı düzenleme yetkiniz yok.', 'danger'); return; }
             var tarihEl = el.querySelector('#tsOnayTar');
             var yeniTarih = (tarihEl && tarihEl.value) || DB.today;
-            var eskiOnay = d.musteriOnay, eskiDurum = d.durum;
-            d.musteriOnay = 'Onaylandı';
-            d.onayTarihi  = yeniTarih;
-            if(d.durum !== 'Onaylandı') d.durum = 'Onaylandı';
-            DB.activities.unshift({ kayit:d.kod, tarih:saat(), kisi:GV.session.ad,
-              metin:'Müşteri onayı işlendi (onay tarihi ' + F.date(yeniTarih) + ')' +
-                    (eskiDurum !== d.durum ? ' · teslim durumu ' + eskiDurum + ' → ' + d.durum : ''),
-              eski:eskiOnay, yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' });
+            /* VB-23 — mutasyon ve yetki kapısı `GV.delivery.approve`'ta (tek eksen:
+               `onay`). Liste ekranı `onay`, bu ekran `duzenle` soruyordu. */
+            var r = GV.delivery.approve(d.kod, 'Onaylandı', yeniTarih);
+            if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
             GV.toast(d.kod + ' için müşteri onayı işlendi', 'ok');
             setTimeout(function(){ GV.refresh(); }, 700);
           } }
@@ -287,20 +284,12 @@ document.addEventListener('gv:ready', function(){
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
         { label:'Revizyon İstendi İşaretle', cls:'btn-acc', onClick:function(close, el){
-            if(!GV.perm.can('duzenle')){ GV.toast('Bu kaydı düzenleme yetkiniz yok.', 'danger'); return; }
             var notEl = el.querySelector('#tsRevNot');
             var yeniNot = notEl ? notEl.value.trim() : '';
             if(!yeniNot){ GV.toast('Revizyon notu boş bırakılamaz.', 'warn'); return false; }
-            var eskiOnay = d.musteriOnay, eskiDurum = d.durum, eskiNot = d.not;
-            d.musteriOnay = 'Revizyon istendi';
-            d.onayTarihi  = null;
-            if(d.durum === 'Onaylandı') d.durum = 'Planlandı';
-            d.not = yeniNot;
-            DB.activities.unshift({ kayit:d.kod, tarih:saat(), kisi:GV.session.ad,
-              metin:'Müşteri revizyon istedi' +
-                    (eskiDurum !== d.durum ? ' · teslim durumu ' + eskiDurum + ' → ' + d.durum : '') +
-                    (eskiNot !== yeniNot ? ' · teslim notu güncellendi' : ''),
-              eski:eskiOnay, yeni:'Revizyon istendi', tone:'warn', icon:'i-refresh' });
+            /* VB-23 — aynı yordam, aynı yetki ekseni */
+            var r = GV.delivery.approve(d.kod, 'Revizyon istendi', null, yeniNot);
+            if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
             GV.toast(d.kod + ' “Revizyon istendi” olarak işaretlendi', 'warn');
             setTimeout(function(){ GV.refresh(); }, 700);
           } }
@@ -309,8 +298,11 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* Ölü buton yasağı: yetki yoksa VEYA durum uygun değilse buton hiç basılmaz. */
-  var onayBasilir    = canDuzenle && d.musteriOnay !== 'Onaylandı';
-  var revizyonBasilir = canDuzenle && d.musteriOnay !== 'Revizyon istendi';
+  /* VB-23 — buton kapısı da tek eksende: `onay`. `canDuzenle` ile açmak,
+     liste ekranıyla farklı rollere farklı davranmak demekti. */
+  var canOnay        = GV.perm.can('onay');
+  var onayBasilir    = canOnay && d.musteriOnay !== 'Onaylandı';
+  var revizyonBasilir = canOnay && d.musteriOnay !== 'Revizyon istendi';
 
   /* =================================================================
      SAYFA BAŞLIĞI

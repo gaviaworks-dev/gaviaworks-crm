@@ -20,6 +20,7 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc;
@@ -173,7 +174,7 @@ document.addEventListener('gv:ready', function(){
       { key:'musteri', label:'Müşteri', type:'select', options:musteriler,
         test:function(t, v){ return musKod(t) === v; } },
       { key:'durum', label:'Durum', type:'multi', options:['Planlandı','Onaylandı','Gecikti'] },
-      { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:['Onaylandı','Bekliyor'],
+      { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:GV.delivery.kararlar,
         test:function(t, v){ return v === 'Bekliyor' ? onayBekler(t) : t.musteriOnay === v; } },
       { key:'teslimEden', label:'Teslim eden', type:'select', options:teslimEdenler },
       { key:'tarih', label:'Teslim tarihi', type:'daterange' },
@@ -190,8 +191,10 @@ document.addEventListener('gv:ready', function(){
         GV.dateCell(t.tarih, { done:t.durum === 'Onaylandı' }) + '</div>' +
         '<div class="gv-mrow-code">' + esc(projAd(t.proje)) + ' · ' + esc(t.ad) + '</div>' +
         '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(t.durum) +
-        (onayBekler(t) ? '<span class="badge is-warn no-dot">Müşteri onayı bekliyor</span>'
-                       : '<span class="badge is-ok no-dot">Müşteri onayladı</span>') + '</span>' +
+        /* VB-23 — mobil satır onayı İKİLİ okuyordu: sözlükteki üçüncü değer
+           ('Revizyon istendi') yeşil "Müşteri onayladı" olarak çıkıyordu.
+           Veride o değer bugün yok, yani hata GİZLİYDİ. Artık sözlükten basılır. */
+        GV.badge(t.musteriOnay) + '</span>' +
         GV.user(t.teslimEden, { sm:true }) + '</div>';
     },
 
@@ -228,9 +231,13 @@ document.addEventListener('gv:ready', function(){
               '<input type="date" class="inp" id="tsOnayTar" value="' + DB.today + '" min="' + t.tarih + '"></div></div>',
             actions:[{ label:'Vazgeç', cls:'btn-line' },
               { label:'Onaylandı İşaretle', cls:'btn-acc', onClick:function(close, el){
-                  t.musteriOnay = 'Onaylandı';
-                  t.onayTarihi = el.querySelector('#tsOnayTar').value || DB.today;
-                  GV.toast(t.kod + ' için müşteri onayı işlendi', 'ok');
+                  /* VB-23 — mutasyon `GV.delivery.approve`'ta. Liste eskiden yalnız
+                     `musteriOnay` yazıyor, detay ekranı `durum`u da güncelliyordu:
+                     aynı işlem iki ekranda iki farklı sonuç bırakıyordu. */
+                  var r = GV.delivery.approve(t.kod, 'Onaylandı', el.querySelector('#tsOnayTar').value);
+                  if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
+                  GV.toast(t.kod + ' için müşteri onayı işlendi' +
+                           (r.eskiDurum !== r.teslim.durum ? ' · teslim durumu ' + r.teslim.durum : ''), 'ok');
                   refresh(); } }] }); } },
       { key:'not', icon:'i-file', label:'Teslim notunu gör',
         show:function(t){ return !!t.not; },
@@ -251,10 +258,9 @@ document.addEventListener('gv:ready', function(){
         run:function(ids){
           if(!GV.perm.can('onay')){ GV.toast('Müşteri onayını işaretleme yetkiniz yok.', 'danger'); return; }
           var n = 0;
-          DB.deliveries.forEach(function(t){
-            if(ids.indexOf(t.kod) !== -1 && onayBekler(t)){
-              t.musteriOnay = 'Onaylandı'; t.onayTarihi = DB.today; n++;
-            }
+          ids.forEach(function(kod){
+            var r = GV.delivery.approve(kod, 'Onaylandı');       /* VB-23 — tek yordam */
+            if(r && r.ok) n++;
           });
           GV.toast(n ? (n + ' teslimin müşteri onayı işlendi' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
                      : 'Seçili kayıtların hiçbiri onay beklemiyor', n ? 'ok' : 'warn'); } },
