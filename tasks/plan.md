@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 193 / 274 madde tamam (%70) · 32 kısmen · 49 açık** — 8. oturum, 2026-08-05
+**İLERLEME: 195 / 274 madde tamam (%71) · 32 kısmen · 47 açık** — 8. oturum, 2026-08-05
 > Sayı 237'den 274'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
@@ -302,13 +302,13 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 
 #### Destek ve iş talebi (3)
 - [x] `app-destek-form.html` — destek talebi (18 alan, SLA) ← `app-destek.html`
-- [ ] `app-destek-paket-form.html` — bakım paketi ← `app-destek-paket.html`
+- [x] `app-destek-paket-form.html` — bakım paketi ← `app-destek-paket.html`
 - [x] `app-istalebi-form.html` — departmanlar arası iş talebi (§13) ← `app-istalebi.html`
 
 #### Personel ve İK (3)
 - [x] `app-personel-form.html` — personel (23 alan, maaş maskeleme) ← `app-personel.html`
 - [x] `app-izin-form.html` — izin talebi (bakiye, vekil, çakışma) ← `app-izin.html`
-- [ ] `app-performans-form.html` — performans değerlendirme ← `app-performans.html`
+- [x] `app-performans-form.html` — performans değerlendirme ← `app-performans.html`
 
 #### Demirbaş ve filo (9)
 - [x] `app-demirbas-form.html` — demirbaş (28 alan · §15) ← `app-demirbas.html`
