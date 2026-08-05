@@ -472,6 +472,7 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | `grip-qa.js` | Rail tutamağı: geometri, yüzey rengi, hover yakalama noktaları, odak, içerik örtme | `TEMİZ — tüm ölçümler geçti` |
 | `act.js` | **"Bu buton gerçekten bir şey yapıyor mu?"** Her toplu işlem / satır aksiyonu / form kaydet tetiklenir, DB parmak izi karşılaştırılır. Hüküm: MUTASYON · YÖNLENDİRME · PANEL · ÇIKTI · DÜRÜST RED (sağlıklı) · 🔴 YALAN · ⚫ ÖLÜ (ihlal). Ölçülemeyenler ayrı sayılır: girdi soran panelin ikinci adımı, ulaşılamayan toplu işlem (L-23) | `TEMİZ` + ihlal sayısı |
 | `ctl.js` | **"Kontrol ile etiketi arasında boşluk var mı, kontroller tasarım sisteminde mi?"** Her ekranda filtre paneli · kolon yöneticisi · çıktı modalı da açılır; kontrol ile etiket metninin **gerçek piksel aralığı** Range ile ölçülür (UID-08/09) | `TEMİZ` |
+| `bag.js` | **"§22 bağı EKRANDA görünüyor mu?"** `canon.js` bağın veride yazılı olduğunu ölçer; bu script kullanıcıya **ulaştığını** ölçer — ikisi ayrı sorudur (görev detayı üç kaynağın hiçbirini basmıyordu). Her hüküm bir olumlu + bir olumsuz vakayla kurulur (L-24) | `TEMİZ — N vaka` |
 | `xport.js` | **"Çıktı ekrandaki bilgiyi taşıyor mu?"** `ui.js` bellekte yamalanıp her `GV.list` örneğinin kolonları ve kayıtları okunur; her hücrenin EKRAN değeri (`render`) ile ÇIKTI değeri (`exportValue` ‖ `r[key]`) karşılaştırılır (UID-07) | `TEMİZ — N kolon` |
 
 > `canon2.js` / `canon3.js` / `ref.js` **artık yok** — üçü de `canon.js` içinde birleşti.
@@ -501,11 +502,21 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | teslim → modül / kabul koşumu | `DB.deliveries[].moduller` (dizi) · `.test` | |
 | teslim → taksit | `DB.deliveries[].milestone` | tekil |
 | demirbaş → sipariş | `DB.assets[].siparis` | `DB.assets.filter(a => a.siparis === kod)` — siparişte ayna alan **yok** |
+| araç → sipariş | `DB.vehicles[].siparis` | `DB.vehicles.filter(v => v.siparis === kod)` — demirbaş tarafının ikizi, siparişte ayna alan **yok**. Siparişin **neti** aracın `alisBedeli`ne eşittir (canon eksen 21b). Kiralık araçta alan **daima null** |
+| aday → müşteri | `DB.leads[].musteri` | ⚠️ Alan "adayın **ilişkili olduğu** müşteri kaydı"dır. §22 madde 6 ("kazanılan satış → müşteri") karşılığı `asama:'Kazanıldı'` **ile birlikte** okunur; mevcut müşteriden doğan fırsatta da dolu olur. `DB.customers[].lead` ayna alanı **açılmaz** (V-38) |
+| sohbet mesajı → görev | `DB.messages[].gorev` | `DB.messages.filter(m => m.gorev === kod)` — `DB.bugs[].gorev` ile aynı desen; `DB.tasks[].kanal`/`.mesaj` ayna alanı **açılmaz** (V-38) |
 
 **Ekranda gösterim kuralı:** Bağ varsa `tone:'ok'` bir `GV.notice` ile "bağ veride yazılı"
 denir ve kaynak kayıt adıyla gösterilir. Bağ yoksa aynı projenin kayıtları **bağlam listesi**
 olarak gösterilebilir ama **"bağ değildir"** diye açıkça etiketlenir ve satır rozeti
 `Aynı proje` olur — `Aday` / `Güçlü aday` gibi bir eşleşme iması **kullanılmaz**.
+
+**Eksen 15 yetmez — eksen 21 de koşar (VB-28 · L-22).** Eksen 15 "bağ **hedefi** gerçekten
+var mı" diye sorar; **boş alan her zaman geçer**. Eksen 21 tersini sorar: "bağ **verilmiş
+mi**" — §22'nin 14 bağının her biri en az bir kayıtta dolu olmalı, ve doluluk sayısı
+raporda **ayrıca yazılır** (L-19 · L-25). Ayrıca eksen 21c yasak **ayna alanların
+doğmadığını** ölçer: `DB.tasks[].kanal`/`.mesaj` ve `DB.customers[].lead`.
+Bağın **ekranda göründüğü** ayrı bir sorudur ve `tasks/qa/bag.js` ile ölçülür.
 
 `canon.js` **eksen 15** her turda doğrular: bağ hedefi gerçekten var mı · bağ verilen
 sprint/modül/koşum **aynı projede** mi · bir koşuma bağlı hata sayısı `basarisiz`i aşıyor mu ·

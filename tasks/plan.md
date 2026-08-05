@@ -1,6 +1,8 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 236 / 292 madde tamam (%81) · 23 kısmen · 33 açık** — 10. oturum, 2026-08-05
+**İLERLEME: 239 / 294 madde tamam (%81) · 21 kısmen · 34 açık** — 11. oturum, 2026-08-05
+> Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
+> payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
@@ -355,10 +357,13 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
 ### Wave 13 — Kapanış
 - [x] Tüm `data-wip` bağlantıların gerçek `href`'e çevrilmesi → `links.js` **TEMİZ**,
       kuyrukta **0 hedef**; 141 ekran · 142 BUILT kaydı · kırık/hayalet/yetim yok (9. oturum)
-- [~] Modüller arası veri ilişkisi doğrulaması (§22 — **37** bağlantı, 38 değil) — **doğrulandı 9. oturum**
-      → **33 kurulu · 3 YOK · 1 yarım** (VB-28). Eksik: `customers.lead` · `tasks.kanal` ·
-      `vehicles.siparis`. Yarım: `tasks.destek` 0/25 ve `changeRequests.destek` 0/4 —
-      **alan açık ama bağ yazılmamış**, VB-05 kapanışı fazla iddialıymış
+- [x] Modüller arası veri ilişkisi doğrulaması (§22 — **37** bağlantı, 38 değil) — **kapandı 11. oturum**
+      → 9. oturumun "3 YOK · 1 yarım" kaydı ölçüldü: **üç "eksik" bağın ikisi zaten vardı**,
+      ters yönde (`DB.leads[].musteri` 4/12 · `DB.messages[].gorev` 1/6). `customers.lead` ve
+      `tasks.kanal` §9d'nin **yasakladığı ayna alanlar**dır, açılmadı (V-38). Gerçekten eksik olan
+      `vehicles.siparis` yazıldı (`SAT-2025-010` → `SIP-2025-006` → ARC-004) · boş kalan
+      `tasks.destek` ve `changeRequests.destek` gerçek kayıtla dolduruldu (`GRV-2026-126` ·
+      `DGS-2026-016`). Eksen: `canon.js` **21** (706 kontrol) + `tasks/qa/bag.js` (12 vaka)
 - [x] Canonical veri tutarlılığı taraması → `canon.js` **TEMİZ, 607 kontrol** (9. oturum)
 - [x] 1440 / 768 / 390 px QA taraması — **10. oturum**: `qa.js` 141 ekran × 3 kırılım TEMİZ,
       `gate.js` 705 sayfa yüklemesi (141 × 5 rol) TEMİZ
@@ -448,8 +453,8 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
       kalan hizalama, boşluk ve kontrast işleri **UI ve UX Kalite Geçişi** fazında
 - [~] Yazılım şirketine özgü — inşaat terminolojisi sıfır → **görünen etiketlerde sıfır** ✅;
       `hakedis` / `hakedisTarihi` **alan adları** `crm.js` ve 5 ekranda duruyor (VB-04)
-- [~] Bütün ana modüller birbirine bağlı → §22'deki 38 bağlantı doğrulanmadı;
-      VB-05 / VB-07 / VB-08 bağ alanları açık
+- [x] Bütün ana modüller birbirine bağlı → §22'nin **37** bağının 37'si doğrulandı (VB-28 kapandı);
+      `canon.js` eksen 21 her bağın en az bir kayıtta **dolu** olduğunu her turda ölçer (L-22)
 - [x] Görev sistemi ayrıntılı → 19 durum · 18 tür · 13 sekme · alt görev · bağımlılık · onay zinciri
 - [x] Referans & yönlendiren kişi takibi → 17 referans türü · yönlendiren kartı · komisyon zinciri
 - [x] Departmanlar arası sohbet + iş talebi + sohbetten görev
@@ -545,6 +550,11 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       → 8 sözlük veri katmanına alındı; üç form kümeleri türetmeyi bıraktı
 - [x] **VB-09** · Yasak inşaat terimi "saha" — **çözüldü 10. oturum**, beş yerde bulundu
       (defterde tek kayıt vardı); tam metin taraması 0 sonuç
+- [x] **VB-28** · §22 bağ kapsamı — **çözüldü 11. oturum** → üç "eksik" bağın **ikisi zaten vardı**
+      (ters yönde, §9d gereği kaynak kayıtta); `vehicles.siparis` zinciri yazıldı, iki boş destek
+      bağı gerçek kayıtla dolduruldu. Yeni eksenler: `canon.js` **21** ("bağ verilmiş mi" — L-22)
+      ve `tasks/qa/bag.js` ("bağ ekranda görünüyor mu")
+- [ ] **bag.js kalıcı tarama setinde** — §22 bağı kullanıcıya ulaşıyor mu (VB-28 ekseni)
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (111 kullanım · `canon.js` ekseni)
 - [ ] **VB-16** · `DB.analyses[].maliyet` → `tahminiBedel` (VB-04 ile aynı turda)
 - [x] **VB-06 · VB-23 · VB-25** · Aynı işlem ekrandan ekrana ayrışıyordu — **çözüldü 10. oturum**

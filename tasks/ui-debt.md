@@ -1452,7 +1452,70 @@ bulunacak benzer sabitlerle **aynı turda**.
 
 ---
 
-## VB-28 · §22'nin 37 bağından üçü veride hiç yok, biri şemada var ama boş
+## ✅ VB-28 · §22 bağ kapsamı — ÇÖZÜLDÜ (2026-08-05, 11. oturum)
+
+> ### ⚠️ SAYI DÜZELTMESİ — ÜÇ "EKSİK" BAĞIN İKİSİ ZATEN VARDI (L-26'nın ikinci vakası)
+> Kayıt **"3 bağ YOK · 1 yarım"** diyordu. 11. oturumda üçü de veriye tek tek soruldu:
+>
+> | § | Bağ | 9. oturum kaydı | Ölçülen |
+> |---|---|---|---|
+> | 6 | Kazanılan satış → Müşteri | "`customers.lead` yok" | **`DB.leads[].musteri` 4/12 dolu** |
+> | 15 | Sohbet mesajı → Görev | "`tasks.kanal` yok" | **`DB.messages[].gorev` 1/6 dolu** |
+> | 24 | Satın alma → Araç | "`vehicles.siparis` yok" | **doğruydu** — alan da örtük eşleşme de yoktu |
+>
+> Kayıt bağı **yalnız hedef koleksiyonda** aramıştı. Oysa components.md §9d bağı
+> **kaynak/doğan kayıtta** tutar: `customers.lead` ve `tasks.kanal` tam olarak
+> yasakladığı **ayna alanlardır** — `DB.bugs[].gorev` varken `DB.tasks[].hata`'nın
+> bilinçle açılmaması (V-29) ile aynı sınıf. İki ekran bu kararı zaten uyguluyordu
+> (`app-lead-detay` `l.musteri = kod` · `app-sohbet` `m.gorev = kod`); alan açmak
+> ikisini de çelişkiye düşürürdü. **Alan AÇILMADI**, gerekçe assumptions **V-38**.
+>
+> Ders **L-26**'nın ikinci vakası: borç fazla sayılmıştı — bu kez ölçüm aracı değil,
+> **borç kaydının kendisi** yanlış yere bakmıştı.
+
+### Gerçekten açık olan iki kalem — ikisi de kapandı
+
+**1 · §24 satın alma → araç (`DB.vehicles[].siparis`)** — zincir uçtan uca yazıldı:
+`TDR-007` Toyota Plaza Ankara · `SAT-2025-010` talep (3 makamlı, tamamlanmış) ·
+`SIP-2025-006` sipariş (net **1.680.000** = ARC-004'ün `alisBedeli`i). Kalan üç araçta
+alan **null** ve uydurulmadı (L-13): ikisi satın alma modülünün veri penceresinden önce
+alındı, biri **kiralık** — sipariş hiç doğmaz. Gerekçeler `ops.js` başlığında ve
+`app-arac-detay.html` ekranında yazılı (V-38b).
+
+**2 · Boş kalan iki destek bağı (L-22)** — `tasks.destek` **0/25** ve
+`changeRequests.destek` **0/4** idi. Örtük eşleşme aranıp **bulunamadı**; uydurmak
+yerine eksik olan **kayıt** yazıldı (VB-07'nin üç demirbaş kaydıyla aynı yöntem):
+
+| Yazılan | Kaynak talep | Ne kurdu |
+|---|---|---|
+| `GRV-2026-126` | `DST-2026-118` | Talep zaten `HTA-2026-074`'ü doğurmuştu ama hatanın `gorev`'i **null**du. Zincir artık uçtan uca: **talep → hata → görev**. `etki:'Çok yüksek'` çünkü hatanın şiddeti `Kritik` (§9 eşlemesi kurala **doğarken** uydu) |
+| `DGS-2026-016` | `DST-2026-120` | Kapsam dışı, ücretli "Geliştirme talebi" → §18'in "destek → değişiklik / ek teklif" yolu |
+
+### Ölçüm — iki yeni eksen, ikisi de sınandıktan sonra koşuldu
+
+| Eksen | Sorduğu soru | Sonuç |
+|---|---|---|
+| `canon.js` **21** (+21b, 21c) | "Bağ **verilmiş mi**" — eksen 15 "bağ hedefi var mı" diye soruyordu, **boş alan her zaman geçiyordu** (L-22) | **706 kontrol temiz**; 14 bağın 14'ü ≥1 kayıtta dolu, doluluk sayısı raporda ayrı yazılı |
+| `tasks/qa/bag.js` | "Bağ **ekranda görünüyor mu**" — veride yazılı olmak kullanıcıya ulaşmak değildir | **12 vaka temiz** (6 olumlu + 6 olumsuz) · 3 ekran · 12/12 kayıt yüklendi |
+
+**Araç sınaması (L-24 · L-27):** canon eksen 21, koşturulmadan önce scratchpad'e kopyalanan
+veriyle **dört bozuk vakada** denendi — boşaltılan `tasks.destek` · uyuşmayan `alisBedeli` ·
+doğan yasak `customers.lead` ayna alanı · yetim sipariş kodu. **Dördünü de yakaladı**,
+bozulmamış kopyada temiz kaldı. Repo bu sınama sırasında **hiç değiştirilmedi**.
+
+### Ekranda gösterim (§9d) — üç ekran
+
+`app-siparis-detay` sekmesi "Demirbaşa Aktarım" → **"Envantere Aktarım"** oldu, araç tablosu
+eklendi · `app-arac-detay` "Mülkiyet ve Edinim" bölümüne sipariş + talep satırı ve bağın
+yazılı olup olmadığını söyleyen `GV.notice` · `app-gorev-detay`'a **"Görevin Kaynağı"**
+bölümü (destek talebi · kaynak hata · sohbet mesajı). Görev detayı üç kaynağın **hiçbirini**
+basmıyordu; `ops.js` ve `misc.js` sayfaya eklendi (L-12).
+
+**Sayım düzeltmesi uygulandı:** "38 bağlantı" → **37**, `plan.md` ve `handoff.md`'de.
+
+---
+
+## VB-28 (özgün kayıt) · §22'nin 37 bağından üçü veride hiç yok, biri şemada var ama boş
 
 **Ölçüm (9. oturum, Wave 13 kapanışı — 37 bağın 37'si tek tek veriye soruldu):**
 

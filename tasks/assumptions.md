@@ -350,3 +350,70 @@ sözleşme bedeli" kaydının bilinçli ve gerekçeli halidir.
 kaydı gösterir **ve** proje teslimi anketi teslim tarihinden sonradır. İkinci kural
 yazılır yazılmaz gerçek bir hata buldu: `ANK-2026-057` 2026-07-20 tarihliydi, oysa
 `PRJ-2026-004` 2026-07-22'de teslim edilmişti — anket tarihi 2026-07-26'ya çekildi.
+
+
+## V-38 · §22'nin üç "eksik" bağından İKİSİ zaten vardı — ters yönde (VB-28)
+
+**Ölçüm (11. oturum, üç bağın üçü de veriye tek tek soruldu):**
+
+| § | Bağ | 9. oturum kaydı | 11. oturumda ölçülen |
+|---|---|---|---|
+| 6 | Kazanılan satış → Müşteri | "`DB.customers`'ta `lead` alanı yok" | **`DB.leads[].musteri` 4/12 dolu** — bağ var |
+| 15 | Sohbet mesajı → Görev | "`DB.tasks`'ta `kanal`/`mesaj` alanı yok" | **`DB.messages[].gorev` 1/6 dolu** — bağ var |
+| 24 | Satın alma → Araç | "`DB.vehicles`'ta `siparis` alanı yok" | **doğru** — alan da yoktu, örtük eşleşme de |
+
+**Karar: §6 ve §15 için alan AÇILMADI.** Gerekçe defterin kendi kuralı: components.md §9d
+"bağ **doğan/bağımlı** kaydın üstünde tutulur, hedefte **ayna alan açılmaz**". `customers.lead`
+ve `tasks.kanal` tam olarak o yasak ayna alanlardır — `DB.bugs[].gorev` varken
+`DB.tasks[].hata`'nın bilinçle açılmaması (**V-29**) ile birebir aynı sınıf. İki ekran bu
+kararı zaten uyguluyordu: `app-lead-detay.html` dönüşümde `l.musteri = kod` yazıyor ve
+satır yorumunda "müşteride ayna alan açılmaz (§9d)" diyor; `app-sohbet.html` görev
+üretirken `m.gorev = kod` yazıyor. Alan açmak bu iki ekranı da çelişkiye düşürürdü.
+
+**Ayna alanın doğmadığı artık ÖLÇÜLÜYOR:** `canon.js` **eksen 21c** `DB.tasks`'ta
+`kanal`/`mesaj`, `DB.customers`'ta `lead` anahtarının doğmadığını her turda kontrol eder.
+Yani karar yoruma değil, tarama eksenine bağlandı.
+
+**`DB.leads[].musteri` iki eksen taşır — ayrım yazıldı.** 4 kaydın 2'si gerçek dönüşüm
+(`asama:'Kazanıldı'` → LEAD-2026-005 → MUS-2026-011 · LEAD-2026-008 → MUS-2026-009);
+kalan 2'si **mevcut müşteriden doğan fırsat**tır (LEAD-2026-002 → MUS-2025-004 müşterisi
+adaydan bir yıl önce açılmış). Alanın tanımı bu yüzden "adayın **ilişkili olduğu** müşteri
+kaydı"dır, "adaydan doğan müşteri" değil. §22 madde 6'nın karşılığı `asama:'Kazanıldı'`
+**ile birlikte** okunan `musteri` alanıdır; canon eksen 21c kazanılan adayın gösterdiği
+müşterinin **adayın talebinden sonra** açıldığını doğrular.
+
+## V-38b · Araçlarda `siparis:null` üç kayıtta bilinçlidir
+
+`DB.vehicles[].siparis` açıldı ve **ARC-004**'te dolu: `SIP-2025-006` (Toyota Corolla
+Hybrid, net 1.680.000 = aracın `alisBedeli`i). Zincir uçtan uca yazıldı — `TDR-007`
+Toyota Plaza Ankara tedarikçisi · `SAT-2025-010` satın alma talebi (üç makamlı onay,
+tamamlanmış) · `SIP-2025-006` sipariş. Kalan üç araçta alan **null** ve bu uydurulmadı
+(L-13): ARC-001 (2023-05-12) ve ARC-003 (2022-11-08) satın alma modülünün veri
+penceresinden (2025+) önce alındı; **ARC-002 kiralıktır**, satın alma siparişi hiç doğmaz.
+Üç gerekçe de `ops.js` `DB.vehicles` başlığında ve `app-arac-detay.html` ekranında
+**yazılı** — satıcı adı eşleşmesi bağ gibi sunulmuyor.
+
+`canon.js` **eksen 21b** siparişi olan aracı doğrular: sipariş gerçekten var · durumu
+`Teslim alındı` · `alisBedeli` = siparişin **neti** · mülkiyet `Satın alınan` ·
+`alisTarihi` ≥ sipariş tarihi. Demirbaş tarafındaki eksen 15d'nin birebir ikizidir.
+
+## V-39 · Boş kalan iki destek bağı GERÇEK kayıtla dolduruldu (VB-28 · L-22)
+
+`DB.tasks[].destek` **0/25** ve `DB.changeRequests[].destek` **0/4** idi — VB-05'in
+kapanışını fazla iddialı yapan boşluk. Mevcut kayıtlar tarandı: **hiçbir görev ya da
+değişiklik talebi var olan bir talepten sonra açılmamıştı**, yani bağ yazılacak örtük
+eşleşme yoktu. Uydurmak yerine (L-13) eksik olan **kayıt** yazıldı — VB-07'nin üç
+demirbaş kaydı yazarak kapanmasıyla aynı yöntem:
+
+| Yazılan kayıt | Kaynak talep | Neden bu talep |
+|---|---|---|
+| `GRV-2026-126` "Randevu formu tarih seçici mobil düzeltmesi" | `DST-2026-118` (Kritik, Devam ediyor) | Talep zaten `HTA-2026-074`'ü doğurmuştu; hatanın `gorev` alanı **null**du. Zincir artık uçtan uca: talep → hata → görev, görev de kaynağını `destek` alanında taşıyor |
+| `DGS-2026-016` "Sevkiyat raporuna araç filtresi eklensin" | `DST-2026-120` ("Geliştirme talebi", `ucretli:true`) | Kapsam dışı ve ücretli bir geliştirme talebi; §18'in "destek → değişiklik / ek teklif" yolunun tam karşılığı. `karar:'Ek teklif gerekiyor'` |
+
+`GRV-2026-126.etki` **Çok yüksek** yazıldı çünkü bağlı hatanın şiddeti `Kritik` —
+components.md §9 şiddet→etki eşlemesi. Bu eşleme 6. oturumda `HTA-2026-071`/`GRV-2026-101`
+çiftinde ihlal çıkmıştı; yeni kayıt kurala **doğarken** uyuyor.
+
+**Eksen yazılmadan kapatılmadı (VB-19 dersi):** `canon.js` **eksen 21** §22'nin 14 bağını
+tek tek sayar ve her birinin en az bir kayıtta dolu olduğunu doğrular; rapor kaç kayıtta
+dolu olduğunu **ayrıca yazar** ki defterdeki iddia ölçülebilsin (L-25 · L-19).
