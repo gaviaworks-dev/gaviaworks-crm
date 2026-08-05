@@ -10,6 +10,40 @@
   var esc = GV.esc || function(s){ return String(s == null ? '' : s); };
   var ico = GV.ico || function(n){ return '<svg class="ic"><use href="#' + n + '"></use></svg>'; };
 
+  /* Maskeleme işareti — tablo hücresi (`.cell-mask`), KPI ve rapor için TEK yerde.
+     UID-11: yetkisiz rolde KPI "₺0" basıyordu; sıfır bir DEĞERDİR, "göremezsin"
+     demek değildir. Yetkisiz kullanıcı "para yok" sanıyordu. */
+  var MASK = '••••••';
+
+  /* `kpis[]` maskeleme sözleşmesi (UID-11 / UID-28):
+       perm:'finans'            → GV.perm.can('finans') değilse maskelenir
+       mask:function(){...}     → true dönerse maskelenir
+     İkisi de yoksa KPI her rolde açıktır. Ekranlarda tekrarlanan
+     `canFinans ? toplam : 0` deseni bu sözleşmeyle silinir. */
+  /* Dışa aktarma yetkisi — `GV.perm` yoksa (bileşen tek başına test edilirse) açık sayılır. */
+  function canExport(){ return !(GV.perm && GV.perm.can) || !!GV.perm.can('disaAktar'); }
+
+  function kpiMasked(k){
+    if(typeof k.mask === 'function') return !!k.mask();
+    if(k.perm) return !(GV.perm && GV.perm.can(k.perm));
+    return false;
+  }
+
+  /* `columns[]` maskeleme sözleşmesi (UID-28) — KPI ile AYNI anahtarlar.
+     Maskeleme kararı ekran başına bırakıldığı için kardeş ekranlar ayrışıyordu:
+     `app-dokuman-sure` belge adını `can('log')` ile maskelerken merkez liste
+     `app-dokuman` aynı kayıtları açık basıyordu; `app-arac-yakit` tutarı
+     maskelerken birim fiyatı açık bırakıyor ve maskelenen sayı
+     `litre × birimFiyat` ile geri hesaplanabiliyordu.
+     Maskelenen kolon ÇIKTIYA DA girmez — maske dekor değil kapıdır. */
+  function colMasked(c, r){
+    /* `mask` SATIRI alır: gizlilik seviyesi kayıttan kayda değişebilir
+       (`Gizli` / `Kişisel veri` belge adı). `perm` ise kolonun tamamına bakar. */
+    if(typeof c.mask === 'function') return !!c.mask(r);
+    if(c.perm) return !(GV.perm && GV.perm.can(c.perm));
+    return false;
+  }
+
   /* ===================================================================
      0. BİÇİMLENDİRME
      =================================================================== */
@@ -590,12 +624,14 @@
       if(!cfg.kpis || !cfg.kpis.length) return '';
       var base = afterArchive(source());
       return '<div class="kpi-grid">' + cfg.kpis.map(function(k){
-        var val = k.calc ? k.calc(base, all) : 0;
+        var gizli = kpiMasked(k);
+        var val = gizli ? null : (k.calc ? k.calc(base, all) : 0);
         var inner =
           '<div class="kpi-ico">' + ico(k.icon || 'i-chart-bar','ic-lg') + '</div>' +
-          '<div class="kpi-body"><div class="kpi-num">' + (k.format ? k.format(val) : Fmt.num(val)) + '</div>' +
+          '<div class="kpi-body"><div class="kpi-num' + (gizli ? ' is-masked' : '') + '">' +
+            (gizli ? MASK : (k.format ? k.format(val) : Fmt.num(val))) + '</div>' +
           '<div class="kpi-lbl">' + esc(k.label) + '</div>' +
-          (k.meta ? '<div class="kpi-meta ' + (k.metaTone ? 'is-' + k.metaTone : '') + '">' + k.meta(base) + '</div>' : '') + '</div>';
+          (k.meta && !gizli ? '<div class="kpi-meta ' + (k.metaTone ? 'is-' + k.metaTone : '') + '">' + k.meta(base) + '</div>' : '') + '</div>';
         return k.href
           ? '<a class="kpi' + (k.tone ? ' is-' + k.tone : '') + '" href="' + k.href + '">' + inner + '</a>'
           : '<div class="kpi' + (k.tone ? ' is-' + k.tone : '') + '">' + inner + '</div>';
@@ -655,7 +691,12 @@
         acts += '<label class="lh-toggle"><input type="checkbox" data-archive' + (state.archive ? ' checked' : '') + '>' +
                 ico('i-archive','ic-sm') + '<span class="u-desktop">Arşivlenenleri Göster</span></label>';
       }
-      if(cfg.export !== false){
+      /* UID-25 — çıktı yetki kapısı BİLEŞENDE. `disaAktar` 27 rolün 14'ünde var;
+         kapı ekran başına bırakıldığı için 73 raporda hiç kurulmamıştı ve 13 rol
+         göremeyeceği bir butonu görüyordu. Yetkisizde şerit HİÇ basılmaz —
+         "yetkin yok" durumunda gizlemek doğru davranıştır (UID-13 felsefesi;
+         "bu sürümde yok" durumundan ayrılır). */
+      if(cfg.export !== false && canExport()){
         acts += '<button type="button" class="btn btn-line btn-sm" data-export aria-label="Çıktı al">' +
                 ico('i-download','ic-sm') + '<span class="u-desktop">Çıktı Al</span></button>';
       }
@@ -703,7 +744,8 @@
                            (state.selected.indexOf(r[cfg.key]) !== -1 ? ' checked' : '') + ' aria-label="Satırı seç"></td>';
         cols.forEach(function(c){
           tr += '<td data-col="' + c.key + '"' + (c.cellClass ? ' class="' + c.cellClass + '"' : '') + '>' +
-                (c.render ? c.render(r, i) : esc(r[c.key] == null ? '—' : r[c.key])) + '</td>';
+                (colMasked(c, r) ? '<span class="cell-mask">' + MASK + '</span>'
+                              : (c.render ? c.render(r, i) : esc(r[c.key] == null ? '—' : r[c.key]))) + '</td>';
         });
         if(cfg.rowActions){
           tr += '<td class="col-acts"><span class="cell-acts">' + cfg.rowActions.filter(function(a){
@@ -809,6 +851,7 @@
              prototipin işi kapsamı göstermek; gizlemek kapsamı küçük gösterir.
              İSTİSNA (UID-07): `export:true` maddesinin yordamı BİLEŞENDE —
              seçili kayıtları `exportRows` ile dışa aktarır, ekran `run` yazmaz. */
+          if(b.export && !canExport()) return '';        /* UID-25 — yetkisizde hiç basılmaz */
           if(!b.run && !b.export) return '<button type="button" class="btn btn-sm is-todo" disabled' +
                  ' data-bulk-todo="' + esc(b.key) + '"' +
                  ' title="Bu sürümde yok — aksiyon henüz uygulanmadı"' +
@@ -1181,6 +1224,7 @@
        ya da id'ler, biçim)`. Biçim verilmezse kullanıcıya sorulur — bileşen
        kullanıcı adına biçim seçmez. */
     function exportRows(list, fmt){
+      if(!canExport()){ GV.toast('Dışa aktarma yetkiniz yok.', 'danger'); return 0; }
       var rows = (list || []).map(function(x){
         if(x && typeof x === 'object') return x;
         return source().filter(function(r){ return String(r[cfg.key]) === String(x); })[0];
@@ -1205,6 +1249,7 @@
       var head = cols.map(function(c){ return c.label; });
       var body = rows.map(function(r){
         return cols.map(function(c){
+          if(colMasked(c, r)) return '';              /* UID-28 — maskeli hücre çıktıya da girmez */
           var v = c.exportValue ? c.exportValue(r) : r[c.key];
           if(v == null) return '';
           return String(v).replace(/<[^>]*>/g,'').trim();
@@ -1895,12 +1940,14 @@
     function kpiHtml(r, rows){
       if(!r.kpis || !r.kpis.length) return '';
       return '<div class="kpi-grid">' + r.kpis.map(function(k){
-        var val = k.calc ? k.calc(rows, state.f) : 0;
+        var gizli = kpiMasked(k);                       /* UID-11 — aynı sözleşme */
+        var val = gizli ? null : (k.calc ? k.calc(rows, state.f) : 0);
         return '<div class="kpi' + (k.tone ? ' is-' + k.tone : '') + '">' +
           '<div class="kpi-ico">' + ico(k.icon || 'i-chart-bar','ic-lg') + '</div>' +
-          '<div class="kpi-body"><div class="kpi-num">' + (k.format ? k.format(val) : Fmt.num(val)) + '</div>' +
+          '<div class="kpi-body"><div class="kpi-num' + (gizli ? ' is-masked' : '') + '">' +
+            (gizli ? MASK : (k.format ? k.format(val) : Fmt.num(val))) + '</div>' +
           '<div class="kpi-lbl">' + esc(k.label) + '</div>' +
-          (k.meta ? '<div class="kpi-meta' + (k.metaTone ? ' is-' + k.metaTone : '') + '">' + k.meta(rows) + '</div>' : '') +
+          (k.meta && !gizli ? '<div class="kpi-meta' + (k.metaTone ? ' is-' + k.metaTone : '') + '">' + k.meta(rows) + '</div>' : '') +
           '</div></div>';
       }).join('') + '</div>';
     }
