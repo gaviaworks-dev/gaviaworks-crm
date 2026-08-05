@@ -484,6 +484,7 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [ ] **UID-19** · Tablo toplam satırı için ortak sınıf yok → `.gtable tfoot` + `tr.is-total`
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (tek turda, `canon.js`'e dokunur)
 - [ ] **VB-06** · Fatura ↔ tahsilat mutasyonları birbirini kapatmıyor → `GV.fin.settle*` tek yerde
+- [x] **VB-19** · Teklif → sözleşme aktarımı KDV'yi iki kez uyguluyordu (çözüldü 2026-08-05, `canon.js` eksen 18)
 
 ### Kapsam B — sistem geneli denetimler
 

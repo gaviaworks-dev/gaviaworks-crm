@@ -752,7 +752,15 @@ kullanılmaz" diyor. Aynı proje içinde iki karşıt konvansiyon.
 
 ---
 
-## VB-19 · Teklif → sözleşme aktarımı para eksenini kaydırıyor (KDV iki kez)
+## ✅ VB-19 · Teklif → sözleşme aktarımı KDV'yi iki kez uyguluyordu — ÇÖZÜLDÜ (2026-08-05)
+
+**Çözüm:** 3 sözleşme teklifin netine çekildi ve zincir uçtan uca yeniden dengelendi
+(11 taksit · 9 fatura · 9 tahsilat · 3 proje · 3 müşteri ciro/bekleyen tahsilat).
+Eksen `components.md` §9b'ye yazıldı, `canon.js` **eksen 18** her turda doğruluyor
+(607 kontrol temiz). Bağımsız çapa `toplamCiro` idi: 7 müşterinin 5'inde
+`Σ contract.tutar`'a birebir eşit, `Σ(tutar/1,2)`'ye değil.
+
+### Özgün kayıt
 
 **Nerede:** `DB.contracts[].tutar` ↔ `DB.quotes[].toplam`.
 

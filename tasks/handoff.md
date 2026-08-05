@@ -9,9 +9,10 @@
 > **`tasks/ui-debt.md`** = arayüz + veri borç defteri. Üretim sırasında görülen sorun oraya yazılır,
 > **o an düzeltilmez** (istisna: ölçülmüş, kök nedeni ortak katmanda olan gerçek hata).
 
-**Güncelleme:** 2026-08-05, 8. oturum sonu · **135 ekran** · 26 detay · **30 form ekranı**
-**plan.md:** **187 / 274 madde (%68)** · 32 kısmen · 55 açık
-**Form kuyruğu: 36 hedefin 30'u bitti, 6 kaldı** · **Doküman bloğu: 12'nin 3'ü bitti**
+**Güncelleme:** 2026-08-05, 8. oturum sonu · **141 ekran** · 26 detay · **36 form ekranı**
+**plan.md:** **195 / 274 madde (%71)** · 32 kısmen · 47 açık
+**FORM BLOĞU KAPANDI — 36/36.** · **Doküman bloğu: 12'nin 5'i bitti (C · D · E · H · K)**
+**VB-19 çözüldü** — teklif→sözleşme KDV çift uygulaması, zincir uçtan uca dengelendi.
 
 **Son taramalar (hepsi bu oturumda, DÜZELTİLMİŞ harness ile):**
 **8. oturum kapanışında koşuldu:** `rec.js` **56/56 hedef** (her ekran gerçek kayıtla açıldı) ·
@@ -24,7 +25,14 @@
 
 ## 1. KALAN İŞ — SIRAYLA
 
-### A. Form kuyruğu: 6 hedef kaldı
+### A. Form kuyruğu — ✅ KAPANDI (36/36)
+8. oturumda son 9 ekran üretildi: `arac` · `arac-bakim` · `arac-muayene` · `arac-sigorta` ·
+`arac-yakit` · `arac-gider` · `arac-kaza` · `destek-paket` · `performans`.
+Yeni form ekranı yazılacaksa sözleşme: `tasks/form-brief.md` (+ filo ise `tasks/filo-form-brief.md`).
+
+<details><summary>Kapanmış kuyruğun eski kaydı</summary>
+
+### (eski) Form kuyruğu: 6 hedef kaldı
 `node links.js` çıktısı **canlı kuyruktur**, elle sayma.
 
 > **8. oturum notu — YARIM DOSYA YOK.** Bu altısı için ajan açıldı ve **sekizi de API
@@ -41,10 +49,13 @@
 | `app-destek-paket-form.html` | `app-destek-paket.html` | **kota aritmetiği**: `kullanilan + kalan = aylikSaat × dönem ayı`, ayrıca `kalan` = müşterinin taleplerindeki `kalanDestek`. İkisi de türetilir, elle girdirilmez · `tutar` **NET** |
 | `app-performans-form.html` | `app-performans.html` | karar desteği — **otomatik karar üretmez**; puan ölçeği veriden ölçülür, varsayılmaz |
 
-**Filo para ekseni artık yazılı** (8. oturumda ölçüldü, components.md §9b): `maintenance.maliyet` ·
-`policies.prim` · `vehicleExpenses.tutar` · `fuelLogs.tutar` hepsi **BRÜT (KDV dahil)** —
-gider kaydı kaynak tutarı olduğu gibi taşıyor (8 kaydın 3'ü birebir eşleşti). Etikette
-"(KDV dahil)" yazılır.
+**Filo para ekseni artık yazılı** (components.md §9b): `maintenance.maliyet` · `policies.prim` ·
+`vehicleExpenses.tutar` · `fuelLogs.tutar` hepsi **BRÜT (KDV dahil)**.
+
+</details>
+
+### A2. SIRADAKİ İŞ — doküman bloğu (9 madde)
+Aşağıdaki B bölümüne bak. **Dörtlü dalga kuralı geçerli** (ders L-20).
 
 **Üretim yöntemi (7. oturumda oturdu, aynen uygula):**
 1. **Aynı anda en fazla 3 ajan**, her biri tek dosya. Prompt'a şu üç maddeyi MUTLAKA yaz:
@@ -75,12 +86,33 @@ gider kaydı kaynak tutarı olduğu gibi taşıyor (8 kaydın 3'ü birebir eşle
 `docs/D-rol-yetki-matrisi.md` (187 satır · 27 rol × 9 kolon) ·
 `docs/E-menu-sayfa-haritasi.md` (423 satır · 15 bölüm, 89 menü kalemi, 135 ekran, tip dağılımı).
 
-**Kalan dokuz:** B yönetici özeti · F sayfa analizleri · **G veri modeli** · H iş akışları ·
-I API ve teknik servisler · **J otomasyonlar** · K raporlar · L yol haritası ·
-M eksik ve ek öneriler. (G ve J için ajan açıldı, ikisi de API hatasıyla düştü —
-**dosya yazılmadı**, sıfırdan başlanacak.)
+**Biten iki tane daha (8. oturum sonu):**
+`docs/H-is-akislari.md` (811 satır · 22 akış adım adım; 12 tam · 9 kısmi · 1 açık) ·
+`docs/K-raporlar.md` (691 satır · **103 rapor** dokuz başlıkla).
 
-**Üç dokümanın ortaya çıkardığı ve doğrulanması gereken iki bulgu:**
+**KALAN DOKUZ — sıradaki iş, dörtlü dalgalar hâlinde:**
+
+*Dalga 1:* **G veri modeli** · **J otomasyonlar** · **F sayfa analizleri** · **I API ve teknik servisler**
+*Dalga 2:* **L geliştirme yol haritası** · **M eksik ve ek öneriler** · **B yönetici özeti**
+(B ve M en sona kalsın — ötekilerin çıktısını özetliyorlar.)
+
+Her doküman ajanına verilecek kalıp (5 dokümanda çalıştı):
+> "Tek markdown dosyası yaz: `docs/X.md`. Başka dosyaya dokunma, git çalıştırma,
+> **ortam keşfi/node_modules/kütüphane araştırması yapma**, ekran yazma, QA koşma.
+> OKUYACAKLARIN (yalnız bunlar): PROMPT.md içinde **yalnız §26 bölüm X** + [kaynaklar].
+> İçerik **uydurulmaz, türetilir**. Dosyanın başına neyden türetildiğini yazan not koy.
+> RAPOR: 5 satırı geçmesin."
+
+Kaynak eşlemesi: **G** → `assets/data/*.js` altı dosya + components.md §9/§9b/§9c/§9d ·
+**J** → `DB.automations` (22 kural) + `DB.notifications` + `app-ayar-otomasyon.html` +
+`app-ayar-bildirim.html` · **F** → `app-*.html` envanteri + `GV.list`/`GV.report` config'leri ·
+**I** → koleksiyon başına CRUD + `GV.*` API yüzeyi (`ui.js`/`shell.js`) ·
+**L** → PROMPT.md §25 fazlandırma + plan.md açık maddeler · **M** → ui-debt.md borç defteri.
+
+**Doküman ajanı ekran ajanından çok daha ucuz:** 5 doküman ≈ 465k token, ekran başına
+ortalama ≈ 140k. Doküman bloğu tek oturumda bitebilir.
+
+**Beş dokümanın ortaya çıkardığı, KARARA BAĞLANMASI gereken bulgular:**
 1. **`DB.permMatrix` 11 eksen saklıyor**, `app-ayar-yetki.html` bunlardan **19 boolean eksen
    türetiyor** — plan.md ve PROMPT.md'nin "20 yetki ekseni" sayısının kodda karşılığı yok.
    D dokümanı bunu dürüstçe yazdı; sayının hangisinin doğru olduğu **karara bağlanmalı**.
@@ -89,10 +121,14 @@ M eksik ve ek öneriler. (G ve J için ajan açıldı, ikisi de API hatasıyla d
    kodda yok. C dokümanı **kodu esas aldı**; plan.md'nin menü tablosu güncellenmeli ya da
    eksik menü kalemleri açılmalı.
 
-**Yöntem notu:** doküman ajanı ekran ajanından **çok daha ucuz ve hızlı** (3 doküman ~3,5 dk,
-~55k token). Ekran işi tıkanırsa doküman bloğu paralel ilerletilebilir.
+3. **`plan.md` proje rapor sayısı 8 diyor, gerçek 12** (K dokümanı saydı) — düzeltilmeli.
+4. **Teklif → sözleşme dönüştürme aksiyonu yok** (H dokümanı): `app-teklif-detay.html`'de
+   sözleşmeye dönüştürme yolu ve `app-sozlesme-form.html`'e `?teklif=` ön doldurma yok.
+   plan.md bu akışı `[x]` sayıyor. **VB-19'un ekran tarafındaki eşi** — veri düzeltildi,
+   akış hâlâ elle.
 
-### C. Wave 13 kapanış
+### C. Wave 13 kapanış — sıradaki blok
+**Ön koşul kalmadı:** form bloğu kapandığı için `data-wip` kuyruğu boş (`links.js` temiz).
 - Tüm `data-wip` bağlantıların gerçek `href`'e dönmesi (form kuyruğu bitince kendiliğinden).
 - **UID-20**: form ekranlarına **düzenleme modundan bağlantı** — `GV.list` `rowActions`'a
   "Düzenle" + detay ekranlarının `GV.pageHead` aksiyonlarına "Düzenle". **Tüm formlar bitince
@@ -128,6 +164,17 @@ Düzeltilmiş harness ile yeniden koşulan taramaların hepsi temiz çıktı —
 **hatalı olan araçtı**.
 
 ### 8. OTURUM — kısa özet
+**VB-19 çözüldü (oturumun son işi).** Teklifi yazılı 3 sözleşmenin 3'ünde de `contract.tutar`
+teklifin **brütünü** taşıyordu — tam 1,2 katı. Hata sessizdi çünkü zincirin geri kalanı yanlış
+çapaya göre tutarlıydı; bağımsız çapa `toplamCiro` oldu (7 müşterinin 5'inde `Σ contract.tutar`'a
+birebir eşit). Düzeltmede **3 sözleşme · 11 taksit · 9 fatura · 9 tahsilat · 3 proje · 3 müşteri**
+yeniden dengelendi; taksitler oranı korunarak dağıtıldı, kuruş artığı son taksite yazıldı.
+Eksen components.md §9b'ye, sayısal kontrol `canon.js` **eksen 18**'e girdi (**607 kontrol temiz**).
+
+**Ayrıca düzeltilen iki sahte yeşil:** `app-lead-detay.html` "Müşteriye dönüştür" `DB.customers`
+kaydı **üretmiyordu** (yalnız aşama + aktivite yazıyordu, kullanıcıya "artık müşteri listesinde"
+diyordu) · `app-arac-muayene.html` "Randevu görevi oluştur" yalnız toast basıyordu, **sahte
+buton**. İkisi de gerçek mutasyona çevrildi.
 **Blok 0:** `.gitignore`'daki `tasks/` satırı kaldırıldı. Dosyalar zaten tracked'di ama kural
 yüzünden commit'li kopyalar 6. oturumda donmuştu (`plan.md` 157/274, `handoff.md` 108 ekran).
 Sekiz defter güncellendi, üçü (`detay-brief` · `research` · `todo`) ilk kez repoya girdi.
