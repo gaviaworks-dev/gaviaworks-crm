@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Araç Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="arac">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.departments (DB.emp / DB.empName / DB.depName)
+     ops.js  → DB.vehicles, DB.maintenance, DB.inspections, DB.policies, DB.fuelLogs,
+               DB.vehicleExpenses, DB.accidents, DB.fines, DB.assignments
+     work.js → DB.activities, DB.projects -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.vehicles.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez.
+     GV.empty metnini ÖN-ESCAPE ETME: bileşen kendisi escape ediyor (UID-23). */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Envanter', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen araç filo kaydında yok.',
+      actions:[{ label:'Araç listesine dön', cls:'btn-line', href:'app-arac.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Araç bulunamadı',
+      desc:'“' + id + '” kodlu araç filo kaydında yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-arac.html">Araç listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  /* Başlıkta KAYIT KODU durur (form-brief §2) — plaka alt satırda gösterilir.
+     Diğer 27 form ekranı da bu sözleşmeye uyuyor; koda göre açılan derin bağlantı
+     ve tarama harness'ı başlıktan kodu okur. */
+  var basligi = duzenle ? kayit.kod + ' · ' + kayit.plaka + ' · Düzenle' : 'Yeni Araç';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Kimlik, kullanım, tahsis ve kilometre alanları finansal tutar değildir;
+     sayfa kapısı yalnız ekle/düzenle yetkisine bakar. Satın alma bedeli,
+     aylık kira ve depozito ayrıca `can('finans')` ile kapatılır ve o role
+     forma HİÇ basılmaz (devre dışı kontrol de bırakılmaz).
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Envanter', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Araç listesine dön', cls:'btn-line', href:'app-arac.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Araç kaydı düzenleme' : 'Araç kaydı oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Araçları listede ve araç ' +
+           'kartında görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-arac.html">Araç listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-arac-detay.html?id=' + esc(kayit.kod) +
+                   '">Araç kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); }); return o;
+  }
+  function birlestir(temel, veriden){
+    var o = temel.slice();
+    veriden.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); });
+    return o;
+  }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+  function yilOf(iso){ return iso ? parseInt(String(iso).slice(0, 4), 10) : null; }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function paraSade(v){ return '<span class="u-num">' + F.money(v) + '</span>'; }
+  function km(v){ return v == null || v === '' ? faint('—') : '<span class="u-num">' + F.num(v) + ' km</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* Kalan gün sayısal bir eşiktir, TONE sözlüğünde karşılığı yok — ton AÇIKÇA
+     geçilir (components.md §5). Eşikler araç kartıyla aynı: 7 / 15 / 30 / 60 (PROMPT.md §16). */
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0)   return 'is-danger';
+    if(d <= 7)  return 'is-danger';
+    if(d <= 15) return 'is-warn';
+    if(d <= 30) return 'is-warn';
+    if(d <= 60) return 'is-info';
+    return 'is-ok';
+  }
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return faint('—');
+    var m = d < 0 ? 'Süresi doldu · ' + (-d) + ' gün' : d === 0 ? 'Bugün son gün' : d + ' gün kaldı';
+    return GV.badge(m, kalanTon(iso));
+  }
+
+  /* =================================================================
+     EKSENLER VE KAPSAM
+     Araç, demirbaştan AYRI bir filo modülüdür (PROMPT.md §16). Bu form
+     yalnız DB.vehicles kaydını yazar; envanter kaydı doğurmaz ve iki
+     modül arasında veride yazılı bir bağ alanı yoktur (ders L-13).
+
+     PARA EKSENİ: components.md §9b'de filo tarafı için kayıt YOKTUR.
+     Ölçülen: DB.vehicleExpenses AGD-2026-054 “Ağustos kirası” 24.500 =
+     ARC-002.aylikKira · AGD-2026-056 8.400 = PLC-2026-011.prim ·
+     AGD-2026-052 2.562 = YKT-2026-088.tutar (52,4 L × 48,9 ₺ pompa fiyatı,
+     KDV dahil). Filo kalemleri tek eksende, ÖDENEN (KDV dahil) tutarla
+     tutuluyor. Bu ölçüm §9b'ye yazılmadığı için raporda borç olarak bildirildi.
+     ================================================================= */
+  var PARA_EKSEN = '(KDV dahil)';
+
+  var TIPLER    = birlestir(['Otomobil','Ticari araç','Motosiklet'],
+                            distinct(DB.vehicles.map(function(x){ return x.tip; })));
+  var YAKITLAR  = birlestir(['Benzin','Dizel','Hibrit','Elektrik','LPG'],
+                            distinct(DB.vehicles.map(function(x){ return x.yakit; })));
+  var VITESLER  = birlestir(['Manuel','Otomatik'],
+                            distinct(DB.vehicles.map(function(x){ return x.vites; })));
+  var MULKIYET  = birlestir(['Satın alınan','Kiralık','Finansal kiralama'],
+                            distinct(DB.vehicles.map(function(x){ return x.mulkiyet; })));
+  var KULLANIM  = birlestir(['Personele tahsisli','Ortak kullanım','Departmana tahsisli','Projeye tahsisli'],
+                            distinct(DB.vehicles.map(function(x){ return x.kullanim; })));
+  var DURUMLAR  = birlestir(['Aktif','Serviste','Pasif'],
+                            distinct(DB.vehicles.map(function(x){ return x.durum; })));
+  var RENKLER   = distinct(DB.vehicles.map(function(x){ return x.renk; })).sort();
+
+  function kiraliMi(m){ return m === 'Kiralık'; }
+  function kiraAlaniVar(m){ return m === 'Kiralık' || m === 'Finansal kiralama'; }
+  function satinAlmaVar(m){ return m === 'Satın alınan' || m === 'Finansal kiralama'; }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var yilBugun     = yilOf(DB.today);
+  var toplamArac   = DB.vehicles.length;
+  var aktifArac    = DB.vehicles.filter(function(x){ return x.aktif !== false; }).length;
+  var servisteArac = DB.vehicles.filter(function(x){ return x.durum === 'Serviste'; }).length;
+  var kiralikArac  = DB.vehicles.filter(function(x){ return kiraliMi(x.mulkiyet); }).length;
+  var tahsisliArac = DB.vehicles.filter(function(x){ return x.kullanim === 'Personele tahsisli'; }).length;
+
+  /* Araç zimmet tutanağı bu prototipte MODELLENMEDİ: DB.assignments demirbaş
+     tutanağı tutar, araca yazılmış tutanak sayısı ölçülür (beklenen: 0). */
+  var aracTutanak = DB.assignments.filter(function(z){ return !!z.arac; }).length;
+
+  var EMP_SECENEK = DB.employees.filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' — ' + e.depAd }; });
+  var DEP_SECENEK = DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; });
+  var PRJ_SECENEK = DB.projects.filter(function(p){ return p.aktif; })
+    .map(function(p){ return { value:p.kod, label:p.kod + ' · ' + p.ad }; });
+
+  function projeAd(kod){
+    var p = kod ? DB.projects.filter(function(x){ return x.kod === kod; })[0] : null;
+    return p ? p.ad : (kod || '—');
+  }
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ FİLO KAYITLARI — hepsi `arac` alanından okunur.
+     Bu formun HİÇBİRİNİ üretmediği, her birinin kendi ekranı olduğu
+     aşağıdaki özet kartında ve GV.notice ile açıkça yazılır.
+     ================================================================= */
+  function ofArac(list){
+    return duzenle ? (list || []).filter(function(x){ return x.arac === kayit.kod; }) : [];
+  }
+  var bakimlar   = ofArac(DB.maintenance)
+    .sort(function(a, b){ return String(a.planTarihi).localeCompare(String(b.planTarihi)); });
+  var muayeneler = ofArac(DB.inspections)
+    .sort(function(a, b){ return String(a.sonrakiTarih).localeCompare(String(b.sonrakiTarih)); });
+  var policeler  = ofArac(DB.policies);
+  var yakitlar   = ofArac(DB.fuelLogs);
+  var giderler   = ofArac(DB.vehicleExpenses);
+  var kazalar    = ofArac(DB.accidents);
+  var cezalar    = ofArac(DB.fines);
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  var trafik    = policeler.filter(function(p){ return p.tur === 'Trafik Sigortası'; })[0] || null;
+  var kasko     = policeler.filter(function(p){ return p.tur === 'Kasko'; })[0] || null;
+  var muayene   = muayeneler[0] || null;
+  var acikBakim = bakimlar.filter(function(b){ return b.durum !== 'Tamam'; })[0] || null;
+  var acikCeza  = cezalar.filter(function(c){ return c.durum !== 'Ödendi'; });
+
+  var giderToplam = giderler.reduce(function(s, g){ return s + sayi(g.tutar); }, 0);
+  var yakitToplam = yakitlar.reduce(function(s, y){ return s + sayi(y.tutar); }, 0);
+  var acikCezaTutar = acikCeza.reduce(function(s, c){ return s + sayi(c.tutar); }, 0);
+  var bagliSayisi = bakimlar.length + muayeneler.length + policeler.length + yakitlar.length +
+                    giderler.length + kazalar.length + cezalar.length;
+
+  /* =================================================================
+     FORM KAYDI
+     Tutar alanları finans yetkisi olmayan role forma HİÇ basılmaz;
+     düzenleme modunda kayıttaki değere de dokunulmaz (aşağıda `yaz`
+     içinde bu anahtarlar v'de yoktur).
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+  }else{
+    formRec = {
+      plaka:'', marka:'', model:'', modelYili:yilBugun, tip:'Otomobil',
+      yakit:'', vites:'', motorHacmi:'', motorNo:'', sasi:'', renk:'',
+      mulkiyet:'Satın alınan', alisTarihi:DB.today, alisBedeli:'', satici:'',
+      kiralamaFirmasi:'', sozlesmeBas:'', sozlesmeBit:'', aylikKira:'', kmSiniri:'', depozito:'',
+      kullanim:'Ortak kullanım', anaSurucu:'', yedekSurucu:'', dep:'', proje:null,
+      durum:'Aktif', guncelKm:0, sonBakimTarihi:'', sonBakimKm:'',
+      sonrakiBakimTarihi:'', sonrakiBakimKm:'', aktif:true
+    };
+  }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir.
+     Araç kodunda yıl bölümü yoktur (ARC-001…): veride yazılı biçim korunur. */
+  function yeniKod(){
+    var max = 0;
+    DB.vehicles.forEach(function(x){
+      var m = /^ARC-(\d+)$/.exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'ARC-' + pad(max + 1, 3);
+  }
+  var siradakiKod = duzenle ? kayit.kod : yeniKod();
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'PROMPT.md §16’nın bu formda karşılığı olmayan alanları',
+    text:'§16 araç kartında ruhsat bilgileri, satın alma faturası, kredi bilgileri, iade koşulları, ' +
+         'sözleşme belgesi, teslim ve iade kilometresi, teslim tutanağı, teslim fotoğrafları, araçta ' +
+         'bulunan ekipmanlar, hasar bilgisi ve personel onayı da sayılır. Bunların araç kaydında veri ' +
+         'karşılığı yok: araç zimmet tutanağı bu prototipte hiç modellenmedi (araca yazılmış tutanak ' +
+         'sayısı ' + aracTutanak + '), belge ve fotoğraf yönetimi doküman modülünde yürür. Bu form ' +
+         'uydurma alan açmaz; yalnız araç kaydının kendi alanlarını yazar.',
+    actions:[{ label:'Doküman merkezi', href:'app-dokuman.html' },
+             { label:'Araç listesi', href:'app-arac.html' }] });
+
+  var ayriModulNot = GV.notice({
+    tone:'info', icon:'i-car',
+    title:'Araç, demirbaştan ayrı bir filo modülüdür',
+    text:'PROMPT.md §16 araçların genel demirbaş formunda yüzeysel yönetilmesini açıkça reddediyor. ' +
+         'Bu form yalnız filo kaydını yazar: envanter (demirbaş) kaydı doğurmaz, iki modül arasında ' +
+         'veride yazılı bir bağ alanı da yoktur. Bakım, muayene, sigorta, kasko, yakıt, gider, kaza ve ' +
+         'ceza kayıtları da bu formdan doğmaz; her biri kendi ekranından yönetilir.',
+    actions:[{ label:'Bakım', href:'app-arac-bakim.html' },
+             { label:'Muayene', href:'app-arac-muayene.html' },
+             { label:'Sigorta ve kasko', href:'app-arac-sigorta.html' },
+             { label:'Yakıt', href:'app-arac-yakit.html' },
+             { label:'Giderler', href:'app-arac-gider.html' },
+             { label:'Kaza ve ceza', href:'app-arac-kaza.html' }] });
+
+  var ust = '';
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı (form-brief §8) ---- */
+    var bagliMetin = [];
+    if(bakimlar.length)   bagliMetin.push(bakimlar.length + ' bakım kaydı');
+    if(muayeneler.length) bagliMetin.push(muayeneler.length + ' muayene kaydı');
+    if(policeler.length)  bagliMetin.push(policeler.length + ' poliçe');
+    if(yakitlar.length)   bagliMetin.push(yakitlar.length + ' yakıt kaydı');
+    if(giderler.length)   bagliMetin.push(giderler.length + ' gider kalemi');
+    if(kazalar.length)    bagliMetin.push(kazalar.length + ' kaza kaydı');
+    if(cezalar.length)    bagliMetin.push(cezalar.length + ' ceza kaydı');
+    if(acts.length)       bagliMetin.push(acts.length + ' aktivite kaydı');
+
+    var yakinYenileme = [];
+    if(muayene && F.days(muayene.sonrakiTarih) <= 60)
+      yakinYenileme.push('muayene ' + F.date(muayene.sonrakiTarih));
+    if(trafik && F.days(trafik.bitis) <= 60)
+      yakinYenileme.push('trafik sigortası ' + F.date(trafik.bitis));
+    if(kasko && F.days(kasko.bitis) <= 60)
+      yakinYenileme.push('kasko ' + F.date(kasko.bitis));
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      bagliSayisi
+        ? { tone:yakinYenileme.length ? 'warn' : 'info', icon:yakinYenileme.length ? 'i-alert' : 'i-info',
+            title:'Bu araca bağlı filo kayıtları var',
+            text:kayit.plaka + ' (' + kayit.kod + ') kaydına bağlı ' + bagliMetin.join(', ') +
+                 ' sistemde tutuluyor' +
+                 (yakinYenileme.length
+                   ? '; 60 günlük yenileme penceresinde ' + yakinYenileme.join(' ve ') + ' var'
+                   : '') +
+                 '. Bu form o kayıtları oluşturmaz, değiştirmez ve kapatmaz — her biri kendi ekranından ' +
+                 'yürür. Aracı pasife alır veya arşivlerseniz bağlı kayıtlar silinmez, araç yalnız aktif ' +
+                 'filo listelerinden ve sayaçlardan düşer.',
+            actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + kayit.kod },
+                     { label:'Bakım kayıtları', href:'app-arac-bakim.html?f_arac=' + kayit.kod },
+                     { label:'Sigorta ve kasko', href:'app-arac-sigorta.html' }] }
+        : { tone:'neutral', icon:'i-info', title:'Bu araca bağlı filo kaydı yok',
+            text:kayit.plaka + ' için bakım, muayene, poliçe, yakıt, gider, kaza ve ceza kaydı ' +
+                 'bulunmuyor. Ölçüm: filoda ' + toplamArac + ' araç kayıtlı, ' + aktifArac +
+                 ' tanesi aktif, ' + servisteArac + ' tanesi serviste.',
+            actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + kayit.kod },
+                     { label:'Bakım kayıtları', href:'app-arac-bakim.html' }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var son = acts[0];
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Araç kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Plaka', '<b>' + esc(kayit.plaka) + '</b>'],
+        ['Araç', esc(kayit.marka + ' ' + kayit.model) + sub(kayit.modelYili + ' model · ' + kayit.renk)],
+        ['Tip · yakıt · vites', tagOf(kayit.tip) + ' ' + tagOf(kayit.yakit) + ' ' + tagOf(kayit.vites)],
+        ['Durum', GV.badge(kayit.durum) +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv kaydı</span>' : '')],
+        ['Mülkiyet', tagOf(kayit.mulkiyet) +
+          (kiraliMi(kayit.mulkiyet) && kayit.kiralamaFirmasi ? sub(kayit.kiralamaFirmasi) : '') +
+          (!kiraliMi(kayit.mulkiyet) && kayit.satici ? sub(kayit.satici) : '')],
+        ['Kullanım şekli', esc(kayit.kullanim)],
+        ['Ana sürücü', kayit.anaSurucu ? GV.user(kayit.anaSurucu, { sm:true }) : null],
+        ['Yedek sürücü', kayit.yedekSurucu ? GV.user(kayit.yedekSurucu, { sm:true }) : null],
+        ['Sorumlu departman', esc(DB.depName(kayit.dep))],
+        ['Tahsisli proje', kayit.proje
+          ? '<a href="app-proje-detay.html?id=' + esc(kayit.proje) + '">' + esc(projeAd(kayit.proje)) +
+            '</a>' + sub(kayit.proje)
+          : faint('Proje tahsisi yok')],
+        kiraliMi(kayit.mulkiyet)
+          ? ['Kiralama sözleşmesi', kayit.sozlesmeBas
+              ? F.date(kayit.sozlesmeBas) + ' — ' + F.date(kayit.sozlesmeBit) + ' ' +
+                kalanBadge(kayit.sozlesmeBit)
+              : null]
+          : ['Satın alma tarihi', kayit.alisTarihi ? F.date(kayit.alisTarihi) : null],
+        canFinans
+          ? (kiraliMi(kayit.mulkiyet)
+              ? ['Aylık kira <span class="u-faint">' + PARA_EKSEN + '</span>',
+                 kayit.aylikKira == null ? null : '<b>' + para(kayit.aylikKira) + '</b>']
+              : ['Satın alma bedeli <span class="u-faint">' + PARA_EKSEN + '</span>',
+                 kayit.alisBedeli == null ? null : '<b>' + para(kayit.alisBedeli) + '</b>'])
+          : null,
+        ['Güncel kilometre', km(kayit.guncelKm)],
+        ['Sonraki bakım', kayit.sonrakiBakimTarihi
+          ? F.date(kayit.sonrakiBakimTarihi) + ' ' + kalanBadge(kayit.sonrakiBakimTarihi) +
+            sub(F.num(kayit.sonrakiBakimKm) + ' km')
+          : null],
+        ['Motor · şasi', '<span class="u-num">' + esc(kayit.motorNo) + '</span>' +
+          sub(kayit.sasi)],
+        ['Bağlı filo kaydı', bagliSayisi
+          ? '<b class="u-num">' + bagliSayisi + '</b> kayıt' +
+            sub(bakimlar.length + ' bakım · ' + muayeneler.length + ' muayene · ' +
+                policeler.length + ' poliçe · ' + yakitlar.length + ' yakıt · ' +
+                giderler.length + ' gider · ' + kazalar.length + ' kaza · ' + cezalar.length + ' ceza')
+          : faint('Bağlı kayıt yok')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-arac-detay.html?id=' + esc(kayit.kod) + '">' +
+        ico('i-external','ic-sm') + ' Araç kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni araç kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki araç kodu ' + siradakiKod + ' olarak atanır ve aktivite geçmişine ' +
+             '“Araç kaydı oluşturuldu” satırı düşer, ardından araç listesine dönülür. Bakım, muayene, ' +
+             'sigorta, kasko, yakıt, gider, kaza ve ceza kayıtları bu formdan doğmaz; araç kaydedildikten ' +
+             'sonra kendi ekranlarından açılır. Ölçüm: filoda ' + toplamArac + ' araç kayıtlı, ' +
+             aktifArac + ' tanesi aktif, ' + kiralikArac + ' tanesi kiralık, ' + tahsisliArac +
+             ' tanesi personele tahsisli.',
+        actions:[{ label:'Araç listesi', href:'app-arac.html' },
+                 { label:'Bakım kayıtları', href:'app-arac-bakim.html' },
+                 { label:'Sigorta ve kasko', href:'app-arac-sigorta.html' }] }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-car') + 'Araç Bilgileri</h2>' +
+        '<div class="gc-sub">' + (duzenle ? 'Araç kodu değiştirilmez' : 'Araç kodu kaydederken atanır') +
+        ' · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-receipt') + 'Mülkiyet ve Tahsis Tutarlılığı</h2>' +
+        '<div class="gc-sub">Satın alma ve kiralama alanları mülkiyet türüne, sürücü ve proje alanları ' +
+          'kullanım şekline bağlıdır; seçim değiştikçe burası yeniden hesaplanır.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-arac-gider.html">' + ico('i-receipt','ic-sm') +
+            ' Gider kayıtları</a></div></div>' +
+      '<div class="gc-body" id="mulkOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-wrench') + 'Kilometre ve Bakım Planı</h2>' +
+        '<div class="gc-sub">Kilometre ve bakım alanlarını değiştirdikçe eşik ve kalan gün yeniden ' +
+          'hesaplanır (referans: sistem tarihi ' + F.date(DB.today) + ').</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-arac-bakim.html">' + ico('i-wrench','ic-sm') +
+            ' Bakım listesi</a></div></div>' +
+      '<div class="gc-body" id="bakimOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-link') + 'İlişkili Filo Kayıtları</h2>' +
+        '<div class="gc-sub">Bakım, muayene, sigorta, kasko, yakıt, gider, kaza ve ceza ayrı ekranların ' +
+          'işidir; burada yalnız özetlenir.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-arac-muayene.html">' + ico('i-clipboard','ic-sm') +
+            ' Muayene</a> ' +
+          '<a class="btn btn-line btn-sm" href="app-arac-kaza.html">' + ico('i-alert','ic-sm') +
+            ' Kaza ve ceza</a></div></div>' +
+      '<div class="gc-body" id="baglarOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + ayriModulNot + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-arac.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Araç kimliği',
+    desc:'Plaka, marka · model, motor ve şasi numarası. Araç kodu sistem tarafından atanır, elle ' +
+         'girilmez; plaka, motor ve şasi numarası filoda tekildir.',
+    fields:[
+      { key:'plaka', label:'Plaka', type:'text', required:true, cols:6, placeholder:'06 GW 1907',
+        hint:'Biçim: il kodu, harf grubu ve numara — aralarında birer boşluk. Filodaki plakalar: ' +
+             DB.vehicles.map(function(x){ return x.plaka; }).join(' · ') + '.',
+        validate:function(v){
+          var s = metin(v);
+          if(!s) return '';
+          if(!/^\d{2} [A-Z]{1,3} \d{2,5}$/.test(s))
+            return 'Plaka biçimi “06 GW 1907” gibi olmalıdır: iki haneli il kodu, büyük harf grubu ve numara.';
+          var ayni = DB.vehicles.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) && String(x.plaka).trim() === s; })[0];
+          return ayni ? 'Bu plaka ' + ayni.kod + ' (' + ayni.marka + ' ' + ayni.model + ') kaydında kullanılıyor.' : '';
+        } },
+
+      { key:'marka', label:'Marka', type:'text', required:true, cols:6, placeholder:'Örn. Volkswagen' },
+
+      { key:'model', label:'Model', type:'text', required:true, cols:6, placeholder:'Örn. Passat 1.5 TSI',
+        hint:'Listede ve araç kartında başlık plaka, alt satır “marka + model + model yılı” olarak gösterilir.' },
+
+      { key:'modelYili', label:'Model yılı', type:'number', required:true, cols:6,
+        min:1990, max:yilBugun + 1,
+        hint:'Sistem tarihi ' + F.date(DB.today) + '; en geç ' + (yilBugun + 1) + ' model girilebilir.' },
+
+      { key:'tip', label:'Araç tipi', type:'select', options:TIPLER, required:true, cols:6,
+        placeholder:'Tip seçin',
+        hint:'Küme: ' + TIPLER.join(' · ') + '. Liste ekranındaki tip filtresi bu kümeyi kullanır.' },
+
+      { key:'renk', label:'Renk', type:'text', required:true, cols:6, placeholder:'Örn. Gri',
+        hint:'Filoda kullanılan renkler: ' + RENKLER.join(' · ') + '.' },
+
+      { key:'yakit', label:'Yakıt türü', type:'select', options:YAKITLAR, required:true, cols:6,
+        placeholder:'Yakıt türü seçin',
+        hint:'Küme: ' + YAKITLAR.join(' · ') + '. Elektrik seçilirse motor hacmi yazılmaz; yakıt yerine ' +
+             'şarj kaydı tutulur ve şarj kaydı yakıt ekranından girilir.' },
+
+      { key:'vites', label:'Vites', type:'select', options:VITESLER, required:true, cols:6,
+        placeholder:'Vites seçin' },
+
+      { key:'motorHacmi', label:'Motor hacmi (cc)', type:'number', cols:6, min:0, max:9000,
+        placeholder:'Örn. 1498',
+        hint:'Santimetreküp olarak yazılır. Elektrikli araçta boş bırakılır.',
+        validate:function(v, d){
+          var s = metin(v);
+          if(d.yakit === 'Elektrik' && s !== '')
+            return 'Elektrikli araçta motor hacmi bulunmaz — alanı boş bırakın.';
+          if(d.yakit && d.yakit !== 'Elektrik' && s === '')
+            return 'Motor hacmi zorunludur (yalnız elektrikli araçta boş bırakılır).';
+          return '';
+        } },
+
+      { key:'motorNo', label:'Motor numarası', type:'text', required:true, cols:6,
+        placeholder:'Örn. DPC123456',
+        hint:'Ruhsatta yazılı motor numarası; filoda tekildir.',
+        validate:function(v){
+          var s = metin(v);
+          if(!s) return '';
+          var ayni = DB.vehicles.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) &&
+                   String(x.motorNo).trim().toUpperCase() === s.toUpperCase(); })[0];
+          return ayni ? 'Bu motor numarası ' + ayni.kod + ' (' + ayni.plaka + ') kaydında kullanılıyor.' : '';
+        } },
+
+      { key:'sasi', label:'Şasi numarası (VIN)', type:'text', required:true, cols:12,
+        placeholder:'Örn. WVWZZZ3CZPE123456',
+        hint:'17 karakterli VIN. I, O ve Q harfleri VIN’de kullanılmaz; filoda tekildir.',
+        validate:function(v){
+          var s = metin(v).toUpperCase();
+          if(!s) return '';
+          if(s.length !== 17) return 'Şasi numarası 17 karakter olmalıdır (girilen: ' + s.length + ').';
+          if(!/^[A-HJ-NPR-Z0-9]{17}$/.test(s))
+            return 'Şasi numarasında yalnız rakam ve büyük harf bulunur; I, O ve Q harfleri kullanılmaz.';
+          var ayni = DB.vehicles.filter(function(x){
+            return (!duzenle || x.kod !== kayit.kod) && String(x.sasi).trim().toUpperCase() === s; })[0];
+          return ayni ? 'Bu şasi numarası ' + ayni.kod + ' (' + ayni.plaka + ') kaydında kullanılıyor.' : '';
+        } }
+    ]});
+
+  /* ---- Satın alma / kiralama · para alanları yetkiye bağlı ---- */
+  var satinAlmaAlanlari = [
+    { key:'mulkiyet', label:'Mülkiyet türü', type:'select', options:MULKIYET, required:true, cols:6,
+      hint:'Küme: ' + MULKIYET.join(' · ') + '. “Satın alınan” seçilirse kiralama alanları, “Kiralık” ' +
+           'seçilirse satın alma alanları boş bırakılır. “Finansal kiralama” ikisini birlikte tutar; ' +
+           'filoda ' + kiralikArac + ' kiralık araç var, finansal kiralama örneği henüz yok.' },
+
+    { key:'alisTarihi', label:'Satın alma tarihi', type:'date', cols:6,
+      hint:'Sistem tarihi ' + F.date(DB.today) + '; ileri tarihli satın alma girilmez. Araç yaşı ve ' +
+           'kilometre başına maliyet bu tarihten yürür.',
+      validate:function(v, d){
+        if(kiraliMi(d.mulkiyet) && v)
+          return 'Kiralık araçta satın alma tarihi bulunmaz — alanı boş bırakın.';
+        if(satinAlmaVar(d.mulkiyet) && !v)
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde satın alma tarihi zorunludur.';
+        if(!v) return '';
+        if(F.days(v) > 0) return 'Satın alma tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+        var my = Number(d.modelYili);
+        if(my && yilOf(v) < my - 1)
+          return 'Satın alma tarihi (' + yilOf(v) + ') model yılından (' + my + ') bir yıldan fazla eski olamaz.';
+        return '';
+      } }
+  ];
+  if(canFinans){
+    satinAlmaAlanlari.push({ key:'alisBedeli', label:'Satın alma bedeli ' + PARA_EKSEN, type:'money',
+      cols:6, min:0,
+      hint:'Ödenen bedel — filo kalemleri (kira, prim, yakıt, gider) ile aynı eksende, KDV dahil. ' +
+           'Kiralık araçta boş bırakılır.',
+      validate:function(v, d){
+        var s = metin(v);
+        if(kiraliMi(d.mulkiyet) && s !== '')
+          return 'Kiralık araçta satın alma bedeli bulunmaz — alanı boş bırakın.';
+        if(satinAlmaVar(d.mulkiyet) && s === '')
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde satın alma bedeli zorunludur.';
+        if(s === '') return '';
+        var n = sayi(v);
+        if(n <= 0) return 'Satın alma bedeli sıfırdan büyük olmalıdır.';
+        if(Math.round(n) !== n) return 'Bedel tam lira olarak yazılır (kuruş kullanılmaz).';
+        return '';
+      } });
+  }
+  satinAlmaAlanlari.push(
+    { key:'satici', label:'Satıcı', type:'text', cols:6, placeholder:'Örn. VW Plaza Ankara',
+      hint:'Aracın alındığı bayi ya da plaza; garanti ve servis muhatabıdır. Kiralık araçta boş bırakılır.',
+      validate:function(v, d){
+        if(kiraliMi(d.mulkiyet) && metin(v))
+          return 'Kiralık araçta satıcı bilgisi bulunmaz — alanı boş bırakın, kiralama firmasını yazın.';
+        if(satinAlmaVar(d.mulkiyet) && !metin(v))
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde satıcı zorunludur.';
+        return '';
+      } },
+
+    { key:'kiralamaFirmasi', label:'Kiralama firması', type:'text', cols:6,
+      placeholder:'Örn. Filo Kiralama A.Ş.',
+      hint:'Sözleşme tarafı. Yalnız kiralık ve finansal kiralama araçlarda doldurulur.',
+      validate:function(v, d){
+        if(!kiraAlaniVar(d.mulkiyet) && metin(v))
+          return 'Mülkiyet “' + d.mulkiyet + '” seçiliyken kiralama firması yazılmaz — alanı boş bırakın.';
+        if(kiraAlaniVar(d.mulkiyet) && !metin(v))
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde kiralama firması zorunludur.';
+        return '';
+      } },
+
+    { key:'sozlesmeBas', label:'Sözleşme başlangıcı', type:'date', cols:6,
+      hint:'Kiralama sözleşmesinin yürürlüğe girdiği gün; araç maliyeti bu tarihten itibaren aylığa bölünür.',
+      validate:function(v, d){
+        if(!kiraAlaniVar(d.mulkiyet) && v)
+          return 'Mülkiyet “' + d.mulkiyet + '” seçiliyken kiralama sözleşmesi tarihi yazılmaz.';
+        if(kiraAlaniVar(d.mulkiyet) && !v)
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde sözleşme başlangıcı zorunludur.';
+        return '';
+      } },
+
+    { key:'sozlesmeBit', label:'Sözleşme bitişi', type:'date', cols:6,
+      hint:'Bitişe 60 gün kala yenileme penceresi açılır; 30 · 15 · 7 gün eşikleri araç kartında uyarıya döner.',
+      validate:function(v, d){
+        if(!kiraAlaniVar(d.mulkiyet) && v)
+          return 'Mülkiyet “' + d.mulkiyet + '” seçiliyken kiralama sözleşmesi tarihi yazılmaz.';
+        if(kiraAlaniVar(d.mulkiyet) && !v)
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde sözleşme bitişi zorunludur.';
+        if(!v) return '';
+        if(d.sozlesmeBas && v <= d.sozlesmeBas)
+          return 'Sözleşme bitişi başlangıçtan (' + F.date(d.sozlesmeBas) + ') sonra olmalıdır.';
+        return '';
+      } }
+  );
+  if(canFinans){
+    satinAlmaAlanlari.push({ key:'aylikKira', label:'Aylık kira ' + PARA_EKSEN, type:'money',
+      cols:6, min:0,
+      hint:'Aylık ödenen kira. Gider kaydına aynı tutarla düşer (ölçüm: ARC-002 aylık kira 24.500 ₺ = ' +
+           'AGD-2026-054 “Ağustos kirası” gider kalemi). Gider kaydı bu formdan doğmaz.',
+      validate:function(v, d){
+        var s = metin(v);
+        if(!kiraAlaniVar(d.mulkiyet) && s !== '')
+          return 'Mülkiyet “' + d.mulkiyet + '” seçiliyken aylık kira yazılmaz — alanı boş bırakın.';
+        if(kiraAlaniVar(d.mulkiyet) && s === '')
+          return 'Mülkiyet “' + d.mulkiyet + '” seçildiğinde aylık kira zorunludur.';
+        if(s === '') return '';
+        var n = sayi(v);
+        if(n <= 0) return 'Aylık kira sıfırdan büyük olmalıdır.';
+        if(Math.round(n) !== n) return 'Tutar tam lira olarak yazılır (kuruş kullanılmaz).';
+        return '';
+      } });
+  }
+  satinAlmaAlanlari.push(
+    { key:'kmSiniri', label:'Yıllık kilometre sınırı', type:'number', cols:6, min:0,
+      placeholder:'Örn. 30000',
+      hint:'Sözleşmedeki yıllık kilometre hakkı; aşımı ayrıca faturalanır. Yalnız kiralamada doldurulur.',
+      validate:function(v, d){
+        var s = metin(v);
+        if(!kiraAlaniVar(d.mulkiyet) && s !== '')
+          return 'Mülkiyet “' + d.mulkiyet + '” seçiliyken kilometre sınırı yazılmaz — alanı boş bırakın.';
+        if(s !== '' && sayi(v) <= 0) return 'Kilometre sınırı sıfırdan büyük olmalıdır.';
+        return '';
+      } }
+  );
+  if(canFinans){
+    satinAlmaAlanlari.push({ key:'depozito', label:'Depozito ' + PARA_EKSEN, type:'money',
+      cols:6, min:0,
+      hint:'Sözleşme başında bırakılan ve iade koşulları sağlanırsa geri alınan tutar. İade koşullarının ' +
+           'metni veride tutulmuyor, sözleşme belgesinde kalır.',
+      validate:function(v, d){
+        var s = metin(v);
+        if(!kiraAlaniVar(d.mulkiyet) && s !== '')
+          return 'Mülkiyet “' + d.mulkiyet + '” seçiliyken depozito yazılmaz — alanı boş bırakın.';
+        if(s !== '' && sayi(v) < 0) return 'Depozito negatif olamaz.';
+        return '';
+      } });
+  }
+
+  sections.push({ title:'Mülkiyet, satın alma ve kiralama',
+    desc:'Aracın filoya hangi yolla girdiği. Mülkiyet türü hangi alan grubunun dolacağını belirler: ' +
+         'satın alınan araçta satın alma, kiralıkta sözleşme alanları. Tutarlar ödenen bedeldir (KDV dahil).',
+    fields:satinAlmaAlanlari });
+
+  sections.push({ title:'Kullanım ve tahsis',
+    desc:'Aracın kime ve neye tahsis edildiği. Ana sürücü kullanım şekli “Personele tahsisli” ise, ' +
+         'proje ise “Projeye tahsisli” seçildiğinde zorunludur. Bu form araç zimmet tutanağı üretmez.',
+    fields:[
+      { key:'kullanim', label:'Kullanım şekli', type:'select', options:KULLANIM, required:true, cols:6,
+        hint:'Küme: ' + KULLANIM.join(' · ') + '. Ölçüm: ' + toplamArac + ' aracın ' + tahsisliArac +
+             ' tanesi personele tahsisli.' },
+
+      { key:'dep', label:'Sorumlu departman', type:'select', options:DEP_SECENEK, required:true, cols:6,
+        placeholder:'Departman seçin',
+        hint:'Araç maliyeti ve filo sorumluluğu bu departmandadır; ana sürücünün departmanından farklı olabilir.' },
+
+      { key:'anaSurucu', label:'Ana sürücü', type:'select', options:EMP_SECENEK, cols:6,
+        placeholder:'Sürücü atanmadı',
+        hint:'Kart üzerindeki güncel tahsis. İmzalı teslim tutanağı ayrı bir kayıttır ve bu prototipte ' +
+             'araç için hiç modellenmedi — tutanak, teslim fotoğrafı ve personel onayı bu formdan doğmaz.',
+        validate:function(v, d){
+          if(d.kullanim === 'Personele tahsisli' && !v)
+            return 'Kullanım şekli “Personele tahsisli” seçildiğinde ana sürücü zorunludur.';
+          if(d.kullanim === 'Ortak kullanım' && v)
+            return 'Ortak kullanım aracında ana sürücü tutulmaz — sürücüyü boşaltın ya da kullanım ' +
+                   'şeklini “Personele tahsisli” yapın.';
+          return '';
+        } },
+
+      { key:'yedekSurucu', label:'Yedek sürücü', type:'select', options:EMP_SECENEK, cols:6,
+        placeholder:'Yedek sürücü yok',
+        hint:'Ana sürücü izinli ya da görevdeyken aracı kullanan personel.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(v === d.anaSurucu) return 'Yedek sürücü ana sürücüyle aynı kişi olamaz.';
+          if(!d.anaSurucu) return 'Ana sürücü atanmadan yedek sürücü yazılmaz.';
+          return '';
+        } },
+
+      { key:'proje', label:'Tahsisli proje', type:'select', options:PRJ_SECENEK, cols:12,
+        placeholder:'Proje tahsisi yok',
+        hint:'Yalnız kullanım şekli “Projeye tahsisli” olan araçta doldurulur; araç maliyeti o projenin ' +
+             'gider ekseninde okunur. Filodaki ' + toplamArac + ' aracın hiçbirinde proje tahsisi yok.',
+        validate:function(v, d){
+          if(d.kullanim === 'Projeye tahsisli' && !v)
+            return 'Kullanım şekli “Projeye tahsisli” seçildiğinde proje zorunludur.';
+          if(d.kullanim !== 'Projeye tahsisli' && v)
+            return 'Kullanım şekli “' + d.kullanim + '” iken araç bir projeye tahsisli olamaz — projeyi ' +
+                   'boşaltın ya da kullanım şeklini “Projeye tahsisli” yapın.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Durum, kilometre ve bakım planı',
+    desc:'Aracın güncel durumu, kilometresi ve bir sonraki periyodik bakımın tarih · kilometre eşiği. ' +
+         'Bakım kaydının kendisi bakım ekranından açılır; buradaki alanlar yalnız plan eşiğidir.',
+    fields:[
+      { key:'durum', label:'Araç durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. Ölçüm: ' + toplamArac + ' aracın ' + servisteArac +
+             ' tanesi serviste. “Serviste” işaretlemek servis kaydı oluşturmaz.' },
+
+      { key:'guncelKm', label:'Güncel kilometre', type:'number', required:true, cols:6, min:0,
+        hint:'Kilometre sayacı geri alınamaz; yalnız artan değer yazılır. Araç listesindeki “Kilometre ' +
+             'güncelle” aksiyonu da aynı alanı yazar.',
+        validate:function(v){
+          var s = metin(v);
+          if(s === '') return '';
+          if(sayi(v) < 0) return 'Kilometre negatif olamaz.';
+          if(duzenle && sayi(v) < sayi(kayit.guncelKm))
+            return 'Kilometre geri alınamaz — kayıtlı değer ' + F.num(kayit.guncelKm) + ' km.';
+          return '';
+        } },
+
+      { key:'sonBakimTarihi', label:'Son bakım tarihi', type:'date', cols:6,
+        hint:'En son yapılan periyodik ya da ağır bakımın gerçekleşme günü.',
+        validate:function(v){
+          if(!v) return '';
+          if(F.days(v) > 0) return 'Son bakım tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+          return '';
+        } },
+
+      { key:'sonBakimKm', label:'Son bakım kilometresi', type:'number', cols:6, min:0,
+        hint:'Bakımın yapıldığı kilometre; güncel kilometreden büyük olamaz.',
+        validate:function(v, d){
+          var s = metin(v);
+          if(s === '') return '';
+          if(sayi(v) < 0) return 'Kilometre negatif olamaz.';
+          if(metin(d.guncelKm) !== '' && sayi(v) > sayi(d.guncelKm))
+            return 'Son bakım kilometresi güncel kilometreden (' + F.num(sayi(d.guncelKm)) + ' km) büyük olamaz.';
+          return '';
+        } },
+
+      { key:'sonrakiBakimTarihi', label:'Sonraki bakım tarihi', type:'date', cols:6,
+        hint:'Plan eşiği. Bakım tarihi ya da kilometresinden hangisi önce gelirse bakım o zaman açılır.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.sonBakimTarihi && v <= d.sonBakimTarihi)
+            return 'Sonraki bakım tarihi son bakım tarihinden (' + F.date(d.sonBakimTarihi) + ') sonra olmalıdır.';
+          return '';
+        } },
+
+      { key:'sonrakiBakimKm', label:'Sonraki bakım kilometresi', type:'number', cols:6, min:0,
+        hint:'Plan eşiği. Güncel kilometre bu değeri aşarsa araç kartında bakım uyarısı açılır; kaydetmeye ' +
+             'engel değildir, kaydetmeden önce ayrıca sorulur.',
+        validate:function(v, d){
+          var s = metin(v);
+          if(s === '') return '';
+          if(sayi(v) < 0) return 'Kilometre negatif olamaz.';
+          if(metin(d.sonBakimKm) !== '' && sayi(v) <= sayi(d.sonBakimKm))
+            return 'Sonraki bakım kilometresi son bakım kilometresinden (' + F.num(sayi(d.sonBakimKm)) +
+                   ' km) büyük olmalıdır.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Araç durumu filo ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — araç listelerinde, sayaçlarda ve bakım planlamasında görünür',
+        hint:'Kapatılırsa araç arşive düşer; bakım, muayene, poliçe, yakıt, gider, kaza ve ceza kayıtları ' +
+             'silinmez. Ölçüm: ' + toplamArac + ' kaydın ' + aktifArac + ' tanesi aktif.',
+        validate:function(v, d){
+          if(!v && d.durum === 'Serviste')
+            return 'Serviste olan araç arşivlenemez — önce servisten çıkışı işlenip durumu “Aktif” ya da ' +
+                   '“Pasif” yapılmalıdır.';
+          return '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunluSayisi = 0;
+  sections.forEach(function(s){
+    (s.fields || []).forEach(function(f){ if(f.required) zorunluSayisi++; });
+  });
+
+  var form = GV.form({
+    mount:'#formMount', id:'arac', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function mulkiyetOzetiCiz(){
+    var hedef = document.getElementById('mulkOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var m = v.mulkiyet || '—';
+    var kiraVar = kiraAlaniVar(m), alisVar = satinAlmaVar(m);
+
+    var uyari = [];
+    if(kiraliMi(m) && (v.alisTarihi || metin(v.satici)))
+      uyari.push('kiralık araçta satın alma alanları dolu');
+    if(!kiraVar && (metin(v.kiralamaFirmasi) || v.sozlesmeBas || v.sozlesmeBit))
+      uyari.push('satın alınan araçta kiralama alanları dolu');
+    if(v.kullanim === 'Personele tahsisli' && !v.anaSurucu)
+      uyari.push('personele tahsisli araçta ana sürücü boş');
+    if(v.kullanim === 'Ortak kullanım' && v.anaSurucu)
+      uyari.push('ortak kullanım aracında ana sürücü seçili');
+    if(v.kullanim === 'Projeye tahsisli' && !v.proje)
+      uyari.push('projeye tahsisli araçta proje boş');
+
+    var not;
+    if(uyari.length){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Mülkiyet ve tahsis alanları henüz tutarlı değil',
+        text:'Şu an: ' + uyari.join(' · ') + '. Mülkiyet türü hangi alan grubunun dolacağını belirler; ' +
+             'kaydetmeden önce ilgili alanlar düzeltilmelidir.' });
+    }else if(kiraliMi(m)){
+      var kalanGun = v.sozlesmeBit ? F.days(v.sozlesmeBit) : null;
+      not = GV.notice({
+        tone:kalanGun == null ? 'neutral' : kalanGun < 0 ? 'danger' : kalanGun <= 60 ? 'warn' : 'ok',
+        icon:kalanGun != null && kalanGun <= 60 ? 'i-alert' : 'i-check-circle',
+        title:'Araç kiralama sözleşmesiyle filoda',
+        text:'Kiralık araçta satın alma bedeli yerine aylık kira gidere yazılır ve sözleşme bitişinde ' +
+             'araç iade edilir. ' + (kalanGun == null
+               ? 'Sözleşme bitiş tarihi girilmedi; yenileme takibi yapılamaz.'
+               : kalanGun < 0
+                 ? 'Sözleşme bitişi ' + F.date(v.sozlesmeBit) + ' — ' + Math.abs(kalanGun) +
+                   ' gün geçti; iade ya da yenileme kaydı görünmüyor.'
+                 : 'Sözleşme bitişine ' + kalanGun + ' gün kaldı (bitiş ' + F.date(v.sozlesmeBit) + ').') });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Mülkiyet ve tahsis alanları tutarlı',
+        text:'Mülkiyet “' + m + '” ve kullanım şekli “' + (v.kullanim || '—') + '” seçimiyle dolması ' +
+             'gereken alanlar dolu, dolmaması gerekenler boş.' });
+    }
+
+    var paraNot = canFinans
+      ? GV.notice({ tone:'neutral', icon:'i-wallet', title:'Filo tutarları ödenen bedel eksenindedir',
+          text:'Satın alma bedeli, aylık kira ve depozito KDV dahil ödenen tutardır — poliçe primi, yakıt ' +
+               've gider kalemleriyle aynı eksende. Ölçüm: ARC-002 aylık kira 24.500 ₺ ile AGD-2026-054 ' +
+               'gider kalemi, PLC-2026-011 primi 8.400 ₺ ile AGD-2026-056 gider kalemi birebir aynı. ' +
+               'Bu eksen components.md §9b’de yazılı değil; raporda borç olarak bildirildi.' })
+      : GV.notice({ tone:'neutral', icon:'i-lock', title:'Tutar alanları rolünüze kapalı',
+          text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar yetkisi yok; satın alma bedeli, aylık ' +
+               'kira ve depozito alanları forma hiç basılmadı ve bu ekranda gösterilmiyor. Kimlik, ' +
+               'kullanım, tahsis ve kilometre alanlarını düzenlemeye devam edebilirsiniz.' });
+
+    hedef.innerHTML = not + paraNot + ozetListe([
+      ['Mülkiyet türü', tagOf(m)],
+      ['Dolması gereken grup', alisVar && kiraVar ? 'Satın alma + kiralama'
+        : kiraVar ? 'Kiralama sözleşmesi' : alisVar ? 'Satın alma' : faint('—')],
+      alisVar ? ['Satın alma tarihi', v.alisTarihi ? F.date(v.alisTarihi) : faint('Girilmedi')] : null,
+      alisVar ? ['Satıcı', metin(v.satici) ? esc(v.satici) : faint('Girilmedi')] : null,
+      (alisVar && canFinans)
+        ? ['Satın alma bedeli <span class="u-faint">' + PARA_EKSEN + '</span>',
+           metin(v.alisBedeli) === '' ? faint('Girilmedi') : '<b>' + para(sayi(v.alisBedeli)) + '</b>']
+        : null,
+      kiraVar ? ['Kiralama firması', metin(v.kiralamaFirmasi) ? esc(v.kiralamaFirmasi) : faint('Girilmedi')] : null,
+      kiraVar ? ['Sözleşme dönemi', v.sozlesmeBas && v.sozlesmeBit
+        ? F.date(v.sozlesmeBas) + ' — ' + F.date(v.sozlesmeBit) + ' ' + kalanBadge(v.sozlesmeBit)
+        : faint('Girilmedi')] : null,
+      (kiraVar && canFinans)
+        ? ['Aylık kira <span class="u-faint">' + PARA_EKSEN + '</span>',
+           metin(v.aylikKira) === '' ? faint('Girilmedi')
+             : '<b>' + para(sayi(v.aylikKira)) + '</b>' + sub('yıllık ' + F.money(sayi(v.aylikKira) * 12))]
+        : null,
+      (kiraVar && canFinans)
+        ? ['Depozito <span class="u-faint">' + PARA_EKSEN + '</span>',
+           metin(v.depozito) === '' ? faint('Girilmedi') : paraSade(sayi(v.depozito))]
+        : null,
+      kiraVar ? ['Yıllık kilometre sınırı', metin(v.kmSiniri) === ''
+        ? faint('Girilmedi') : km(sayi(v.kmSiniri))] : null,
+      ['Kullanım şekli', esc(v.kullanim || '—')],
+      ['Ana sürücü', v.anaSurucu ? GV.user(v.anaSurucu, { sm:true }) : faint('Atanmadı')],
+      ['Yedek sürücü', v.yedekSurucu ? GV.user(v.yedekSurucu, { sm:true }) : faint('Yok')],
+      ['Sorumlu departman', v.dep ? esc(DB.depName(v.dep)) : faint('Seçilmedi')],
+      ['Tahsisli proje', v.proje ? esc(projeAd(v.proje)) + sub(v.proje) : faint('Proje tahsisi yok')],
+      ['Araç teslim tutanağı', faint('Veride modellenmedi · ' + aracTutanak + ' kayıt')]
+    ]);
+  }
+
+  function bakimOzetiCiz(){
+    var hedef = document.getElementById('bakimOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var guncel = metin(v.guncelKm) === '' ? null : sayi(v.guncelKm);
+    var sonKm  = metin(v.sonBakimKm) === '' ? null : sayi(v.sonBakimKm);
+    var hedefKm = metin(v.sonrakiBakimKm) === '' ? null : sayi(v.sonrakiBakimKm);
+    var gun = v.sonrakiBakimTarihi ? F.days(v.sonrakiBakimTarihi) : null;
+
+    var araKm = (sonKm != null && hedefKm != null) ? hedefKm - sonKm : null;
+    var gidilen = (sonKm != null && guncel != null) ? guncel - sonKm : null;
+    var oran = (araKm && araKm > 0 && gidilen != null)
+      ? Math.max(0, Math.min(100, Math.round(gidilen / araKm * 100))) : null;
+    var kalanKm = (hedefKm != null && guncel != null) ? hedefKm - guncel : null;
+
+    var not;
+    if(gun == null && hedefKm == null){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Bakım planı eşiği girilmedi',
+        text:'Sonraki bakım tarihi ve kilometresi boş; araç kartında bakım uyarısı üretilemez ve liste ' +
+             'ekranındaki “Sonraki bakım” kolonu boş görünür.' });
+    }else if((kalanKm != null && kalanKm <= 0) || (gun != null && gun < 0)){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Bakım eşiği aşıldı',
+        text:(kalanKm != null && kalanKm <= 0
+               ? 'Güncel kilometre ' + F.num(guncel) + ', bakım eşiği ' + F.num(hedefKm) + ' km — eşik ' +
+                 F.num(Math.abs(kalanKm)) + ' km aşıldı. '
+               : '') +
+             (gun != null && gun < 0
+               ? 'Planlanan bakım tarihi ' + F.date(v.sonrakiBakimTarihi) + ' üzerinden ' + Math.abs(gun) +
+                 ' gün geçti. '
+               : '') +
+             'Bakım kaydı bu formdan doğmaz; bakım ekranından açılmalıdır.' });
+    }else if((gun != null && gun <= 30) || (kalanKm != null && kalanKm <= 2000)){
+      not = GV.notice({ tone:'warn', icon:'i-wrench', title:'Bakım penceresi açıldı',
+        text:(gun != null ? 'Planlanan bakıma ' + gun + ' gün' : '') +
+             (gun != null && kalanKm != null ? ', ' : '') +
+             (kalanKm != null ? F.num(kalanKm) + ' km' : '') +
+             ' kaldı. Bakım tarihi ya da kilometresinden hangisi önce gelirse bakım o zaman açılır.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Bakım planı rahat',
+        text:(gun != null ? 'Planlanan bakıma ' + gun + ' gün' : 'Tarih eşiği girilmedi') +
+             (kalanKm != null ? ', ' + F.num(kalanKm) + ' km kaldı.' : '.') });
+    }
+
+    hedef.innerHTML = not + ozetListe([
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)],
+      ['Araç durumu', GV.badge(v.durum || 'Aktif')],
+      ['Güncel kilometre', guncel == null ? faint('Girilmedi') : km(guncel)],
+      duzenle ? ['Kayıtlı kilometre', km(kayit.guncelKm) +
+        (guncel != null && guncel > sayi(kayit.guncelKm)
+          ? sub('+' + F.num(guncel - sayi(kayit.guncelKm)) + ' km yazılacak') : '')] : null,
+      ['Son bakım', v.sonBakimTarihi
+        ? F.date(v.sonBakimTarihi) + sub(sonKm == null ? '—' : F.num(sonKm) + ' km')
+        : faint('Girilmedi')],
+      ['Sonraki bakım', v.sonrakiBakimTarihi
+        ? F.date(v.sonrakiBakimTarihi) + ' ' + kalanBadge(v.sonrakiBakimTarihi) +
+          sub(hedefKm == null ? '—' : F.num(hedefKm) + ' km')
+        : faint('Girilmedi')],
+      ['Bakım aralığı', araKm == null ? faint('—') : km(araKm)],
+      ['Aralıkta gidilen', gidilen == null ? faint('—') : km(Math.max(0, gidilen))],
+      ['Bakım eşiğine kalan', kalanKm == null ? faint('—')
+        : (kalanKm <= 0 ? '<b class="u-danger">' + F.num(Math.abs(kalanKm)) + ' km aşıldı</b>' : km(kalanKm))],
+      ['Aralık ilerlemesi', oran == null ? faint('—')
+        : GV.progress(oran, { tone:(kalanKm != null && kalanKm <= 0) ? 'danger' : null })],
+      duzenle
+        ? ['Kayıtlı bakım kaydı', bakimlar.length
+            ? '<b class="u-num">' + bakimlar.length + '</b> kayıt' +
+              sub(acikBakim ? 'açık: ' + acikBakim.kod + ' · ' + acikBakim.durum : 'açık bakım yok')
+            : faint('Bakım kaydı yok')]
+        : ['Kayıtlı bakım kaydı', faint('Yeni aracın bakım kaydı henüz yok')]
+    ]);
+  }
+
+  function baglarOzetiCiz(){
+    var hedef = document.getElementById('baglarOzet');
+    if(!hedef) return;
+
+    if(!duzenle){
+      hedef.innerHTML = GV.notice({ tone:'neutral', icon:'i-info',
+        title:'Yeni araçta henüz ilişkili filo kaydı yok',
+        text:'Araç kaydedildikten sonra bakım, muayene, sigorta ve kasko poliçesi, yakıt, gider, kaza ve ' +
+             'ceza kayıtları kendi ekranlarından açılır ve araç koduyla bu kayda bağlanır. Bu form ' +
+             'onlardan hiçbirini üretmez.',
+        actions:[{ label:'Bakım', href:'app-arac-bakim.html' },
+                 { label:'Muayene', href:'app-arac-muayene.html' },
+                 { label:'Sigorta ve kasko', href:'app-arac-sigorta.html' },
+                 { label:'Yakıt', href:'app-arac-yakit.html' },
+                 { label:'Giderler', href:'app-arac-gider.html' },
+                 { label:'Kaza ve ceza', href:'app-arac-kaza.html' }] });
+      return;
+    }
+
+    var sonKontrol = [];
+    if(muayene) sonKontrol.push('muayene ' + F.date(muayene.sonrakiTarih));
+    if(trafik)  sonKontrol.push('trafik sigortası ' + F.date(trafik.bitis));
+    if(kasko)   sonKontrol.push('kasko ' + F.date(kasko.bitis));
+
+    var not = GV.notice({ tone:'info', icon:'i-link',
+      title:'Bu kayıtlar araç koduyla bağlıdır ve buradan değiştirilmez',
+      text:kayit.kod + ' koduna bağlı ' + bagliSayisi + ' filo kaydı var' +
+           (sonKontrol.length ? '; yaklaşan kontroller: ' + sonKontrol.join(' · ') : '') +
+           '. Muayene sonucu, poliçe yenileme, prim ödemesi, yakıt fişi, gider kalemi, kaza tutanağı ve ' +
+           'ceza ödemesi kendi ekranlarından yürür. Aracın plakası ya da kodu değişse bile bağ araç ' +
+           'kodundan okunduğu için kopmaz.',
+      actions:[{ label:'Araç kartı', href:'app-arac-detay.html?id=' + kayit.kod },
+               { label:'Bakım', href:'app-arac-bakim.html?f_arac=' + kayit.kod },
+               { label:'Giderler', href:'app-arac-gider.html' }] });
+
+    hedef.innerHTML = not + ozetListe([
+      ['Bakım kaydı', bakimlar.length
+        ? '<b class="u-num">' + bakimlar.length + '</b> kayıt' +
+          sub(acikBakim ? 'açık: ' + acikBakim.kod + ' · ' + acikBakim.tur + ' · ' + acikBakim.durum
+                        : 'tamamı kapalı')
+        : faint('Kayıt yok')],
+      ['Muayene', muayene
+        ? F.date(muayene.sonrakiTarih) + ' ' + kalanBadge(muayene.sonrakiTarih) +
+          sub(muayene.kod + ' · son sonuç ' + muayene.sonuc + (muayene.kusur ? ' · ' + muayene.kusur : ''))
+        : faint('Muayene kaydı yok')],
+      ['Trafik sigortası', trafik
+        ? F.date(trafik.bitis) + ' ' + kalanBadge(trafik.bitis) +
+          sub(trafik.sirket + ' · poliçe ' + trafik.police + ' · yenileme ' + trafik.yenileme)
+        : faint('Poliçe yok')],
+      ['Kasko', kasko
+        ? F.date(kasko.bitis) + ' ' + kalanBadge(kasko.bitis) +
+          sub(kasko.sirket + ' · poliçe ' + kasko.police + ' · ' + kasko.teminat)
+        : faint('Poliçe yok')],
+      canFinans && trafik ? ['Trafik sigortası primi <span class="u-faint">' + PARA_EKSEN + '</span>',
+        paraSade(trafik.prim)] : null,
+      canFinans && kasko ? ['Kasko primi <span class="u-faint">' + PARA_EKSEN + '</span>',
+        paraSade(kasko.prim) + (kasko.kaskoBedeli ? sub('kasko bedeli ' + F.money(kasko.kaskoBedeli)) : '')] : null,
+      ['Yakıt kaydı', yakitlar.length
+        ? '<b class="u-num">' + yakitlar.length + '</b> kayıt' : faint('Kayıt yok')],
+      canFinans && yakitlar.length
+        ? ['Yakıt harcaması <span class="u-faint">' + PARA_EKSEN + '</span>', paraSade(yakitToplam)] : null,
+      ['Gider kalemi', giderler.length
+        ? '<b class="u-num">' + giderler.length + '</b> kalem' : faint('Kayıt yok')],
+      canFinans && giderler.length
+        ? ['Gider toplamı <span class="u-faint">' + PARA_EKSEN + '</span>', '<b>' + para(giderToplam) + '</b>' +
+           sub('gider defterine işlenen kalemler')] : null,
+      ['Kaza ve hasar', kazalar.length
+        ? '<b class="u-num">' + kazalar.length + '</b> kayıt' +
+          sub(kazalar.map(function(k){ return k.kod + ' · ' + k.durum; }).join(' · '))
+        : faint('Kaza kaydı yok')],
+      ['Trafik cezası', cezalar.length
+        ? '<b class="u-num">' + cezalar.length + '</b> kayıt' +
+          sub(acikCeza.length ? acikCeza.length + ' tanesi ödenmedi' : 'tamamı ödendi')
+        : faint('Ceza kaydı yok')],
+      canFinans && acikCeza.length
+        ? ['Ödenmemiş ceza <span class="u-faint">' + PARA_EKSEN + '</span>',
+           '<b class="u-danger">' + F.money(acikCezaTutar) + '</b>' +
+           sub('son ödeme ' + F.date(acikCeza[0].sonOdeme))] : null,
+      ['Aktivite kaydı', acts.length
+        ? '<b class="u-num">' + acts.length + '</b> hareket' : faint('Hareket yok')]
+    ]);
+  }
+
+  function ozetleriCiz(){ mulkiyetOzetiCiz(); bakimOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+  baglarOzetiCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    plaka:'Plaka', marka:'Marka', model:'Model', modelYili:'Model yılı', tip:'Araç tipi',
+    renk:'Renk', yakit:'Yakıt türü', vites:'Vites', motorHacmi:'Motor hacmi',
+    motorNo:'Motor numarası', sasi:'Şasi numarası', mulkiyet:'Mülkiyet türü',
+    alisTarihi:'Satın alma tarihi', alisBedeli:'Satın alma bedeli ' + PARA_EKSEN, satici:'Satıcı',
+    kiralamaFirmasi:'Kiralama firması', sozlesmeBas:'Sözleşme başlangıcı', sozlesmeBit:'Sözleşme bitişi',
+    aylikKira:'Aylık kira ' + PARA_EKSEN, kmSiniri:'Yıllık kilometre sınırı',
+    depozito:'Depozito ' + PARA_EKSEN, kullanim:'Kullanım şekli', anaSurucu:'Ana sürücü',
+    yedekSurucu:'Yedek sürücü', dep:'Sorumlu departman', proje:'Tahsisli proje',
+    durum:'Araç durumu', guncelKm:'Güncel kilometre', sonBakimTarihi:'Son bakım tarihi',
+    sonBakimKm:'Son bakım kilometresi', sonrakiBakimTarihi:'Sonraki bakım tarihi',
+    sonrakiBakimKm:'Sonraki bakım kilometresi', aktif:'Kayıt durumu'
+  };
+  var SAYISAL   = ['modelYili','motorHacmi','alisBedeli','aylikKira','kmSiniri','depozito',
+                   'guncelKm','sonBakimKm','sonrakiBakimKm'];
+  var METINSEL  = ['plaka','marka','model','renk','motorNo','sasi','satici','kiralamaFirmasi'];
+  var KM_ALANI  = ['guncelKm','sonBakimKm','sonrakiBakimKm','kmSiniri'];
+  var TARIH     = ['alisTarihi','sozlesmeBas','sozlesmeBit','sonBakimTarihi','sonrakiBakimTarihi'];
+  var PARA_ALAN = ['alisBedeli','aylikKira','depozito'];
+  /* Boş bırakılabilen alanlar veride null tutulur, boş metin yazılmaz. */
+  var BOSALABILEN = ['motorHacmi','alisTarihi','alisBedeli','satici','kiralamaFirmasi','sozlesmeBas',
+                     'sozlesmeBit','aylikKira','kmSiniri','depozito','anaSurucu','yedekSurucu','proje',
+                     'sonBakimTarihi','sonBakimKm','sonrakiBakimTarihi','sonrakiBakimKm'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, null, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')            return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(PARA_ALAN.indexOf(k) !== -1) return F.money(sayi(v)) + ' ' + PARA_EKSEN;
+    if(KM_ALANI.indexOf(k) !== -1)  return F.num(sayi(v)) + ' km';
+    if(k === 'motorHacmi')       return F.num(sayi(v)) + ' cc';
+    if(k === 'dep')              return DB.depName(v);
+    if(k === 'proje')            return projeAd(v);
+    if(k === 'anaSurucu' || k === 'yedekSurucu') return DB.empName(v);
+    if(TARIH.indexOf(k) !== -1)  return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    METINSEL.forEach(function(k){ if(v[k] != null) v[k] = metin(v[k]); });
+    if(v.sasi) v.sasi = v.sasi.toUpperCase();
+    v.aktif = !!v.aktif;
+
+    /* Mülkiyet türü hangi alan grubunun yaşayacağını belirler; ölü değer bırakılmaz. */
+    if(kiraliMi(v.mulkiyet)){ v.alisTarihi = ''; v.satici = ''; if(canFinans) v.alisBedeli = ''; }
+    if(!kiraAlaniVar(v.mulkiyet)){
+      v.kiralamaFirmasi = ''; v.sozlesmeBas = ''; v.sozlesmeBit = ''; v.kmSiniri = '';
+      if(canFinans){ v.aylikKira = ''; v.depozito = ''; }
+    }
+    if(v.kullanim === 'Ortak kullanım'){ v.anaSurucu = ''; v.yedekSurucu = ''; }
+    if(v.kullanim !== 'Projeye tahsisli') v.proje = '';
+
+    SAYISAL.forEach(function(k){
+      if(!(k in v)) return;                       /* finans yetkisi yoksa para anahtarı hiç yok */
+      v[k] = metin(v[k]) === '' ? '' : Math.round(sayi(v[k]));
+    });
+    BOSALABILEN.forEach(function(k){ if(k in v && metin(v[k]) === '') v[k] = null; });
+
+    /* Yetkisiz rol tutarlara HİÇ dokunmaz — anahtarlar v'den düşürülür. */
+    if(!canFinans) PARA_ALAN.forEach(function(k){ delete v[k]; });
+    return v;
+  }
+
+  /* Bu form bakım, muayene, poliçe, yakıt, gider, kaza ve ceza kaydı YAZMAZ.
+     Girilen değerler bağlı kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var hedefKm = v.sonrakiBakimKm == null ? null : sayi(v.sonrakiBakimKm);
+    var guncel  = sayi(v.guncelKm);
+
+    if(hedefKm != null && guncel >= hedefKm){
+      out.push('Güncel kilometre ' + F.num(guncel) + ', bakım eşiği ' + F.num(hedefKm) +
+               ' km — eşik aşılıyor. Bakım kaydı bu formdan doğmaz, bakım ekranından açılmalıdır.');
+    }
+    if(v.sonrakiBakimTarihi && F.days(v.sonrakiBakimTarihi) < 0){
+      out.push('Planlanan bakım tarihi ' + F.date(v.sonrakiBakimTarihi) + ' geçmişte kalıyor; plan eşiği ' +
+               'güncellenmeli ya da bakım kaydı kapatılmalıdır.');
+    }
+    if(v.durum === 'Serviste'){
+      out.push('Araç “Serviste” olarak kaydediliyor. Bu form servis ya da bakım kaydı üretmez; servis ' +
+               'girişi bakım ekranından açılmalıdır.');
+    }
+    if(v.durum === 'Pasif' && v.aktif){
+      out.push('Araç durumu “Pasif” seçildi ama kayıt aktif bırakılıyor; pasif araç genellikle arşive ' +
+               'alınır ve aktif filo sayaçlarından düşer.');
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: araç listelerde, sayaçlarda ve bakım planlamasında görünmeyecek. ' +
+               'Bakım, muayene, poliçe, yakıt, gider, kaza ve ceza kayıtları silinmez.');
+    }
+    if(duzenle && norm(kayit.mulkiyet) !== norm(v.mulkiyet)){
+      out.push('Mülkiyet türü ' + kayit.mulkiyet + ' → ' + v.mulkiyet + ' olarak değişiyor; yeni türde ' +
+               'kullanılmayan satın alma ya da kiralama alanları boşaltılacak.');
+    }
+    if(duzenle && norm(kayit.plaka) !== norm(v.plaka)){
+      out.push('Plaka ' + kayit.plaka + ' → ' + v.plaka + ' olarak değişiyor. Poliçe, muayene ve ceza ' +
+               'belgelerindeki plaka bilgisi bu formdan güncellenmez.');
+    }
+    if(duzenle && kiraliMi(v.mulkiyet) && v.sozlesmeBit && F.days(v.sozlesmeBit) < 0){
+      out.push('Kiralama sözleşmesinin bitişi ' + F.date(v.sozlesmeBit) + ' — süresi dolmuş görünüyor; ' +
+               'iade ya da yenileme kaydı bu formdan tutulmaz.');
+    }
+    if(duzenle && muayene && F.days(muayene.sonrakiTarih) <= 30){
+      out.push('Muayene tarihi ' + F.date(muayene.sonrakiTarih) + ' (' + muayene.kod + ') 30 günlük ' +
+               'pencerede; muayene kaydı muayene ekranından yürür.');
+    }
+    if(duzenle && trafik && F.days(trafik.bitis) <= 30){
+      out.push('Trafik sigortası ' + F.date(trafik.bitis) + ' tarihinde bitiyor (' + trafik.kod +
+               '); yenileme sigorta ekranından yapılır.');
+    }
+    if(duzenle && acikCeza.length){
+      out.push('Araçta ödenmemiş ' + acikCeza.length + ' trafik cezası var; ceza ödemesi bu formdan ' +
+               'işlenmez, kaza ve ceza ekranından yürür.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         `kod` ve finans yetkisi olmayan rolde tutar anahtarları v'de yoktur, dokunulmaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. Kiralama anahtarları
+         yalnız kiralama türünde açılır — satın alınan araçta veride de yoktur. */
+      var yeni = {
+        kod:kod, plaka:v.plaka, marka:v.marka, model:v.model, modelYili:v.modelYili, tip:v.tip,
+        yakit:v.yakit, vites:v.vites, motorHacmi:v.motorHacmi, motorNo:v.motorNo, sasi:v.sasi,
+        renk:v.renk, mulkiyet:v.mulkiyet, alisTarihi:v.alisTarihi,
+        alisBedeli:canFinans ? v.alisBedeli : null, satici:v.satici
+      };
+      if(kiraAlaniVar(v.mulkiyet)){
+        yeni.kiralamaFirmasi = v.kiralamaFirmasi;
+        yeni.sozlesmeBas = v.sozlesmeBas;
+        yeni.sozlesmeBit = v.sozlesmeBit;
+        yeni.aylikKira = canFinans ? v.aylikKira : null;
+        yeni.kmSiniri = v.kmSiniri;
+        yeni.depozito = canFinans ? v.depozito : null;
+      }
+      yeni.kullanim = v.kullanim;
+      yeni.anaSurucu = v.anaSurucu;
+      yeni.yedekSurucu = v.yedekSurucu;
+      yeni.dep = v.dep;
+      yeni.proje = v.proje;
+      yeni.durum = v.durum;
+      yeni.guncelKm = v.guncelKm;
+      yeni.sonBakimTarihi = v.sonBakimTarihi;
+      yeni.sonBakimKm = v.sonBakimKm;
+      yeni.sonrakiBakimTarihi = v.sonrakiBakimTarihi;
+      yeni.sonrakiBakimKm = v.sonrakiBakimKm;
+      yeni.aktif = v.aktif;
+
+      DB.vehicles.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Araç kaydı oluşturuldu — ' + v.plaka + ' · ' + v.marka + ' ' + v.model + ' · ' +
+              v.mulkiyet + ' · ' + v.kullanim,
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-arac.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!canFinans && !duzenle){
+      uyari.unshift('Rolünüzde finansal tutar yetkisi olmadığı için satın alma bedeli, aylık kira ve ' +
+                    'depozito alanları forma basılmadı; kayıt bu alanlar boş olarak açılacak ve tutarları ' +
+                    'finans yetkisi olan bir kullanıcı girmelidir.');
+    }
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz araç kaydı yeni değerlerle yazılır; bakım, muayene, poliçe, ' +
+           'yakıt, gider, kaza ve ceza kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Envanter',
+    title:basligi,
+    sub: duzenle
+      ? kayit.kod + ' · ' + kayit.marka + ' ' + kayit.model + ' — değişiklikler aktivite geçmişine ' +
+        'yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunluSayisi +
+        ' zorunlu · atanacak kod ' + siradakiKod + '.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-arac.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>

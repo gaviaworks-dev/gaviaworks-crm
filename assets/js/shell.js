@@ -710,7 +710,10 @@
     'app-tedarikci-form.html',
     'app-demirbas-form.html',
     'app-zimmet-form.html',
-    'app-toplanti-form.html'
+    'app-toplanti-form.html',
+    'app-arac-form.html',
+    'app-arac-bakim-form.html',
+    'app-arac-muayene-form.html'
   ];
   GV.built = BUILT;
 

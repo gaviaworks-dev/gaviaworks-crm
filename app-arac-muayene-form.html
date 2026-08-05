@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Muayene Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="varlik" data-screen="muayene">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees (DB.empName), DB.departments (DB.depName)
+     ops.js  → DB.inspections, DB.vehicles, DB.maintenance, DB.policies
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ?arac=ARC-xxx yalnız YENİ kayıtta araç alanını ön doldurur.
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.inspections.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+  var onArac  = qs.get('arac');
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez.
+     GV.empty metnini ÖN-ESCAPE ETME: bileşen kendisi escape ediyor (UID-23). */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Araç ve Filo', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen muayene kaydı filo kayıtlarında yok.',
+      actions:[{ label:'Muayene listesine dön', cls:'btn-line', href:'app-arac-muayene.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Muayene kaydı bulunamadı',
+      desc:'“' + id + '” kodlu muayene kaydı sistemde yok. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-arac-muayene.html">Muayene listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Muayene Kaydı';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Muayene ücreti finansal tutardır ve `can('finans')` olmayan role
+     forma HİÇ basılmaz (devre dışı kontrol de bırakılmaz).
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Araç ve Filo', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Muayene listesine dön', cls:'btn-line', href:'app-arac-muayene.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Muayene kaydı düzenleme' : 'Muayene kaydı oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Muayene kayıtlarını listede ve ' +
+           'araç kartında görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-arac-muayene.html">Muayene listesine dön</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-arac-detay.html?id=' + esc(kayit.arac) +
+                   '">Araç kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function bos(v){ return (v == null || v === '' || v === '—') ? null : v; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); }); return o;
+  }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+  function gunFarki(a, b){
+    if(!a || !b) return null;
+    return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  }
+  function yilFarki(a, b){
+    var d = gunFarki(a, b);
+    return d == null ? null : Math.round(d / 365.25 * 10) / 10;
+  }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* Yenileme eşikleri araç kartıyla (app-arac-detay.html) BİREBİR aynıdır:
+     süresi doldu · 7 · 15 · 30 · 60 gün. İkinci bir eşik seti kurulmaz.
+     Kalan gün sayısal eşiktir, TONE sözlüğünde karşılığı yok — ton açıkça geçilir. */
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0)   return 'is-danger';
+    if(d <= 7)  return 'is-danger';
+    if(d <= 15) return 'is-warn';
+    if(d <= 30) return 'is-warn';
+    if(d <= 60) return 'is-info';
+    return 'is-ok';
+  }
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return faint('—');
+    var m = d < 0 ? 'Süresi doldu · ' + (-d) + ' gün' : d === 0 ? 'Bugün son gün' : d + ' gün kaldı';
+    return GV.badge(m, kalanTon(iso));
+  }
+  function tarihKalan(iso){
+    if(!iso) return null;
+    return '<span class="cell-date">' + F.date(iso) + '</span> ' + kalanBadge(iso);
+  }
+
+  /* =================================================================
+     BAĞLAR VE TÜRETİLEN ALANLAR
+       DB.inspections[].arac = muayene → araç bağı. Veride YAZILI tekil bağdır
+       (ders L-13); araç kaydında ayna alan yoktur, araç kartı muayeneleri bu
+       alandan süzerek okur.
+       kalanGun ve durum kayda YAZILI türetilmiş alanlardır: kalanGun sonraki
+       muayene tarihinin DB.today'e uzaklığı, durum ise muayene listesindeki
+       (app-arac-muayene.html) eşiktir — gecikmiş / 60 gün içinde / ötesi.
+     ================================================================= */
+  function aracOf(kod){ return kod ? DB.vehicles.filter(function(v){ return v.kod === kod; })[0] : null; }
+  function aracAd(kod){ var v = aracOf(kod); return v ? v.plaka : (kod || '—'); }
+  function muayeneleriOf(kod){
+    return kod ? DB.inspections.filter(function(m){ return m.arac === kod; })
+                   .sort(function(a, b){ return String(a.sonrakiTarih).localeCompare(String(b.sonrakiTarih)); })
+               : [];
+  }
+  function digerMuayeneler(kod){
+    return muayeneleriOf(kod).filter(function(m){ return !duzenle || m.kod !== kayit.kod; });
+  }
+  function devirTarihi(v){ return v ? (v.mulkiyet === 'Kiralık' ? v.sozlesmeBas : v.alisTarihi) : null; }
+  function turetilenDurum(gun){
+    return gun == null ? 'Planlandı' : gun < 0 ? 'Gecikti' : gun <= 60 ? 'Yaklaşıyor' : 'Planlandı';
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamMuayene = DB.inspections.length;
+  var aktifMuayene  = DB.inspections.filter(function(m){ return m.aktif !== false; }).length;
+  var aracSayisi    = DB.vehicles.length;
+  var takipliArac   = distinct(DB.inspections.map(function(m){ return m.arac; })).length;
+  var takipsizArac  = DB.vehicles.filter(function(v){ return !muayeneleriOf(v.kod).length; });
+  var gecikenSayisi = DB.inspections.filter(function(m){ return F.days(m.sonrakiTarih) < 0; }).length;
+  var y60Sayisi     = DB.inspections.filter(function(m){
+                        var d = F.days(m.sonrakiTarih); return d >= 0 && d <= 60; }).length;
+  var kusurluSayisi = DB.inspections.filter(function(m){ return !!m.kusur; }).length;
+  var kalanSayisi   = DB.inspections.filter(function(m){ return !!m.sonuc && m.sonuc === 'Kaldı'; }).length;
+
+  var ISTASYONLAR = distinct(DB.inspections.map(function(m){ return m.istasyon; })).sort();
+  /* Sonuç ekseni sözlükte tanımlıdır (components.md §5): Geçti(ok) / Kaldı(danger).
+     Küme muayene listesinin filtre seçenekleriyle aynıdır, yerel sözlük yazılmaz. */
+  var SONUCLAR = ['Geçti','Kaldı'];
+
+  /* Kayıtlı muayenelerin ölçülmüş geçerlilik süreleri — kural veriden okunur, uydurulmaz. */
+  var SURE_OLCUM = DB.inspections.slice()
+    .sort(function(a, b){ return String(a.sonTarih).localeCompare(String(b.sonTarih)); })
+    .map(function(m){
+      var v = aracOf(m.arac);
+      var y = yilFarki(m.sonTarih, m.gecerlilik);
+      return aracAd(m.arac) + ' (' + (v ? v.tip : 'araç tipi yok') + ') ' +
+             (y == null ? 'süre yok' : y + ' yıl');
+    });
+
+  var ARAC_SECENEK = DB.vehicles.map(function(v){
+    var son = muayeneleriOf(v.kod)[0];
+    return { value:v.kod,
+      label:v.plaka + ' — ' + v.marka + ' ' + v.model + ' · ' + v.tip +
+            (son ? ' · geçerlilik ' + F.date(son.gecerlilik) : ' · muayene kaydı yok') };
+  });
+  /* Düzenlenen kaydın aracı filo listesinde yoksa savunmacı olarak eklenir. */
+  if(duzenle && kayit.arac && !aracOf(kayit.arac)){
+    ARAC_SECENEK.unshift({ value:kayit.arac, label:kayit.arac + ' · araç kaydı bulunamadı' });
+  }
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI
+     ================================================================= */
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     FORM KAYDI
+     `ucret` finans yetkisi olmayan role forma HİÇ basılmaz; düzenleme
+     modunda kayıttaki değere de dokunulmaz (aşağıda `yaz` içinde v'de yoktur).
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+    ['gecerlilik','kusur','istasyon','ucret'].forEach(function(k){
+      formRec[k] = bos(kayit[k]) == null ? '' : kayit[k];
+    });
+    formRec.aktif = kayit.aktif !== false;
+  }else{
+    formRec = {
+      arac:(onArac && aracOf(onArac)) ? onArac : '',
+      sonTarih:DB.today, gecerlilik:'', sonrakiTarih:'', sonuc:'Geçti',
+      kusur:'', istasyon:'', ucret:'', aktif:true
+    };
+  }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan üretilir. */
+  function yeniKod(){
+    var max = 0;
+    DB.inspections.forEach(function(m){
+      var t = /^MYN-\d{4}-(\d+)$/.exec(m.kod || '');
+      if(t) max = Math.max(max, +t[1]);
+    });
+    return 'MYN-' + String(DB.today).slice(0, 4) + '-' + pad(max + 1, 3);
+  }
+  var siradakiKod = duzenle ? kayit.kod : yeniKod();
+
+  /* Adreste araç var ama filo kaydı yok — sessizce yutulmaz. */
+  var onAracUyari = (!duzenle && onArac && !aracOf(onArac))
+    ? GV.notice({ tone:'warn', icon:'i-alert', title:'Adresteki araç filo kaydında yok',
+        text:'Bağlantı ' + onArac + ' aracını ön seçmek istiyor ama bu kodda araç filo kayıtlarında ' +
+             'bulunmuyor; araç alanı boş bırakıldı ve elle seçilmesi gerekiyor. Sistemde ' + aracSayisi +
+             ' araç kayıtlı.',
+        actions:[{ label:'Araç listesi', href:'app-arac.html' }] })
+    : '';
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'Muayene kaydının bu formda yer almayan bölümleri',
+    text:'PROMPT.md §16 muayene başlığında muayene raporu belgesi ve tekrar muayene tarihi de sayılır. ' +
+         'Bu ikisinin muayene kaydında karşılığı yok: koleksiyonda rapor dosyası alanı bulunmuyor, ' +
+         'belge yönetimi doküman modülünde yürüyor; tekrar muayene tarihi için ayrı alan açılmadığından ' +
+         'kaldı sonucunda yeniden muayene günü “sonraki muayene tarihi” alanına yazılır. Muayene ücreti ' +
+         'araç gider kaydı doğurmaz — gider kalemi filo gider ekranından girilir.',
+    actions:[{ label:'Doküman yönetimi', href:'app-dokuman.html' },
+             { label:'Araç listesi', href:'app-arac.html' }] });
+
+  var ust = onAracUyari ? '<section class="gv-card"><div class="gc-body">' + onAracUyari + '</div></section>' : '';
+
+  if(duzenle){
+    /* ---- İlişkili kayıt uyarısı (form-brief §8) ---- */
+    var oArac    = aracOf(kayit.arac);
+    var kardesler = digerMuayeneler(kayit.arac);
+    var ilkSirada = muayeneleriOf(kayit.arac)[0];
+    var bagliMetin = [];
+    if(oArac)          bagliMetin.push(oArac.plaka + ' aracı');
+    if(kardesler.length) bagliMetin.push(kardesler.length + ' diğer muayene kaydı');
+    if(acts.length)    bagliMetin.push(acts.length + ' aktivite kaydı');
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      oArac
+        ? { tone:'info', icon:'i-car', title:'Bu muayene kaydı bir araca bağlı',
+            text:kayit.kod + ' kaydı ' + bagliMetin.join(', ') + ' ile ilişkili. Bağ muayene kaydının kendi ' +
+                 'alanında yazılı tutulur, araç kaydında ayna alan yoktur; araç kartındaki muayene sekmesi ' +
+                 've yenileme takvimi bu kaydı süzerek okur. Sonraki muayene tarihini değiştirirseniz ' +
+                 (ilkSirada && ilkSirada.kod === kayit.kod
+                   ? 'araç kartının yenileme takvimindeki muayene satırı da değişir.'
+                   : 'araç kartının takviminde şu anda ' + ilkSirada.kod + ' kaydı önde görünüyor.'),
+            actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + kayit.arac },
+                     { label:'Muayene listesi', href:'app-arac-muayene.html' }] }
+        : { tone:'danger', icon:'i-alert', title:'Kaydın aracı filo kaydında bulunamadı',
+            text:kayit.kod + ' kaydı ' + kayit.arac + ' aracına bağlı görünüyor ama bu kodda araç filo ' +
+                 'kayıtlarında yok. Kayıt araç kartında hiç görünmez; araç alanı yeniden seçilmelidir.',
+            actions:[{ label:'Araç listesi', href:'app-arac.html' }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var son = acts[0];
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Muayene no', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Araç', oArac
+          ? '<a href="app-arac-detay.html?id=' + esc(oArac.kod) + '">' + esc(oArac.plaka) + '</a>' +
+            sub(oArac.marka + ' ' + oArac.model + ' · ' + oArac.tip + ' · ' + oArac.mulkiyet)
+          : faint(kayit.arac + ' · araç kaydı bulunamadı')],
+        ['Muayene sonucu', GV.badge(kayit.sonuc) +
+          (kayit.kusur ? ' <span class="tag">Kusur kaydı var</span>' : '')],
+        ['Kusur bilgisi', kayit.kusur ? esc(kayit.kusur) : faint('Kusursuz')],
+        ['Muayene istasyonu', esc(kayit.istasyon || '—')],
+        ['Muayene tarihi', kayit.sonTarih ? F.date(kayit.sonTarih) : null],
+        ['Geçerlilik bitişi', kayit.gecerlilik ? tarihKalan(kayit.gecerlilik) : null],
+        ['Sonraki muayene', kayit.sonrakiTarih ? tarihKalan(kayit.sonrakiTarih) : null],
+        ['Geçerlilik süresi <span class="u-faint">(muayeneden geçerlilik bitişine)</span>',
+          yilFarki(kayit.sonTarih, kayit.gecerlilik) != null
+            ? '<b class="u-num">' + yilFarki(kayit.sonTarih, kayit.gecerlilik) + ' yıl</b>' +
+              sub(gunFarki(kayit.sonTarih, kayit.gecerlilik) + ' gün')
+            : null],
+        ['Takip durumu <span class="u-faint">(kayda yazılı türetilmiş alan)</span>',
+          GV.badge(kayit.durum) + sub('kalan gün: ' + kayit.kalanGun)],
+        canFinans
+          ? ['Muayene ücreti <span class="u-faint">(KDV dahil)</span>',
+             kayit.ucret == null || kayit.ucret === ''
+               ? faint('Ücret girilmemiş')
+               : '<b>' + para(kayit.ucret) + '</b>']
+          : null,
+        ['Kayıt durumu', kayit.aktif === false
+          ? '<span class="tag">Pasif kayıt</span>' : GV.badge('Aktif')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-arac-detay.html?id=' + esc(kayit.arac) + '">' +
+        ico('i-external','ic-sm') + ' Araç kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni muayene kaydı oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki muayene kodu ' + siradakiKod + ' olarak atanır, kalan gün ve takip ' +
+             'durumu sonraki muayene tarihinden türetilerek kayda yazılır, aktivite geçmişine ' +
+             '“Muayene kaydı oluşturuldu” satırı düşer ve muayene listesine dönülür. Bu form bakım, ' +
+             'sigorta ya da gider kaydı doğurmaz; araç kartındaki yenileme takvimi kaydı süzerek okur. ' +
+             'Ölçüm: filoda ' + aracSayisi + ' araç var, ' + takipliArac + ' tanesinin muayene kaydı ' +
+             'girilmiş, toplam ' + toplamMuayene + ' muayene kaydı tutuluyor.',
+        actions:[{ label:'Muayene listesi', href:'app-arac-muayene.html' },
+                 { label:'Araç listesi', href:'app-arac.html' }] }) + '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clipboard') + 'Muayene Bilgileri</h2>' +
+        '<div class="gc-sub">' + (duzenle ? 'Muayene no değiştirilmez' : 'Muayene no kaydederken atanır') +
+        ' · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-car') + 'Araç Bağı ve Muayene Geçmişi</h2>' +
+        '<div class="gc-sub">Bağ tek yönlüdür: muayene kaydında tutulur, araç kaydında ayna alan yoktur. ' +
+          'Araç kartındaki muayene sekmesi ve yenileme takvimi bu bağdan okur.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-arac.html">' + ico('i-car','ic-sm') +
+            ' Araç listesi</a></div></div>' +
+      '<div class="gc-body" id="aracOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-calendar') + 'Geçerlilik ve Yenileme Eşiği</h2>' +
+        '<div class="gc-sub">Eşikler araç kartıyla aynıdır: 60 · 30 · 15 · 7 gün ve süresi doldu ' +
+          '(referans: sistem tarihi ' + F.date(DB.today) + ').</div></div></div>' +
+      '<div class="gc-body" id="sureOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-check-circle') + 'Sonuç ve Kusur Değerlendirmesi</h2>' +
+        '<div class="gc-sub">Sonuç ekseni iki değerlidir: Geçti ve Kaldı. Kusur bilgisi sonucu ' +
+          'değiştirmez, kayıtta ayrı alandır.</div></div></div>' +
+      '<div class="gc-body" id="sonucOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-arac-muayene.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  var kimlikAlanlari = [
+    { key:'arac', label:'Araç', type:'select', options:ARAC_SECENEK, required:true, cols:6,
+      placeholder:'Araç seçin',
+      hint:'Muayene kaydını araca bağlayan alandır ve veride yazılı tutulur; plaka benzerliğinden ' +
+           'türetilmez. Ölçüm: filodaki ' + aracSayisi + ' aracın ' + takipliArac + ' tanesinde muayene ' +
+           'kaydı var' + (takipsizArac.length
+             ? ', kaydı olmayan: ' + takipsizArac.map(function(v){ return v.plaka; }).join(' · ') + '.'
+             : '; kaydı olmayan araç yok.'),
+      validate:function(v){
+        if(!v) return '';
+        return aracOf(v) ? '' : 'Seçilen araç filo kaydında bulunamadı; bağ yazılamaz.';
+      } },
+
+    { key:'istasyon', label:'Muayene istasyonu', type:'text', required:true, cols:6,
+      placeholder:'Örn. TÜVTÜRK Ankara',
+      hint:'Serbest metin. Kayıtlarda kullanılan istasyonlar: ' + ISTASYONLAR.join(' · ') + '.' },
+
+    { key:'sonTarih', label:'Muayene tarihi', type:'date', required:true, cols:6,
+      hint:'Aracın istasyona girdiği gün. Sistem tarihi ' + F.date(DB.today) +
+           '; ileri tarihli muayene girilmez, geçerlilik ve kalan gün bu tarihten yürür.',
+      validate:function(v, d){
+        if(!v) return '';
+        if(F.days(v) > 0) return 'Muayene tarihi ileri tarihli olamaz (bugün ' + F.date(DB.today) + ').';
+        var a = aracOf(d.arac);
+        var devir = devirTarihi(a);
+        if(a && devir && v < devir)
+          return a.plaka + ' aracı ' + F.date(devir) + ' tarihinde filoya girdi (' +
+                 (a.mulkiyet === 'Kiralık' ? 'kiralama sözleşmesi başlangıcı' : 'satın alma tarihi') +
+                 '); muayene bu tarihten önce olamaz.';
+        var ayni = digerMuayeneler(d.arac).filter(function(m){ return m.sonTarih === v; })[0];
+        return ayni ? ayni.kod + ' kaydı ' + aracAd(d.arac) + ' aracı için aynı gün (' + F.date(v) +
+                      ') zaten girilmiş.' : '';
+      } }
+  ];
+
+  /* Finans yetkisi olmayan role ücret alanı HİÇ basılmaz — devre dışı kontrol de
+     bırakılmaz (PROMPT.md §5 · form-brief §3). */
+  if(canFinans){
+    kimlikAlanlari.push({ key:'ucret', label:'Muayene ücreti (KDV dahil)', type:'money', min:0, cols:6,
+      hint:'İstasyona ödenen tutar. Muayene kayıtlarının hiçbirinde ücret alanı dolu değil — bu alan ' +
+           'kayda yeni eklenir ve boş bırakılabilir. Ücret araç gider kaydı doğurmaz, gider kalemi ' +
+           'filo gider ekranından ayrıca girilir.',
+      validate:function(v){
+        if(metin(v) === '') return '';
+        var n = sayi(v);
+        if(n < 0) return 'Muayene ücreti negatif olamaz.';
+        if(Math.round(n) !== n) return 'Tutar tam lira olarak yazılır (kuruş kullanılmaz).';
+        return '';
+      } });
+  }
+
+  sections.push({ title:'Muayene kimliği',
+    desc:'Muayenenin hangi araç için, nerede ve hangi gün yapıldığı. Muayene no sistem tarafından ' +
+         'atanır, elle girilmez.',
+    fields:kimlikAlanlari });
+
+  sections.push({ title:'Sonuç ve kusur',
+    desc:'Sonuç ekseni iki değerlidir ve durum sözlüğünde tanımlıdır. Kusur bilgisi ayrı alandır: ' +
+         'hafif kusurla geçen araç da kusur kaydı taşır.',
+    fields:[
+      { key:'sonuc', label:'Muayene sonucu', type:'radio', options:SONUCLAR, required:true, cols:6,
+        hint:'Ölçüm: ' + toplamMuayene + ' muayene kaydının ' + (toplamMuayene - kalanSayisi) +
+             ' tanesi “Geçti”, ' + kalanSayisi + ' tanesi “Kaldı”. ' + kusurluSayisi +
+             ' kayıtta kusur bilgisi yazılı.' },
+
+      { key:'kusur', label:'Kusur bilgisi', type:'textarea', rows:2, cols:12,
+        placeholder:'Örn. Hafif kusur — far ayarı',
+        hint:'Kusursuz muayenede boş bırakılır; liste ekranında “Kusurlu Geçenler” sekmesi bu alanı ' +
+             'süzer. Ağır kusur ve emniyetsiz araç için ayrı bir kusur derecesi alanı yok, dereceyi ' +
+             'metnin içine yazın.',
+        validate:function(v, d){
+          if(d.sonuc === 'Kaldı' && metin(v) === '')
+            return 'Sonuç “Kaldı” seçildiğinde aracın hangi kusurdan kaldığı yazılmalıdır.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Geçerlilik ve sonraki muayene',
+    desc:'Geçerlilik bitişi muayenenin ne kadar süre geçerli olduğunu, sonraki muayene tarihi ise ' +
+         'aracın istasyona ne zaman gireceğini gösterir. Uyarı eşikleri sonraki muayene tarihinden ' +
+         'hesaplanır.',
+    fields:[
+      { key:'gecerlilik', label:'Geçerlilik bitişi', type:'date', cols:6,
+        hint:'Kayıtlarda ölçülen geçerlilik süreleri: ' + SURE_OLCUM.join(' · ') +
+             '. Süreyi belirleyen kural veride yazılı değil, tarih elle girilir. “Kaldı” sonucunda ' +
+             'geçerlilik doğmaz, alan boş bırakılabilir.',
+        validate:function(v, d){
+          if(!v){
+            return d.sonuc === 'Geçti'
+              ? 'Sonuç “Geçti” olduğunda geçerlilik bitişi zorunludur; muayene listesi ve araç kartı ' +
+                'bu tarihi gösterir.'
+              : '';
+          }
+          if(!d.sonTarih) return 'Geçerlilik girildiyse muayene tarihi de girilmelidir.';
+          if(v <= d.sonTarih)
+            return 'Geçerlilik bitişi muayene tarihinden (' + F.date(d.sonTarih) + ') sonra olmalıdır.';
+          return '';
+        } },
+
+      { key:'sonrakiTarih', label:'Sonraki muayene tarihi', type:'date', required:true, cols:6,
+        hint:'Kalan gün ve takip durumu bu tarihten türetilir; uyarı eşikleri 60 · 30 · 15 · 7 gün ve ' +
+             'süresi doldu. Kayıtlı ' + toplamMuayene + ' muayenenin ' + toplamMuayene +
+             ' tanesinde bu tarih geçerlilik bitişiyle aynı gündür. “Kaldı” sonucunda tekrar muayene ' +
+             'günü için ayrı alan olmadığından yeniden muayene tarihi buraya yazılır.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.sonTarih && v <= d.sonTarih)
+            return 'Sonraki muayene tarihi muayene tarihinden (' + F.date(d.sonTarih) + ') sonra olmalıdır.';
+          return '';
+        } }
+    ]});
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Takip durumu (planlandı · yaklaşıyor · gecikti) tarihten türetilir; kayıt durumu ise arşiv ' +
+         'eksenidir ve elle yönetilir.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — muayene listesinde, sayaçlarda ve araç kartında görünür',
+        hint:'Kapatılırsa kayıt arşive düşer ve araç kartındaki muayene sekmesinden görünmez olur; ' +
+             'aktivite geçmişi silinmez. Ölçüm: ' + toplamMuayene + ' kaydın ' + aktifMuayene +
+             ' tanesi aktif.' }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunlu = [];
+  sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
+
+  var form = GV.form({
+    mount:'#formMount', id:'aracmuayene', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function aracOzetiCiz(){
+    var hedef = document.getElementById('aracOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var a = aracOf(v.arac);
+
+    if(!a){
+      hedef.innerHTML = GV.notice({
+        tone:'warn', icon:'i-alert', title:'Araç seçilmedi — bağ henüz yazılamaz',
+        text:'Muayene kaydı bir araca bağlı olmadan anlam taşımaz: araç kartındaki muayene sekmesi, ' +
+             'yenileme takvimi ve muayene listesindeki plaka kolonu bu bağdan okunur. Bağ veride ' +
+             'yazılı tutulur, tarih ya da istasyon yakınlığından türetilmez. Ölçüm: filoda ' + aracSayisi +
+             ' araç var, ' + takipliArac + ' tanesinin muayene kaydı girilmiş.',
+        actions:[{ label:'Araç listesi', href:'app-arac.html' }] }) +
+        ozetListe([
+          ['Filodaki araç', '<b class="u-num">' + aracSayisi + '</b>'],
+          ['Muayene kaydı olan araç', '<b class="u-num">' + takipliArac + '</b> / ' + aracSayisi],
+          ['Toplam muayene kaydı', '<b class="u-num">' + toplamMuayene + '</b>'],
+          ['Süresi geçmiş muayene', '<b class="u-num">' + gecikenSayisi + '</b>'],
+          ['60 gün içinde yenilenecek', '<b class="u-num">' + y60Sayisi + '</b>']
+        ]);
+      return;
+    }
+
+    var kardes = digerMuayeneler(a.kod);
+    var bakim  = DB.maintenance.filter(function(b){ return b.arac === a.kod && b.durum !== 'Tamam'; })
+                   .sort(function(x, y){ return String(x.planTarihi).localeCompare(String(y.planTarihi)); })[0];
+    var trafik = DB.policies.filter(function(p){ return p.arac === a.kod && p.tur === 'Trafik Sigortası'; })[0];
+    var kasko  = DB.policies.filter(function(p){ return p.arac === a.kod && p.tur === 'Kasko'; })[0];
+    var devir  = devirTarihi(a);
+
+    var bagNot = GV.notice({ tone:'ok', icon:'i-car', title:'Araç bağı veride yazılı olacak',
+      text:'Bu muayene ' + a.plaka + ' aracına bağlanır. Bağ muayene kaydının kendi alanında tutulur; ' +
+           'araç kaydında ayna alan açılmaz, araç tarafı muayenelerini bu alandan süzerek okur.' });
+
+    var kardesNot = kardes.length
+      ? GV.notice({ tone:'info', icon:'i-clipboard', title:'Bu aracın başka muayene kaydı var',
+          text:a.plaka + ' için ' + kardes.length + ' muayene kaydı daha tutuluyor. Araç kartındaki ' +
+               'yenileme takvimi ve özet paneli, sonraki muayene tarihi en erken olan kaydı gösterir; ' +
+               'eski muayeneler muayene sekmesinde geçmiş olarak listelenir.',
+          actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + a.kod }] })
+      : GV.notice({ tone:'neutral', icon:'i-info', title:'Bu aracın ilk muayene kaydı',
+          text:a.plaka + ' için sistemde başka muayene kaydı yok; kaydedildiğinde araç kartının ' +
+               'yenileme takviminde muayene satırı bu kayıttan doğar.',
+          actions:[{ label:'Araç kartını aç', href:'app-arac-detay.html?id=' + a.kod }] });
+
+    hedef.innerHTML = bagNot + kardesNot + ozetListe([
+      ['Araç', '<a href="app-arac-detay.html?id=' + esc(a.kod) + '">' + esc(a.plaka) + '</a>' +
+        sub(a.marka + ' ' + a.model + ' · ' + a.modelYili)],
+      ['Tip · yakıt · mülkiyet', tagOf(a.tip) + ' ' + tagOf(a.yakit) + ' ' + tagOf(a.mulkiyet)],
+      ['Araç durumu', GV.badge(a.durum) + sub(a.kullanim)],
+      ['Sorumlu departman · sürücü', esc(DB.depName(a.dep)) +
+        sub(a.anaSurucu ? DB.empName(a.anaSurucu) : 'ana sürücü atanmamış')],
+      ['Güncel kilometre', '<b class="u-num">' + F.num(a.guncelKm) + ' km</b>'],
+      ['Filoya giriş', devir
+        ? F.date(devir) + sub(a.mulkiyet === 'Kiralık' ? 'kiralama sözleşmesi başlangıcı' : 'satın alma tarihi')
+        : faint('Tarih yazılı değil')],
+      ['Sonraki bakım', a.sonrakiBakimTarihi
+        ? tarihKalan(a.sonrakiBakimTarihi) + sub(bakim ? bakim.kod + ' · ' + bakim.durum : 'açık bakım kaydı yok')
+        : faint('—')],
+      ['Trafik sigortası bitişi', trafik ? tarihKalan(trafik.bitis) + sub(trafik.sirket) : faint('Poliçe yok')],
+      ['Kasko bitişi', kasko ? tarihKalan(kasko.bitis) + sub(kasko.sirket) : faint('Poliçe yok')],
+      ['Bu araçtaki diğer muayene kaydı', kardes.length
+        ? '<b class="u-num">' + kardes.length + '</b> kayıt'
+        : faint('Başka kayıt yok')]
+    ]) +
+    (kardes.length
+      ? '<div class="gv-summary">' + kardes.map(function(m){
+          return '<div class="gv-summary-row">' +
+            '<span class="gv-summary-lbl">' + esc(m.kod) + ' · ' + esc(m.istasyon) +
+              sub('muayene ' + F.date(m.sonTarih) + ' · geçerlilik ' + F.date(m.gecerlilik)) + '</span>' +
+            '<span class="gv-summary-val">' + GV.badge(m.sonuc) + ' ' + kalanBadge(m.sonrakiTarih) + '</span>' +
+            '</div>';
+        }).join('') + '</div>'
+      : '');
+  }
+
+  function sureOzetiCiz(){
+    var hedef = document.getElementById('sureOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var bas = v.sonTarih || null;
+    var bit = v.gecerlilik || null;
+    var sonraki = v.sonrakiTarih || null;
+    var gun = sonraki ? F.days(sonraki) : null;
+
+    var toplamGun = gunFarki(bas, bit);
+    var gecen = (toplamGun != null && bit) ? toplamGun - F.days(bit) : null;
+    var oran  = (toplamGun && gecen != null)
+      ? Math.max(0, Math.min(100, Math.round(gecen / toplamGun * 100))) : null;
+
+    var not;
+    if(!sonraki){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Sonraki muayene tarihi girilmedi',
+        text:'Kalan gün ve takip durumu bu tarihten türetilir; girilmeden uyarı eşikleri çalışmaz ve ' +
+             'kayıt araç kartının yenileme takviminde tarihsiz görünür.' });
+    }else if(gun < 0){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Sonraki muayene tarihi geçmiş',
+        text:'Sonraki muayene ' + F.date(sonraki) + ' — sistem tarihine (' + F.date(DB.today) + ') göre ' +
+             Math.abs(gun) + ' gün geçti. Kayıt “Gecikti” olarak yazılır; muayenesi geçmiş araç ' +
+             'trafiğe çıkamaz ve listede geciken sayacına girer.' });
+    }else if(gun <= 7){
+      not = GV.notice({ tone:'danger', icon:'i-hourglass', title:'Muayeneye 7 günden az kaldı',
+        text:'Sonraki muayene ' + F.date(sonraki) + ' · ' + gun + ' gün kaldı. Randevu bugün alınmalı; ' +
+             'kayıt “Yaklaşıyor” olarak yazılır.' });
+    }else if(gun <= 15){
+      not = GV.notice({ tone:'warn', icon:'i-calendar', title:'Muayeneye 15 günden az kaldı',
+        text:'Sonraki muayene ' + F.date(sonraki) + ' · ' + gun + ' gün kaldı. Randevu bu hafta ' +
+             'planlanmalı.' });
+    }else if(gun <= 30){
+      not = GV.notice({ tone:'warn', icon:'i-calendar', title:'Muayeneye 30 günden az kaldı',
+        text:'Sonraki muayene ' + F.date(sonraki) + ' · ' + gun + ' gün kaldı. Muayene listesindeki ' +
+             '“30 Gün İçinde” sekmesinde görünür.' });
+    }else if(gun <= 60){
+      not = GV.notice({ tone:'info', icon:'i-calendar', title:'Yenileme penceresi açıldı',
+        text:'Sonraki muayene ' + F.date(sonraki) + ' · ' + gun + ' gün kaldı. 60 günlük yenileme ' +
+             'penceresindesiniz; kayıt “Yaklaşıyor” olarak yazılır.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Süre rahat',
+        text:'Sonraki muayene ' + F.date(sonraki) + ' · ' + gun + ' gün kaldı. İlk uyarı eşiği ' +
+             '(60 gün) henüz gelmedi; kayıt “Planlandı” olarak yazılır.' });
+    }
+
+    /* Ölçülen sözleşme: kayıtlı muayenelerin tamamında sonraki muayene = geçerlilik bitişi. */
+    var ayriNot = (bit && sonraki && bit !== sonraki)
+      ? GV.notice({ tone:'warn', icon:'i-alert', title:'Sonraki muayene geçerlilik bitişinden farklı',
+          text:'Geçerlilik ' + F.date(bit) + ', sonraki muayene ' + F.date(sonraki) + ' girildi. Kayıtlı ' +
+               toplamMuayene + ' muayenenin ' + toplamMuayene + ' tanesinde bu iki tarih aynı gündür. ' +
+               'Aracın geçerlilik bitmeden muayeneye girmesi planlanıyorsa bu fark kasıtlıdır; değilse ' +
+               'iki tarih eşitlenmelidir.' })
+      : '';
+
+    hedef.innerHTML = not + ayriNot + ozetListe([
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)],
+      ['Muayene tarihi', bas ? F.date(bas) : faint('Girilmedi')],
+      ['Geçerlilik bitişi', bit ? F.date(bit) + ' ' + kalanBadge(bit) : faint('Girilmedi')],
+      ['Sonraki muayene', sonraki ? F.date(sonraki) + ' ' + kalanBadge(sonraki) : faint('Girilmedi')],
+      ['Geçerlilik süresi', toplamGun != null
+        ? '<b class="u-num">' + F.num(toplamGun) + '</b> gün' +
+          sub(yilFarki(bas, bit) + ' yıl')
+        : faint('—')],
+      ['Kullanılan süre', gecen != null
+        ? '<span class="u-num">' + F.num(Math.max(0, gecen)) + '</span> gün' : faint('—')],
+      ['Süre ilerlemesi', oran != null
+        ? GV.progress(oran, { tone:(bit && F.days(bit) < 0) ? 'danger' : null }) : faint('—')],
+      ['Kayda yazılacak kalan gün', gun != null
+        ? '<b class="u-num">' + gun + '</b>' + sub('sonraki muayene tarihinden türetilir') : faint('—')],
+      ['Kayda yazılacak takip durumu', gun != null
+        ? GV.badge(turetilenDurum(gun)) + sub('eşik: gecikti · 60 gün içinde · ötesi')
+        : faint('—')]
+    ]);
+  }
+
+  function sonucOzetiCiz(){
+    var hedef = document.getElementById('sonucOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var kaldi = v.sonuc === 'Kaldı';
+    var kusurVar = metin(v.kusur) !== '';
+
+    var not;
+    if(kaldi){
+      /* VERİ BOŞLUĞU — uydurulmuyor, açıkça söyleniyor:
+         kayıtlı muayenelerin hepsi “Geçti”; koleksiyonda tekrar muayene tarihi alanı yok.
+         Bu yüzden yeniden muayene günü için otomatik bir tarih hesaplanmaz. */
+      not = GV.notice({ tone:'danger', icon:'i-x-circle', title:'Araç muayeneden kaldı',
+        text:'Kayıtlı ' + toplamMuayene + ' muayenenin tamamı “Geçti” sonucunda; sistemde kalmış bir ' +
+             'muayene örneği yok ve kayıtta tekrar muayene tarihi için ayrı alan bulunmuyor. Bu yüzden ' +
+             'yeniden muayene günü otomatik hesaplanmaz: sonraki muayene tarihini istasyonun verdiği ' +
+             'tekrar muayene gününe göre elle girin. Kaldı sonucunda geçerlilik doğmadığı için ' +
+             'geçerlilik bitişi boş bırakılabilir; araç geçerli muayenesi olmadan trafiğe çıkamaz.',
+        actions:[{ label:'Muayene listesi', href:'app-arac-muayene.html' }] });
+    }else if(kusurVar){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Kusurlu geçti',
+        text:'Sonuç “Geçti” ama kusur bilgisi yazılı. Bu kayıt muayene listesindeki “Kusurlu Geçenler” ' +
+             'sekmesinde görünür ve kusurun bir sonraki muayeneye kadar giderilmesi beklenir. Ölçüm: ' +
+             toplamMuayene + ' kaydın ' + kusurluSayisi + ' tanesinde kusur bilgisi var.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Kusursuz geçti',
+        text:'Sonuç “Geçti” ve kusur bilgisi boş. Kayıt kusursuz muayene olarak yazılır; geçerlilik ' +
+             'bitişine kadar araç trafiğe çıkabilir.' });
+    }
+
+    hedef.innerHTML = not + ozetListe([
+      ['Sonuç', v.sonuc ? GV.badge(v.sonuc) : faint('Seçilmedi')],
+      ['Kusur bilgisi', kusurVar ? esc(v.kusur) : faint('Kusursuz')],
+      ['Muayene istasyonu', metin(v.istasyon) ? esc(v.istasyon) : faint('Girilmedi')],
+      canFinans
+        ? ['Muayene ücreti <span class="u-faint">(KDV dahil)</span>',
+           metin(v.ucret) === '' ? faint('Girilmedi') : para(sayi(v.ucret))]
+        : ['Muayene ücreti', faint('Rolünüzde finansal tutar yetkisi yok — alan forma basılmadı')],
+      ['Kusurlu kayıt <span class="u-faint">(sistem geneli)</span>',
+        '<b class="u-num">' + kusurluSayisi + '</b> / ' + toplamMuayene],
+      ['Kaldı sonuçlu kayıt <span class="u-faint">(sistem geneli)</span>',
+        '<b class="u-num">' + kalanSayisi + '</b> / ' + toplamMuayene]
+    ]);
+  }
+
+  function ozetleriCiz(){ aracOzetiCiz(); sureOzetiCiz(); sonucOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    arac:'Araç', istasyon:'Muayene istasyonu', sonTarih:'Muayene tarihi',
+    gecerlilik:'Geçerlilik bitişi', sonrakiTarih:'Sonraki muayene tarihi',
+    sonuc:'Muayene sonucu', kusur:'Kusur bilgisi', ucret:'Muayene ücreti (KDV dahil)',
+    kalanGun:'Kalan gün', durum:'Takip durumu', aktif:'Kayıt durumu'
+  };
+  var BOSALABILEN = ['gecerlilik','kusur','ucret'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif') return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'ucret') return F.money(sayi(v)) + ' (KDV dahil)';
+    if(k === 'arac')  return aracAd(v) + ' (' + v + ')';
+    if(['sonTarih','gecerlilik','sonrakiTarih'].indexOf(k) !== -1) return F.date(v);
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    ['istasyon','kusur'].forEach(function(k){ v[k] = metin(v[k]); });
+    if(canFinans) v.ucret = metin(v.ucret) === '' ? null : Math.round(sayi(v.ucret));
+    else delete v.ucret;                   /* yetkisiz rol ücrete HİÇ dokunmaz */
+    v.aktif = !!v.aktif;
+
+    /* Türetilmiş alanlar kayda yazılır: kalan gün ve takip durumu sonraki muayene
+       tarihinden hesaplanır, elle girilmez. */
+    v.kalanGun = v.sonrakiTarih ? F.days(v.sonrakiTarih) : null;
+    v.durum    = turetilenDurum(v.kalanGun);
+
+    /* Boş bırakılabilen alanlar veride null tutulur, boş metin yazılmaz. */
+    BOSALABILEN.forEach(function(k){ if(k in v && metin(v[k]) === '') v[k] = null; });
+    return v;
+  }
+
+  /* Bu form araç kaydı, bakım, poliçe ve gider kaydı YAZMAZ. Girilen değerler
+     bağlı kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce açıkça uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var a = aracOf(v.arac);
+    var kardes = digerMuayeneler(v.arac);
+
+    if(v.sonuc === 'Kaldı'){
+      out.push('Sonuç “Kaldı” seçildi. Kayıtlı ' + toplamMuayene + ' muayenenin tamamı “Geçti” sonucunda ' +
+               've kayıtta tekrar muayene tarihi için ayrı alan yok; sonraki muayene tarihi olarak ' +
+               'girdiğiniz ' + F.date(v.sonrakiTarih) + ' tekrar muayene günü sayılacak, sistem bu tarihi ' +
+               'kendiliğinden hesaplamadı.');
+      if(v.gecerlilik){
+        out.push('Sonuç “Kaldı” olmasına rağmen geçerlilik bitişi ' + F.date(v.gecerlilik) + ' girildi; ' +
+                 'kalan araçta geçerli muayene doğmaz, bu tarih araç kartında geçerlilik olarak görünür.');
+      }
+    }
+    if(v.gecerlilik && v.sonrakiTarih && v.gecerlilik !== v.sonrakiTarih){
+      out.push('Geçerlilik bitişi ' + F.date(v.gecerlilik) + ', sonraki muayene ' + F.date(v.sonrakiTarih) +
+               ' girildi; kayıtlı muayenelerin tamamında bu iki tarih aynı gündür.');
+    }
+    if(v.kalanGun != null && v.kalanGun < 0){
+      out.push('Sonraki muayene tarihi geçmiş: kayıt “Gecikti” olarak yazılacak ve muayene listesinin ' +
+               'süresi dolanlar sekmesinde görünecek.');
+    }
+    if(a && kardes.length){
+      var enErken = kardes.slice().sort(function(x, y){
+        return String(x.sonrakiTarih).localeCompare(String(y.sonrakiTarih)); })[0];
+      if(v.sonrakiTarih && enErken.sonrakiTarih < v.sonrakiTarih){
+        out.push(a.plaka + ' aracının yenileme takviminde ' + enErken.kod + ' kaydı (' +
+                 F.date(enErken.sonrakiTarih) + ') daha erken olduğu için araç kartında önde görünmeye ' +
+                 'devam edecek.');
+      }
+    }
+    if(a && a.aktif === false){
+      out.push(a.plaka + ' aracı pasif kayıt; muayene kaydı yazılır ama araç aktif filo listelerinde ' +
+               'görünmez.');
+    }
+    if(canFinans && v.ucret != null){
+      out.push('Muayene ücreti ' + F.money(v.ucret) + ' (KDV dahil) olarak kayda yazılıyor. Bu form araç ' +
+               'gider kaydı doğurmaz; gider kalemi filo gider ekranından ayrıca girilmelidir.');
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: muayene listelerinde, sayaçlarda ve araç kartının muayene ' +
+               'sekmesinde görünmeyecek. Aktivite geçmişi silinmez.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         `kod` ve finans yetkisi olmayan rolde `ucret` v'de yoktur, dokunulmaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. `ucret` koleksiyonda
+         henüz bulunmayan bir alandır; finans yetkisi olmayan rolde forma basılmadığı
+         için null yazılır ve bu kaydetmeden önce açıkça duyurulur. */
+      var yeni = {
+        kod:kod, arac:v.arac, sonTarih:v.sonTarih, gecerlilik:v.gecerlilik,
+        sonrakiTarih:v.sonrakiTarih, sonuc:v.sonuc, kusur:v.kusur, istasyon:v.istasyon,
+        ucret:canFinans ? v.ucret : null,
+        kalanGun:v.kalanGun, durum:v.durum, aktif:v.aktif
+      };
+
+      DB.inspections.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Muayene kaydı oluşturuldu — ' + aracAd(v.arac) + ' · ' + v.sonuc + ' · ' + v.istasyon +
+              ' · sonraki muayene ' + F.date(v.sonrakiTarih),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-arac-muayene.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!canFinans && !duzenle){
+      uyari.unshift('Rolünüzde finansal tutar yetkisi olmadığı için muayene ücreti forma basılmadı; ' +
+                    'kayıt ücretsiz (boş) açılacak ve tutarı finans yetkisi olan bir kullanıcı ' +
+                    'girmelidir.');
+    }
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz muayene kaydı yeni değerlerle yazılır; araç kaydı, bakım, ' +
+           'poliçe ve gider kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Araç ve Filo',
+    title:basligi,
+    sub: duzenle
+      ? 'Kayıt üzerinde yapılan değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunlu.length +
+        ' zorunlu · atanacak kod ' + siradakiKod + '.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-arac-muayene.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
