@@ -540,7 +540,12 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [x] **VB-27** · `DB.surveys[].ilgili` yetim proje kodları — **çözüldü 10. oturum** → altı geçmiş
       proje veriye yazıldı (V-37), `canon.js` eksen 20 eklendi (672 kontrol temiz) ve eksen
       yazılır yazılmaz ikinci bir hata buldu (`ANK-2026-057` teslimden önce tarihliydi)
-- [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (tek turda, `canon.js`'e dokunur)
+- [x] **VB-14 · VB-17 · VB-22** · "Eksen var, sözlüğü yok" — **çözüldü 10. oturum**
+      → 8 sözlük veri katmanına alındı; üç form kümeleri türetmeyi bıraktı
+- [x] **VB-09** · Yasak inşaat terimi "saha" — **çözüldü 10. oturum**, beş yerde bulundu
+      (defterde tek kayıt vardı); tam metin taraması 0 sonuç
+- [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (111 kullanım · `canon.js` ekseni)
+- [ ] **VB-16** · `DB.analyses[].maliyet` → `tahminiBedel` (VB-04 ile aynı turda)
 - [x] **VB-06 · VB-23 · VB-25** · Aynı işlem ekrandan ekrana ayrışıyordu — **çözüldü 10. oturum**
       → yeni ortak katman dosyası `assets/js/domain.js` (`GV.fin.settleInvoice/settlePayment` ·
       `GV.delivery.approve`); ölçüldü: fatura kapanınca tahsilat ve taksit de kapanıyor,

@@ -722,7 +722,25 @@ katmanında yapıldı ve `canon.js`'e **eksen 15** olarak alındı (445 → **52
 
 ---
 
-## VB-09 · `MOD-009` adı yasak inşaat terimi taşıyor
+## ✅ VB-09 · Yasak inşaat terimi "saha" — ÇÖZÜLDÜ (2026-08-05)
+
+Terim **beş yerde** duruyordu, defterdeki tek kayıttan (`MOD-009`) fazlaydı:
+`PRJ-2026-003` proje adı · `MOD-009` modül adı · `MS-012` taksit adı ·
+`SZL-2025-018` sözleşme adı · bir zaman kaydı açıklaması. Beşi de yazılım
+terminolojisine çevrildi ("Mobil Operasyon ERP" · "Mobil ekip yönetimi" ·
+"Mobil ekip uygulaması" · "Mobil ekip verisi senkron kuyruğu").
+Tam metin taraması: `assets/**` ve `app-*.html` altında **0 sonuç**.
+
+**Neden VB-04'ten ayrıldı (karar):** VB-09 yalnız **gösterilen metni** değiştirir;
+VB-04 ise **alan adı rename**'idir (`hakedis` → 111 kullanım + `canon.js` ekseni).
+İkisini aynı turda yapma gerekçesi "tarama iki kez yanılmasın"dı; metin değişikliği
+hiçbir tarama eksenine dokunmadığı için ayrılması güvenli — `canon.js` 672 kontrol
+değişiklikten sonra temiz. **VB-04 açık kalıyor**, hazır rename script'i
+`tasks/` dışında değil, sonraki oturumun ilk maddesi.
+
+---
+
+## VB-09 (özgün kayıt) · `MOD-009` adı yasak inşaat terimi taşıyor
 
 **Nerede:** `assets/data/work.js` → `DB.projectModules`, `MOD-009` = **"Saha ekip yönetimi"**.
 
@@ -830,7 +848,28 @@ iletişim bilgileri birebir aynıdır" ekseni girecek. **VB-12 ile aynı turda.*
 
 ---
 
-## VB-14 · İletişim kanalı ekseni üç yerde farklı, sözlüğü yok
+## ✅ VB-14 + VB-17 + VB-22 · "Eksen var, sözlüğü yok" — ÇÖZÜLDÜ (2026-08-05, 10. oturum)
+
+Sekiz eksen veri katmanında sözlüğe kavuştu; üç form ekranı kümeleri **türetmeyi bıraktı**.
+
+| Sözlük | Dosya | Beslediği ekran |
+|---|---|---|
+| `DB.interactionTypes` (4) | `crm.js` | `app-musteri-iletisim` süzgeci · `app-musteri-detay` iletişim modalı |
+| `DB.timeUnits` (4) | `crm.js` | `app-onanaliz-form` — **tek seçenekli select** sorunu bitti (4 kaydın 4'ü 'hafta'ydı) |
+| `DB.projectStatuses` (5) · `DB.healthLevels` (3) · `DB.projectPhases` (4) | `work.js` | `app-proje` süzgeci · `app-proje-form` |
+| `DB.bugStatuses` (3) · `DB.reproLevels` (4) · `DB.testResults` (3) | `work.js` | `app-proje-hata-form` · `app-proje-test-form` |
+
+**Ölçüm:** proje formu faz seçenekleri **4**, ön analiz süre birimi **4**, hata
+tekrarlanabilirliği **4** (eskiden veride geçen 1–2 değerle sınırlıydı).
+`canon.js` 672 kontrol · `dbref.js` 141 ekran temiz.
+
+> ⚠️ `DB.projectPhases` listesinde **`Tamamlandı`** de var — bu bir faz değil **durum**
+> (VB-20). Sözlük **bugünü** anlatır, niyeti değil (L-21); değer 9 projede `faz` alanında
+> duruyor ve VB-20 turunda `durum` eksenine taşınacak.
+
+---
+
+## VB-14 (özgün kayıt) · İletişim kanalı ekseni üç yerde farklı, sözlüğü yok
 
 **Nerede:** `DB.interactions[].tur` — karşılık gelen bir `DB.*` sözlüğü **yok**.
 
@@ -900,7 +939,7 @@ etikette "(KDV hariç — teklif ara toplamı ekseni)" diyor.
 
 ---
 
-## VB-17 · Süre birimi ve iş gücü birimi sözlüksüz
+## VB-17 (özgün kayıt · VB-14 ile birlikte ÇÖZÜLDÜ) · Süre birimi sözlüksüz
 
 **Nerede:** `DB.analyses[].sureBirim` · `DB.analyses[].isgucu`.
 
@@ -1023,7 +1062,7 @@ düşecek; ekranlardaki elle yazılmış eyebrow'lar taranıp bölüm kaydıyla 
 
 ---
 
-## VB-22 · Proje modülünde üç sözlük eksik
+## VB-22 (özgün kayıt · VB-14 ile birlikte ÇÖZÜLDÜ) · Proje modülünde üç sözlük eksik
 
 **Nerede:** `DB.projects[].durum` · `.saglik` · `.faz` · `DB.bugs[].durum` · `.tekrarlanabilir` ·
 `DB.tests[].sonuc`.
