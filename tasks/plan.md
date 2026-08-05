@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 218 / 283 madde tamam (%77) · 23 kısmen · 42 açık** — 9. oturum, 2026-08-05
+**İLERLEME: 236 / 292 madde tamam (%81) · 23 kısmen · 33 açık** — 10. oturum, 2026-08-05
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
@@ -360,8 +360,9 @@ dinleyiciler `GV.on` ile bağlanır (ders **L-16**) · sayfaya özel `<style>` y
       `vehicles.siparis`. Yarım: `tasks.destek` 0/25 ve `changeRequests.destek` 0/4 —
       **alan açık ama bağ yazılmamış**, VB-05 kapanışı fazla iddialıymış
 - [x] Canonical veri tutarlılığı taraması → `canon.js` **TEMİZ, 607 kontrol** (9. oturum)
-- [ ] 1440 / 768 / 390 px QA taraması
-- [ ] Kapanış raporu
+- [x] 1440 / 768 / 390 px QA taraması — **10. oturum**: `qa.js` 141 ekran × 3 kırılım TEMİZ,
+      `gate.js` 705 sayfa yüklemesi (141 × 5 rol) TEMİZ
+- [x] Kapanış raporu → `docs/N-kapanis-raporu.md` (14 eksenlik tarama tablosu + dürüst bakiye)
 
 ---
 
