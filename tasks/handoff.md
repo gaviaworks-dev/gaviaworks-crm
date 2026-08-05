@@ -9,8 +9,9 @@
 > **`tasks/form-brief.md`** = form ekranı sözleşmesi · **`tasks/detay-brief.md`** = detay ekranı sözleşmesi.
 
 **Güncelleme:** 2026-08-05, **10. oturum** · **141 ekran** · 26 detay · 36 form
-**plan.md:** **232 / 283 madde (%82)** · 24 kısmen · 27 açık
-**BLOK 3 (UI/UX kalite geçişi) İLERLİYOR** — 10. oturumda **14 borç maddesi** kapandı.
+**plan.md:** **236 / 292 madde (%81)** · 23 kısmen · 33 açık
+**BLOK 3 (UI/UX kalite geçişi) İLERLİYOR** — 10. oturumda **18 borç kaydı** kapandı.
+**KAPANIŞ TARAMASI KOŞULDU:** 14 eksen, hepsi temiz → `docs/N-kapanis-raporu.md`.
 
 ---
 
@@ -28,6 +29,8 @@
 | **UID-24 · UID-29** | Üç değerin ikiye düşmesi · sabit ay | — |
 | **VB-06 + VB-23 + VB-25** | Aynı işlem ekrandan ekrana ayrışıyordu | yeni `assets/js/domain.js` · bekleyen tahsilat 285.000 → 0 ölçüldü |
 | **VB-27 · VB-29** | Yetim anket kodları · hatırlatma veri ekseni | 6 geçmiş proje yazıldı · `DB.reminders` + duyuru `okuyanlar` açıldı |
+| **VB-09** | Yasak inşaat terimi "saha" | defterde 1 kayıt vardı, **5 yerde** bulundu → tam metin taraması 0 |
+| **VB-14 · VB-17 · VB-22** | Sekiz eksenin sözlüğü yoktu | form seçenekleri 1–2 → 4–5 |
 
 ### Bu oturumun EN ÖNEMLİ dersi — **L-26**
 
@@ -75,15 +78,14 @@ sayı artarsa regresyon. İki ölçüm boşluğu bilinçli olarak açıkta ve ra
 **19 aksiyonun "doldur → kaydet" ikinci adımı** ve **2 ulaşılamayan toplu işlem**
 (`app-pipeline` kanban görünümünde, `app-zaman` boş varsayılan sekmede seçilebilir satır yok).
 
-### B. Sıradaki blok — TUTARLILIK (sözlük ve bağ)
+### B. Sıradaki blok — TUTARLILIK (bağ ve kimlik)
 
 | Sıra | Madde | Not |
 |---|---|---|
-| 1 | **VB-14 · VB-17 · VB-22** | Altı eksenin `DB.*` sözlüğü yok (`interactionTypes` · `timeUnits` · proje/hata/test sözlükleri). Üçü **aynı turda** — hepsi "eksen var, sözlüğü yok" sınıfı |
-| 2 | **VB-28** | §22'nin üç eksik bağı: `customers.lead` · `tasks.kanal` · `vehicles.siparis`; `tasks.destek` 0/25 ve `changeRequests.destek` 0/4 **boş** (L-22: alan açmak bağ yazmak değildir) |
+| 1 | **VB-28** | §22'nin üç eksik bağı: `customers.lead` · `tasks.kanal` · `vehicles.siparis`; `tasks.destek` 0/25 ve `changeRequests.destek` 0/4 **boş** (L-22: alan açmak bağ yazmak değildir) |
 | 3 | **UID-16** | `DB.activities` yalnız 4 kod önekini taşıyor; `TKL-*` `EMP-*` `ARC-*` `REF-*` `YTK-*` için tek satır yok → detay ekranlarının aktivite sekmesi boş |
 | 4 | **VB-12 · VB-13** | Kişi kimliği ekseni: `tickets.acan` / `interactions.kontak` ADLA bağlanıyor · `referrers` ≡ `contacts` çifti |
-| 5 | **VB-04 + VB-09 + VB-16** | Ad ve terim turu: `hakedis`→`komisyon` · `MOD-009` "Saha ekip yönetimi" · `analyses.maliyet`→`tahminiBedel`. **Yeni bulgu:** `PRJ-2026-003` adı da **"Saha Operasyon ERP"** — yasak terim, aynı turda düzeltilir |
+| 5 | **VB-04 + VB-16** | Alan adı rename turu: `hakedis`/`hakedisTarihi` → kazanç ekseni (**111 kullanım**, 7 ekran + `crm.js` + `canon.js`) · `analyses.maliyet` → `tahminiBedel`. VB-09 (terim) bu turdan **ayrıldı ve kapandı** — metin değişikliği hiçbir tarama eksenine dokunmuyordu, gerekçe ui-debt'te |
 | 6 | **VB-10 · VB-11 · VB-15 · VB-18 · VB-20 · VB-24 · VB-26** | Onay akışı tablosu · bütçe kodu koleksiyonu · belge bağları · komisyon şema tekdüzeliği · proje eksen çakışması · doluluk kopyası · rapor katalog anahtarları |
 
 ### C. Sonra — YAPISAL ve KOZMETİK
