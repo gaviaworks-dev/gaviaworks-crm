@@ -21,9 +21,9 @@ Namespace: CSS `.gv-*`, JS `window.GV.*`.
 | İçerik | `.gv-main` | |
 | Breadcrumb | `.gv-crumb` | bölüm → ekran |
 | Sayfa başlığı | `.gv-page-head` > `.ph-eyebrow` `h1` `.ph-sub` `.ph-actions` | |
-| Rol motoru | `GV.shell.role()` / `setRole()` | `sessionStorage`, URL yalnız ilk seçim |
-| Yetki kapısı | `GV.perm.can(action, scope)` | sayfa açılışında da çalışır, 403 durumu basar |
-| Bildirim merkezi | `GV.notify` | panel + sayaç + okundu |
+| Rol motoru | **`GV.perm.role()`** okur · **`GV.shell.setSession()`** yazar | `sessionStorage`, URL yalnız ilk seçim. ⚠️ `GV.shell.role()` / `setRole()` **yoktur** — sözlükte beş oturum boyunca yanlış yazılıydı, 9. oturumda ölçüldü |
+| Yetki çözümleyici | `GV.perm` = `{ role, matrix, sec, item, can, scope, mask }` | Yedi üye. `can(action, scope)` yetki kapısı, sayfa açılışında da çalışır ve 403 durumu basar; `scope(action)` `'tum'\|'departman'\|'proje'\|'kendi'`; `mask(...)` alan maskeleme |
+| Bildirim sayacı | `GV.counters` (17 sayaç) | ⚠️ **`GV.notify` diye bir bileşen YOKTUR.** Üst bardaki zil düz bir `<a href="app-panel-bildirimler.html">` bağlantısıdır — panel, açılır liste ya da "okundu" yordamı **yok**. Okunmamış sayısı `GV.counters.bildirim`'den gelir |
 | Sayfa başlığı üreticisi | `GV.pageHead({eyebrow,title,sub,actions:[{label,icon,cls,href,run}]})` | her ekranın ilk çağrısı; breadcrumb'ı da besler |
 | Sayfa iskeleti | `buildSkeleton()` (shell.js, otomatik) | rail+menü+üstbar+main; sayfa yalnızca config yazar |
 | Yeniden çizim | `GV.refresh()` | Mock veriyi **değiştiren** her aksiyonun sonu. `gv:ready`'yi yeniden tetikler; `location.reload()` veriyi silerdi (L-15). `#rec` mount düğümünü taze kopyayla değiştirir, böylece mount'a bağlı dinleyiciler birikmez (L-16) |
@@ -159,7 +159,12 @@ ilk hatalı alana odak + özet kutusuna kaydırma. Hepsi bileşende, sayfada yen
 
 ---
 
-## 5. Durum Etiketi — `GV.badge(kind, value)`
+## 5. Durum Etiketi — `GV.badge(value, extra)`
+
+> ⚠️ **İmza düzeltmesi (9. oturum, ölçüldü).** Başlık uzun süre `GV.badge(kind, value)`
+> diye yazılıydı; gerçek imza **`GV.badge(value, extra)`** — birinci parametre gösterilecek
+> **değer**, ikincisi opsiyonel **ton sınıfı**. Aşağıdaki `GV.badge(v,'is-danger')`
+> örnekleri zaten doğruydu, yanlış olan başlıktı.
 
 Semantik renkler accent'ten **bağımsız**. `.gv-badge` + ton sınıfı:
 `.is-ok` `.is-warn` `.is-danger` `.is-info` `.is-neutral` `.is-accent`
@@ -217,6 +222,25 @@ GV.report({
 
 ## 6. Diğer Ortak Bileşenler
 
+> ### ⚠️ GERÇEK `GV.*` YÜZEYİ — 37 üye (9. oturumda ölçüldü, `ui.js` + `shell.js` tarandı)
+>
+> **`shell.js` (12):** `built` · `counters` · `esc` · `ico` · `isBuilt` · `markWip` · `on` ·
+> `pageHead` · `perm` · `refresh` · `session` · `shell`
+> **`ui.js` (25):** `activity` · `badge` · `chain` · `chart` · `chipbar` · `confirm` ·
+> `dateCell` · `drawer` · `empty` · `errorState` · `fmt` · `form` · `list` · `modal` ·
+> `notice` · `pri` · `progress` · `report` · `result` · `skeleton` · `tabs` · `toast` ·
+> `tone` · `upload` · `user`
+>
+> **Bu listede olmayan bir `GV.*` adı ÇAĞRILMAZ.** Sözlük beş oturum boyunca kodda karşılığı
+> olmayan **sekiz** ad taşıdı — `GV.notify` · `GV.cols` · `GV.filters` · `GV.export` ·
+> `GV.bulk` · `GV.dateRange` · `GV.help` · `GV.kanban` — `GV.detail` ve `GV.gantt`'ın
+> (§3) aynı sınıfı. Beşinin işlevi **`GV.list` içinde yaşıyor ve dışarıdan çağrılamıyor**,
+> üçünün (`notify` · `dateRange` · `help`) kodda hiçbir karşılığı yok.
+> Aşağıdaki tabloda her biri gerçek karşılığıyla düzeltildi.
+>
+> **Kural:** Bu sözlüğe bir API satırı yazmadan önce adı `ui.js` ya da `shell.js` içinde
+> **görmüş olmak** gerekir. Planlanan ama yazılmamış bileşen buraya değil `ui-debt.md`'ye yazılır.
+
 | Bileşen | API | Görev |
 |---|---|---|
 | Modal | `GV.modal({title,body,actions,size})` | `.page-main` **dışına** basılır |
@@ -235,17 +259,17 @@ GV.report({
 | Anahtar | `.f-switch > input + span.sw` | matris hücresi ve ayar ekranları |
 | Görünüm anahtarı | `.viewswitch` (**`.gv-` öneki yok**) | tablo / kart / kanban / takvim; `button[data-view]` |
 | Chip şeridi | `GV.chipbar(el)` | taşınca oklu kaydırma |
-| Kolon yöneticisi | `GV.cols(table)` | göster/gizle · sırala · genişlik · kayıtlı görünüm |
-| Filtre drawer | `GV.filters(config)` | alan tipli gelişmiş filtre + aktif filtre çipleri |
-| Çıktı | `GV.export(config)` | kapsam seçimi (tümü/filtreli/seçili) + format |
-| Tarih aralığı | `GV.dateRange(el)` | bugün/bu hafta/bu ay/çeyrek/özel |
-| Toplu işlem barı | `GV.bulk(config)` | seçili kayıt sayısı + aksiyonlar |
+| Kolon yöneticisi | **`GV.list` içi** — `openCols()` (ui.js) | göster/gizle · sırala · genişlik · kayıtlı görünüm (`localStorage` `gv.cols.<id>`). ⚠️ `GV.cols()` **yoktur**, dışarıdan çağrılamaz |
+| Filtre drawer | **`GV.list` içi** — `openFilters()` (ui.js) | `cfg.filters[]`'ten kurulur, aktif filtre çipleri. ⚠️ `GV.filters()` **yoktur** |
+| Çıktı | **`GV.list` içi** — `doExport(rows, fmt)` (ui.js) | `cfg.export[]` formatları. ⚠️ `GV.export()` **yoktur**; seçili kapsamı dışa aktarma da yok (UID-07) |
+| Tarih aralığı | **hiç yok** | ⚠️ `GV.dateRange()` kodda **hiçbir yerde tanımlı değil**. Tarih aralığı bugün `filters[].type:'daterange'` ile `GV.list` içinde kurulur |
+| Toplu işlem barı | **`GV.list` içi** — `renderBulk()` (ui.js) | `cfg.bulk[]`'ten kurulur. ⚠️ `GV.bulk()` **yoktur**; `bulk[]`'te `show`/yetki kapısı da yok (UID-13) |
 | KPI kartı | `.kpi-grid > .kpi-card` (**`.gv-` öneki YOK**) | `.kpi-ico` + `.kpi-num` + `.kpi-lbl` + `.kpi-meta`; `GV.list`/`GV.report` `kpis:[]` config'inden basılır |
 | İlerleme | `.gv-progress` | proje/görev ilerleme, bütçe kullanımı |
 | Kullanıcı çipi | `.gv-user` | avatar (baş harf) + ad + rol |
-| Yardım | `GV.help(key)` | alan/ekran açıklaması |
+| Yardım | **hiç yok** | ⚠️ `GV.help()` kodda **hiçbir yerde tanımlı değil**. Alan açıklaması bugün `GV.form` alanlarının `hint` anahtarıyla verilir |
 | Yazdırma başlığı | `.gv-print-head` | çıktı ekranları |
-| Kanban | `GV.kanban(config)` | kolon = durum, sürükle-bırak |
+| Kanban | **`GV.list` içi** — `renderKanban()` (ui.js) | `views:['kanban']` + `kanban:{groupBy}` ile açılır; `cfg.kanban` yoksa tabloya düşer. ⚠️ `GV.kanban()` **yoktur**, ayrı bileşen olarak çağrılamaz |
 | Takvim | `.gv-cal` ızgarası (`.gv-cal-dow`, `.gv-cal-day[.is-out|.is-today]`, `.gv-cal-num`, `.gv-cal-ev[.is-ok\|warn\|danger\|accent\|purple\|neutral]`) | ay = 7×6; hafta = `.gv-cal.is-week` (tek satır, uzun hücre); gün = `GV.activity` timeline'ı. Örnek: `app-ajanda.html` |
 | Sohbet | `.gv-chatwrap` (`.gv-chatlist` > `.gv-chan`, `.gv-chatmain` > `.gv-chat-head` > `.gv-chat-title`/`.gv-chat-acts`, `.gv-chat-body` > `.gv-msg[.is-me]`, `.gv-msg-react`, `.gv-chat-foot`) | ≤900px'de `body.chat-list-open` kanal listesini açar — geri butonunu sayfa bağlar. Örnek: `app-sohbet.html` |
 | Gantt | `.gv-gantt` sınıf ailesi (**`GV.gantt()` JS'i YOK**, bkz. §3) | milestone + görev çubukları, markup elle kurulur |
