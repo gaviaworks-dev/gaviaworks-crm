@@ -8,10 +8,44 @@
 > yazma, kopyala. Kurulumdan sonra **`node rec.js`** koş: tarama hedeflerini o üretir (ders **L-19**).
 > **`tasks/form-brief.md`** = form ekranı sözleşmesi · **`tasks/detay-brief.md`** = detay ekranı sözleşmesi.
 
-**Güncelleme:** 2026-08-05, **10. oturum** · **141 ekran** · 26 detay · 36 form
-**plan.md:** **236 / 292 madde (%81)** · 23 kısmen · 33 açık
-**BLOK 3 (UI/UX kalite geçişi) İLERLİYOR** — 10. oturumda **18 borç kaydı** kapandı.
-**KAPANIŞ TARAMASI KOŞULDU:** 14 eksen, hepsi temiz → `docs/N-kapanis-raporu.md`.
+**Güncelleme:** 2026-08-05, **11. oturum** · **141 ekran** · 26 detay · 36 form
+**plan.md:** **241 / 295 madde (%81)** · 20 kısmen · 34 açık
+**BLOK 3 (UI/UX kalite geçişi) İLERLİYOR** — 11. oturumda **VB-28 ve UID-16** kapandı.
+**GECE MODU:** durma kuralı kaldırıldı; her blok sonunda commit + push + handoff güncellenir.
+
+## 11. OTURUM — KAPANANLAR VE ÖLÇÜMLER
+
+| Kod | Ne çözüldü | Ölçüm |
+|---|---|---|
+| **VB-28** | §22 bağ kapsamı. Defterdeki "3 bağ YOK" kaydının **ikisi yanlıştı** — bağlar `DB.leads[].musteri` (4/12) ve `DB.messages[].gorev` (1/6) olarak ZATEN vardı, §9d gereği kaynak kayıtta. `customers.lead` / `tasks.kanal` **yasak ayna alanlardır**, açılmadı (V-38) | `canon.js` eksen **21**: 14 bağın 14'ü ≥1 kayıtta dolu · `bag.js` 12 vaka / 3 ekran |
+| **UID-16** | Aktivite kapsamı. Defter **5 önek** diyordu, ölçülen **22** (L-25) | `DB.activities` **8 → 192 kayıt**, 4 → **73 kayıt kodu**; aktivitesi olan detay ekranı **4/26 → 26/26** |
+
+### 11. oturumun dersi — **borç kaydının KENDİSİ yanlış yere bakabilir**
+
+L-26 ölçüm aracının yanılabileceğini söylüyordu. VB-28 bir adım ötesini gösterdi:
+**borç kaydı bağı yalnız HEDEF koleksiyonda aramıştı.** Oysa components.md §9d bağı
+*doğan/kaynak* kayıtta tutar. Kayıt "yok" dediği iki bağ, projenin kendi kuralına
+uygun biçimde vardı ve iki ekran ikisini de yazıyordu. Alan açmak, `DB.tasks[].hata`
+gibi **bilinçle açılmamış** ayna alanları doğurmak olurdu.
+→ Yeni kural: bir bağ "yok" denmeden önce **iki yönde de** aranır.
+
+### Yan bulgular (aktivite yazarken veriyi yakından okumak ortaya çıkardı)
+
+- `DB.referrers[].sonYonlendirme` **3 kayıtta** (REF-001 · REF-006 · REF-008) getirdiği
+  en son adayın talebinden eskiydi — saklanan türev (L-08). Düzeltildi, eksen 23 kilitledi.
+- `ZMT-2025-005` monitörü EMP-016'ya **işe girmeden 7 ay önce** zimmetliyordu.
+  Tenure'ü örtüşen EMP-015'e çekildi.
+
+### Kalıcı tarama setine eklenen iki script
+
+| Script | Sorduğu soru | Süre |
+|---|---|---|
+| `tasks/qa/akt.js` | "Detay ekranının Aktivite sekmesi gerçekten DOLU mu?" | ~1 dk |
+| `tasks/qa/bag.js` | "§22 bağı EKRANDA görünüyor mu?" | ~20 sn |
+
+> `canon.js` **veriyi**, bu ikisi **ekranı** ölçer. `app-proje-hata-detay` bağlı görevin
+> hareketlerini de bastığı için `DB.bugs` boşken bile timeline gösterebiliyordu —
+> iki eksen aynı şeyi ölçmez, ikisi de koşulur.
 
 ---
 
@@ -89,9 +123,9 @@ sayı artarsa regresyon. İki ölçüm boşluğu bilinçli olarak açıkta ve ra
 
 | Sıra | Madde | Not |
 |---|---|---|
-| 1 | **VB-28** | §22'nin üç eksik bağı: `customers.lead` · `tasks.kanal` · `vehicles.siparis`; `tasks.destek` 0/25 ve `changeRequests.destek` 0/4 **boş** (L-22: alan açmak bağ yazmak değildir) |
-| 3 | **UID-16** | `DB.activities` yalnız 4 kod önekini taşıyor; `TKL-*` `EMP-*` `ARC-*` `REF-*` `YTK-*` için tek satır yok → detay ekranlarının aktivite sekmesi boş |
-| 4 | **VB-12 · VB-13** | Kişi kimliği ekseni: `tickets.acan` / `interactions.kontak` ADLA bağlanıyor · `referrers` ≡ `contacts` çifti |
+| ~~1~~ | ~~**VB-28**~~ | ✅ 11. oturumda kapandı |
+| ~~3~~ | ~~**UID-16**~~ | ✅ 11. oturumda kapandı |
+| **SIRADAKİ** | **VB-12 · VB-13** | Kişi kimliği ekseni — **kapsam büyüdü, ÜÇ alan**: `tickets.acan` · `interactions.kontak` (ikisi de müşteri yetkilisi → `YTK-*`) · **`activities.kisi`** (personel → `EMP-*`, **192 kayıt**, 62 dosya yazıyor). Ayrıca `referrers` ≡ `contacts` çifti (VB-13). 16 personel adının 16'sı benzersiz olduğu için ad→kod çevrimi **mekaniktir**; `canon.js` eksen 22b bunu garanti eder |
 | 5 | **VB-04 + VB-16** | Alan adı rename turu: `hakedis`/`hakedisTarihi` → kazanç ekseni (**111 kullanım**, 7 ekran + `crm.js` + `canon.js`) · `analyses.maliyet` → `tahminiBedel`. VB-09 (terim) bu turdan **ayrıldı ve kapandı** — metin değişikliği hiçbir tarama eksenine dokunmuyordu, gerekçe ui-debt'te |
 | 6 | **VB-10 · VB-11 · VB-15 · VB-18 · VB-20 · VB-24 · VB-26** | Onay akışı tablosu · bütçe kodu koleksiyonu · belge bağları · komisyon şema tekdüzeliği · proje eksen çakışması · doluluk kopyası · rapor katalog anahtarları |
 

@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 239 / 294 madde tamam (%81) · 21 kısmen · 34 açık** — 11. oturum, 2026-08-05
+**İLERLEME: 241 / 295 madde tamam (%81) · 20 kısmen · 34 açık** — 11. oturum, 2026-08-05
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -391,7 +391,7 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
       **siparişte eksik/kısmi teslim ve iade alanı yok**
 - [x] ticket · sla · chat_channel · chat_message · meeting · decision
 - [~] document · notification · automation · role · permission · activity_log ✅ ·
-      **doküman versiyon geçmişi ve onay zinciri koleksiyonu yok** · `DB.activities` kapsamı eksik (UID-16)
+      **doküman versiyon geçmişi ve onay zinciri koleksiyonu yok** · `DB.activities` kapsamı **tam** (UID-16 kapandı)
 - [x] Modüller arası bağ alanları veride **yazılı** (L-13): destek→görev/hata/değişiklik ·
       sipariş→demirbaş · test→hata→teslim→modül→sprint zincirleri (VB-05 / VB-07 / VB-08 kapandı,
       `canon.js` eksen 15 · 521 kontrol · components.md §9d)
@@ -463,8 +463,9 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] Liste ekranları ortak standart → tüm liste ekranları `GV.list` (PROMPT.md §6 tek bileşende)
 - [~] Yetkilendirme arayüz seviyesinde kalmıyor → 403 kapısı + alan maskeleme ✅;
       **satır kapsamı (`scope('gor')`) liste ekranlarında uygulanmıyor** (UID-05)
-- [~] Aktivite ve değişiklik geçmişi → `GV.activity` + `app-ayar-log` eski→yeni değer ✅;
-      `DB.activities` yalnız 4 kod önekini taşıyor, detay ekranlarının çoğunda sekme boş (UID-16)
+- [x] Aktivite ve değişiklik geçmişi → `GV.activity` + `app-ayar-log` eski→yeni değer ✅;
+      `DB.activities` **26 detay ekranı koleksiyonunun 26'sını** kapsıyor (UID-16 kapandı),
+      `canon.js` eksen 22 ve `akt.js` her turda ölçer
 - [~] Masaüstü + mobil (1440/768/390) → üç kırılımda da konsol/taşma temiz ✅;
       mobilde satır aksiyonu yok (UID-02), detay tabloları ≤760px'de gizleniyor (UID-14)
 - [x] Çoklu şirket / SaaS'a hazır yapı → `app-ayar-sirket.html` tenant listesi + şirket bazlı kapsam
@@ -517,7 +518,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [ ] **UID-13** · `GV.list` toplu işlemlerinde `show` / yetki kapısı yok → `bulk[].show`
 - [ ] **UID-14** · Detay sekmesi tabloları ≤760px'de kayboluyor → `.gv-tablewrap` kararı
 - [ ] **UID-15** · Dört eski detay ekranı shell iskeletini elle kopyalıyor → dördü tek turda `buildSkeleton()`e
-- [ ] **UID-16** · Detay ekranlarının aktivite sekmesi boş → `DB.activities` kod öneki kapsamı + `canon.js` ekseni
+- [x] **UID-16** · Detay ekranlarının aktivite sekmesi boş — **çözüldü 11. oturum**
+      → borç **beş önek** diyordu, ölçülen **22** (L-25): `DB.activities` 8 kayıt / 4 önekti,
+      26 detay ekranının 22'sinde sekme her kayıtta boştu. **192 kayıt · 73 kayıt kodu** yazıldı,
+      hepsi gerçek olaydan türetildi ve tek tek ölçüldü. Yan bulgu: iki canonical tarih çelişkisi
+      (`referrers.sonYonlendirme` 3 kayıt · `ZMT-2025-005` zimmeti) düzeltildi.
+      Eksenler: `canon.js` **22 · 22b · 23** + yeni `tasks/qa/akt.js`
+- [ ] **akt.js kalıcı tarama setinde** — detay ekranının aktivite sekmesi dolu mu (UID-16 ekseni)
 - [ ] **UID-17** · Dokuz ekran kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl(pairs, opts)`
 - [ ] **UID-18** · `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor
 - [ ] **UID-19** · Tablo toplam satırı için ortak sınıf yok → `.gtable tfoot` + `tr.is-total`

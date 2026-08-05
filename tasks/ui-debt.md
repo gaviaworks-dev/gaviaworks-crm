@@ -470,7 +470,72 @@ kurulacak. Sonra dördü 1440/768/390'da yeniden doğrulanacak. **Nokta yaması 
 
 ---
 
-## UID-16 · Detay ekranlarının aktivite sekmesi her kayıtta boş
+## ✅ UID-16 · Detay ekranlarının aktivite sekmesi boş — ÇÖZÜLDÜ (2026-08-05, 11. oturum)
+
+> ### ⚠️ SAYI DÜZELTMESİ — BEŞ ÖNEK DEĞİL, YİRMİ İKİ (L-25)
+> Kayıt "`TKL-*` `EMP-*` `ARC-*` `REF-*` `YTK-*` için tek satır yok" diyordu — **beş** önek.
+> Ölçüldü: `DB.activities` **8 kayıt** ve **4 kod öneki** taşıyordu (GRV · LEAD · PRJ · MUS);
+> 26 detay ekranının **22'sinde** sekme HER kayıtta boş durum basıyordu. Borç **dört kattan
+> fazla** eksik sayılmıştı, çünkü sayı statik bir okumadan geliyordu ve ölçüm ekseni yoktu.
+>
+> Üç bağımsız ölçüm aynı sayıyı verdi: veri üzerinde `grep` · `canon.js` eksen 22 ·
+> çalışma zamanında `akt.js` — üçü de **22**.
+
+### Yazılan veri — 176 + 8 kayıt, hepsi gerçek bir olaydan türetildi
+
+Dört ajan üretti, orkestratör **hiçbir iddiaya güvenmeden** her kaydı ölçtü
+(`dogrula-akt.js`: kod gerçek mi · `kisi` gerçek personel adı mı · tarih `DB.today`'i
+aşıyor mu · kaydın yaşam döngüsüne uyuyor mu · ton/ikon sözlükte mi · fazladan anahtar
+var mı · çakışma var mı · yasak inşaat terimi var mı). **176 aday kaydın 176'sı temiz.**
+Ajanların bulamadığı tek boşluğu orkestratör kapattı: `customers` koleksiyonu eksen 22'ye
+göre "kapsanmış"tı (MUS-2026-010'da bir hareket vardı) ama `akt.js` hedef kaydı
+**MUS-2024-001**'i açtığında sekme boştu — 8 müşteri hareketi elle yazıldı.
+
+> **İki eksenin farkı burada görünür oldu:** *koleksiyon kapsamı* ile *kaydın kapsamı*
+> aynı şey değildir. `canon.js` birincisini, `akt.js` ikincisini ölçer.
+
+| Ölçüm | Önce | Sonra |
+|---|---|---|
+| `DB.activities` | 8 kayıt · 4 kod öneki | **192 kayıt · 73 kayıt kodu** |
+| Aktivitesi olan detay ekranı (`canon.js` 22) | **4 / 26** | **26 / 26** |
+| Aktivite sekmesi dolu ekran (`akt.js`) | 4 / 26 · 25 hareket | **26 / 26 · 183 hareket** |
+| `canon.js` toplam kontrol | 706 | **2.329** |
+
+### Yan bulgu — veriyi yakından okumak İKİ canonical çelişki ortaya çıkardı
+
+Aktivite yazmak kaydın yaşam döngüsüne bakmayı zorunlu kıldı; iki yerde tarih mantığı
+tutmadı. İkisini de ajanlar bildirdi, orkestratör **bağımsız ölçtü** ve biri **daha
+büyük** çıktı:
+
+| Çelişki | Ajanın bildirdiği | Orkestratörün ölçtüğü | Düzeltme |
+|---|---|---|---|
+| `DB.referrers[].sonYonlendirme` kart tarihi, getirdiği en son adayın talebinden **eski** | 1 kayıt (REF-001) | **3 kayıt** — REF-001 · REF-006 · REF-008 | Üçü en son aday tarihine çekildi |
+| `ZMT-2025-005` monitörü **işe girmeden önce** zimmetlemiş | EMP-016 girişi 2026-06-15, zimmet 2025-11-03 | doğrulandı; iade (2026-05-14) de girişten önce | Zimmet, tenure'ü örtüşen **EMP-015**'e çekildi (freelance tasarımcı, 4K monitör + iade tutarlı) |
+
+`sonYonlendirme` **saklanan bir türevdir** — L-08'in ("türetilebilir sayaç veriye
+yazılmaz") bir başka vakası. Kaldırmak yerine ekseni yazıldı, çünkü `yonlendirme` ömür
+boyu sayacı sistem öncesi yönlendirmeleri de kapsıyor ve tam türetme mümkün değil.
+
+### Yeni eksenler — üçü de sınandıktan sonra koşuldu (L-24 · L-27)
+
+| Eksen | Sorduğu soru | Sınama |
+|---|---|---|
+| `canon.js` **22** | Her detay ekranı koleksiyonunun en az bir kaydında aktivite var mı | Mevcut veride **tam 22 ihlal** verdi — bağımsız ölçümle birebir |
+| `canon.js` **22b** | Aktivitenin kendi bütünlüğü: yetim kod · sahte kişi adı · gelecek tarih · geçersiz ton/ikon · aynı dakika çakışması | **Altı kuralın altısı** bozuk kopyada yakalandı |
+| `canon.js` **23** | Zimmet personelin işe girişinden önce olamaz · iade teslimden önce olamaz · `sonYonlendirme` eskiyemez | 3 olumsuz + 1 olumlu vaka |
+| `tasks/qa/akt.js` | Sekme AÇILDIĞINDA timeline basılıyor mu | Olumlu 4 ekran (4–7 hareket) · olumsuz 22 ekran (0 hareket) |
+
+### Açık bırakılan — `DB.activities[].kisi` hâlâ AD taşıyor
+
+Yeni 184 kayıt da kişiyi `'Onur Şahin'` gibi **ad** olarak tutuyor, `EMP-*` kodu değil.
+Bu **VB-12'nin üçüncü vakasıdır** ve bilinçli olarak kişi kimliği turuna bırakıldı —
+gerekçe VB-12 kaydındaki kapsam genişlemesi notunda. Çevrimin mekanik kalması için
+`canon.js` eksen 22b her `kisi` değerinin **gerçek ve benzersiz** bir personel adı
+olduğunu her turda doğruluyor.
+
+---
+
+## UID-16 (özgün kayıt) · Detay ekranlarının aktivite sekmesi her kayıtta boş
 
 **Nerede:** `DB.activities` — `app-teklif-detay` · `app-personel-detay` · `app-arac-detay`
 (ve muhtemelen üretilecek 20 detay ekranının çoğu).
@@ -823,6 +888,27 @@ Ad değişince bağ sessizce kopar. `app-musteri-yetkili-form.html` bunu idare e
 güncelleyip aktiviteye ayrı satır yazdı. Ölçüldü: `Sibel Yurtsever` → `Sibel Yurtsever Kaya`
 değişikliğinde `DST-2026-120` birlikte güncellendi. Firma değişiminde kaskad **bilinçli olarak
 çalışmıyor** (eski kayıtlar eski firmaya ait).
+
+> ### ⚠️ KAPSAM GENİŞLEMESİ — üçüncü vaka ölçüldü (11. oturum, UID-16 turunda)
+> Kayıt iki alan sayıyordu (`tickets.acan` · `interactions.kontak`). Üçüncüsü
+> **`DB.activities[].kisi`**: aktivite kaydı kişiyi **ad** olarak tutuyor
+> (`'Onur Şahin'`), `EMP-*` kodu olarak değil. Aynı sınıf, ama etkisi çok daha
+> geniş — **62 dosya** `DB.activities`'e yazıyor (`grep -c 'activities.unshift'`),
+> yani ad her mutasyonda yeniden üretiliyor.
+>
+> **Neden bu turda çevrilmedi (karar):** İki seçenek tartıldı — (a) UID-16'nın
+> veri turuyla birlikte koda çevirmek, (b) ayrı turda. **(b) seçildi.** Çevrim
+> 62 dosyaya ve `GV.activity` sözleşmesine dokunur; UID-16'nın veri yazımıyla
+> aynı commit'e sıkıştırmak, VB-04'ün "yarım rename bırakma" uyarısının aynısını
+> ihlal ederdi. Ayrıca UID-16 turunda yazılan ~150 yeni kayıt çevrimi
+> **zorlaştırmaz**: `canon.js` **eksen 22b** her `kisi` değerinin gerçek bir
+> personel adı olduğunu ölçüyor ve 16 personel adının 16'sı **benzersiz** —
+> yani ad→kod çevrimi belirsizlik taşımayan, mekanik bir dönüşümdür.
+>
+> Bu turda kapatılırken üçü birlikte ele alınır: `tickets.acan` (müşteri
+> yetkilisi → `YTK-*`) · `interactions.kontak` (→ `YTK-*`) ·
+> `activities.kisi` (personel → `EMP-*`). İlk ikisi müşteri yetkilisi,
+> üçüncüsü personel ekseni — **iki ayrı havuz**, tek tur.
 
 **Çözüm (kapanış fazında):** `DB.tickets[].yetkili` ve `DB.interactions[].kontakKod` alanları
 `YTK-*` koduyla açılacak, mevcut metin eşleşmeleri koda çevrilecek, `canon.js`'e "yetkili bağı
