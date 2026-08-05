@@ -5,7 +5,9 @@
    Statik tarama: her app-*.html'in markup'ı + sayfa script'indeki 'app-*.html' dizgileri.
    Menü/dashboard bağlantıları shell.js'ten ayrıca çıkarılır. */
 const fs = require('fs'), path = require('path');
-const ROOT = '/Users/gaviaworks/Developer/Projects/gaviaworks-crm';
+const LIB = require('./qa-lib');
+const ROOT = LIB.repoRoot();          // tek kaynak (L-24)
+/* links.js BİLEREK hem diski hem BUILT'i okur — işi ikisini karşılaştırmak. */
 
 const onDisk = new Set(fs.readdirSync(ROOT).filter(f => /\.html$/.test(f)));
 const shell = fs.readFileSync(path.join(ROOT, 'assets/js/shell.js'), 'utf8');

@@ -18,7 +18,7 @@ const path = require('path');
 const LIB = require('./qa-lib');
 
 const BASE = 'http://127.0.0.1:8791/';
-const ROOT = '/Users/gaviaworks/Developer/Projects/gaviaworks-crm';
+const ROOT = LIB.repoRoot();          // tek kaynak (L-24)
 const SEL = 'dt,dd,th,td,.gv-summary-lbl,.gv-summary-val,.kpi-lbl,.kpi-num,.kpi-meta,' +
             'h1,h2,h3,.ph-eyebrow,.ph-sub,.gv-badge,.cell-main,.cell-sub,label,legend,option';
 const TAG = /<(span|div|b|i|em|strong|br|a|small|p|ul|li|svg|button)\b/i;
@@ -32,7 +32,7 @@ const TAG = /<(span|div|b|i|em|strong|br|a|small|p|ul|li|svg|button)\b/i;
   LIB.loadTargets().forEach(t => { withId[t.file] = t.target; });
   const files = arg
     ? arg.split(',').map(s => s.trim()).filter(Boolean)
-    : fs.readdirSync(ROOT).filter(f => /^app-.*\.html$/.test(f)).sort().map(f => withId[f] || f);
+    : LIB.allScreens().map(f => withId[f] || f);   // hedef listesi qa-lib'den (L-24)
 
   const browser = await chromium.launch();
   let bad = 0, recOk = 0, recNeed = 0;

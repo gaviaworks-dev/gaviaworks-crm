@@ -2,10 +2,11 @@
    Kullanım: node gate.js [rol1,rol2,...]   (varsayılan 5 temsili rol) */
 const { chromium } = require('playwright');
 const fs = require('fs');
-const ROOT = '/Users/gaviaworks/Developer/Projects/gaviaworks-crm';
+const LIB = require('./qa-lib');
+const ROOT = LIB.repoRoot();          // tek kaynak (L-24)
 const B = 'http://127.0.0.1:8791/';
 const ROLES = (process.argv[2] || 'sahip,pm,destek,muhasebe,stajyer').split(',');
-const screens = fs.readdirSync(ROOT).filter(f => /^app-.*\.html$/.test(f)).sort();
+const screens = LIB.allScreens();     // hedef listesi qa-lib'den (L-24)
 
 (async () => {
   const br = await chromium.launch();

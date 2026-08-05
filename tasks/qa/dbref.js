@@ -3,7 +3,8 @@
    "Cannot read properties of undefined" — sayfa açılışında değil, etkileşimde patlar,
    bu yüzden qa.js bunu yakalayamaz. */
 const fs = require('fs'), path = require('path'), vm = require('vm');
-const ROOT = '/Users/gaviaworks/Developer/Projects/gaviaworks-crm';
+const LIB = require('./qa-lib');
+const ROOT = LIB.repoRoot();          // tek kaynak (L-24)
 const DATA = path.join(ROOT, 'assets/data');
 
 // Hangi koleksiyon hangi dosyada tanımlı?
@@ -17,7 +18,7 @@ for (const f of fs.readdirSync(DATA).filter(f => f.endsWith('.js'))) {
 const ALWAYS = new Set(['today']);
 
 let bad = 0, scanned = 0;
-for (const file of fs.readdirSync(ROOT).filter(f => /^app-.*\.html$/.test(f)).sort()) {
+for (const file of LIB.allScreens()) {   // hedef listesi qa-lib'den (L-24)
   const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
   const loaded = new Set([...src.matchAll(/assets\/data\/([a-z0-9_]+\.js)/g)].map(m => m[1]));
   const used = new Set([...src.matchAll(/\bDB\.([A-Za-z0-9_]+)/g)].map(m => m[1]));
