@@ -20,6 +20,8 @@
 | L-17 | Beş QA script'i `?id=KOD` olan hedefe `?role=` ekleyince adres bozuluyordu; detay ekranları "kayıt yok" durumunda ölçülmüş, sonuç yine de "TEMİZ" çıkmıştı | Araç hedefe parametre eklerken ayracı duruma göre seçer (`?` / `&`). Genel kural: **test aracının "temiz" demesi doğru şeyi ölçtüğü anlamına gelmez** — araç, sonucu önceden bilinen bir kayıtla bir kez sınanır | 2026-08-04 |
 | L-19 | L-17'nin ayraç düzeltmesi yetmedi: `?id=` **hiç verilmezse** detay ekranı boş durumu (ya da sessizce ilk kaydı) basıyor, araç yine "TEMİZ" diyordu | Tarama hedefi **veriden türetilir ve kayıtla doğrulanır** (`rec.js` → `qa-targets.json`). Her tarama raporunda **taranan ekran** ve **gerçekten yüklenen kayıt** sayısı ayrı yazılır; sıfır kayıtla taranan ekran hata sayılır, geçiş sayılmaz | 2026-08-04 |
 | L-20 | On üç ajan aynı anda açıldı; sekizi `response stalled mid-stream` ile düştü ve **sekizinin sekizi de diske tek satır yazmadı** — kesinti tam olarak `Write` çağrısından ÖNCE oldu | (a) Stall ile düşen ajandan **çıktı beklenmez**, yarım dosya aranmaz. L-06'nın "failed dese de dosya çoğu zaman bütündür" okuması **yalnız token limiti** kaynaklı düşüşler için geçerlidir, API stall'ı için değil. (b) Dalga genişliği stall riskini **doğrudan** artırır: tavan **dört ajan**. Beşincisi açılmaz, dalga bitmeden yenisi başlamaz | 2026-08-05 |
+| L-24 | `act.js` hedef listesini iki kez yanlış kaynaktan aldı (`__dirname` → repo yolu; sonra HTTP kökü → `index.html`). İkisinde de **hata vermedi**, sessizce 62 ekran tarayıp "TEMİZ" dedi. Ayrıca aynı araç `GV.drawer`'ı panel saymadı ve 16 aksiyonu yanlışlıkla "ölü" gösterdi | Hedef listesi üretimi **tek ortak yardımcıda** yapılır (`qa-lib.allScreens()` → `shell.js` BUILT), boş dönerse **hata fırlatır**. Hiçbir script kendi listesini kurmaz, kendi repo yolunu sabitlemez. Yeni tarama aracı, **sonucu önceden bilinen** en az bir olumlu ve bir olumsuz vakayla sınanmadan koşturulmaz | 2026-08-05 |
+| L-25 | `ui-debt.md` UID-27'yi **79 aksiyon / 47 ekran** diye kaydetmişti; ölçüm ekseni kurulunca gerçek sayı **129 / 65** çıktı. Kayıt yalnız `bulk[]`e bakmıştı (satır aksiyonları ve kaydet düğmeleri kapsam dışı) ve statik regex iç içe nesneleri yanlış ayrıştırıyordu | **Ölçüm ekseni olmadan yazılan borç kaydı borcu EKSİK sayar.** Borç defterine sayı yazılırken sayının **nasıl ölçüldüğü** de yazılır; statik `grep`/regex ile sayılan bir borç "tahmin" olarak işaretlenir, çalışma zamanı ölçümü gelince **güncellenir**. Eksik sayılan borç, kapatma planını da eksik boyutlandırır | 2026-08-05 |
 | L-21 | `components.md` beş oturum boyunca kodda karşılığı olmayan **sekiz `GV.*` adı** taşıdı; ekranlar sözlüğe güvenip var olmayan API'yi çağırmaya çalışabilirdi. Düzeltirken **ben de** eksik ölçtüm: yalnız `ui.js` + `shell.js` taradım, `GV.dashboard`'ı (`dashboard.js`) kaçırdım | Bir API sözlüğe yazılmadan önce adı kodda **görülmüş** olmalı; planlanan ama yazılmamış bileşen sözlüğe değil `ui-debt.md`'ye yazılır. Yüzey taranırken **`assets/js/` altındaki TÜM dosyalar** taranır, iki dosya varsayılmaz | 2026-08-05 |
 | L-22 | `DB.tasks[].destek` alanı şemada **vardı** ve VB-05 "bağ yazıldı, kapandı" diye kapatılmıştı; ölçüldüğünde **0/25 kayıtta dolu** çıktı. `canon.js` bunu görmedi çünkü eksen "bağ verilen kod gerçekten var mı" diye soruyor, "bağ **verilmiş mi**" diye sormuyor — boş alan her zaman geçer | **Alan açmak bağ yazmak değildir** (L-13'ün bir adım ilerisi). Bir bağ maddesi kapatılırken alanın **kaç kayıtta dolu olduğu** yazılır; tarama eksenine "her bağ için en az bir kayıt gerçekten bağ taşır" kontrolü eklenir. Kapanmış madde ölçümle **geri açılabilir** | 2026-08-05 |
 | L-23 | `GV.list` `run`'ı olmayan toplu işlemde **yeşil "N kayıt işlendi" başarı mesajı** basıyordu; 79 aksiyon / 47 ekran beş oturum boyunca sahte çalıştı. Hiçbir tarama yakalamadı: konsol temiz, `href` yok, mutasyon olmadığı için `mut.js` de temiz | Ortak bileşen, çağıranın **vermediği** bir yordamın yerine **başarı** varsayamaz. Eksik sözleşmede bileşen ya hiç basmaz ya da açıkça eksik olduğunu söyler — asla "oldu" demez. Genel: **bir hata sınıfı bulunduğunda taramaya ekseni eklenmeden madde kapatılmaz** | 2026-08-05 |
@@ -329,3 +331,37 @@ asla "oldu" demez. (b) Yedek (fallback) davranış yazarken sorulacak soru: *"bu
 kullanıcıya olmayan bir şeyi olmuş gibi gösterir mi?"* (c) Genel ve en önemlisi:
 **bir hata sınıfı bulunduğunda taramaya ekseni eklenmeden madde kapatılmaz** —
 UID-27, VB-19 ve VB-28'in üçü de ekseni olmadığı için görünmedi.
+
+
+## L-24 · Hedef listesi tek ortak yardımcıdan gelir
+**Olay:** `act.js` iki kez yanlış kaynaktan hedef aldı. Önce `__dirname`'den repo yolu
+türetti — script `scratchpad/qa-run/` içinden koşuyor, yol tutmadı, liste boş kaldı.
+Sonra HTTP kökünü dizin listesi sandı — repoda `index.html` var, sunucu giriş ekranını
+verdi. **İkisinde de araç hata vermedi**, sessizce 62 ekran tarayıp "TEMİZ" dedi;
+oysa gerçek kapsam 141. Aynı araç ayrıca `GV.drawer`'ı (scrim basmadan açılıyor) panel
+saymadı ve **16 aksiyonu yanlışlıkla "ölü"** gösterdi; `passConfirm` de herhangi bir
+`[data-act="1"]`'e basıp drawer'ları kapatıyordu.
+**Kök neden:** Dört script (`dbref` · `esc` · `gate` · `links`) repo yolunu **ayrı ayrı**
+sabitlemişti; beşincisi kendi yolunu uydurdu. Kopya sayısı kadar sessizce yanlış yere
+bakma riski vardı.
+**Kural:** (a) Hedef listesi üretimi **yalnız `qa-lib.js`**'te yapılır
+(`repoRoot()` · `allScreens()` → `shell.js` BUILT); boş dönerse **hata fırlatır**,
+kısa liste döndürmez. (b) Hiçbir script kendi listesini kurmaz, kendi ROOT'unu yazmaz —
+tek istisna `links.js`, çünkü işi zaten BUILT ile diski **karşılaştırmaktır**.
+(c) Yeni bir tarama aracı, **sonucu önceden bilinen** en az bir olumlu (gerçekten
+mutasyon yapan) ve bir olumsuz (yapmayan) vakayla sınanmadan tam koşuya sokulmaz.
+Bu L-17'nin ("araç TEMİZ dedi ≠ doğru şeyi ölçtü") üçüncü ve dördüncü tekrarıdır.
+
+## L-25 · Ölçüm ekseni olmadan yazılan borç kaydı borcu EKSİK sayar
+**Olay:** `ui-debt.md` UID-27'yi **"79 aksiyon / 47 ekran"** diye kaydetmişti. Sayı
+statik bir `grep`/regex ile çıkarılmıştı. `act.js` ekseni kurulunca gerçek sayı
+**129 aksiyon / 65 ekran** çıktı — %63 daha fazla.
+**İki ayrı eksiklik:** (a) kayıt yalnız `bulk[]`e bakıyordu; `rowActions[]` (26 ölü +
+7 yalan) ve form kaydet düğmeleri hiç sayılmamıştı. (b) statik regex iç içe nesneleri
+yanlış ayrıştırıyordu — `app-fatura.html`'de 2 saydı, çalışma zamanında 3 çıktı.
+**Kural:** (a) Borç defterine bir sayı yazılırken **nasıl ölçüldüğü** de yazılır.
+(b) Statik `grep`/regex ile çıkarılan sayı **"tahmin"** olarak işaretlenir; çalışma
+zamanı ölçümü geldiğinde kayıt **güncellenir** ve eski sayı gerekçesiyle saklanır.
+(c) Eksik sayılan borç yalnız rapor hatası değildir — **kapatma planını da eksik
+boyutlandırır**; UID-27 "tek satırlık düzeltme" sanılıyordu, gerçekte ardında
+28 aksiyonluk ikinci bir sınıf (UID-30) vardı.
