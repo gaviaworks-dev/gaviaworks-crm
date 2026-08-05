@@ -523,10 +523,10 @@ DETAY_KOLL.forEach(([koll, ekran]) => {
 });
 console.log('  → aktivitesi olan detay ekranı: ' + kapsanan + ' / ' + DETAY_KOLL.length);
 
-/* 22b. Aktivite kaydının kendi bütünlüğü. `kisi` bugün AD tutuyor (kod değil) —
-   bu, VB-12'nin ("kişi bağı kodla değil adla kuruluyor") üçüncü vakasıdır ve
-   kişi kimliği turunda koda çevrilecektir. Çevrimin mekanik olabilmesi için
-   adın GERÇEK ve personel adlarıyla birebir olması şart: burada ölçülür. */
+/* 22b. Aktivite kaydının kendi bütünlüğü. `kisi` artık **KOD** taşır (VB-12,
+   11. oturumda çevrildi): `EMP-*` personel, `YTK-*` müşteri yetkilisi. Ad
+   `GV.activity` içinde çözülür. Buradaki kontrol, ad tutan bir kaydın geri
+   sızmasını engeller — kod olmayan bir `kisi` değeri İHLALDİR. */
 const TUM_KOD = {};
 Object.keys(DB).forEach(k => {
   if (Array.isArray(DB[k])) DB[k].forEach(r => { if (r && r.kod) TUM_KOD[r.kod] = k; });
@@ -535,7 +535,12 @@ const EMP_AD = DB.employees.map(e => e.ad);
 const TON = ['ok', 'warn', 'danger', 'info', 'accent', 'neutral'];
 DB.activities.forEach(a => {
   say(!!TUM_KOD[a.kayit], 'aktivite kayit=' + a.kayit + ' → hiçbir koleksiyonda yok');
-  say(EMP_AD.indexOf(a.kisi) !== -1, 'aktivite (' + a.kayit + ') kisi="' + a.kisi + '" → personel adı değil');
+  say(/^(EMP|YTK)-/.test(a.kisi || ''),
+      'aktivite (' + a.kayit + ') kisi="' + a.kisi + '" → KOD değil (VB-12: ad tutulmaz)');
+  if (/^EMP-/.test(a.kisi || '')) say(has(DB.employees, a.kisi),
+      'aktivite (' + a.kayit + ') kisi=' + a.kisi + ' → DB.employees içinde yok');
+  if (/^YTK-/.test(a.kisi || '')) say(has(DB.contacts, a.kisi),
+      'aktivite (' + a.kayit + ') kisi=' + a.kisi + ' → DB.contacts içinde yok');
   say(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(a.tarih),
       'aktivite (' + a.kayit + ') tarih="' + a.tarih + '" biçimi YYYY-MM-DDTHH:MM değil');
   say(a.tarih.slice(0, 10) <= DB.today,
@@ -585,6 +590,54 @@ DB.referrers.forEach(r => {
   say(r.sonYonlendirme >= enSon,
       r.kod + ' sonYonlendirme=' + r.sonYonlendirme + ' < en son aday talebi ' + enSon +
       ' — saklanan türev eskimiş (L-08)');
+});
+
+/* ---------- 24. KİŞİ KİMLİĞİ KODLA KURULUR (VB-12 · VB-13) ----------
+   Üç alan kişiyi ADLA tutuyordu; ad değişince bağ sessizce kopuyordu ve
+   `app-musteri-yetkili-form` bunu bir "ad kaskadı" ile idare etmek zorunda
+   kalmıştı. Üçü de `YTK-*` / `EMP-*` koduna çevrildi, kaskad silindi.
+   Bu eksen ADIN geri sızmasını engeller: kod kalıbına uymayan değer İHLALDİR. */
+head('24) Kişi kimliği — ad değil KOD (VB-12 · VB-13)');
+DB.tickets.forEach(t => {
+  say(/^YTK-/.test(t.acan || ''),
+      t.kod + ' acan="' + t.acan + '" → YTK kodu değil (ad tutuluyor, VB-12)');
+  const c = DB.contacts.filter(x => x.kod === t.acan)[0];
+  say(!!c, t.kod + ' acan=' + t.acan + ' → DB.contacts içinde yok');
+  if (c) say(c.musteri === t.musteri,
+      t.kod + ' talebi ' + t.musteri + ' müşterisinin, açan yetkili ' + c.kod +
+      ' ise ' + c.musteri + ' müşterisinin — yetkili başka firmadan');
+});
+DB.interactions.forEach(i => {
+  if (i.kontak) {
+    say(/^YTK-/.test(i.kontak), i.kod + ' kontak="' + i.kontak + '" → YTK kodu değil');
+    const c = DB.contacts.filter(x => x.kod === i.kontak)[0];
+    say(!!c, i.kod + ' kontak=' + i.kontak + ' → DB.contacts içinde yok');
+    if (c && i.musteri) say(c.musteri === i.musteri,
+        i.kod + ' görüşmesi ' + i.musteri + ' ile, muhatap ' + c.kod + ' ise ' + c.musteri + ' yetkilisi');
+  } else {
+    /* kontak boşsa görüşme bir ADAYla yapılmıştır; ad adayın kendi alanından okunur */
+    say(!!i.lead, i.kod + ' kontak boş ama lead de yok — muhatap hiçbir yerden okunamaz');
+    const l = DB.leads.filter(x => x.kod === i.lead)[0];
+    say(!!l && !!l.yetkili, i.kod + ' aday görüşmesi ama ' + i.lead + ' kaydında yetkili adı yok');
+  }
+});
+/* 24b. VB-13 — yönlendiren aynı zamanda bir müşteri yetkilisiyse bağ YAZILIDIR ve
+   iki kayıttaki iletişim bilgisi BİREBİR aynıdır. Aynı kişi iki koleksiyonda
+   tutulduğu için biri güncellenince diğeri sessizce eskiyordu. */
+DB.referrers.forEach(r => {
+  say('kontak' in r, r.kod + ' kontak anahtarı yok — şema kayıttan kayda değişiyor (VB-18 sınıfı)');
+  if (!r.kontak) return;
+  const c = DB.contacts.filter(x => x.kod === r.kontak)[0];
+  say(!!c, r.kod + ' kontak=' + r.kontak + ' → DB.contacts içinde yok');
+  if (!c) return;
+  ['ad', 'tel', 'eposta', 'pozisyon'].forEach(f => say(r[f] === c[f],
+    r.kod + '.' + f + '="' + r[f] + '" ≠ ' + c.kod + '.' + f + '="' + c[f] + '" — aynı kişi, iki farklı değer (VB-13)'));
+});
+/* Bağ yazılmamış yönlendirenlerde AYNI kişi ikinci kez tutulmamalı: telefon ya da
+   e-posta bir yetkiliyle birebir aynıysa bağ yazılmamış demektir, sessiz kopya kalır. */
+DB.referrers.filter(r => !r.kontak).forEach(r => {
+  const c = DB.contacts.filter(x => (r.tel && x.tel === r.tel) || (r.eposta && x.eposta === r.eposta))[0];
+  say(!c, r.kod + ' bağsız ama ' + (c ? c.kod : '') + ' ile aynı iletişim bilgisini taşıyor — kontak yazılmalı (VB-13)');
 });
 
 console.log('\n' + (bad === 0
