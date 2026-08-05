@@ -404,6 +404,29 @@ DB.announcements.forEach(a => {
 say(DB.announcements.some(a => (a.okuyanlar || []).length > 0),
     'Hiçbir duyuruda okuyan yok — okuma ekseni açık ama boş (L-22)');
 
+/* ---------- 20. Anket ilgili kaydı (VB-27) ----------
+   `DB.surveys[].ilgili` altı ankette VAR OLMAYAN proje kodu taşıyordu ve
+   601+ kontrol "temiz" derken bunu görmedi: eksen 15 yalnız yazılı BAĞ
+   alanlarına bakıyordu, `ilgili` o listede yoktu. Ekseni olmayan hata
+   görünmez (VB-19 dersi). */
+head('20) Anket ilgili kaydı (VB-27)');
+const ILGILI_HAVUZ = [].concat(
+  DB.projects.map(p => p.kod), DB.tickets.map(t => t.kod),
+  DB.customers.map(c => c.kod), DB.contracts.map(c => c.kod),
+  (DB.supportPackages || []).map(b => b.kod));
+DB.surveys.forEach(a => {
+  if (!a.ilgili) return;
+  say(ILGILI_HAVUZ.indexOf(a.ilgili) !== -1,
+      a.kod + ' ilgili=' + a.ilgili + ' → hiçbir koleksiyonda yok');
+});
+/* Proje teslimi anketi, teslim edilen projeden SONRA yapılır */
+DB.surveys.filter(a => /^PRJ-/.test(a.ilgili || '')).forEach(a => {
+  const p = DB.projects.filter(x => x.kod === a.ilgili)[0];
+  if (!p || !p.gercekBitis) return;
+  say(a.tarih >= p.gercekBitis,
+      a.kod + ' anket tarihi ' + a.tarih + ' < proje teslimi ' + p.gercekBitis);
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

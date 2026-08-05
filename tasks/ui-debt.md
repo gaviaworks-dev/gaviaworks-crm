@@ -1150,7 +1150,24 @@ Proje rapor sayısı defterlerde 12'ye düzeltilecek.
 
 ---
 
-## VB-27 · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor
+## ✅ VB-27 · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor — ÇÖZÜLDÜ (2026-08-05, 10. oturum)
+
+**Karar: veri tamamlandı, anket değiştirilmedi.** Altı proje `DB.projects`'e geçmiş
+teslim olarak yazıldı (`arsiv:true`, `durum:'Teslim'`), gerekçe `assumptions.md` **V-37**.
+Belirleyici ölçüm: müşterilerin **`projeSayisi` ömür boyu sayacı bu projeleri zaten
+sayıyordu** (MUS-2024-001 kartı 3 proje diyordu, veride 1 kayıt vardı) — yani eksik olan
+anket değil proje kaydıydı.
+
+**Yan düzeltmeler:** `MUS-2026-011` projeSayisi 1→2 · toplamCiro 500.000→690.000 ·
+`REF-002` ciro 2.080.000→2.270.000 (eksen 14 zorladı).
+
+**Yeni eksen — `canon.js` 20:** `ilgili` gerçek bir kaydı gösterir **ve** proje teslimi
+anketi teslimden sonradır. İkinci kural yazılır yazılmaz **gerçek bir hata buldu**:
+`ANK-2026-057` teslimden 2 gün ÖNCE tarihliydi. **672 kontrol temiz.**
+
+---
+
+## VB-27 (özgün kayıt) · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor
 
 **Nerede:** `assets/data/ops.js` → `DB.surveys`.
 

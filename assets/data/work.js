@@ -111,7 +111,84 @@ DB.projects = [
     repo:'github.com/gaviaworks/deniz-sevkiyat', canli:'panel.denizlojistik.com', test:'—',
     tasarim:'figma.com/deniz', sunucu:'Müşteri bulut', teknoloji:['Node.js','React','PostgreSQL'],
     ucuncuTaraf:['Google Maps','e-İrsaliye'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
-    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2025-08-04' }
+    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2025-08-04' },
+
+  /* ---- Sistem öncesi teslim edilen projeler (VB-27) ---------------------
+     `DB.surveys[].ilgili` altı anket için var olmayan proje kodu taşıyordu;
+     anketler 2025-2026 aralığına yayılmış "Proje teslimi" anketleriydi ve
+     müşterilerin `projeSayisi` ömür boyu sayacı da bu projeleri zaten
+     sayıyordu (örn. MUS-2024-001 → 3 proje, veride 1 kayıt vardı).
+     Karar (assumptions V-37): anketler değil VERİ tamamlandı — altı proje
+     geçmiş teslim olarak yazıldı, hepsi `arsiv:true` olduğu için aktif
+     listeleri ve KPI'ları etkilemez. `sozlesmeTutari` her müşterinin
+     `toplamCiro` boşluğunun içinde kalır; sözleşme kaydı sistemde yoktur
+     (sistem öncesi iş), bu yüzden `DB.contracts`'ta karşılığı aranmaz. */
+  { kod:'PRJ-2024-011', ad:'Deniz Lojistik Araç Takip Entegrasyonu', musteri:'MUS-2024-001',
+    musteriAd:'Deniz Lojistik A.Ş.', pm:'EMP-003', ekip:['EMP-005','EMP-006'],
+    durum:'Teslim', saglik:'İyi',
+    baslangic:'2024-08-05', planlananBitis:'2025-10-17', gercekBitis:'2025-10-31', ilerleme:100,
+    sozlesmeTutari:620000, butce:400000, gerceklesenMaliyet:388000, tahminiSure:940, harcananSure:962,
+    tur:'Entegrasyon', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    repo:'github.com/gaviaworks/deniz-arac-takip', canli:'—', test:'—',
+    tasarim:'—', sunucu:'Müşteri bulut', teknoloji:['Node.js','PostgreSQL'],
+    ucuncuTaraf:['Arvento'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
+    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2025-11-03' },
+
+  { kod:'PRJ-2025-009', ad:'Vitalis Laboratuvar Sonuç Portalı', musteri:'MUS-2024-002',
+    musteriAd:'Vitalis Sağlık Grubu', pm:'EMP-003', ekip:['EMP-004','EMP-009'],
+    durum:'Teslim', saglik:'İyi',
+    baslangic:'2025-06-02', planlananBitis:'2026-03-27', gercekBitis:'2026-04-03', ilerleme:100,
+    sozlesmeTutari:420000, butce:280000, gerceklesenMaliyet:268000, tahminiSure:720, harcananSure:735,
+    tur:'Web Uygulaması', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    repo:'github.com/gaviaworks/vitalis-lab', canli:'lab.vitalis.com.tr', test:'—',
+    tasarim:'figma.com/vitalis-lab', sunucu:'Müşteri bulut', teknoloji:['React','Node.js'],
+    ucuncuTaraf:['HL7 arayüzü'], teknikSorumlu:'EMP-004', musteriSorumlu:'EMP-002',
+    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2026-04-06' },
+
+  { kod:'PRJ-2025-010', ad:'Anadolu Perakende Stok Sayım Uygulaması', musteri:'MUS-2025-003',
+    musteriAd:'Anadolu Perakende Ticaret Ltd.', pm:'EMP-003', ekip:['EMP-006','EMP-009'],
+    durum:'Teslim', saglik:'Dikkat',
+    baslangic:'2025-04-14', planlananBitis:'2025-11-14', gercekBitis:'2025-11-28', ilerleme:100,
+    sozlesmeTutari:480000, butce:320000, gerceklesenMaliyet:341000, tahminiSure:820, harcananSure:889,
+    tur:'Mobil Uygulama', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    repo:'github.com/gaviaworks/anadolu-stok', canli:'—', test:'—',
+    tasarim:'figma.com/anadolu-stok', sunucu:'Şirket bulut', teknoloji:['React Native','Node.js'],
+    ucuncuTaraf:['Barkod SDK'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-013',
+    riskler:[], gecikmeNedeni:'Devreye alma sonrası kullanıcı eğitimi planlanandan uzun sürdü',
+    sonGuncelleme:'2025-12-08' },
+
+  { kod:'PRJ-2025-012', ad:'Kılıç Tekstil Üretim Takip Paneli', musteri:'MUS-2025-006',
+    musteriAd:'Kılıç Tekstil San. Tic.', pm:'EMP-003', ekip:['EMP-005'],
+    durum:'Teslim', saglik:'İyi',
+    baslangic:'2025-07-07', planlananBitis:'2026-01-23', gercekBitis:'2026-01-30', ilerleme:100,
+    sozlesmeTutari:340000, butce:220000, gerceklesenMaliyet:214000, tahminiSure:610, harcananSure:604,
+    tur:'Web Uygulaması', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    repo:'github.com/gaviaworks/kilic-uretim', canli:'panel.kilictekstil.com', test:'—',
+    tasarim:'—', sunucu:'Müşteri sunucusu', teknoloji:['Vue','Node.js','MySQL'],
+    ucuncuTaraf:[], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
+    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2026-02-02' },
+
+  { kod:'PRJ-2026-008', ad:'Anka Finans Risk Raporlama Pilotu', musteri:'MUS-2026-011',
+    musteriAd:'Anka Finans Teknolojileri', pm:'EMP-003', ekip:['EMP-007'],
+    durum:'Teslim', saglik:'İyi',
+    baslangic:'2026-02-16', planlananBitis:'2026-05-22', gercekBitis:'2026-05-29', ilerleme:100,
+    sozlesmeTutari:190000, butce:130000, gerceklesenMaliyet:124000, tahminiSure:340, harcananSure:352,
+    tur:'Veri ve Raporlama', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    repo:'github.com/gaviaworks/anka-risk-pilot', canli:'—', test:'—',
+    tasarim:'—', sunucu:'Müşteri bulut', teknoloji:['Python','PostgreSQL'],
+    ucuncuTaraf:[], teknikSorumlu:'EMP-007', musteriSorumlu:'EMP-014',
+    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2026-06-01' },
+
+  { kod:'PRJ-2023-014', ad:'Karadeniz Tarım Ürün Alım Kayıt Sistemi', musteri:'MUS-2023-012',
+    musteriAd:'Karadeniz Tarım Kooperatifi', pm:'EMP-003', ekip:['EMP-006'],
+    durum:'Teslim', saglik:'İyi',
+    baslangic:'2023-11-06', planlananBitis:'2025-03-31', gercekBitis:'2025-04-18', ilerleme:100,
+    sozlesmeTutari:120000, butce:82000, gerceklesenMaliyet:79000, tahminiSure:280, harcananSure:291,
+    tur:'Web Uygulaması', oncelik:'Düşük', faz:'Tamamlandı', aktif:true, arsiv:true,
+    repo:'github.com/gaviaworks/karadeniz-alim', canli:'—', test:'—',
+    tasarim:'—', sunucu:'Şirket bulut', teknoloji:['PHP','MySQL'],
+    ucuncuTaraf:[], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-002',
+    riskler:[], gecikmeNedeni:null, sonGuncelleme:'2025-04-22' }
 ];
 
 /* ---- Proje modülleri --------------------------------------------------- */

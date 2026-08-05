@@ -321,3 +321,32 @@ CSS ile değiştirilemez. Borç defterindeki "tarih alanı yamalı duruyor" şik
 kendi stilini döndürüyor (ölçüldü: `width` = input genişliği). Bu yüzden `ctl.js`
 tarih alanlarını "native" saymaz; kuralın `ui.css`'te **yazılı olduğunu** statik
 olarak doğrular ve görünüm bir kez ekran görüntüsüyle teyit edilir (L-17 tuzağı).
+
+
+## V-37 · Altı yetim anket kodu için GEÇMİŞ PROJE yazıldı (VB-27)
+**Seçenekler tartıldı:** (a) altı anketin `ilgili` alanını var olan projelere çekmek,
+(b) altı projeyi geçmiş teslim olarak veriye yazmak.
+**Seçilen: (b).** Gerekçe üç ölçüme dayanıyor:
+1. **Müşterilerin `projeSayisi` ömür boyu sayacı bu projeleri zaten sayıyordu** —
+   MUS-2024-001 kartında 3 proje yazılıyken veride 1 kayıt vardı; MUS-2025-003 ve
+   MUS-2023-012'nin hiç projesi yoktu ama sayaç 2 ve 1 diyordu. Yani eksik olan
+   anket değil **proje kaydıydı**.
+2. **`toplamCiro` boşluğu yeterliydi:** her müşterinin ömür boyu net cirosu ile
+   sistemdeki sözleşmelerinin toplamı arasında zaten fark vardı (2.000.000 · 600.000 ·
+   760.000 · 340.000 · 120.000). Yazılan bedeller bu boşluğun içinde kalır.
+3. Anketleri var olan projelere çekmek **tarihleri bozardı** — anketler 2025-04 ile
+   2026-06 arasına yayılıyor, mevcut projelerin teslim tarihleri tutmuyordu.
+
+**Yazılan altı kayıt** `arsiv:true` olduğu için aktif liste, KPI ve rapor toplamlarını
+etkilemez. `sozlesmeTutari` yazılıdır ama **`DB.contracts`'ta karşılığı yoktur**: sistem
+öncesi işlerdir, sözleşme modülü o dönemi kapsamıyordu. Bu, VB-20'nin "sözleşmesiz
+sözleşme bedeli" kaydının bilinçli ve gerekçeli halidir.
+
+**Yan düzeltmeler (ölçümle zorunlu oldu):** `MUS-2026-011` `projeSayisi` 1→2 ve
+`toplamCiro` 500.000→690.000 (pilot proje bedeli); `REF-002` `ciro` 2.080.000→2.270.000
+(yönlendirenin cirosu bağlı müşterilerinin toplamından küçük olamaz — `canon.js` eksen 14).
+
+**Yeni eksen:** `canon.js` **eksen 20** — `DB.surveys[].ilgili` gerçekten var olan bir
+kaydı gösterir **ve** proje teslimi anketi teslim tarihinden sonradır. İkinci kural
+yazılır yazılmaz gerçek bir hata buldu: `ANK-2026-057` 2026-07-20 tarihliydi, oysa
+`PRJ-2026-004` 2026-07-22'de teslim edilmişti — anket tarihi 2026-07-26'ya çekildi.

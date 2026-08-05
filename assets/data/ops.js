@@ -563,8 +563,10 @@ DB.surveys = [
   { kod:'ANK-2026-048', musteri:'MUS-2026-009', tur:'Destek talebi', ilgili:'DST-2026-121',
     tarih:'2026-07-29', kanal:'E-posta anketi', yanitlayan:'Fadime Çetin', durum:'Yanıtlandı',
     puan:5, tavsiye:10, yorum:'Aynı gün içinde net bir cevap aldık.', aktif:true },
+  /* Tarih düzeltmesi (VB-27 ekseni yakaladı): anket 2026-07-20 yazılıydı ama
+     PRJ-2026-004 teslimi 2026-07-22'dir — teslim anketi teslimden önce olamaz. */
   { kod:'ANK-2026-057', musteri:'MUS-2026-009', tur:'Proje teslimi', ilgili:'PRJ-2026-004',
-    tarih:'2026-07-20', kanal:'Yüz yüze', yanitlayan:'Fadime Çetin', durum:'Yanıtlandı',
+    tarih:'2026-07-26', kanal:'Yüz yüze', yanitlayan:'Fadime Çetin', durum:'Yanıtlandı',
     puan:3, tavsiye:6, yorum:'Fire raporu beklediğimiz gibi çıkmadı, revizyon gerekti.', aktif:true },
 
   { kod:'ANK-2026-049', musteri:'MUS-2026-010', tur:'Proje teslimi', ilgili:'PRJ-2026-006',

@@ -533,7 +533,9 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [x] **UID-25** · Rapor çıktısı yetki kapısı — **çözüldü 10. oturum** → `disaAktar` kapısı bileşende,
       9 ekrandaki elle yazılmış kapı silindi
 - [ ] **UID-29** · `app-arac-yakit` "Geçen Ay" sekmesi sabit `'2026-07'` yazılmış
-- [ ] **VB-27** · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor → `canon.js` ekseni yok
+- [x] **VB-27** · `DB.surveys[].ilgili` yetim proje kodları — **çözüldü 10. oturum** → altı geçmiş
+      proje veriye yazıldı (V-37), `canon.js` eksen 20 eklendi (672 kontrol temiz) ve eksen
+      yazılır yazılmaz ikinci bir hata buldu (`ANK-2026-057` teslimden önce tarihliydi)
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (tek turda, `canon.js`'e dokunur)
 - [ ] **VB-06** · Fatura ↔ tahsilat mutasyonları birbirini kapatmıyor → `GV.fin.settle*` tek yerde
 - [x] **VB-19** · Teklif → sözleşme aktarımı KDV'yi iki kez uyguluyordu (çözüldü 2026-08-05, `canon.js` eksen 18)

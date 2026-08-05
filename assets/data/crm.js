@@ -52,7 +52,7 @@ DB.lostReasons = ['Bütçe yetersiz','Rakip tercih edildi','Proje ertelendi','İ
      aday 10; `ciro` 8 kaydın 4'ünde bağlı müşterilerin `toplamCiro` toplamından
      büyük, hiçbirinde küçük değil.
    · `ciro` **NET** eksendedir (KDV hariç) — `DB.customers[].toplamCiro` ile aynı.
-     Doğrulama: REF-002 ciro 2.080.000 = bağlı müşterilerin toplamCiro'su;
+     Doğrulama: REF-002 ciro 2.270.000 >= bağlı müşterilerin toplamCiro'su (2.170.000);
      KOM-2026-001 = 640.000 × %5 = 32.000. `sabitBedel` de NET. */
 DB.referrers = [
   { kod:'REF-001', ad:'Hakan Demirtaş', tur:'Mevcut müşteri', firma:'Deniz Lojistik A.Ş.', pozisyon:'Bilgi İşlem Müdürü',
@@ -62,7 +62,7 @@ DB.referrers = [
     durum:'Aktif', aktif:true, not:'Sektöründe geniş ağı var, düzenli yönlendirme yapıyor.' },
   { kod:'REF-002', ad:'Ayten Berk', tur:'İş ortağı', firma:'Berk Danışmanlık', pozisyon:'Kurucu',
     tel:'+90 533 100 00 02', eposta:'ayten@berkdanismanlik.com', sorumlu:'EMP-002',
-    yonlendirme:5, kazanilan:3, kaybedilen:1, ciro:2080000, donusum:60, sonYonlendirme:'2026-07-29',
+    yonlendirme:5, kazanilan:3, kaybedilen:1, ciro:2270000, donusum:60, sonYonlendirme:'2026-07-29',
     komisyonModeli:'Sabit bedel', komisyonOrani:0, sabitBedel:25000, hakedis:50000, odenen:25000, bekleyen:25000,
     durum:'Aktif', aktif:true, not:'Kurumsal dönüşüm projelerinde birlikte çalışıyoruz.' },
   { kod:'REF-003', ad:'Kerem Aydın', tur:'Personel', firma:'Gavia Works', pozisyon:'Genel Müdür',
@@ -174,7 +174,7 @@ DB.customers = [
     tel:'+90 216 000 00 20', eposta:'tech@ankafinans.com', web:'ankafinans.com',
     adres:'Kadıköy, İstanbul', vergiNo:'8362509174', vergiDairesi:'Kadıköy',
     ilkKayit:'2026-05-18', sonIletisim:'2026-08-02', sonrakiAksiyon:'AI skorlama POC değerlendirmesi', sonrakiTarih:'2026-08-09',
-    projeSayisi:1, aktifProje:1, toplamCiro:500000, bekleyenTahsilat:0, memnuniyet:4.7, aktif:true,
+    projeSayisi:2, aktifProje:1, toplamCiro:690000, bekleyenTahsilat:0, memnuniyet:4.7, aktif:true,
     etiketler:['Fintech','Yapay zekâ','KVKK hassas'] },
   { kod:'MUS-2023-012', unvan:'Karadeniz Tarım Kooperatifi', kisa:'Karadeniz Tarım', sektor:'Tarım', buyukluk:'10-50',
     durum:'Pasif', risk:'Düşük', sorumlu:'EMP-002', kaynak:'Organik arama', referans:null,
