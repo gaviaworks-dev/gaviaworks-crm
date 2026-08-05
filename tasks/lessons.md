@@ -19,6 +19,7 @@
 | L-18 | `GV.refresh()` `.page-main` dışına basılan açık yan paneli kapatmıyordu: dinleyici birikiyor (7→10) ve panelde eski veri ekranda kalıyordu | Yeniden çizim açık `.gv-scrim`/`.gv-drawer` düğümlerini kapatır; overlay üreten bileşen kapatıcısını düğüme asar (`__gvClose`). **Mount'u tazelemek ekranı tazelemek değildir** | 2026-08-04 |
 | L-17 | Beş QA script'i `?id=KOD` olan hedefe `?role=` ekleyince adres bozuluyordu; detay ekranları "kayıt yok" durumunda ölçülmüş, sonuç yine de "TEMİZ" çıkmıştı | Araç hedefe parametre eklerken ayracı duruma göre seçer (`?` / `&`). Genel kural: **test aracının "temiz" demesi doğru şeyi ölçtüğü anlamına gelmez** — araç, sonucu önceden bilinen bir kayıtla bir kez sınanır | 2026-08-04 |
 | L-19 | L-17'nin ayraç düzeltmesi yetmedi: `?id=` **hiç verilmezse** detay ekranı boş durumu (ya da sessizce ilk kaydı) basıyor, araç yine "TEMİZ" diyordu | Tarama hedefi **veriden türetilir ve kayıtla doğrulanır** (`rec.js` → `qa-targets.json`). Her tarama raporunda **taranan ekran** ve **gerçekten yüklenen kayıt** sayısı ayrı yazılır; sıfır kayıtla taranan ekran hata sayılır, geçiş sayılmaz | 2026-08-04 |
+| L-20 | On üç ajan aynı anda açıldı; sekizi `response stalled mid-stream` ile düştü ve **sekizinin sekizi de diske tek satır yazmadı** — kesinti tam olarak `Write` çağrısından ÖNCE oldu | (a) Stall ile düşen ajandan **çıktı beklenmez**, yarım dosya aranmaz. L-06'nın "failed dese de dosya çoğu zaman bütündür" okuması **yalnız token limiti** kaynaklı düşüşler için geçerlidir, API stall'ı için değil. (b) Dalga genişliği stall riskini **doğrudan** artırır: tavan **dört ajan**. Beşincisi açılmaz, dalga bitmeden yenisi başlamaz | 2026-08-05 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -251,3 +252,26 @@ ve `qa-targets.json`'a yazar. (b) Her tarama raporu iki sayı verir: **taranan e
 **gerçekten yüklenen kayıt**. Sıfır kayıtla taranan ekran hata sayılır. (c) L-17'nin genel
 dersinin bir adım ilerisi: aracın doğru adresi kurması yetmez, **doğru kaydı yüklediği de
 ölçülür** — yoksa yeşil, ekranın değil boş durumun yeşilidir.
+
+
+## L-20 · Stall ile düşen ajan dosya yazmaz — dalga tavanı dört
+**Olay:** 8. oturumda hız için **on üç ajan aynı anda** açıldı (altı form + yedi doküman).
+Beşi tamamlandı, **sekizi `API Error: Response stalled mid-stream` ile düştü.** Düşenlerin
+son mesajı istisnasız aynıydı: *"Now I have everything I need. Writing the file."* —
+yani kesinti **`Write` çağrısının hemen öncesinde** gerçekleşti.
+
+**Ölçüm:** sekiz dosyanın sekizi de diskte **yok** (`ls` ile tek tek doğrulandı):
+`app-arac-sigorta-form` · `app-arac-yakit-form` · `app-arac-gider-form` · `app-arac-kaza-form` ·
+`app-destek-paket-form` · `app-performans-form` · `docs/G-veri-modeli.md` · `docs/J-otomasyonlar.md`.
+Yani ~8 ajanlık okuma ve analiz işi **tamamen** boşa gitti; kurtarılacak yarım dosya yoktu.
+
+**Kural:**
+(a) **Stall ile düşen ajandan çıktı beklenmez.** L-06'nın "ajan failed dese de dosya çoğu zaman
+diskte bütündür" okuması **yalnız token limiti / bağlam taşması** kaynaklı düşüşler için
+geçerlidir. API stall'ında ajan genellikle **üretim anında** kesilir ve hiçbir şey yazmaz.
+Yine de envanter **ölçülerek** yapılır (`ls` + satır sayısı + kapanış etiketi), varsayımla değil.
+(b) **Dalga tavanı dört ajandır.** Genişlik stall olasılığını doğrudan artırıyor: üçerli
+dalgalarda 24 ajanın 24'ü tamamlandı, on üçlü tek dalgada 13'ün 8'i düştü. Beşinci ajan
+açılmaz, **dalga bitmeden yeni dalga başlatılmaz**.
+(c) Bu bir hız–dayanıklılık takasıdır ve dayanıklılık kazanır: düşen ajanın maliyeti yalnız
+kendi token'ı değil, **yeniden üretim için ikinci kez ödenen** token'dır.
