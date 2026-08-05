@@ -541,7 +541,12 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       proje veriye yazıldı (V-37), `canon.js` eksen 20 eklendi (672 kontrol temiz) ve eksen
       yazılır yazılmaz ikinci bir hata buldu (`ANK-2026-057` teslimden önce tarihliydi)
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (tek turda, `canon.js`'e dokunur)
-- [ ] **VB-06** · Fatura ↔ tahsilat mutasyonları birbirini kapatmıyor → `GV.fin.settle*` tek yerde
+- [x] **VB-06 · VB-23 · VB-25** · Aynı işlem ekrandan ekrana ayrışıyordu — **çözüldü 10. oturum**
+      → yeni ortak katman dosyası `assets/js/domain.js` (`GV.fin.settleInvoice/settlePayment` ·
+      `GV.delivery.approve`); ölçüldü: fatura kapanınca tahsilat ve taksit de kapanıyor,
+      müşterinin bekleyen tahsilatı 285.000 → 0
+- [x] **UID-24** · `teslimKontrol` üç değeri listede ikiye iniyordu — **çözüldü**
+- [x] **UID-29** · `app-arac-yakit` "Geçen Ay" sabit ayı — **çözüldü**, tüm ekranlar tarandı
 - [x] **VB-19** · Teklif → sözleşme aktarımı KDV'yi iki kez uyguluyordu (çözüldü 2026-08-05, `canon.js` eksen 18)
 
 ### Kapsam B — sistem geneli denetimler

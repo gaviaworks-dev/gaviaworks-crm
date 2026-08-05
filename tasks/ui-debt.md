@@ -548,7 +548,24 @@ gerçekten var olan bir talebi gösterir" ekseni eklenecek. UID-16 (aktivite kap
 
 ---
 
-## VB-06 · Fatura ve tahsilat mutasyonları birbirini kapatmıyor
+## ✅ VB-06 + VB-23 + VB-25 · Aynı işlem ekrandan ekrana ayrışıyordu — ÇÖZÜLDÜ (2026-08-05)
+
+Üçü de tek sınıf: **bir olgu birden çok ekrandan yürütülüyor ve her ekran kendi
+mutasyonunu yazıyordu.** Çözüm yeni bir ortak katman dosyası: **`assets/js/domain.js`**
+(`ui.js` alana kördür; iş kuralı ayrı dosyada — components.md §6b).
+
+| Borç | Ölçülen davranış | Şimdi |
+|---|---|---|
+| **VB-06** | Fatura "Ödendi" → tahsilat açık kalıyordu; ekran kendi içinde çelişiyordu | `GV.fin.settleInvoice/settlePayment` zinciri **iki uçtan da** kapatıyor. Ölçüldü: `FTR-2026-018` kapandığında tahsilat `Gecikti → Ödendi`, müşterinin bekleyen tahsilatı **285.000 → 0** |
+| **VB-25** | `DB.milestones[].odemeDurum` faturanın ayna alanıydı, sessizce ayrışıyordu | Aynı yordam içinde senkronlanıyor; `app-fatura` ve `app-tahsilat`'a `work.js` eklendi (yoksa zincir o ekranda yarım kalıyordu — L-12) |
+| **VB-23 (1)** | Liste yalnız `musteriOnay`, detay `durum`u da yazıyordu | `GV.delivery.approve` ikisini **aynı eksende** tutuyor. Ölçüldü: `TSL-2026-034` onay → `durum:'Onaylandı'`, revizyon → `durum:'Planlandı'` |
+| **VB-23 (2)** | Yetki ekseni liste `onay`, detay `duzenle` | Tek eksen: `onay` — yordamda ve buton kapısında |
+| **VB-23 (3)** | Mobil satır onayı **ikili** okuyordu: `Revizyon istendi` yeşil "Müşteri onayladı" çıkıyordu (veride o değer yok, hata **gizliydi**) | `GV.badge(t.musteriOnay)` — sözlükten basılıyor |
+| **VB-23 (4)** | Süzgeç yalnız iki değer sunuyordu | `options:GV.delivery.kararlar` |
+
+---
+
+## VB-06 (özgün kayıt) · Fatura ve tahsilat mutasyonları birbirini kapatmıyor
 
 **Nerede:** `app-fatura.html` · `app-fatura-detay.html` (Ödendi işaretle) ·
 `app-tahsilat.html` · `app-tahsilat-detay.html` (Tahsil edildi işaretle).
@@ -1029,7 +1046,7 @@ taşımıyor; yeni yazılan kayıtlarda alan doğuyor ve şema kayıttan kayda d
 
 ---
 
-## VB-23 · Teslim onayı üç ekranda üç farklı yürütülüyor
+## VB-23 (özgün kayıt · VB-06 ile birlikte ÇÖZÜLDÜ) · Teslim onayı üç ekranda üç farklı yürütülüyor
 
 **Nerede:** `app-proje-teslim.html` (satır aksiyonu + toplu işlem) · `app-proje-teslim-detay.html`
 (`onayAkisi`) · `app-proje-teslim-form.html`.
@@ -1094,7 +1111,7 @@ araması eklenerek regresyon kilitlenecek. **Nokta yaması yok** — 43'ü birde
 
 ---
 
-## VB-25 · `DB.milestones[].odemeDurum` bağlı faturanın ayna alanı
+## VB-25 (özgün kayıt · VB-06 ile birlikte ÇÖZÜLDÜ) · `DB.milestones[].odemeDurum` ayna alanı
 
 **Nerede:** `DB.milestones[].odemeDurum` ↔ `DB.invoices[].durum` / `DB.payments[].durum`.
 
@@ -1115,7 +1132,13 @@ durumuyla aynıdır" ekseni girecek.
 
 ---
 
-## UID-24 · `teslimKontrol` üç değeri listede ikiye iniyor
+## ✅ UID-24 · `teslimKontrol` üç değeri listede ikiye iniyor — ÇÖZÜLDÜ (2026-08-05)
+Kolon üç değeri de basıyor; `Eksik`(warn) ve `İade`(danger) `GV.badge` sözlüğüne girdi.
+İade edilmiş sipariş artık eksik teslimattan ayırt edilebiliyor (İade siparişi `İptal`e çeker).
+
+---
+
+## UID-24 (özgün kayıt) · `teslimKontrol` üç değeri listede ikiye iniyor
 
 **Nerede:** `app-siparis.html` — teslim kontrolü kolonu ve teslim alma modali.
 
@@ -1366,7 +1389,14 @@ uygulanacak; türetilebilir alanlar (birim fiyat ↔ tutar) **birlikte** maskele
 
 ---
 
-## UID-29 · `app-arac-yakit.html` "Geçen Ay" sekmesi sabit tarihe yazılmış
+## ✅ UID-29 · "Geçen Ay" sekmesi sabit tarihe yazılmış — ÇÖZÜLDÜ (2026-08-05)
+Ay `DB.today`'den türetiliyor (`gecenAy()`). Aynı desen için tüm ekranlar tarandı
+(`slice(0,7) ===`): **başka sabit ay yok**, kalan 9 kullanımın hepsi `DB.today`'den
+ya da kullanıcı seçiminden türetiyor.
+
+---
+
+## UID-29 (özgün kayıt) · `app-arac-yakit.html` "Geçen Ay" sekmesi sabit tarihe yazılmış
 
 **Nerede:** `app-arac-yakit.html` sekme tanımı.
 

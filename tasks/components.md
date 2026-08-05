@@ -177,6 +177,22 @@ ilk hatalı alana odak + özet kutusuna kaydırma. Hepsi bileşende, sayfada yen
 
 ---
 
+## 4b. Form Kontrolü Taban Kuralları (UID-08 / UID-09 — kapandı)
+
+> **Kural sınıfa değil KALIBA bağlıdır** — yeni markup yazarken hiçbir şey eklemek
+> gerekmez, kontrol kendiliğinden tasarım sistemine uyar.
+
+| Kalıp | Kural | Not |
+|---|---|---|
+| Alan başlığı | `.field label:not(:has(input))` · `.field .f-lbl` | Kontrolü **saran** etiket başlık değildir; `:not(:has(input))` bu ayrımı yapar. Eskiden `display:block` kontrol etiketlerini de yakalıyor ve `gap`'i eziyordu (ölçülen boşluk **0 px**) |
+| Kontrol + etiket | `:where(label:has(> input[type=checkbox]), label:has(> input[type=radio]))` → `inline-flex` + `gap:var(--sp-5)` | `:where()` özgüllüğü **sıfırlar**: `.f-check` · `.f-radio` · `.lh-toggle` kendi ölçüsünü geçebilir |
+| Onay kutusu / radyo | `:where(input[type=checkbox],input[type=radio])` → `appearance:none` + token'lı kutu, köşe, kenarlık, odak halkası; işaret CSS `clip-path` ile | `accent-color` yazan sınıf başına kopyalar **silindi**. `:indeterminate` de kapsanır |
+| Açılır liste | `:where(select)` → tasarım sistemi oku | Kural `.field select`'ten çıkarıldı; sayfalama, rapor filtresi ve ayar ekranlarındaki select'ler de kapsamda |
+| Tarih / ay / saat | Native kontrol **korunur**; yalnız takvim düğmesinin ölçüsü ve tonu standartlaşır | Gerekçe `assumptions.md` **V-36**. Biçimi çalışma zamanında okunamaz (Chromium pseudo-element stilini vermez) — `ctl.js` kuralın yazılı olduğunu statik doğrular |
+| Anahtar | `.f-switch` — girdi görsel olarak gizlidir, `.sw` çizer | Taban kural onu etkilemez |
+
+---
+
 ## 5. Durum Etiketi — `GV.badge(value, extra)`
 
 > ⚠️ **İmza düzeltmesi (9. oturum, ölçüldü).** Başlık uzun süre `GV.badge(kind, value)`
@@ -242,6 +258,8 @@ GV.report({
 
 > ### ⚠️ GERÇEK `GV.*` YÜZEYİ — 38 üye (9. oturumda ölçüldü, **üç** dosya tarandı)
 >
+> **`domain.js` (2):** `fin` · `delivery` — 10. oturumda eklendi (bkz. §6b).
+>
 > **`shell.js` (12):** `built` · `counters` · `esc` · `ico` · `isBuilt` · `markWip` · `on` ·
 > `pageHead` · `perm` · `refresh` · `session` · `shell`
 > **`ui.js` (25):** `activity` · `badge` · `chain` · `chart` · `chipbar` · `confirm` ·
@@ -298,6 +316,30 @@ GV.report({
 | Takvim | `.gv-cal` ızgarası (`.gv-cal-dow`, `.gv-cal-day[.is-out|.is-today]`, `.gv-cal-num`, `.gv-cal-ev[.is-ok\|warn\|danger\|accent\|purple\|neutral]`) | ay = 7×6; hafta = `.gv-cal.is-week` (tek satır, uzun hücre); gün = `GV.activity` timeline'ı. Örnek: `app-ajanda.html` |
 | Sohbet | `.gv-chatwrap` (`.gv-chatlist` > `.gv-chan`, `.gv-chatmain` > `.gv-chat-head` > `.gv-chat-title`/`.gv-chat-acts`, `.gv-chat-body` > `.gv-msg[.is-me]`, `.gv-msg-react`, `.gv-chat-foot`) | ≤900px'de `body.chat-list-open` kanal listesini açar — geri butonunu sayfa bağlar. Örnek: `app-sohbet.html` |
 | Gantt | `.gv-gantt` sınıf ailesi (**`GV.gantt()` JS'i YOK**, bkz. §3) | milestone + görev çubukları, markup elle kurulur |
+
+---
+
+## 6b. İş Kuralı Yordamları — `assets/js/domain.js` (VB-06 · VB-23 · VB-25)
+
+> **Ne zaman buraya yazılır:** bir olgu **birden çok koleksiyona** dokunuyorsa ya da
+> **birden çok ekrandan** yürütülüyorsa. `ui.js` alana kördür, `domain.js` GaviaWorks
+> iş kuralını bilir. Yükleme sırası: veri → `shell.js` → `ui.js` → `domain.js`.
+
+| API | Ne yapar | Neden ekranda değil |
+|---|---|---|
+| `GV.fin.settleInvoice(kod, tarih?)` | Faturayı kapatır **+ bağlı tahsilatı** kapatır **+ taksitin `odemeDurum`unu** senkronlar **+ müşterinin `bekleyenTahsilat`ını yeniden türetir** | Fatura ekranı yalnız faturayı, tahsilat ekranı yalnız tahsilatı kapatıyordu; kullanıcı faturayı ödedikten sonra tahsilat sekmesinde açık alacak görüyordu |
+| `GV.fin.settlePayment(kod, tarih?)` | Aynı zincir, ters uçtan | — |
+| `GV.fin.refreshCustomer(kod)` | `bekleyenTahsilat` türetir (L-08: sayaç yazılmaz, hesaplanır) | — |
+| `GV.delivery.approve(kod, karar, tarih?, not?)` | `karar ∈ GV.delivery.kararlar` (`Onaylandı`/`Bekliyor`/`Revizyon istendi`); onay ile teslim durumunu **aynı eksende** tutar | Liste yalnız `musteriOnay` yazıyor, detay `durum`u da güncelliyordu; yetki ekseni liste tarafında `onay`, detay tarafında `duzenle`ydi |
+| `GV.delivery.kararlar` | Karar sözlüğü | Süzgeçler ve mobil render bu listeden beslenir — üçüncü değer artık gizlenmiyor |
+
+**Dönüş sözleşmesi:** `{ ok:true, … }` ya da `{ ok:false, why:'yetki'|'kayıt yok'|'zaten kapalı'|… }`.
+Ekran `ok` değilse **başarı mesajı basmaz** (L-23). Yordam kendi aktivite kaydını yazar;
+ekran ayrıca `DB.activities`'e yazmaz — iki kayıt doğardı.
+
+**Uyarı (L-12):** yordam `DB.milestones` ve `DB.customers`'a dokunur; çağıran ekran
+`work.js` ve `crm.js`'i **yüklemelidir**, yoksa zincir o ekranda sessizce yarım kalır.
+`app-fatura` ve `app-tahsilat`'a `work.js` bu yüzden eklendi.
 
 ---
 
@@ -429,6 +471,7 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | `esc.js ["a.html"] [rol]` | Etiket düğümlerinde **ham HTML metni** arar — escape edilmemesi gereken yer escape edilmişse `<span …>` ekranda yazı olarak görünür. Konsol hatası vermez, `qa.js` göremez | `TEMİZ — N ekran` |
 | `grip-qa.js` | Rail tutamağı: geometri, yüzey rengi, hover yakalama noktaları, odak, içerik örtme | `TEMİZ — tüm ölçümler geçti` |
 | `act.js` | **"Bu buton gerçekten bir şey yapıyor mu?"** Her toplu işlem / satır aksiyonu / form kaydet tetiklenir, DB parmak izi karşılaştırılır. Hüküm: MUTASYON · YÖNLENDİRME · PANEL · ÇIKTI · DÜRÜST RED (sağlıklı) · 🔴 YALAN · ⚫ ÖLÜ (ihlal). Ölçülemeyenler ayrı sayılır: girdi soran panelin ikinci adımı, ulaşılamayan toplu işlem (L-23) | `TEMİZ` + ihlal sayısı |
+| `ctl.js` | **"Kontrol ile etiketi arasında boşluk var mı, kontroller tasarım sisteminde mi?"** Her ekranda filtre paneli · kolon yöneticisi · çıktı modalı da açılır; kontrol ile etiket metninin **gerçek piksel aralığı** Range ile ölçülür (UID-08/09) | `TEMİZ` |
 | `xport.js` | **"Çıktı ekrandaki bilgiyi taşıyor mu?"** `ui.js` bellekte yamalanıp her `GV.list` örneğinin kolonları ve kayıtları okunur; her hücrenin EKRAN değeri (`render`) ile ÇIKTI değeri (`exportValue` ‖ `r[key]`) karşılaştırılır (UID-07) | `TEMİZ — N kolon` |
 
 > `canon2.js` / `canon3.js` / `ref.js` **artık yok** — üçü de `canon.js` içinde birleşti.
