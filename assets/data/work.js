@@ -769,7 +769,237 @@ DB.activities = [
   { kayit:'LEAD-2026-001', tarih:'2026-07-27T17:10', kisi:'Emre Bulut', metin:'Aşama değiştirildi', eski:'Teklif hazırlanıyor', yeni:'Teklif iletildi', tone:'ok', icon:'i-funnel' },
   { kayit:'LEAD-2026-001', tarih:'2026-07-22T10:00', kisi:'Selin Dağdeviren', metin:'Teklif TKL-2026-014 oluşturuldu', eski:null, yeni:null, tone:'accent', icon:'i-quote' },
   { kayit:'PRJ-2026-006', tarih:'2026-07-29T14:15', kisi:'Barış Yalçın', metin:'Proje sağlık durumu değişti', eski:'Dikkat', yeni:'Riskli', tone:'danger', icon:'i-alert' },
-  { kayit:'MUS-2026-010', tarih:'2026-05-30T16:50', kisi:'Ayşe Kaplan', metin:'Risk seviyesi yükseltildi', eski:'Orta', yeni:'Yüksek', tone:'danger', icon:'i-alert' }
+  { kayit:'MUS-2026-010', tarih:'2026-05-30T16:50', kisi:'Ayşe Kaplan', metin:'Risk seviyesi yükseltildi', eski:'Orta', yeni:'Yüksek', tone:'danger', icon:'i-alert' },
+  /* ---------------------------------------------------------------------
+     UID-16 — detay ekranı kod öneki kapsamı (11. oturum).
+     Yukarıdaki 8 kayıt yalnız 4 kod öneki taşıyordu (GRV · LEAD · PRJ · MUS);
+     26 detay ekranının 22'sinde "Aktivite Geçmişi" sekmesi HER kayıtta boş
+     durum basıyordu — ekran doğru davranıyordu, eksik olan veriydi.
+     Aşağıdaki kayıtlar kalan 22 koleksiyonu kapsar.
+
+     Sözleşme:
+       · `kayit`  — gerçekten var olan bir kayıt kodu (canon eksen 22b)
+       · `kisi`   — gerçek bir personel **ADI**, kod değil. Bu, VB-12'nin
+                    ("kişi bağı kodla değil adla kuruluyor") üçüncü vakasıdır;
+                    kişi kimliği turunda `EMP-*` koduna çevrilecek. 16 personel
+                    adının 16'sı benzersiz olduğu için çevrim mekaniktir.
+       · `tarih`  — `YYYY-MM-DDTHH:MM`, `DB.today`'i aşmaz, kaydın kendi yaşam
+                    döngüsü içinde kalır; aynı kayıt + aynı dakika iki kez olamaz
+       · `eski`/`yeni` — kaydın kendi sözlüğünden gerçek değerler; oluşturma
+                    olaylarında ikisi de `null`
+     Hepsi `canon.js` eksen 22 ve `tasks/qa/akt.js` ile her turda ölçülür.
+     -------------------------------------------------------------------- */
+/* ---- Müşteriler (MUS-*) ----
+     `canon.js` eksen 22 koleksiyonu "kapsanmış" sayıyordu çünkü MUS-2026-010'da
+     bir hareket vardı; ama `akt.js` hedef kaydı MUS-2024-001'i açtığında sekme
+     boştu. İki eksenin farkı burada görünür oldu: koleksiyon kapsamı ile
+     KAYDIN kapsamı aynı şey değildir. */
+  { kayit:'MUS-2024-001', tarih:'2024-02-12T10:20', kisi:'Selin Dağdeviren', metin:'Müşteri kaydı oluşturuldu (REF-003 yönlendirmesi)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'MUS-2024-001', tarih:'2025-12-20T15:40', kisi:'Selin Dağdeviren', metin:'Yıllık kurumsal bakım sözleşmesi imzalandı (SZL-2026-022)', eski:null, yeni:null, tone:'ok', icon:'i-file-check' },
+  { kayit:'MUS-2024-001', tarih:'2026-06-11T09:25', kisi:'Ayşe Kaplan', metin:'Memnuniyet ortalaması güncellendi', eski:'4.3', yeni:'4.6', tone:'ok', icon:'i-star' },
+  { kayit:'MUS-2024-001', tarih:'2026-07-30T13:05', kisi:'Selin Dağdeviren', metin:'Sonraki aksiyon belirlendi: Q4 bakım yenilemesi görüşmesi', eski:null, yeni:null, tone:'info', icon:'i-calendar-check' },
+  { kayit:'MUS-2025-003', tarih:'2025-01-20T11:00', kisi:'Emre Bulut', metin:'Müşteri kaydı oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'MUS-2025-003', tarih:'2026-06-24T16:30', kisi:'Emre Bulut', metin:'Risk seviyesi yükseltildi — geciken tahsilat', eski:'Orta', yeni:'Yüksek', tone:'danger', icon:'i-alert' },
+  { kayit:'MUS-2026-011', tarih:'2026-05-18T14:10', kisi:'Selin Dağdeviren', metin:'Aday kazanıldı, müşteri kaydına dönüştürüldü (LEAD-2026-005)', eski:null, yeni:null, tone:'ok', icon:'i-user-plus' },
+  { kayit:'MUS-2026-011', tarih:'2026-06-20T10:45', kisi:'Selin Dağdeviren', metin:'Geliştirme sözleşmesi imzalandı (SZL-2026-021)', eski:null, yeni:null, tone:'ok', icon:'i-file-check' },
+/* ---- Teklifler (TKL-*) ---- */
+  { kayit:'TKL-2026-014', tarih:'2026-07-22T10:00', kisi:'Selin Dağdeviren', metin:'Teklif oluşturuldu (ANL-2026-003 ön analizinden)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TKL-2026-014', tarih:'2026-07-23T16:40', kisi:'Selin Dağdeviren', metin:'Kapsam düzeltmesi sonrası versiyon yükseltildi', eski:'1', yeni:'2', tone:'accent', icon:'i-copy' },
+  { kayit:'TKL-2026-014', tarih:'2026-07-24T11:15', kisi:'Selin Dağdeviren', metin:'İç onay verildi', eski:'Bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-stamp' },
+  { kayit:'TKL-2026-014', tarih:'2026-07-27T11:30', kisi:'Emre Bulut', metin:'Teklif müşteriye iletildi', eski:'Taslak', yeni:'İletildi', tone:'ok', icon:'i-send' },
+  { kayit:'TKL-2026-012', tarih:'2026-06-12T09:30', kisi:'Selin Dağdeviren', metin:'Teklif oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TKL-2026-012', tarih:'2026-06-19T14:00', kisi:'Selin Dağdeviren', metin:'Müşteri onayı alındı, teklif kazanıldı', eski:'Müşteri değerlendirmesinde', yeni:'Kazanıldı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'TKL-2026-011', tarih:'2026-07-05T11:00', kisi:'Emre Bulut', metin:'Teklif oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TKL-2026-011', tarih:'2026-07-15T16:10', kisi:'Emre Bulut', metin:'Teklif müşteri değerlendirmesine geçti', eski:'İletildi', yeni:'Müşteri değerlendirmesinde', tone:'info', icon:'i-clock' },
+/* ---- Ön analizler (ANL-*) ---- */
+  { kayit:'ANL-2026-001', tarih:'2026-07-20T09:40', kisi:'Barış Yalçın', metin:'Ön analiz oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'ANL-2026-001', tarih:'2026-07-24T15:30', kisi:'Barış Yalçın', metin:'Kapsam dışı maddeler eklendi: mobil uygulama Faz 2ye alındı', eski:null, yeni:null, tone:'info', icon:'i-list' },
+  { kayit:'ANL-2026-001', tarih:'2026-07-28T11:10', kisi:'Barış Yalçın', metin:'Tahmini bedel güncellendi (KDV hariç teklif ara toplamı)', eski:'560.000 ₺', yeni:'612.000 ₺', tone:'accent', icon:'i-wallet' },
+  { kayit:'ANL-2026-001', tarih:'2026-07-30T17:00', kisi:'Barış Yalçın', metin:'Ön analiz onaya gönderildi', eski:'Hazırlanıyor', yeni:'Onay bekliyor', tone:'info', icon:'i-stamp' },
+  { kayit:'ANL-2026-003', tarih:'2026-07-08T10:15', kisi:'Barış Yalçın', metin:'Ön analiz oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'ANL-2026-003', tarih:'2026-07-17T14:20', kisi:'Barış Yalçın', metin:'Ön analiz onaylandı, teklife dönüştürülebilir', eski:'Onay bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'ANL-2026-004', tarih:'2026-07-30T09:00', kisi:'Barış Yalçın', metin:'Ön analiz oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'ANL-2026-004', tarih:'2026-08-01T11:45', kisi:'Barış Yalçın', metin:'Süre tahmini güncellendi', eski:'10 hafta', yeni:'8 hafta', tone:'accent', icon:'i-clock' },
+/* ---- Yönlendiren kişiler (REF-*) ---- */
+  { kayit:'REF-001', tarih:'2026-04-15T10:20', kisi:'Selin Dağdeviren', metin:'Komisyon kazancı eklendi (KOM-2026-001)', eski:'0 ₺', yeni:'32.000 ₺', tone:'accent', icon:'i-percent' },
+  { kayit:'REF-001', tarih:'2026-05-02T15:40', kisi:'Selin Dağdeviren', metin:'Ödenen komisyon toplamı güncellendi (KOM-2026-001 ödendi)', eski:'0 ₺', yeni:'32.000 ₺', tone:'ok', icon:'i-wallet' },
+  { kayit:'REF-001', tarih:'2026-07-18T11:30', kisi:'Selin Dağdeviren', metin:'Yönlendirme sayacı güncellendi', eski:'5', yeni:'6', tone:'info', icon:'i-user-plus' },
+  { kayit:'REF-001', tarih:'2026-07-18T11:35', kisi:'Selin Dağdeviren', metin:'Toplam komisyon kazancı güncellendi (KOM-2026-004)', eski:'32.000 ₺', yeni:'49.700 ₺', tone:'accent', icon:'i-percent' },
+  { kayit:'REF-007', tarih:'2026-07-08T14:00', kisi:'Selin Dağdeviren', metin:'Komisyon kazancı eklendi (KOM-2026-003)', eski:'0 ₺', yeni:'47.600 ₺', tone:'accent', icon:'i-percent' },
+  { kayit:'REF-007', tarih:'2026-07-08T14:05', kisi:'Selin Dağdeviren', metin:'Yönlendirme kazanıma dönüştü', eski:'0', yeni:'1', tone:'ok', icon:'i-trend-up' },
+  { kayit:'REF-008', tarih:'2026-04-11T18:00', kisi:'Selin Dağdeviren', metin:'Etkinlikten gelen son yönlendirme kaydedildi', eski:null, yeni:null, tone:'info', icon:'i-user-plus' },
+  { kayit:'REF-008', tarih:'2026-06-30T16:00', kisi:'Selin Dağdeviren', metin:'Kaynak pasife alındı', eski:'Aktif', yeni:'Pasif', tone:'warn', icon:'i-archive' },
+/* ---- Komisyon kazançları (KOM-*) ---- */
+  { kayit:'KOM-2026-001', tarih:'2026-04-15T09:30', kisi:'Selin Dağdeviren', metin:'Komisyon kaydı oluşturuldu (%5 oran)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'KOM-2026-001', tarih:'2026-04-20T11:00', kisi:'Selin Dağdeviren', metin:'Onaya gönderildi', eski:'Bekliyor', yeni:'Onay bekliyor', tone:'info', icon:'i-stamp' },
+  { kayit:'KOM-2026-001', tarih:'2026-04-24T15:10', kisi:'Serkan Yılmaz', metin:'Komisyon onaylandı, ödeme kuyruğuna alındı', eski:'Onay bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'KOM-2026-001', tarih:'2026-05-02T14:30', kisi:'Serkan Yılmaz', metin:'Komisyon ödemesi yapıldı', eski:'Onaylandı', yeni:'Ödendi', tone:'ok', icon:'i-wallet' },
+  { kayit:'KOM-2026-003', tarih:'2026-07-08T10:40', kisi:'Selin Dağdeviren', metin:'Komisyon kaydı oluşturuldu (%7 oran)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'KOM-2026-003', tarih:'2026-07-09T09:20', kisi:'Selin Dağdeviren', metin:'Onaya gönderildi', eski:'Bekliyor', yeni:'Onay bekliyor', tone:'info', icon:'i-stamp' },
+  { kayit:'KOM-2026-004', tarih:'2026-07-18T11:20', kisi:'Selin Dağdeviren', metin:'Komisyon kaydı oluşturuldu (%5 oran)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'KOM-2026-004', tarih:'2026-07-22T16:00', kisi:'Serkan Yılmaz', metin:'Komisyon onaylandı, ödeme kuyruğuna alındı', eski:'Onay bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+/* ---- Sözleşmeler (SZL-*) ---- */
+  { kayit:'SZL-2026-021', tarih:'2026-06-20T14:30', kisi:'Selin Dağdeviren', metin:'Sözleşme kaydı oluşturuldu (TKL-2026-012 teklifinden · 500.000 ₺ net)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SZL-2026-021', tarih:'2026-06-24T10:00', kisi:'Serkan Yılmaz', metin:'İlk taksit faturası kesildi (FTR-2026-026 · 250.000 ₺ net · 300.000 ₺ brüt)', eski:null, yeni:null, tone:'accent', icon:'i-receipt' },
+  { kayit:'SZL-2026-021', tarih:'2026-07-04T15:20', kisi:'Serkan Yılmaz', metin:'Taksit tahsilatı tamamlandı (FTR-2026-026)', eski:'Ödenmedi', yeni:'Ödendi', tone:'ok', icon:'i-wallet' },
+  { kayit:'SZL-2026-021', tarih:'2026-07-25T17:00', kisi:'Barış Yalçın', metin:'Birinci ödeme adımı tamamlandı (MS-003 POC kabul)', eski:'Planlandı', yeni:'Tamamlandı', tone:'ok', icon:'i-milestone' },
+  { kayit:'SZL-2026-020', tarih:'2026-05-14T11:00', kisi:'Selin Dağdeviren', metin:'Sözleşme kaydı oluşturuldu (TKL-2026-009 teklifinden · 295.000 ₺ net)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SZL-2026-020', tarih:'2026-07-24T16:30', kisi:'Barış Yalçın', metin:'Teslim tamamlandı, sözleşme kapatıldı', eski:'Aktif', yeni:'Tamamlandı', tone:'ok', icon:'i-file-check' },
+  { kayit:'SZL-2026-024', tarih:'2026-03-10T10:20', kisi:'Barış Yalçın', metin:'Sözleşme kaydı oluşturuldu (185.000 ₺ net · 222.000 ₺ brüt)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SZL-2026-024', tarih:'2026-06-29T09:40', kisi:'Barış Yalçın', metin:'Bitiş tarihi geçti, sözleşme gecikmeye düştü', eski:'Aktif', yeni:'Gecikti', tone:'danger', icon:'i-alert' },
+/* ---- Hatalar (HTA-*) ---- */
+  { kayit:'HTA-2026-071', tarih:'2026-08-01T09:10', kisi:'Gamze Erdem', metin:'Düzeltme doğrulanamadı, hata açık kaldı', eski:null, yeni:null, tone:'danger', icon:'i-refresh' },
+  { kayit:'HTA-2026-071', tarih:'2026-07-30T11:45', kisi:'Onur Şahin', metin:'Durum değiştirildi', eski:'Açık', yeni:'Devam ediyor', tone:'warn', icon:'i-play' },
+  { kayit:'HTA-2026-071', tarih:'2026-07-30T11:40', kisi:'Gamze Erdem', metin:'Düzeltme görevi GRV-2026-101 bağlandı', eski:null, yeni:null, tone:'info', icon:'i-link' },
+  { kayit:'HTA-2026-071', tarih:'2026-07-30T10:15', kisi:'Gamze Erdem', metin:'Hata kaydı açıldı (TST-2026-018 koşumundan)', eski:null, yeni:null, tone:'danger', icon:'i-bug' },
+  { kayit:'HTA-2026-074', tarih:'2026-08-03T09:40', kisi:'Deniz Korkmaz', metin:'Düzeltme görevi GRV-2026-126 bağlandı; şiddet Kritik olduğu için görev etkisi Çok yüksek belirlendi', eski:null, yeni:null, tone:'accent', icon:'i-link' },
+  { kayit:'HTA-2026-074', tarih:'2026-07-30T15:10', kisi:'Ayşe Kaplan', metin:'Hata kaydı açıldı (DST-2026-118 destek talebinden)', eski:null, yeni:null, tone:'danger', icon:'i-bug' },
+  { kayit:'HTA-2026-075', tarih:'2026-07-24T16:30', kisi:'Deniz Korkmaz', metin:'Durum değiştirildi', eski:'Devam ediyor', yeni:'Kapandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'HTA-2026-075', tarih:'2026-07-18T11:05', kisi:'Gamze Erdem', metin:'Hata kaydı açıldı (DST-2026-122 destek talebinden)', eski:null, yeni:null, tone:'danger', icon:'i-bug' },
+/* ---- Testler (TST-*) ---- */
+  { kayit:'TST-2026-018', tarih:'2026-07-31T17:45', kisi:'Gamze Erdem', metin:'Koşum tamamlandı — 62 senaryonun 3 tanesi başarısız', eski:'Devam ediyor', yeni:'Tamamlandı', tone:'ok', icon:'i-clipboard-check' },
+  { kayit:'TST-2026-018', tarih:'2026-07-31T17:20', kisi:'Gamze Erdem', metin:'Başarısız senaryolar hata kayıtlarına bağlandı (HTA-2026-071, HTA-2026-072, HTA-2026-073)', eski:null, yeni:null, tone:'danger', icon:'i-bug' },
+  { kayit:'TST-2026-018', tarih:'2026-07-31T09:15', kisi:'Gamze Erdem', metin:'Koşum başlatıldı', eski:'Planlandı', yeni:'Devam ediyor', tone:'info', icon:'i-play' },
+  { kayit:'TST-2026-018', tarih:'2026-07-31T08:50', kisi:'Gamze Erdem', metin:'Test koşumu oluşturuldu — kapsam MOD-001, MOD-002, MOD-003', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TST-2026-021', tarih:'2026-08-02T11:30', kisi:'Gamze Erdem', metin:'3 senaryo başarısız olarak kaydedildi', eski:null, yeni:null, tone:'warn', icon:'i-x-circle' },
+  { kayit:'TST-2026-021', tarih:'2026-08-01T09:30', kisi:'Gamze Erdem', metin:'Koşum başlatıldı', eski:'Planlandı', yeni:'Devam ediyor', tone:'info', icon:'i-play' },
+  { kayit:'TST-2026-020', tarih:'2026-07-26T15:40', kisi:'Tolga Bayrak', metin:'Koşum tamamlandı — 12 senaryonun tamamı başarılı', eski:'Devam ediyor', yeni:'Tamamlandı', tone:'ok', icon:'i-clipboard-check' },
+  { kayit:'TST-2026-020', tarih:'2026-07-26T10:00', kisi:'Tolga Bayrak', metin:'Yük testi koşumu başlatıldı', eski:'Planlandı', yeni:'Devam ediyor', tone:'info', icon:'i-play' },
+/* ---- Teslimler (TSL-*) ---- */
+  { kayit:'TSL-2026-031', tarih:'2026-07-14T15:25', kisi:'Barış Yalçın', metin:'Teslim durumu güncellendi', eski:'Planlandı', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'TSL-2026-031', tarih:'2026-07-14T15:20', kisi:'Barış Yalçın', metin:'Müşteri onayı alındı', eski:'Bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-stamp' },
+  { kayit:'TSL-2026-031', tarih:'2026-07-10T17:30', kisi:'Barış Yalçın', metin:'Beta paketi test cihazlarına dağıtıldı', eski:null, yeni:null, tone:'accent', icon:'i-package' },
+  { kayit:'TSL-2026-031', tarih:'2026-07-10T09:00', kisi:'Barış Yalçın', metin:'Teslim kaydı oluşturuldu — MS-001 taksitine bağlandı', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TSL-2026-035', tarih:'2026-07-29T11:15', kisi:'Barış Yalçın', metin:'Teslim durumu güncellendi', eski:'Planlandı', yeni:'Gecikti', tone:'danger', icon:'i-alert' },
+  { kayit:'TSL-2026-035', tarih:'2026-06-26T16:40', kisi:'Barış Yalçın', metin:'Teslim tarihi geçti, revizyon turu sürüyor', eski:null, yeni:null, tone:'warn', icon:'i-clock' },
+  { kayit:'TSL-2026-033', tarih:'2026-07-29T14:10', kisi:'Zeynep Aksoy', metin:'Müşteri onayı alındı', eski:'Bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-stamp' },
+  { kayit:'TSL-2026-033', tarih:'2026-07-25T17:00', kisi:'Zeynep Aksoy', metin:'POC sonuç paketi teslim edildi', eski:null, yeni:null, tone:'accent', icon:'i-package' },
+/* ---- Değişiklik talepleri (DGS-*) ---- */
+  { kayit:'DGS-2026-012', tarih:'2026-07-26T10:30', kisi:'Barış Yalçın', metin:'İç onaya gönderildi (ONY-2026-055)', eski:'Değerlendiriliyor', yeni:'Onay bekliyor', tone:'warn', icon:'i-send' },
+  { kayit:'DGS-2026-012', tarih:'2026-07-25T16:20', kisi:'Barış Yalçın', metin:'Etki analizi tamamlandı — 12 saat efor, 38.000 ₺ net bedel', eski:null, yeni:null, tone:'info', icon:'i-clock' },
+  { kayit:'DGS-2026-012', tarih:'2026-07-25T15:40', kisi:'Barış Yalçın', metin:'Talep kapsam dışı olarak işaretlendi', eski:null, yeni:null, tone:'warn', icon:'i-flag' },
+  { kayit:'DGS-2026-012', tarih:'2026-07-25T09:10', kisi:'Barış Yalçın', metin:'Değişiklik talebi oluşturuldu — talebi açan taraf Müşteri', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'DGS-2026-016', tarih:'2026-08-01T10:20', kisi:'Barış Yalçın', metin:'İç onaya gönderildi, ek teklif hazırlanacak', eski:'Değerlendiriliyor', yeni:'Onay bekliyor', tone:'warn', icon:'i-send' },
+  { kayit:'DGS-2026-016', tarih:'2026-07-30T14:05', kisi:'Barış Yalçın', metin:'Değişiklik talebi oluşturuldu (DST-2026-120 destek talebinden)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'DGS-2026-013', tarih:'2026-07-22T11:45', kisi:'Barış Yalçın', metin:'Talep onaylandı, Faz 2 kapsamına alındı', eski:'Onay bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'DGS-2026-013', tarih:'2026-07-18T09:30', kisi:'Barış Yalçın', metin:'Değişiklik talebi oluşturuldu — talebi açan taraf Müşteri', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+/* ---- Departmanlar arası iş talepleri (TLP-*) ---- */
+  { kayit:'TLP-2026-041', tarih:'2026-08-03T09:50', kisi:'Barış Yalçın', metin:'Durum değiştirildi', eski:'Bekliyor', yeni:'Devam ediyor', tone:'accent', icon:'i-play' },
+  { kayit:'TLP-2026-041', tarih:'2026-08-01T14:15', kisi:'Barış Yalçın', metin:'Talep onaylandı', eski:'Bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'TLP-2026-041', tarih:'2026-07-31T16:40', kisi:'Emre Bulut', metin:'Öncelik yükseltildi', eski:'Orta', yeni:'Yüksek', tone:'warn', icon:'i-alert' },
+  { kayit:'TLP-2026-041', tarih:'2026-07-31T10:05', kisi:'Emre Bulut', metin:'İş talebi oluşturuldu (Satış ve İş Geliştirme → İş Analizi)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TLP-2026-044', tarih:'2026-08-02T11:10', kisi:'Deniz Korkmaz', metin:'Durum değiştirildi', eski:'Bekliyor', yeni:'Devam ediyor', tone:'accent', icon:'i-play' },
+  { kayit:'TLP-2026-044', tarih:'2026-07-30T13:25', kisi:'Ayşe Kaplan', metin:'İş talebi oluşturuldu (Teknik Destek → Front-end Geliştirme)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TLP-2026-040', tarih:'2026-07-27T15:30', kisi:'Selin Dağdeviren', metin:'Talep tamamlandı, güncel fatura adresi iletildi', eski:'Devam ediyor', yeni:'Tamamlandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'TLP-2026-040', tarih:'2026-07-24T09:20', kisi:'Serkan Yılmaz', metin:'İş talebi oluşturuldu (Muhasebe ve Finans → Satış ve İş Geliştirme)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+/* ---- Toplantılar (TOP-*) ---- */
+  { kayit:'TOP-2026-064', tarih:'2026-08-03T10:20', kisi:'Barış Yalçın', metin:'Gündeme eğitim takvimi maddesi eklendi', eski:null, yeni:null, tone:'info', icon:'i-list' },
+  { kayit:'TOP-2026-064', tarih:'2026-08-01T15:05', kisi:'Ayşe Kaplan', metin:'Müşteri tarafı katılımcıları teyit edildi', eski:null, yeni:null, tone:'ok', icon:'i-users' },
+  { kayit:'TOP-2026-064', tarih:'2026-07-30T11:00', kisi:'Onur Şahin', metin:'Toplantı davetleri gönderildi', eski:null, yeni:null, tone:'info', icon:'i-send' },
+  { kayit:'TOP-2026-064', tarih:'2026-07-29T16:30', kisi:'Barış Yalçın', metin:'Toplantı oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-calendar' },
+  { kayit:'TOP-2026-063', tarih:'2026-08-02T14:40', kisi:'Barış Yalçın', metin:'Toplantı tamamlandı, karar notları kaydedildi', eski:'Planlandı', yeni:'Tamamlandı', tone:'ok', icon:'i-calendar-check' },
+  { kayit:'TOP-2026-063', tarih:'2026-07-29T10:15', kisi:'Selin Dağdeviren', metin:'Toplantı oluşturuldu ve davetler gönderildi', eski:null, yeni:null, tone:'neutral', icon:'i-calendar' },
+  { kayit:'TOP-2026-060', tarih:'2026-07-22T15:10', kisi:'Ayşe Kaplan', metin:'Toplantı tamamlandı, fire raporu revizyonu kararlaştırıldı', eski:'Planlandı', yeni:'Tamamlandı', tone:'ok', icon:'i-calendar-check' },
+  { kayit:'TOP-2026-060', tarih:'2026-07-17T09:40', kisi:'Barış Yalçın', metin:'Toplantı oluşturuldu ve gündem paylaşıldı', eski:null, yeni:null, tone:'neutral', icon:'i-calendar' },
+/* ---- Faturalar (FTR-*) ---- */
+  { kayit:'FTR-2025-011', tarih:'2025-12-24T11:05', kisi:'Serkan Yılmaz', metin:'Ödeme tahsil edildi — 184.000 ₺ (KDV dahil)', eski:'Ödenmedi', yeni:'Ödendi', tone:'ok', icon:'i-wallet' },
+  { kayit:'FTR-2025-011', tarih:'2025-12-18T10:20', kisi:'Serkan Yılmaz', metin:'Vade hatırlatması gönderildi', eski:null, yeni:null, tone:'info', icon:'i-bell' },
+  { kayit:'FTR-2025-011', tarih:'2025-12-01T10:30', kisi:'Serkan Yılmaz', metin:'Fatura oluşturuldu — 153.333 ₺ net (KDV hariç), 184.000 ₺ brüt', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'FTR-2025-011', tarih:'2025-12-01T09:45', kisi:'Barış Yalçın', metin:'MS-010 teslimi onaylandı, faturalama başlatıldı', eski:null, yeni:null, tone:'neutral', icon:'i-milestone' },
+  { kayit:'FTR-2026-018', tarih:'2026-06-22T09:00', kisi:'Serkan Yılmaz', metin:'Vade geçti, durum güncellendi', eski:'Ödenmedi', yeni:'Gecikti', tone:'danger', icon:'i-alert' },
+  { kayit:'FTR-2026-018', tarih:'2026-05-22T09:40', kisi:'Serkan Yılmaz', metin:'Fatura oluşturuldu — 237.500 ₺ net (KDV hariç), 285.000 ₺ brüt', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'FTR-2026-027', tarih:'2026-07-27T10:10', kisi:'Serkan Yılmaz', metin:'Vade aşıldı, durum güncellendi', eski:'Ödenmedi', yeni:'Gecikti', tone:'danger', icon:'i-alert' },
+  { kayit:'FTR-2026-027', tarih:'2026-06-26T15:20', kisi:'Serkan Yılmaz', metin:'Fatura oluşturuldu — 92.500 ₺ net (KDV hariç), 111.000 ₺ brüt', eski:null, yeni:null, tone:'neutral', icon:'i-receipt' },
+/* ---- Tahsilatlar (THS-*) ---- */
+  { kayit:'THS-2025-032', tarih:'2025-12-24T11:12', kisi:'Serkan Yılmaz', metin:'Son aksiyon güncellendi', eski:'Vade takibi', yeni:'Tahsil edildi', tone:'info', icon:'i-edit' },
+  { kayit:'THS-2025-032', tarih:'2025-12-24T11:10', kisi:'Serkan Yılmaz', metin:'Tahsilat tamamlandı — 184.000 ₺ (KDV dahil)', eski:'Bekliyor', yeni:'Ödendi', tone:'ok', icon:'i-wallet' },
+  { kayit:'THS-2025-032', tarih:'2025-12-15T11:20', kisi:'Serkan Yılmaz', metin:'Vade takibi yapıldı, müşteri finans birimiyle görüşüldü', eski:null, yeni:null, tone:'info', icon:'i-phone' },
+  { kayit:'THS-2025-032', tarih:'2025-12-01T14:35', kisi:'Serkan Yılmaz', metin:'Tahsilat kaydı açıldı — FTR-2025-011', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'THS-2026-041', tarih:'2026-06-24T10:30', kisi:'Serkan Yılmaz', metin:'Son aksiyon güncellendi', eski:'Vade takibi', yeni:'2. hatırlatma gönderildi', tone:'warn', icon:'i-mail' },
+  { kayit:'THS-2026-041', tarih:'2026-06-22T09:15', kisi:'Serkan Yılmaz', metin:'Vade geçti, durum güncellendi', eski:'Bekliyor', yeni:'Gecikti', tone:'danger', icon:'i-alert' },
+  { kayit:'THS-2026-042', tarih:'2026-07-29T14:05', kisi:'Serkan Yılmaz', metin:'Son aksiyon güncellendi', eski:'Vade takibi', yeni:'Teslim tamamlanmadığı için beklemede', tone:'warn', icon:'i-clock' },
+  { kayit:'THS-2026-042', tarih:'2026-07-27T09:40', kisi:'Serkan Yılmaz', metin:'Vade aşıldı, durum güncellendi', eski:'Bekliyor', yeni:'Gecikti', tone:'danger', icon:'i-alert' },
+/* ---- Dokümanlar (DOK-*) ---- */
+  { kayit:'DOK-2026-201', tarih:'2026-06-23T15:10', kisi:'Kerem Aydın', metin:'Onay durumu değişti', eski:'Bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-file-check' },
+  { kayit:'DOK-2026-201', tarih:'2026-06-22T09:20', kisi:'Kerem Aydın', metin:'Doküman onaya gönderildi', eski:null, yeni:null, tone:'info', icon:'i-send' },
+  { kayit:'DOK-2026-201', tarih:'2026-06-20T11:45', kisi:'Kerem Aydın', metin:'Gizlilik seviyesi değiştirildi', eski:'İç kullanım', yeni:'Gizli', tone:'warn', icon:'i-lock' },
+  { kayit:'DOK-2026-201', tarih:'2026-06-20T11:30', kisi:'Kerem Aydın', metin:'Doküman yüklendi — imzalı sözleşme, PDF', eski:null, yeni:null, tone:'neutral', icon:'i-paperclip' },
+  { kayit:'DOK-2026-206', tarih:'2026-07-31T17:45', kisi:'Gamze Erdem', metin:'Doküman onaya gönderildi', eski:null, yeni:null, tone:'info', icon:'i-send' },
+  { kayit:'DOK-2026-206', tarih:'2026-07-31T17:40', kisi:'Gamze Erdem', metin:'Yeni versiyon yüklendi', eski:'17', yeni:'18', tone:'accent', icon:'i-file' },
+  { kayit:'DOK-2026-211', tarih:'2026-07-21T09:00', kisi:'Nihan Arslan', metin:'Son kullanma tarihi doldu, belge yenilemesi bekleniyor', eski:null, yeni:null, tone:'danger', icon:'i-alert-circle' },
+  { kayit:'DOK-2026-211', tarih:'2025-07-10T10:20', kisi:'Nihan Arslan', metin:'Doküman yüklendi — 34 GVA 118 ruhsat fotokopisi', eski:null, yeni:null, tone:'neutral', icon:'i-paperclip' },
+/* ---- Satın alma talepleri (SAT-*) ---- */
+  { kayit:'SAT-2026-014', tarih:'2026-08-01T09:30', kisi:'Tolga Bayrak', metin:'Tedarikçi teklifleri karşılaştırıldı, TDR-002 tercih edildi — 186.000 ₺ net (KDV hariç)', eski:null, yeni:null, tone:'accent', icon:'i-quote' },
+  { kayit:'SAT-2026-014', tarih:'2026-07-30T14:20', kisi:'Mert Özkan', metin:'Departman Yöneticisi adımı onaylandı, süreç Muhasebe adımına geçti', eski:'1', yeni:'2', tone:'ok', icon:'i-check-circle' },
+  { kayit:'SAT-2026-014', tarih:'2026-07-30T13:50', kisi:'Tolga Bayrak', metin:'Talep onaya gönderildi', eski:'Taslak', yeni:'Onay bekliyor', tone:'info', icon:'i-send' },
+  { kayit:'SAT-2026-014', tarih:'2026-07-30T10:05', kisi:'Tolga Bayrak', metin:'Satın alma talebi oluşturuldu — 2 adet dizüstü bilgisayar', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SAT-2026-012', tarih:'2026-07-30T16:10', kisi:'Pınar Uçar', metin:'Sipariş teslim alındı, talep kapatıldı', eski:'Sipariş verildi', yeni:'Teslim alındı', tone:'ok', icon:'i-package' },
+  { kayit:'SAT-2026-012', tarih:'2026-07-14T09:20', kisi:'Pınar Uçar', metin:'Satın alma talebi oluşturuldu — 28.500 ₺ net (KDV hariç)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SAT-2025-010', tarih:'2025-03-04T15:30', kisi:'Kerem Aydın', metin:'Şirket Sahibi adımı onaylandı, üç makamlı onay süreci tamamlandı', eski:'2', yeni:'3', tone:'ok', icon:'i-check-circle' },
+  { kayit:'SAT-2025-010', tarih:'2025-02-24T10:40', kisi:'Pınar Uçar', metin:'Araç satın alma talebi oluşturuldu — 1.680.000 ₺ net (KDV hariç)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+/* ---- Siparişler (SIP-*) ---- */
+  { kayit:'SIP-2026-009', tarih:'2026-08-03T09:25', kisi:'Serkan Yılmaz', metin:'Planlanan teslim yaklaşıyor, tedarikçi takibi yapıldı', eski:null, yeni:null, tone:'info', icon:'i-clock' },
+  { kayit:'SIP-2026-009', tarih:'2026-07-27T09:10', kisi:'Serkan Yılmaz', metin:'Planlanan teslim tarihi tedarikçiyle teyit edildi — 08.08.2026', eski:null, yeni:null, tone:'info', icon:'i-calendar-check' },
+  { kayit:'SIP-2026-009', tarih:'2026-07-26T11:30', kisi:'Serkan Yılmaz', metin:'Sipariş tedarikçiye iletildi — 8.400 ₺ net (KDV hariç), 10.080 ₺ brüt', eski:null, yeni:null, tone:'info', icon:'i-send' },
+  { kayit:'SIP-2026-009', tarih:'2026-07-26T11:15', kisi:'Serkan Yılmaz', metin:'Sipariş oluşturuldu — SAT-2026-013 talebinden, TDR-005', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SIP-2026-008', tarih:'2026-07-30T15:50', kisi:'Pınar Uçar', metin:'Teslim alındı, kontrol tam — IRS-4471 irsaliyesi kaydedildi', eski:'Sipariş verildi', yeni:'Teslim alındı', tone:'ok', icon:'i-truck' },
+  { kayit:'SIP-2026-008', tarih:'2026-07-16T10:05', kisi:'Serkan Yılmaz', metin:'Sipariş oluşturuldu — TDR-005, 28.500 ₺ net (KDV hariç)', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'SIP-2025-006', tarih:'2025-03-20T14:30', kisi:'Pınar Uçar', metin:'Araç teslim alındı, kontrol tam — ARC-004 filo kaydı açıldı', eski:'Sipariş verildi', yeni:'Teslim alındı', tone:'ok', icon:'i-car' },
+  { kayit:'SIP-2025-006', tarih:'2025-03-06T11:00', kisi:'Serkan Yılmaz', metin:'Sipariş oluşturuldu — TDR-007, 1.680.000 ₺ net (KDV hariç), 2.016.000 ₺ brüt', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+/* ---- Tedarikçiler (TDR-*) ---- */
+  { kayit:'TDR-001', tarih:'2026-08-01T09:15', kisi:'Serkan Yılmaz', metin:'Tedarikçi genel puanı güncellendi', eski:'4,2', yeni:'4,4', tone:'ok', icon:'i-star' },
+  { kayit:'TDR-001', tarih:'2026-07-30T12:40', kisi:'Serkan Yılmaz', metin:'Dizüstü bilgisayar teklifi alındı — SAT-2026-014, 179.000 ₺ net (KDV hariç)', eski:null, yeni:null, tone:'info', icon:'i-quote' },
+  { kayit:'TDR-001', tarih:'2026-07-25T14:10', kisi:'Serkan Yılmaz', metin:'Ofis sarf malzemesi teklifi alındı — SAT-2026-013', eski:null, yeni:null, tone:'info', icon:'i-quote' },
+  { kayit:'TDR-001', tarih:'2026-06-15T10:30', kisi:'Serkan Yılmaz', metin:'Ödeme vadesi yeniden görüşüldü', eski:'Peşin', yeni:'30 gün', tone:'ok', icon:'i-wallet' },
+  { kayit:'TDR-007', tarih:'2025-03-20T15:05', kisi:'Serkan Yılmaz', metin:'Sipariş sayısı güncellendi — SIP-2025-006 teslim alındı', eski:'0', yeni:'1', tone:'ok', icon:'i-cart' },
+  { kayit:'TDR-007', tarih:'2025-02-28T14:00', kisi:'Serkan Yılmaz', metin:'Tedarikçi kaydı açıldı — Araç kategorisi', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'TDR-005', tarih:'2026-07-31T11:25', kisi:'Serkan Yılmaz', metin:'Teklif teknik uygunluk sağlamadı, tedarikçi genel puanı düşürüldü', eski:'3,9', yeni:'3,6', tone:'warn', icon:'i-trend-down' },
+  { kayit:'TDR-005', tarih:'2026-07-16T10:10', kisi:'Serkan Yılmaz', metin:'Ofis mobilyası siparişi verildi — SIP-2026-008', eski:null, yeni:null, tone:'accent', icon:'i-cart' },
+/* ---- Personel (EMP-*) ---- */
+  { kayit:'EMP-001', tarih:'2021-03-15T09:00', kisi:'Kerem Aydın', metin:'Personel kaydı oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-user-plus' },
+  { kayit:'EMP-001', tarih:'2022-01-10T11:00', kisi:'Kerem Aydın', metin:'Unvan değiştirildi', eski:'Kurucu Ortak', yeni:'Kurucu Ortak / Genel Müdür', tone:'accent', icon:'i-briefcase' },
+  { kayit:'EMP-001', tarih:'2023-11-14T15:30', kisi:'Kerem Aydın', metin:'PMP sertifikası özlük dosyasına eklendi', eski:null, yeni:null, tone:'ok', icon:'i-award' },
+  { kayit:'EMP-001', tarih:'2026-07-31T18:00', kisi:'Kerem Aydın', metin:'Kapasite doluluğu güncellendi', eski:'%58', yeni:'%64', tone:'info', icon:'i-gauge' },
+  { kayit:'EMP-006', tarih:'2022-08-15T09:00', kisi:'Barış Yalçın', metin:'Personel kaydı oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-user-plus' },
+  { kayit:'EMP-006', tarih:'2026-06-16T17:20', kisi:'Barış Yalçın', metin:'WCAG 2.2 Erişilebilirlik eğitimi tamamlandı (EGT-2026-010)', eski:null, yeni:null, tone:'ok', icon:'i-graduation' },
+  { kayit:'EMP-016', tarih:'2026-06-15T09:30', kisi:'Deniz Korkmaz', metin:'Staj kaydı oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-user-plus' },
+  { kayit:'EMP-016', tarih:'2026-07-13T10:15', kisi:'Deniz Korkmaz', metin:'Eğitim planına EGT-2026-011 eklendi', eski:null, yeni:null, tone:'info', icon:'i-graduation' },
+/* ---- İzin talepleri (IZN-*) ---- */
+  { kayit:'IZN-2026-038', tarih:'2026-07-31T09:40', kisi:'Deniz Korkmaz', metin:'İzin talebi oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'IZN-2026-038', tarih:'2026-07-31T10:05', kisi:'Deniz Korkmaz', metin:'İzin türü düzeltildi', eski:'Mazeret izni', yeni:'Yıllık izin', tone:'info', icon:'i-edit' },
+  { kayit:'IZN-2026-038', tarih:'2026-08-01T11:30', kisi:'Barış Yalçın', metin:'Proje takvimi çakışma kontrolü yapıldı, çakışma bulunmadı', eski:null, yeni:null, tone:'ok', icon:'i-calendar-check' },
+  { kayit:'IZN-2026-038', tarih:'2026-08-03T09:15', kisi:'Barış Yalçın', metin:'Onay hatırlatması gönderildi', eski:null, yeni:null, tone:'warn', icon:'i-bell' },
+  { kayit:'IZN-2026-033', tarih:'2026-07-15T14:00', kisi:'Mert Özkan', metin:'İzin talebi oluşturuldu', eski:null, yeni:null, tone:'neutral', icon:'i-plus' },
+  { kayit:'IZN-2026-033', tarih:'2026-07-17T10:25', kisi:'Barış Yalçın', metin:'Talep reddedildi — Marmara Faz 1 teslim haftasıyla çakışıyor', eski:'Onay bekliyor', yeni:'Reddedildi', tone:'danger', icon:'i-x-circle' },
+  { kayit:'IZN-2026-034', tarih:'2026-07-06T08:30', kisi:'Ayşe Kaplan', metin:'İzin talebi oluşturuldu, rapor belgesi eklendi', eski:null, yeni:null, tone:'neutral', icon:'i-paperclip' },
+  { kayit:'IZN-2026-034', tarih:'2026-07-06T09:15', kisi:'Selin Dağdeviren', metin:'Talep onaylandı', eski:'Onay bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' },
+/* ---- Araçlar (ARC-*) ---- */
+  { kayit:'ARC-001', tarih:'2023-05-12T10:00', kisi:'Kerem Aydın', metin:'Araç kaydı oluşturuldu, filoya alındı', eski:null, yeni:null, tone:'neutral', icon:'i-car' },
+  { kayit:'ARC-001', tarih:'2026-04-18T16:30', kisi:'Kerem Aydın', metin:'Periyodik bakım tamamlandı (BKM-2026-017)', eski:'Serviste', yeni:'Aktif', tone:'ok', icon:'i-wrench' },
+  { kayit:'ARC-001', tarih:'2026-07-26T13:05', kisi:'Kerem Aydın', metin:'Park ihlali cezası kaydedildi (CEZ-2026-005)', eski:null, yeni:null, tone:'warn', icon:'i-receipt' },
+  { kayit:'ARC-001', tarih:'2026-08-01T08:45', kisi:'Kerem Aydın', metin:'Kilometre güncellendi', eski:'68.120 km', yeni:'68.400 km', tone:'info', icon:'i-gauge' },
+  { kayit:'ARC-004', tarih:'2025-03-20T11:00', kisi:'Selin Dağdeviren', metin:'SIP-2025-006 siparişiyle filoya alındı', eski:null, yeni:null, tone:'neutral', icon:'i-car' },
+  { kayit:'ARC-004', tarih:'2026-06-18T17:40', kisi:'Selin Dağdeviren', metin:'Hız limiti aşımı cezası kaydedildi (CEZ-2026-004)', eski:null, yeni:null, tone:'warn', icon:'i-receipt' },
+  { kayit:'ARC-003', tarih:'2026-05-22T15:10', kisi:'Serkan Yılmaz', metin:'Kaza kaydı açıldı (KZA-2026-002), karşı taraf tam kusurlu', eski:null, yeni:null, tone:'danger', icon:'i-alert' },
+  { kayit:'ARC-003', tarih:'2026-07-28T09:30', kisi:'Serkan Yılmaz', metin:'Ağır bakım için servise bırakıldı (BKM-2026-020)', eski:'Aktif', yeni:'Serviste', tone:'warn', icon:'i-wrench' },
+/* ---- Demirbaşlar (DMB-*) ---- */
+  { kayit:'DMB-2024-001', tarih:'2024-01-18T14:00', kisi:'Mert Özkan', metin:'Demirbaş envantere alındı', eski:null, yeni:null, tone:'neutral', icon:'i-package' },
+  { kayit:'DMB-2024-001', tarih:'2024-01-22T10:30', kisi:'Mert Özkan', metin:'Zimmet tutanağı imzalandı (ZMT-2024-001)', eski:'Depoda', yeni:'Zimmetli', tone:'ok', icon:'i-clipboard-check' },
+  { kayit:'DMB-2024-001', tarih:'2026-06-30T16:00', kisi:'Mert Özkan', metin:'Envanter sayımında doğrulandı', eski:null, yeni:null, tone:'ok', icon:'i-clipboard-check' },
+  { kayit:'DMB-2024-001', tarih:'2026-07-15T10:00', kisi:'Mert Özkan', metin:'Garanti bitiş tarihi kontrol edildi, garanti sürüyor', eski:null, yeni:null, tone:'info', icon:'i-shield-check' },
+  { kayit:'DMB-2026-013', tarih:'2026-07-30T15:20', kisi:'Pınar Uçar', metin:'SIP-2026-008 siparişinden envantere alındı', eski:null, yeni:null, tone:'neutral', icon:'i-package' },
+  { kayit:'DMB-2026-013', tarih:'2026-07-31T09:50', kisi:'Pınar Uçar', metin:'Zimmet teslimi yapıldı', eski:'Depoda', yeni:'Zimmetli', tone:'ok', icon:'i-clipboard-check' },
+  { kayit:'DMB-2025-006', tarih:'2025-04-02T14:30', kisi:'Onur Şahin', metin:'Test cihazı envantere alındı', eski:null, yeni:null, tone:'neutral', icon:'i-package' },
+  { kayit:'DMB-2025-006', tarih:'2025-04-05T10:10', kisi:'Onur Şahin', metin:'Zimmet teslimi yapıldı (ZMT-2025-004)', eski:'Depoda', yeni:'Zimmetli', tone:'ok', icon:'i-clipboard-check' },
+/* ---- Destek talepleri (DST-*) ---- */
+  { kayit:'DST-2026-118', tarih:'2026-08-02T20:15', kisi:'Ayşe Kaplan', metin:'Destek talebi açıldı', eski:null, yeni:null, tone:'neutral', icon:'i-support' },
+  { kayit:'DST-2026-118', tarih:'2026-08-02T20:51', kisi:'Ayşe Kaplan', metin:'İlk yanıt verildi', eski:'Açık', yeni:'Devam ediyor', tone:'info', icon:'i-chat' },
+  { kayit:'DST-2026-118', tarih:'2026-08-02T21:40', kisi:'Ayşe Kaplan', metin:'Talep hata kaydına dönüştürüldü (HTA-2026-074)', eski:null, yeni:null, tone:'accent', icon:'i-bug' },
+  { kayit:'DST-2026-118', tarih:'2026-08-03T08:30', kisi:'Ayşe Kaplan', metin:'SLA durumu değişti', eski:'Zamanında', yeni:'Risk altında', tone:'warn', icon:'i-timer' },
+  { kayit:'DST-2026-122', tarih:'2026-07-18T09:22', kisi:'Ayşe Kaplan', metin:'İlk yanıt verildi', eski:'Açık', yeni:'Devam ediyor', tone:'info', icon:'i-chat' },
+  { kayit:'DST-2026-122', tarih:'2026-07-18T14:00', kisi:'Ayşe Kaplan', metin:'Çözüm doğrulandı, talep kapatıldı', eski:'Çözüldü', yeni:'Kapandı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'DST-2026-120', tarih:'2026-07-30T15:30', kisi:'Ayşe Kaplan', metin:'İlk yanıt verildi, ek geliştirme teklifi iletildi', eski:'Açık', yeni:'Müşteri bekleniyor', tone:'info', icon:'i-chat' },
+  { kayit:'DST-2026-120', tarih:'2026-08-02T09:10', kisi:'Ayşe Kaplan', metin:'SLA durumu değişti', eski:'Risk altında', yeni:'İhlal edildi', tone:'danger', icon:'i-timer' }
 ];
 
 /* ---- Arama yardımcıları (org.js'teki DB.emp / DB.empName ile aynı desen) ---- */
