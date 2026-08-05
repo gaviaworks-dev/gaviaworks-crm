@@ -97,14 +97,15 @@ document.addEventListener('gv:ready', function(){
     return { value:c.kod, label:c.unvan + ' · ' + c.kod + (c.aktif ? '' : ' (pasif)') };
   }), g.musteri);
 
-  /* Adı geçen kayıtlar: destek talebi ve iletişim geçmişi yetkiliyi KODLA değil ADLA
-     eşleştiriyor (DB.tickets[].acan, DB.interactions[].kontak). Bu yüzden ad benzersiz
-     tutulur ve ad değişince bu satırlar birlikte güncellenir. */
-  function adlaBagli(musteriKod, ad){
-    if(!musteriKod || !ad) return { talep:[], iletisim:[] };
+  /* VB-12 kapandıktan sonra: destek talebi ve iletişim geçmişi yetkiliyi **KODLA**
+     tutuyor (`DB.tickets[].acan` · `DB.interactions[].kontak` → `YTK-*`). Ad değişince
+     bağ artık kopmuyor, bu yüzden buradaki ad kaskadı SİLİNDİ — bir adın iki yerde
+     tutulduğu son nokta da kapandı. Bağlı kayıtlar yalnız SAYILIR, güncellenmez. */
+  function kodlaBagli(kod){
+    if(!kod) return { talep:[], iletisim:[] };
     return {
-      talep: DB.tickets.filter(function(t){ return t.musteri === musteriKod && t.acan === ad; }),
-      iletisim: DB.interactions.filter(function(i){ return i.musteri === musteriKod && i.kontak === ad; })
+      talep: DB.tickets.filter(function(t){ return t.acan === kod; }),
+      iletisim: DB.interactions.filter(function(i){ return i.kontak === kod; })
     };
   }
 
@@ -145,7 +146,7 @@ document.addEventListener('gv:ready', function(){
     { title:'Kişi bilgileri', desc:'Yetkilinin adı, görevi ve doğrudan iletişim bilgileri.', fields:[
       { key:'ad', label:'Ad soyad', type:'text', required:true, cols:6,
         placeholder:'Örn. Hakan Demirtaş',
-        hint:'Destek ve iletişim kayıtları yetkiliyi adıyla eşleştirir — ad benzersiz olmalıdır.',
+        hint:'Bağlar koda bağlıdır; ad yine de benzersiz tutulur ki listelerde iki kişi karışmasın.',
         validate:function(v, d){
           var ad = String(v || '').trim();
           if(!ad) return '';
@@ -156,7 +157,7 @@ document.addEventListener('gv:ready', function(){
           if(!dup) return '';
           var dm = cust(dup.musteri);
           return 'Bu ad ' + dup.kod + ' (' + (dm ? dm.kisa : dup.musteri) + ') kaydında zaten kullanılıyor. ' +
-                 'Destek ve iletişim kayıtları yetkiliyi adıyla eşleştirdiği için adlar benzersiz olmalıdır.';
+                 'Bağ artık kodla kuruluyor, ama aynı ad iki kayıtta olursa listelerde ayırt edilemez.';
         } },
       { key:'pozisyon', label:'Pozisyon / unvan', type:'text', required:true, cols:6,
         placeholder:'Örn. Bilgi İşlem Müdürü' },
@@ -221,7 +222,7 @@ document.addEventListener('gv:ready', function(){
     var projeler = firma ? DB.projects.filter(function(p){ return p.musteri === firma.kod; }) : [];
     var teklifler= firma ? DB.quotes.filter(function(q){ return q.musteri === firma.kod; }) : [];
     var talepler = firma ? DB.tickets.filter(function(t){ return t.musteri === firma.kod; }) : [];
-    var bagliAd  = adlaBagli(kayit.musteri, kayit.ad);
+    var bagliAd  = kodlaBagli(kayit.kod);
     var son      = acts[0] || null;
 
     var roller = [];
@@ -241,7 +242,7 @@ document.addEventListener('gv:ready', function(){
       ['Firmadaki diğer yetkililer', kardes.length ? kardes.map(function(k){
         return esc(k.ad) + (k.aktif ? '' : ' (pasif)'); }).join(', ') : null],
       ['Kayıt durumu', GV.badge(kayit.aktif ? 'Aktif' : 'Pasif')],
-      ['Son değiştiren', son ? esc(son.kisi) + ' · ' + F.dt(son.tarih) : null]
+      ['Son değiştiren', son ? esc(DB.empName(son.kisi)) + ' · ' + F.dt(son.tarih) : null]
     ];
 
     html += '<section class="gv-card">' +
@@ -376,7 +377,7 @@ document.addEventListener('gv:ready', function(){
         var eski = kayit[k], yeni = d[k];
         if(String(eski == null ? '' : eski) === String(yeni == null ? '' : yeni)) return;
         DB.activities.unshift({
-          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.emp,
           metin:'Alan güncellendi: ' + (etiketSozluk[k] || k),
           eski:gorunur(k, eski), yeni:gorunur(k, yeni), tone:'accent', icon:'i-edit' });
         kayit[k] = yeni;
@@ -390,20 +391,17 @@ document.addEventListener('gv:ready', function(){
         return;
       }
 
-      /* Ad değiştiyse, aynı firmadaki adla eşleşen kayıtlar birlikte güncellenir —
-         bu iki koleksiyon yetkiliyi kodla değil adla tutuyor, aksi hâlde bağ kopar.
-         Firma da değiştiyse eski kayıtlar eski firmaya ait olduğu için dokunulmaz. */
-      if(d.ad !== onceki.ad && d.musteri === onceki.musteri){
-        var esles = adlaBagli(onceki.musteri, onceki.ad);
-        esles.talep.forEach(function(t){ t.acan = d.ad; });
-        esles.iletisim.forEach(function(i){ i.kontak = d.ad; });
+      /* Ad değişikliği artık bağlı kayıtlara DOKUNMAZ: bağ kodla kurulu olduğu için
+         kendiliğinden taşınır (VB-12). Yalnız kaç kaydın etkilendiği aktiviteye yazılır. */
+      if(d.ad !== onceki.ad){
+        var esles = kodlaBagli(kayit.kod);
         var n = esles.talep.length + esles.iletisim.length;
         if(n){
           DB.activities.unshift({
-            kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
-            metin:'Bağlı kayıtlarda kontak adı güncellendi · ' + esles.talep.length + ' destek talebi, ' +
-                  esles.iletisim.length + ' iletişim kaydı',
-            eski:onceki.ad, yeni:d.ad, tone:'warn', icon:'i-link' });
+            kayit:kayit.kod, tarih:simdi(), kisi:GV.session.emp,
+            metin:'Ad değişti · ' + esles.talep.length + ' destek talebi ve ' +
+                  esles.iletisim.length + ' iletişim kaydı bağı koda bağlı olduğu için korundu',
+            eski:onceki.ad, yeni:d.ad, tone:'info', icon:'i-link' });
         }
       }
 
@@ -412,7 +410,7 @@ document.addEventListener('gv:ready', function(){
       var kod = yeniKod();
       DB.contacts.unshift(Object.assign({ kod:kod }, d));
       DB.activities.unshift({
-        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        kayit:kod, tarih:simdi(), kisi:GV.session.emp,
         metin:'Kayıt oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus' });
       GV.toast(kod + ' oluşturuldu', 'ok');
     }
