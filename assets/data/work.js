@@ -517,7 +517,22 @@ DB.tasks = [
     tahminiSure:6, gercekSure:3, faturalanabilir:0, ilerleme:45, revizyon:0, yenidenAcilma:0,
     aciklama:'Memnuniyet puanı 2,4. Kapsam ve beklenti yeniden hizalanacak.',
     amac:'Müşteri kaybının önlenmesi', kabulKriteri:'Yazılı mutabakat',
-    beklenenCikti:'Mutabakat notu', etiketler:['Eskalasyon','Riskli müşteri'], aktif:true }
+    beklenenCikti:'Mutabakat notu', etiketler:['Eskalasyon','Riskli müşteri'], aktif:true },
+  /* Destek talebinden doğan görev (§18 · §22 madde 16). Zincir uçtan uca yazılı:
+     DST-2026-118 → HTA-2026-074 (`bugs.destek`) → GRV-2026-126 (`bugs.gorev`),
+     görev de kaynağını `destek` alanında taşır. `etki` **Çok yüksek** çünkü bağlı
+     hatanın şiddeti `Kritik` (components.md §9 şiddet→etki eşlemesi). */
+  { kod:'GRV-2026-126', baslik:'Randevu formu tarih seçici mobil düzeltmesi', tur:'Hata',
+    proje:'PRJ-2026-006', modul:'MOD-015', sprint:'SPR-2026-023', musteri:'MUS-2026-010', dep:'DEP-07',
+    olusturan:'EMP-013', veren:'EMP-003', sorumlu:'EMP-006', yardimci:[], izleyiciler:['EMP-013','EMP-003'],
+    kontrolEden:'EMP-009', onaylayan:'EMP-003', oncelik:'Kritik', etki:'Çok yüksek', aciliyet:'Yüksek',
+    destek:'DST-2026-118',
+    durum:'Devam ediyor', baslangic:'2026-08-03', termin:'2026-08-05', tamamlanma:null,
+    tahminiSure:6, gercekSure:2, faturalanabilir:0, ilerleme:30, revizyon:0, yenidenAcilma:0,
+    aciklama:'Safari iOS üzerinde randevu formundaki tarih seçici açılmıyor. Destek talebinden doğdu.',
+    amac:'Kritik destek talebinin kapatılması', kabulKriteri:'iOS Safari ve Chrome üzerinde tarih seçici açılmalı',
+    beklenenCikti:'Düzeltme PR + müşteri doğrulaması',
+    etiketler:['Destek kaynaklı','Mobil','Kritik'], aktif:true }
 ];
 
 /* ---- Alt görevler ve kontrol listeleri --------------------------------- */
@@ -600,7 +615,7 @@ DB.bugs = [
     test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-074', proje:'PRJ-2026-006', baslik:'Tarih seçici mobilde açılmıyor', modul:'MOD-015',
     siddet:'Kritik', oncelik:'Kritik', durum:'Devam ediyor', bulan:'EMP-013', sorumlu:'EMP-006',
-    bulunma:'2026-07-30', cozum:null, ortam:'Safari iOS', tekrarlanabilir:'Her zaman', gorev:null,
+    bulunma:'2026-07-30', cozum:null, ortam:'Safari iOS', tekrarlanabilir:'Her zaman', gorev:'GRV-2026-126',
     test:null, sprint:'SPR-2026-023', destek:'DST-2026-118', aktif:true },
   { kod:'HTA-2026-075', proje:'PRJ-2026-003', baslik:'İş emri filtresi tarih aralığını yok sayıyor', modul:'MOD-010',
     siddet:'Orta', oncelik:'Orta', durum:'Kapandı', bulan:'EMP-009', sorumlu:'EMP-006',
@@ -696,7 +711,13 @@ DB.changeRequests = [
     kapsamIci:false, karar:'Store yayını sonrası değerlendirilecek', sorumlu:'EMP-003', destek:null, aktif:true },
   { kod:'DGS-2026-015', proje:'PRJ-2026-005', baslik:'Ödeme sağlayıcı iyzico yerine PayTR olsun',
     talep:'Müşteri', tarih:'2026-07-28', etkiSure:16, etkiMaliyet:22000, durum:'Değerlendiriliyor',
-    kapsamIci:false, karar:'—', sorumlu:'EMP-003', destek:null, aktif:true }
+    kapsamIci:false, karar:'—', sorumlu:'EMP-003', destek:null, aktif:true },
+  /* Destek talebinden doğan değişiklik talebi (§18 · §22 madde 17).
+     DST-2026-120 kapsam dışı ve ücretli bir "Geliştirme talebi"ydi; değerlendirme
+     ek teklif yoluna girdi. `etkiMaliyet` NET eksende (KDV hariç). */
+  { kod:'DGS-2026-016', proje:'PRJ-2025-008', baslik:'Sevkiyat raporuna araç filtresi eklensin',
+    talep:'Müşteri', tarih:'2026-07-30', etkiSure:10, etkiMaliyet:18000, durum:'Onay bekliyor',
+    kapsamIci:false, karar:'Ek teklif gerekiyor', sorumlu:'EMP-003', destek:'DST-2026-120', aktif:true }
 ];
 
 /* ---- Onay kuyruğu (tüm modüllerden) ------------------------------------ */

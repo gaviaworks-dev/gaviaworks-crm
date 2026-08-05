@@ -105,17 +105,27 @@ DB.assignments = [
     durum:'Aktif', tutanak:'zimmet-2026-007.pdf', personelOnay:'Bekliyor', onayTarihi:null, hasar:null, aktif:true }
 ];
 
-/* ---- Araçlar (PROMPT.md §16 — ayrı filo modülü) ------------------------- */
+/* ---- Araçlar (PROMPT.md §16 — ayrı filo modülü) -------------------------
+   `siparis` (§22 madde 24 — "Satın alma → Araç"): aracı doğuran satın alma
+   siparişi. Bağ **araçta** tutulur, siparişte ayna alan açılmaz — demirbaş
+   tarafındaki `DB.assets[].siparis` ile birebir aynı yön kuralı (components.md §9d).
+   Siparişin **neti** aracın `alisBedeli`ne eşittir (canon eksen 21).
+   `siparis:null` üç kayıtta **bilinçlidir ve uydurulmamıştır** (L-13):
+     · ARC-001 (2023-05-12) ve ARC-003 (2022-11-08) satın alma modülünün veri
+       penceresinden (2025+) önce alındı, karşılık gelen talep/sipariş kaydı yok.
+     · ARC-002 **kiralıktır** — satın alma siparişi hiç doğmaz, sözleşme ekseni
+       (`kiralamaFirmasi` · `sozlesmeBas/Bit` · `aylikKira`) geçerlidir.
+   Gerekçe assumptions.md **V-38**. */
 DB.vehicles = [
   { kod:'ARC-001', plaka:'06 GW 1907', marka:'Volkswagen', model:'Passat 1.5 TSI', modelYili:2023, tip:'Otomobil',
     yakit:'Benzin', vites:'Otomatik', motorHacmi:1498, motorNo:'DPC123456', sasi:'WVWZZZ3CZPE123456', renk:'Gri',
-    mulkiyet:'Satın alınan', alisTarihi:'2023-05-12', alisBedeli:1450000, satici:'VW Plaza Ankara',
+    mulkiyet:'Satın alınan', alisTarihi:'2023-05-12', alisBedeli:1450000, satici:'VW Plaza Ankara', siparis:null,
     kullanim:'Personele tahsisli', anaSurucu:'EMP-001', yedekSurucu:'EMP-002', dep:'DEP-01', proje:null,
     durum:'Aktif', guncelKm:68400, sonBakimTarihi:'2026-04-18', sonBakimKm:60000,
     sonrakiBakimTarihi:'2026-10-18', sonrakiBakimKm:75000, aktif:true },
   { kod:'ARC-002', plaka:'06 GW 2201', marka:'Renault', model:'Clio 1.0 TCe', modelYili:2024, tip:'Otomobil',
     yakit:'Benzin', vites:'Manuel', motorHacmi:999, motorNo:'H4D456789', sasi:'VF15RJL0X71234567', renk:'Beyaz',
-    mulkiyet:'Kiralık', alisTarihi:null, alisBedeli:null, satici:null,
+    mulkiyet:'Kiralık', alisTarihi:null, alisBedeli:null, satici:null, siparis:null,
     kiralamaFirmasi:'Filo Kiralama A.Ş.', sozlesmeBas:'2024-09-01', sozlesmeBit:'2027-08-31',
     aylikKira:24500, kmSiniri:30000, depozito:35000,
     kullanim:'Ortak kullanım', anaSurucu:null, yedekSurucu:null, dep:'DEP-17', proje:null,
@@ -123,13 +133,14 @@ DB.vehicles = [
     sonrakiBakimTarihi:'2026-08-15', sonrakiBakimKm:48000, aktif:true },
   { kod:'ARC-003', plaka:'06 GW 3388', marka:'Ford', model:'Transit Courier', modelYili:2022, tip:'Ticari araç',
     yakit:'Dizel', vites:'Manuel', motorHacmi:1499, motorNo:'XVCA778812', sasi:'WF0WXXTTGWNU12345', renk:'Beyaz',
-    mulkiyet:'Satın alınan', alisTarihi:'2022-11-08', alisBedeli:780000, satici:'Ford Otosan Bayi',
+    mulkiyet:'Satın alınan', alisTarihi:'2022-11-08', alisBedeli:780000, satici:'Ford Otosan Bayi', siparis:null,
     kullanim:'Ortak kullanım', anaSurucu:null, yedekSurucu:null, dep:'DEP-17', proje:null,
     durum:'Serviste', guncelKm:112800, sonBakimTarihi:'2026-07-28', sonBakimKm:110000,
     sonrakiBakimTarihi:'2027-01-28', sonrakiBakimKm:125000, aktif:true },
   { kod:'ARC-004', plaka:'06 GW 5544', marka:'Toyota', model:'Corolla Hybrid', modelYili:2025, tip:'Otomobil',
     yakit:'Hibrit', vites:'Otomatik', motorHacmi:1798, motorNo:'2ZRFXE9911', sasi:'SB1KZ3JE60E123456', renk:'Lacivert',
-    mulkiyet:'Satın alınan', alisTarihi:'2025-03-20', alisBedeli:1680000, satici:'Toyota Plaza',
+    mulkiyet:'Satın alınan', alisTarihi:'2025-03-20', alisBedeli:1680000, satici:'Toyota Plaza Ankara',
+    siparis:'SIP-2025-006',
     kullanim:'Personele tahsisli', anaSurucu:'EMP-002', yedekSurucu:'EMP-014', dep:'DEP-02', proje:null,
     durum:'Aktif', guncelKm:29600, sonBakimTarihi:'2026-03-11', sonBakimKm:20000,
     sonrakiBakimTarihi:'2026-09-11', sonrakiBakimKm:40000, aktif:true }
@@ -277,7 +288,10 @@ DB.suppliers = [
     toplamTutar:96000, odemeVadesi:'60 gün', durum:'Aktif', aktif:true },
   { kod:'TDR-006', unvan:'Filo Kiralama A.Ş.', kategori:'Araç kiralama', yetkili:'Serkan Uçar', tel:'+90 312 000 00 63',
     eposta:'kurumsal@filokiralama.com', vergiNo:'4405968713', adres:'Balgat, Ankara', puan:4.1, siparisSayisi:2,
-    toplamTutar:882000, odemeVadesi:'Aylık', durum:'Aktif', aktif:true }
+    toplamTutar:882000, odemeVadesi:'Aylık', durum:'Aktif', aktif:true },
+  { kod:'TDR-007', unvan:'Toyota Plaza Ankara', kategori:'Araç', yetkili:'Nihat Öztürk', tel:'+90 312 000 00 64',
+    eposta:'filo@toyotaplazaankara.com', vergiNo:'5506879124', adres:'Söğütözü, Ankara', puan:4.5, siparisSayisi:1,
+    toplamTutar:1680000, odemeVadesi:'Peşin', durum:'Aktif', aktif:true }
 ];
 
 /* ---- Satın alma talepleri (PROMPT.md §17) -------------------------------
@@ -295,7 +309,7 @@ DB.suppliers = [
    `onayToplam` = tutar ve kategoriye göre geçilecek toplam makam sayısı.
 
    `DB.purchaseApprovals` **yalnız süreci devam eden** talepler için kayıt tutar;
-   tamamlanmış taleplerde (SAT-2026-011/012/013) adım dökümü modellenmemiştir —
+   tamamlanmış taleplerde (SAT-2025-010 · SAT-2026-011/012/013) adım dökümü modellenmemiştir —
    `onayAdim === onayToplam` bilgisi yeterlidir. Ekran, zincir kaydı olmayan tamamlanmış
    talepte "adım dökümü yok" demez, süreci tamamlanmış olarak gösterir.
    ------------------------------------------------------------------------- */
@@ -329,7 +343,15 @@ DB.purchases = [
     kategori:'Kurumsal abonelik', aciklama:'Anka Finans projesi için model kullanımı', ozellik:'—',
     miktar:1, tahminiMaliyet:64000, ihtiyacTarihi:'2026-07-20', oncelik:'Yüksek',
     gerekce:'Proje bağımlılığı', butceKodu:'BTC-PRJ-002',
-    durum:'Teslim alındı', olusturma:'2026-07-10', onayAdim:2, onayToplam:2, aktif:true }
+    durum:'Teslim alındı', olusturma:'2026-07-10', onayAdim:2, onayToplam:2, aktif:true },
+  /* Araç satın alma talebi — §22 madde 24'ün ("Satın alma → Araç") tek yazılı örneği.
+     Tutar yüksek olduğu için üç makamlı onaydan geçti (`onayToplam:3`); süreç
+     tamamlandığı için adım dökümü modellenmemiştir (yukarıdaki eksen notu). */
+  { kod:'SAT-2025-010', talepEden:'EMP-011', dep:'DEP-17', proje:null, urun:'Toyota Corolla Hybrid 1.8',
+    kategori:'Araç', aciklama:'Satış ekibi için hibrit binek araç', ozellik:'1.8 Hibrit · Otomatik · Lacivert',
+    miktar:1, tahminiMaliyet:1680000, ihtiyacTarihi:'2025-03-31', oncelik:'Orta',
+    gerekce:'Satış ekibinin müşteri ziyaretleri artıyor, yakıt maliyeti düşürülecek', butceKodu:'BTC-IDARI-2025',
+    durum:'Teslim alındı', olusturma:'2025-02-24', onayAdim:3, onayToplam:3, aktif:true }
 ];
 
 /* ---- Satın alma onay zincirleri ---------------------------------------- */
@@ -390,7 +412,13 @@ DB.orders = [
     irsaliye:'IRS-4471', teslimKontrol:'Tam', aktif:true },
   { kod:'SIP-2026-007', talep:'SAT-2026-011', tedarikci:'TDR-004', tarih:'2026-07-12', teslimTarihi:'2026-07-12',
     tutar:64000, vergi:12800, toplam:76800, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-AWS-0712',
-    irsaliye:'—', teslimKontrol:'Tam', aktif:true }
+    irsaliye:'—', teslimKontrol:'Tam', aktif:true },
+  /* Araç doğuran sipariş (§22 madde 24). Demirbaş tarafındaki `DB.assets[].siparis`
+     ile aynı desen: bağ ARACIN üstünde (`DB.vehicles[].siparis`), siparişte ayna
+     alan yoktur. Siparişin **neti** aracın `alisBedeli`ne eşittir — canon eksen 21. */
+  { kod:'SIP-2025-006', talep:'SAT-2025-010', tedarikci:'TDR-007', tarih:'2025-03-06', teslimTarihi:'2025-03-20',
+    tutar:1680000, vergi:336000, toplam:2016000, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-TOY-3320',
+    irsaliye:'IRS-2210', teslimKontrol:'Tam', aktif:true }
 ];
 
 /* ---- Destek talepleri (PROMPT.md §18) -----------------------------------
