@@ -10,7 +10,8 @@
 > **`tasks/ui-debt.md`** = arayüz + veri borç defteri.
 
 **Güncelleme:** 2026-08-05, **9. oturum** · **141 ekran** · 26 detay · 36 form
-**plan.md:** **217 / 280 madde (%78)** · 23 kısmen · 40 açık
+**plan.md:** **218 / 283 madde (%77)** · 23 kısmen · 42 açık
+**BLOK 2 KAPANDI** (gate.js dahil tüm taramalar temiz) · **BLOK 3 BAŞLADI — UID-27 çözüldü**
 **DOKÜMAN BLOĞU KAPANDI — 13/13.** `docs/` altında A(→research.md) ve B'den M'ye tamamı hazır.
 
 ---
@@ -76,7 +77,8 @@ kabul edilmedi. Sırayla:
 | `rec.js` hedef üretimi | ✅ **62/62 hedef gerçek kayıtla doğrulandı** |
 | §22 bağ doğrulaması | ✅ ölçüldü → **33 kurulu · 3 yok · 1 yarım** (VB-28) |
 | **1440/768/390 tam tarama** | ⏳ **arka planda koşuyordu, SONUCU OKU** — bkz. aşağıdaki not |
-| **`gate.js` tam süpürmesi** | ❌ **KOŞULMADI** — 141 ekran × 5 rol, ~10 dk. 8. ve 9. oturumda da atlandı, **artık ilk iş olmalı** |
+| **`gate.js` tam süpürmesi** | ✅ **TEMİZ** — 705 yükleme (141×5 rol), boş sayfa yok. 403: sahip 0 · pm 57 · muhasebe 64 · destek 87 · stajyer 125 |
+| 1440/768/390 tam tarama | ✅ `qa.js` TEMİZ · `tabs.js` 223 tıklama (26/26 kayıt) · `esc.js` 141 ekran (62/62) · `mut.js` + `listen.js` 62 ekran (62/62) · `swtest` · `grip-qa` TEMİZ |
 | **UID-20** (formlara düzenleme bağlantısı) | ❌ **YAPILMADI** — tüm formlar bitti, artık tek turda yapılabilir |
 | Kapanış raporu | ❌ yazılmadı |
 
@@ -90,7 +92,30 @@ kabul edilmedi. Sırayla:
 
 `ui-debt.md`: **29 UID + 28 VB**. Sıralama (9. oturumda ölçülen etkiye göre):
 
-**1. 🔴 UID-27 — sahte toplu işlem. Her şeyden önce.**
+### ✅ UID-27 ÇÖZÜLDÜ (9. oturum) — devamı UID-30
+
+**Yeni tarama ekseni: `tasks/qa/act.js`** — "bu buton gerçekten bir şey yapıyor mu?"
+Hükümler: MUTASYON · YÖNLENDİRME · PANEL · DÜRÜST RED (sağlıklı) ·
+🔴 YALAN · ⚫ ÖLÜ (ihlal). **Kalıcı tarama setinde, her turda koşulur.**
+
+Gerçek sayı defterdekinin çok üstündeydi: **79 değil 129 ihlal / 65 ekran**
+(94 yalan · 35 ölü). Düzeltme sonrası **28**. `ui.js`'teki yalan yedek kaldırıldı;
+`run`suz aksiyon artık `disabled` + "bu sürümde yok" (gizlenmedi — gerekçe ui-debt'te).
+
+**SIRADAKİ İŞ — UID-30:** kalan 28 ihlal farklı sınıf, `run` **var** ama gövdesi
+yalan/ölü. Ekran ekran incelenir, toplu kök neden yok. Liste ui-debt.md'de tam.
+
+**AÇIK KARAR — `disa` (53 ekran):** Beyar bunun bileşen yeteneği boşluğu olduğunu
+söyledi ve fizibilite istedi. **Ölçülen:** `ui.js` `doExport(rows, fmt)` **zaten
+generic** — `visibleCols()` + `c.exportValue ? c.exportValue(r) : r[c.key]` + HTML
+soyma. Yani **yeni fonksiyon yazmaya gerek yok**; eksik olan tek şey onu *seçili
+satırlarla* çağırabilmek (UID-07'nin `exportRows(rows, format)`'ı).
+**Yapılamayan ölçüm:** "kaç ekranda kolon tanımı yetmiyor" sorusu **cevaplanmadı** —
+statik analizim `source:` desenini 53 ekranın 53'ünde de okuyamadı, uydurma sayı
+vermedim. **Bu ölçüm çalışma zamanında yapılmalı:** her ekranda `doExport` çağırıp
+boş çıkan hücreleri say. Sonuç görülmeden `exportRows` yazılmayacak (Beyar'ın kararı).
+
+**1. (eski kayıt) 🔴 UID-27 — sahte toplu işlem.**
 Kullanıcı onay veriyor, yeşil "12 kayıt arşivlendi" mesajını görüyor, **hiçbir kayıt
 arşivlenmiyor**. 79 aksiyon / 47 ekran. CLAUDE.md "sahte buton yasak" kuralının en büyük
 ihlali. **UID-13 ile tek sözleşmede** çözülür:
