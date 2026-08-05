@@ -717,7 +717,9 @@
     'app-arac-sigorta-form.html',
     'app-arac-yakit-form.html',
     'app-arac-gider-form.html',
-    'app-arac-kaza-form.html'
+    'app-arac-kaza-form.html',
+    'app-destek-paket-form.html',
+    'app-performans-form.html'
   ];
   GV.built = BUILT;
 

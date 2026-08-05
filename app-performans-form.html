@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Performans Değerlendirmesi — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="performans">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.departments (DB.emp / DB.empName / DB.depName)
+     hr.js   → DB.performance, DB.trainings
+     work.js → DB.activities, DB.tasks -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.performance.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* Adreste id var ama kayıt yok — uydurma yok, boş forma da düşülmez.
+     GV.empty / GV.notice metni ÖN-ESCAPE EDİLMEZ: bileşen kendisi escape ediyor (UID-23). */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'İnsan Kaynakları', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen performans değerlendirmesi kayıtlı değil.',
+      actions:[{ label:'Performans listesine dön', cls:'btn-line', href:'app-performans.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Değerlendirme bulunamadı',
+      desc:'“' + id + '” kodlu performans değerlendirmesi kayıtlı değil. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-performans.html">Performans listesine dön</a>' }) + '</section>';
+    return;
+  }
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Sayfa kapısı ekle/düzenle yetkisine bakar. Dönemi kapatan ve
+     değerlendirmeyi onaylayan alanlar (durum, yönetici puanı, proje
+     yöneticisi puanı) ayrıca can('onay') ister ve yetkisi olmayan role
+     forma HİÇ basılmaz — devre dışı kontrol de bırakılmaz.
+     ================================================================= */
+  var canYaz  = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canOnay = GV.perm.can('onay');
+
+  var basligi = duzenle ? kayit.kod + ' · ' + DB.empName(kayit.personel) + ' · Düzenle'
+                        : 'Yeni Performans Değerlendirmesi';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'İnsan Kaynakları', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Performans listesine dön', cls:'btn-line', href:'app-performans.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Performans değerlendirmesi düzenleme' : 'Performans değerlendirmesi açma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Değerlendirmeleri listede ' +
+           'görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; burada yeniden denenecek bir
+       yükleme yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-performans.html">Performans listesi</a>' +
+        (duzenle ? ' <a class="btn btn-acc" href="app-personel-detay.html?id=' + esc(kayit.personel) +
+                   '">Personel kartını aç</a>' : '');
+    }
+    return;                                   /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function bosMu(v){ return v == null || metin(v) === ''; }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v && o.indexOf(v) === -1) o.push(v); }); return o;
+  }
+  function ort(list){
+    var v = list.filter(function(x){ return x != null && x !== ''; }).map(Number)
+                .filter(function(x){ return isFinite(x); });
+    return v.length ? v.reduce(function(a, b){ return a + b; }, 0) / v.length : null;
+  }
+  function bir(n){ return n == null ? null : Math.round(n * 10) / 10; }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function num(v){ return '<span class="u-num">' + esc(v) + '</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* =================================================================
+     PUAN ÖLÇEĞİ — VARSAYILMAZ, VERİDEN ÖLÇÜLÜR
+     DB.performance'taki tüm puan alanları taranır; ölçülen en büyük
+     değere göre ölçek kurulur. Ölçüm (5 kayıt): en küçük 3.8, en büyük 5
+     → 0–5 ölçeği. Liste ekranı da puanları “/ 5” diye basıyor.
+     Zamanında teslim ve revizyon oranı puan DEĞİL, yüzdedir (0–100);
+     görev sayısı adettir. Bu üç alan ayrı bölümde tutulur.
+     ================================================================= */
+  var PUAN_ALAN = ['ozDegerlendirme','yoneticiDegerlendirme','pmDegerlendirme','kaliteSonucu',
+                   'problemCozme','teknikGelisim','ekipCalismasi','iletisim','musteriGeriBildirim'];
+  var YUZDE_ALAN = ['zamanindaTeslim','revizyonOrani'];
+
+  var olculenPuanlar = [];
+  DB.performance.forEach(function(p){
+    PUAN_ALAN.forEach(function(k){ if(p[k] != null) olculenPuanlar.push(Number(p[k])); });
+  });
+  var olculenMin = olculenPuanlar.length ? Math.min.apply(null, olculenPuanlar) : null;
+  var olculenMax = olculenPuanlar.length ? Math.max.apply(null, olculenPuanlar) : null;
+  /* Ölçek tavanı ölçülen en büyük değerin üstündeki ilk bilinen tavandır. */
+  var PUAN_MAX = olculenMax == null ? 5 : olculenMax <= 5 ? 5 : olculenMax <= 10 ? 10 : 100;
+  var PUAN_MIN = 0;
+  var OLCEK = PUAN_MIN + '–' + PUAN_MAX;
+  /* Ondalık basamak da ölçülür: veride 4.3 · 4.5 · 3.8 gibi tek ondalıklı değerler var. */
+  var ondalikliVar = olculenPuanlar.some(function(v){ return Math.round(v) !== v; });
+
+  function puanYuzde(v){ return v == null ? null : Math.round(v / PUAN_MAX * 100); }
+  function puanTon(v){
+    if(v == null) return null;
+    var o = v / PUAN_MAX;
+    if(o >= 0.9) return 'is-ok';
+    if(o >= 0.7) return 'is-info';
+    if(o >= 0.5) return 'is-warn';
+    return 'is-danger';
+  }
+  function puanRozet(v){
+    if(v == null) return faint('Girilmedi');
+    return GV.badge(bir(v) + ' / ' + PUAN_MAX, puanTon(v));
+  }
+
+  /* =================================================================
+     KÜMELER VE ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
+     ================================================================= */
+  var DURUMLAR = distinct(['Açık','Tamamlandı'].concat(
+    DB.performance.map(function(x){ return x.durum; })));
+
+  var yilBugun = String(DB.today).slice(0, 4);
+  var ayBugun  = parseInt(String(DB.today).slice(5, 7), 10);
+  var ceyrek   = 'Q' + Math.ceil(ayBugun / 3);
+  var BU_DONEM = yilBugun + '-' + ceyrek;
+
+  /* Dönem kümesi: veride yazılı dönemler + içinde bulunulan yılın dört çeyreği. */
+  var DONEMLER = distinct(DB.performance.map(function(x){ return x.donem; })
+    .concat([yilBugun + '-Q1', yilBugun + '-Q2', yilBugun + '-Q3', yilBugun + '-Q4'])).sort();
+
+  var EGITIM_KONULARI = distinct(DB.performance.reduce(function(a, p){
+    return a.concat(p.egitimIhtiyaci || []); }, [])).sort();
+
+  var EMP_SECENEK = DB.employees.filter(function(e){ return e.aktif; })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' — ' + e.pozisyon }; });
+
+  var toplamKayit = DB.performance.length;
+  var tamamKayit  = DB.performance.filter(function(x){ return x.durum === 'Tamamlandı'; }).length;
+  var acikKayit   = DB.performance.filter(function(x){ return x.durum === 'Açık'; }).length;
+  var aktifKayit  = DB.performance.filter(function(x){ return x.aktif !== false; }).length;
+
+  /* Liste ekranındaki “Ortalama puan” KPI'ıyla aynı formül: üç değerlendirmenin ortalaması. */
+  function genelPuan(p){
+    return ort([p.ozDegerlendirme, p.yoneticiDegerlendirme, p.pmDegerlendirme]);
+  }
+  var sirketOrt = ort(DB.performance.map(genelPuan));
+
+  /* =================================================================
+     GÖREV EKSENİ — TÜRETİLEBİLİR Mİ? ÖLÇÜLDÜ.
+     DB.tasks kayıtlarında dönem (çeyrek) ekseni YOK; görevler `sorumlu`,
+     `termin`, `tamamlanma` ve `revizyon` alanlarını taşıyor. Ölçüm:
+     koleksiyonda 25 görev var, yalnız 4'ünde `tamamlanma` dolu ve bir
+     personele düşen görev sayısı 1–4 arasında; oysa değerlendirmelerde
+     yazılı görev sayısı 22–41. Yani mock görev kümesi bir çeyreğin tam
+     geçmişi değil, anlık bir kesit. Bu yüzden zamanında teslim oranı,
+     revizyon oranı ve görev sayısı görevlerden TÜRETİLMEZ; elle girilir
+     ve ölçülen görev kesiti karşılaştırma olarak ayrı kartta gösterilir.
+     ================================================================= */
+  function gorevOlcumu(empKod){
+    var mine = DB.tasks.filter(function(t){ return t.sorumlu === empKod; });
+    var biten = mine.filter(function(t){ return !!t.tamamlanma; });
+    var zamaninda = biten.filter(function(t){ return t.termin && t.tamamlanma <= t.termin; });
+    var revizyonlu = mine.filter(function(t){ return sayi(t.revizyon) > 0; });
+    return {
+      toplam:mine.length, biten:biten.length, zamaninda:zamaninda.length,
+      revizyonlu:revizyonlu.length,
+      zamanOrani:biten.length ? Math.round(zamaninda.length / biten.length * 100) : null,
+      revizyonOrani:mine.length ? Math.round(revizyonlu.length / mine.length * 100) : null,
+      acik:mine.filter(function(t){ return !t.tamamlanma; }).length
+    };
+  }
+
+  /* =================================================================
+     ÖN DOLDURMA — ?personel=EMP-...
+     ================================================================= */
+  var onPersonel = qs.get('personel');
+  var onPersonelGecerli = !!(onPersonel && DB.emp(onPersonel));
+
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+  }else{
+    formRec = {
+      personel:onPersonelGecerli ? onPersonel : '', donem:BU_DONEM, durum:'Açık',
+      ozDegerlendirme:'', yoneticiDegerlendirme:'', pmDegerlendirme:'', kaliteSonucu:'',
+      problemCozme:'', teknikGelisim:'', ekipCalismasi:'', iletisim:'', musteriGeriBildirim:'',
+      zamanindaTeslim:'', revizyonOrani:'', gorevSayisi:'',
+      egitimDiger:'', gelisimPlani:'', aktif:true
+    };
+  }
+  /* Eğitim ihtiyacı bir dizidir; GV.form'da çoklu seçim tipi yok (form-brief §4).
+     Bilinen konular onay kutusuna, kalanlar serbest metin alanına açılır. */
+  var kayitliKonular = duzenle ? (kayit.egitimIhtiyaci || []) : [];
+  EGITIM_KONULARI.forEach(function(konu, i){ formRec['egt' + i] = kayitliKonular.indexOf(konu) !== -1; });
+  if(duzenle){
+    formRec.egitimDiger = kayitliKonular.filter(function(k){
+      return EGITIM_KONULARI.indexOf(k) === -1; }).join(', ');
+    if(formRec.gelisimPlani === '—') formRec.gelisimPlani = '';
+  }
+
+  /* =================================================================
+     KOD — dönemden üretilir: PRF + yıl + çeyrek + sıra.
+     Sıra dizi uzunluğundan değil, AYNI DÖNEMDEKİ en yüksek numaradan +1.
+     ================================================================= */
+  function yeniKod(donem){
+    var d = metin(donem) || BU_DONEM;
+    var max = 0;
+    DB.performance.forEach(function(x){
+      var m = new RegExp('^PRF-' + d.replace('-', '\\-') + '-(\\d+)$').exec(x.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    var kod, n = max;
+    do { n++; kod = 'PRF-' + d + '-' + pad(n, 3); }
+    while(DB.performance.some(function(x){ return x.kod === kod; }));
+    return kod;
+  }
+
+  function ayniDonemKaydi(empKod, donem, harictKod){
+    return DB.performance.filter(function(x){
+      return x.personel === empKod && x.donem === donem && x.kod !== harictKod; })[0] || null;
+  }
+
+  /* =================================================================
+     KAYDIN İLİŞKİLİ KAYITLARI
+     ================================================================= */
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  function digerDonemler(empKod, haricKod){
+    return DB.performance.filter(function(x){ return x.personel === empKod && x.kod !== haricKod; })
+      .sort(function(a, b){ return String(b.donem).localeCompare(String(a.donem)); });
+  }
+  function egitimleri(empKod){
+    return DB.trainings.filter(function(t){ return (t.katilimci || []).indexOf(empKod) !== -1; });
+  }
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var kararNot = GV.notice({
+    tone:'warn', icon:'i-alert',
+    title:'Bu ekran karar desteğidir, otomatik karar üretmez',
+    text:'Girilen puanlar ve oranlar hiçbir sonucu kendiliğinden doğurmaz: form terfi, unvan değişikliği, ' +
+         'zam, prim, uyarı ya da işten çıkarma kararı üretmez, bir eşiğin altına düşen puanı işaretleyip ' +
+         'yaptırıma bağlamaz. Kayıt yalnız dönemin değerlendirmesini yazar; yorumu, kararı ve görüşmeyi ' +
+         'insan yapar. Puanlardan türetilen genel puan ve yetkinlik ortalaması da aşağıda sadece ' +
+         'hesaplanır, karara çevrilmez.',
+    actions:[{ label:'Performans listesi', href:'app-performans.html' },
+             { label:'Eğitim ve yetkinlik', href:'app-egitim.html' }] });
+
+  var ucretNot = GV.notice({
+    tone:'neutral', icon:'i-lock',
+    title:'Ücret ekseni bu forma girmez',
+    text:'Performans değerlendirmesi personelin maaş, zam, prim ve yan hak bilgisiyle aynı ekranda ' +
+         'tutulmaz: bu formda ücret alanı yoktur, personelin ücreti burada gösterilmez ve kaydedilen ' +
+         'değerlendirme bir ücret değişikliği tetiklemez. Ücret bilgisi personel kartının kendi ' +
+         'yetkisiyle yürür.',
+    actions:[{ label:'Personel listesi', href:'app-personel.html' }] });
+
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'Bu formun karşılığı olmayan değerlendirme alanları',
+    text:'Değerlendirme kaydında değerlendirmeyi kimin doldurduğu, hangi tarihte kapatıldığı, personelin ' +
+         'yazılı görüşü ve görüşme notu için alan yok — veride yalnız puanlar, oranlar, eğitim ihtiyacı ve ' +
+         'gelişim planı tutuluyor. Bu form uydurma alan açmaz. Eğitim kaydı, hedef ve yetkinlik takibi ' +
+         'eğitim ekranından, kapasite ve doluluk kapasite ekranından yürür.',
+    actions:[{ label:'Eğitim ve yetkinlik', href:'app-egitim.html' },
+             { label:'Kapasite', href:'app-kapasite.html' },
+             { label:'Personel raporları', href:'app-rapor-personel.html' }] });
+
+  var ust = '';
+
+  if(duzenle){
+    var digerler = digerDonemler(kayit.personel, kayit.kod);
+    var egitimler = egitimleri(kayit.personel);
+    var bagliMetin = [];
+    if(digerler.length)  bagliMetin.push(digerler.length + ' başka dönem değerlendirmesi');
+    if(egitimler.length) bagliMetin.push(egitimler.length + ' eğitim kaydı');
+    if(acts.length)      bagliMetin.push(acts.length + ' aktivite kaydı');
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      bagliMetin.length
+        ? { tone:'info', icon:'i-link', title:'Bu personelin başka kayıtları da var',
+            text:DB.empName(kayit.personel) + ' için ' + bagliMetin.join(', ') + ' sistemde tutuluyor' +
+                 (digerler.length ? '; en son dönem ' + digerler[0].donem + ' (' + digerler[0].durum + ')' : '') +
+                 '. Bu form o kayıtları değiştirmez: her dönem ayrı bir değerlendirme kaydıdır, eğitim ' +
+                 'kayıtları eğitim ekranından yürür. Bu kaydı arşive alırsanız diğer dönemler ve eğitimler ' +
+                 'silinmez, yalnız bu dönem aktif listelerden ve sayaçlardan düşer.',
+            actions:[{ label:'Personel kartı', href:'app-personel-detay.html?id=' + kayit.personel },
+                     { label:'Personelin dönemleri', href:'app-performans.html?f_personel=' + kayit.personel },
+                     { label:'Eğitim ve yetkinlik', href:'app-egitim.html' }] }
+        : { tone:'neutral', icon:'i-info', title:'Bu personelin başka kaydı yok',
+            text:DB.empName(kayit.personel) + ' için başka dönem değerlendirmesi ve eğitim kaydı ' +
+                 'bulunmuyor. Ölçüm: sistemde ' + toplamKayit + ' değerlendirme var, ' + tamamKayit +
+                 ' tanesi tamamlandı, ' + acikKayit + ' tanesi açık dönem.',
+            actions:[{ label:'Personel kartı', href:'app-personel-detay.html?id=' + kayit.personel },
+                     { label:'Performans listesi', href:'app-performans.html' }] }) +
+      '</div></section>';
+
+    /* ---- Bağlam kartı: kayıt özeti (form-brief §8) ---- */
+    var sonAct = acts[0];
+    var ilkAct = acts.length ? acts[acts.length - 1] : null;
+    var empK = DB.emp(kayit.personel) || {};
+    ust += kart('Kayıt Özeti', 'i-award', null,
+      '<div class="gc-body">' + dl([
+        ['Değerlendirme kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Personel', GV.user(kayit.personel, { sm:true }) + sub(empK.pozisyon || '')],
+        ['Departman', esc(DB.depName(empK.dep))],
+        ['Bağlı yönetici', empK.yonetici
+          ? GV.user(empK.yonetici, { sm:true })
+          : faint('Yönetici tanımlı değil')],
+        ['Dönem', tagOf(kayit.donem)],
+        ['Durum', GV.badge(kayit.durum === 'Açık' ? 'Bekliyor' : 'Tamamlandı') +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv kaydı</span>' : '')],
+        ['Öz değerlendirme', puanRozet(kayit.ozDegerlendirme)],
+        ['Yönetici değerlendirmesi', puanRozet(kayit.yoneticiDegerlendirme)],
+        ['Proje yöneticisi değerlendirmesi', puanRozet(kayit.pmDegerlendirme)],
+        ['Görev kalite sonucu', puanRozet(kayit.kaliteSonucu)],
+        ['Zamanında teslim', kayit.zamanindaTeslim == null
+          ? faint('Girilmedi') : GV.progress(kayit.zamanindaTeslim)],
+        ['Revizyon oranı', kayit.revizyonOrani == null
+          ? faint('Girilmedi') : num('%' + kayit.revizyonOrani)],
+        ['Tamamlanan görev', kayit.gorevSayisi == null ? faint('Girilmedi') : num(kayit.gorevSayisi)],
+        ['Eğitim ihtiyacı', kayitliKonular.length
+          ? kayitliKonular.map(tagOf).join(' ') : faint('Eğitim ihtiyacı işaretlenmedi')],
+        ['Gelişim planı', metin(kayit.gelisimPlani) && kayit.gelisimPlani !== '—'
+          ? esc(kayit.gelisimPlani) : faint('Yazılmadı')],
+        ['Kaydı açan', ilkAct ? esc(ilkAct.kisi) + sub(F.dt(ilkAct.tarih)) : null],
+        ['Son değiştiren', sonAct ? esc(sonAct.kisi) + sub(F.dt(sonAct.tarih) + ' · ' + sonAct.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-personel-detay.html?id=' + esc(kayit.personel) + '">' +
+        ico('i-external','ic-sm') + ' Personel kartını aç</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', icon:'i-plus', title:'Yeni performans değerlendirmesi açılıyor',
+        text:'Kaydettiğinizde dönemin sırasına göre bir kod atanır (' + BU_DONEM + ' dönemi için ' +
+             'sıradaki kod ' + yeniKod(BU_DONEM) + '), aktivite geçmişine “Değerlendirme kaydı ' +
+             'oluşturuldu” satırı düşer ve performans listesine dönülür. Aynı personele aynı dönemde ' +
+             'ikinci bir değerlendirme açılamaz. Ölçüm: sistemde ' + toplamKayit + ' değerlendirme var, ' +
+             tamamKayit + ' tanesi tamamlandı, ' + acikKayit + ' tanesi açık dönem, ' + aktifKayit +
+             ' tanesi aktif kayıt.' +
+             (onPersonel && !onPersonelGecerli
+               ? ' Adreste yazılı “' + onPersonel + '” personel kodu kayıtlı olmadığı için ön doldurma ' +
+                 'yapılmadı; personeli listeden seçin.'
+               : onPersonelGecerli
+                 ? ' Personel adresten geldi: ' + DB.empName(onPersonel) + ' seçili olarak açıldı.'
+                 : ''),
+        actions:[{ label:'Performans listesi', href:'app-performans.html' },
+                 { label:'Personel listesi', href:'app-personel.html' }] }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card"><div class="gc-body">' + kararNot + ucretNot + '</div></section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-award') + 'Değerlendirme Bilgileri</h2>' +
+        '<div class="gc-sub">' +
+          (duzenle ? 'Değerlendirme kodu değiştirilmez' : 'Değerlendirme kodu kaydederken dönemden atanır') +
+          ' · puanlar ' + OLCEK + ' ölçeğindedir · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-star') + 'Türetilen Puanlar</h2>' +
+        '<div class="gc-sub">Genel puan ve yetkinlik ortalaması elle girilmez; girilen puanlardan ' +
+          'hesaplanır ve puanları değiştirdikçe burası yeniden hesaplanır.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-performans.html">' + ico('i-list','ic-sm') +
+            ' Performans listesi</a></div></div>' +
+      '<div class="gc-body" id="puanOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-tasks') + 'Görev Ekseni Karşılaştırması</h2>' +
+        '<div class="gc-sub">Görev sayısı, zamanında teslim ve revizyon oranı elle girilir; görev ' +
+          'kayıtlarından ölçülen kesit yalnız karşılaştırma için gösterilir.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-gorev.html">' + ico('i-tasks','ic-sm') +
+            ' Görev listesi</a></div></div>' +
+      '<div class="gc-body" id="gorevOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-graduation') + 'Gelişim ve Eğitim Bağlamı</h2>' +
+        '<div class="gc-sub">İşaretlenen eğitim ihtiyacı bu formdan eğitim kaydı doğurmaz; eğitim ' +
+          'planlaması eğitim ekranından yürür.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-egitim.html">' + ico('i-graduation','ic-sm') +
+            ' Eğitim ve yetkinlik</a></div></div>' +
+      '<div class="gc-body" id="gelisimOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-performans.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var PUAN_IPUCU = 'Ölçek ' + OLCEK + (ondalikliVar ? ' · tek ondalık basamak yazılabilir (örn. 4.3)' : '') +
+                   '. Veride ölçülen aralık: ' + (olculenMin == null ? '—' : bir(olculenMin) + ' – ' + bir(olculenMax)) + '.';
+
+  function puanDogrula(etiket){
+    return function(v, d){
+      var s = metin(v);
+      if(s === ''){
+        return durumOf(d) === 'Tamamlandı'
+          ? etiket + ' “Tamamlandı” olarak kapatılan dönemde zorunludur.' : '';
+      }
+      var n = Number(v);
+      if(!isFinite(n)) return etiket + ' sayı olarak yazılır.';
+      if(n < PUAN_MIN || n > PUAN_MAX)
+        return etiket + ' ' + OLCEK + ' ölçeğindedir; ' + bir(n) + ' bu ölçeğin dışında.';
+      if(Math.round(n * 10) !== n * 10)
+        return 'Puan en fazla tek ondalık basamakla yazılır (örn. 4.3).';
+      return '';
+    };
+  }
+  function yuzdeDogrula(etiket){
+    return function(v, d){
+      var s = metin(v);
+      if(s === ''){
+        return durumOf(d) === 'Tamamlandı'
+          ? etiket + ' “Tamamlandı” olarak kapatılan dönemde zorunludur.' : '';
+      }
+      var n = Number(v);
+      if(!isFinite(n)) return etiket + ' sayı olarak yazılır.';
+      if(n < 0 || n > 100) return etiket + ' yüzde olarak 0 ile 100 arasında yazılır.';
+      if(Math.round(n) !== n) return etiket + ' tam sayı olarak yazılır (kesirli yüzde kullanılmaz).';
+      return '';
+    };
+  }
+
+  /* Durum alanı onay yetkisi olmayan role forma basılmaz; o rolde geçerli durum
+     düzenlemede kayıttaki değer, yeni kayıtta “Açık”tır. */
+  function durumOf(d){
+    if(d && d.durum != null && metin(d.durum) !== '') return d.durum;
+    return duzenle ? kayit.durum : 'Açık';
+  }
+
+  var sections = [];
+
+  var kimlikAlanlari = [
+    { key:'personel', label:'Personel', type:'select', options:EMP_SECENEK, required:true, cols:6,
+      placeholder:'Personel seçin',
+      hint:'Değerlendirilen kişi. Ölçüm: ' + DB.employees.filter(function(e){ return e.aktif; }).length +
+           ' aktif personel kayıtlı; sistemde ' + toplamKayit + ' değerlendirme var.',
+      validate:function(v, d){
+        if(!v) return '';
+        var carpisan = ayniDonemKaydi(v, d.donem, duzenle ? kayit.kod : null);
+        return carpisan
+          ? DB.empName(v) + ' için ' + d.donem + ' dönemi zaten ' + carpisan.kod +
+            ' koduyla değerlendirilmiş. Bir personelin bir dönemde tek değerlendirmesi olur.'
+          : '';
+      } },
+
+    { key:'donem', label:'Değerlendirme dönemi', type:'select', options:DONEMLER, required:true, cols:6,
+      placeholder:'Dönem seçin',
+      hint:'Çeyrek dönem. Sistem tarihi ' + F.date(DB.today) + ', içinde bulunulan dönem ' + BU_DONEM +
+           '. Kayıt kodu bu dönemden üretilir.',
+      validate:function(v, d){
+        if(!v) return '';
+        if(!/^\d{4}-Q[1-4]$/.test(v)) return 'Dönem “2026-Q3” biçiminde yazılır.';
+        if(v > BU_DONEM)
+          return 'Gelecek dönem (' + v + ') için değerlendirme açılmaz; içinde bulunulan dönem ' + BU_DONEM + '.';
+        var carpisan = d.personel ? ayniDonemKaydi(d.personel, v, duzenle ? kayit.kod : null) : null;
+        return carpisan
+          ? DB.empName(d.personel) + ' için ' + v + ' dönemi zaten ' + carpisan.kod + ' koduyla açılmış.'
+          : '';
+      } }
+  ];
+
+  /* Dönemi kapatan alan bir karar alanıdır: onay yetkisi yoksa forma HİÇ basılmaz. */
+  if(canOnay){
+    kimlikAlanlari.push({ key:'durum', label:'Değerlendirme durumu', type:'select', options:DURUMLAR,
+      required:true, cols:6,
+      hint:'Küme: ' + DURUMLAR.join(' · ') + '. “Tamamlandı” dönemin kapatıldığını söyler ve puanların ' +
+           'dolu olmasını ister; kendiliğinden bir sonuç, karar ya da bildirim üretmez. Ölçüm: ' +
+           tamamKayit + ' tamamlanmış, ' + acikKayit + ' açık dönem.' });
+  }
+
+  sections.push({ title:'Değerlendirilen personel ve dönem',
+    desc:'Kayıt kodu personel ve dönemden üretilir, elle girilmez. Bir personelin bir dönemde yalnız ' +
+         'bir değerlendirmesi olur.' +
+         (canOnay ? '' : ' Dönemi kapatma yetkisi rolünüzde tanımlı olmadığı için durum alanı forma ' +
+                         'basılmadı; kayıt açık dönem olarak yürür.'),
+    fields:kimlikAlanlari });
+
+  var puanAlanlari = [
+    { key:'ozDegerlendirme', label:'Öz değerlendirme', type:'number', cols:6,
+      min:PUAN_MIN, max:PUAN_MAX,
+      hint:'Personelin kendi dönem değerlendirmesi. ' + PUAN_IPUCU,
+      validate:puanDogrula('Öz değerlendirme') },
+
+    { key:'kaliteSonucu', label:'Görev kalite sonucu', type:'number', cols:6,
+      min:PUAN_MIN, max:PUAN_MAX,
+      hint:'Dönem içindeki işin kalite değerlendirmesi. Görev kayıtlarında kalite puanı alanı yok, bu ' +
+           'puan elle girilir. ' + PUAN_IPUCU,
+      validate:puanDogrula('Görev kalite sonucu') }
+  ];
+
+  /* Yönetici ve proje yöneticisi puanı değerlendirmeyi karara bağlayan alanlardır:
+     onay yetkisi olmayan role forma HİÇ basılmaz, düzenlemede değerlerine de dokunulmaz. */
+  if(canOnay){
+    puanAlanlari.push(
+      { key:'yoneticiDegerlendirme', label:'Yönetici değerlendirmesi', type:'number', cols:6,
+        min:PUAN_MIN, max:PUAN_MAX,
+        hint:'Bağlı yöneticinin dönem değerlendirmesi. ' + PUAN_IPUCU,
+        validate:puanDogrula('Yönetici değerlendirmesi') },
+
+      { key:'pmDegerlendirme', label:'Proje yöneticisi değerlendirmesi', type:'number', cols:6,
+        min:PUAN_MIN, max:PUAN_MAX,
+        hint:'Personelin dönem içinde çalıştığı projelerin yöneticisinin değerlendirmesi. ' + PUAN_IPUCU,
+        validate:puanDogrula('Proje yöneticisi değerlendirmesi') }
+    );
+  }
+
+  sections.push({ title:'Değerlendirme puanları',
+    desc:'Üç değerlendirmenin ortalaması genel puanı verir; genel puan elle girilmez, aşağıdaki kartta ' +
+         'hesaplanır ve tek başına bir karara çevrilmez.' +
+         (canOnay ? '' : ' Yönetici ve proje yöneticisi puanı onay yetkisi isteyen karar alanlarıdır; ' +
+                         'rolünüzde bu yetki tanımlı olmadığı için forma basılmadı.'),
+    fields:puanAlanlari });
+
+  sections.push({ title:'Yetkinlik puanları',
+    desc:'Dönem içindeki davranış ve yetkinlik gözlemleri. Boş bırakılan yetkinlik ortalamaya girmez; ' +
+         'dönem “Tamamlandı” olarak kapatılıyorsa hepsi doldurulur.',
+    fields:[
+      { key:'problemCozme', label:'Problem çözme', type:'number', cols:6, min:PUAN_MIN, max:PUAN_MAX,
+        hint:PUAN_IPUCU, validate:puanDogrula('Problem çözme') },
+      { key:'teknikGelisim', label:'Teknik gelişim', type:'number', cols:6, min:PUAN_MIN, max:PUAN_MAX,
+        hint:PUAN_IPUCU, validate:puanDogrula('Teknik gelişim') },
+      { key:'ekipCalismasi', label:'Ekip çalışması', type:'number', cols:6, min:PUAN_MIN, max:PUAN_MAX,
+        hint:PUAN_IPUCU, validate:puanDogrula('Ekip çalışması') },
+      { key:'iletisim', label:'Departmanlar arası iletişim', type:'number', cols:6,
+        min:PUAN_MIN, max:PUAN_MAX, hint:PUAN_IPUCU, validate:puanDogrula('İletişim') },
+      { key:'musteriGeriBildirim', label:'Müşteri geri bildirimi', type:'number', cols:12,
+        min:PUAN_MIN, max:PUAN_MAX,
+        hint:'Müşteriyle doğrudan teması olmayan personelde boş bırakılır. ' + PUAN_IPUCU,
+        validate:puanDogrula('Müşteri geri bildirimi') }
+    ]});
+
+  sections.push({ title:'Dönem çıktıları — görev ekseni',
+    desc:'Görev sayısı, zamanında teslim ve revizyon oranı elle girilir: görev kayıtlarında çeyrek dönem ' +
+         'ekseni yok ve mock görev kümesi bir dönemin tamamını taşımıyor. Ölçülen görev kesiti aşağıdaki ' +
+         'karşılaştırma kartında ayrıca gösterilir.',
+    fields:[
+      { key:'gorevSayisi', label:'Tamamlanan görev sayısı', type:'number', cols:6, min:0,
+        placeholder:'Örn. 34',
+        hint:'Dönem içinde tamamlanan görev adedi. Ölçüm: görev koleksiyonunda toplam ' +
+             DB.tasks.length + ' görev var ve yalnız ' +
+             DB.tasks.filter(function(t){ return !!t.tamamlanma; }).length +
+             ' tanesinin tamamlanma tarihi dolu; bu yüzden adet buradan sayılmaz.',
+        validate:function(v, d){
+          var s = metin(v);
+          if(s === '')
+            return durumOf(d) === 'Tamamlandı'
+              ? 'Tamamlanan görev sayısı “Tamamlandı” olarak kapatılan dönemde zorunludur.' : '';
+          var n = Number(v);
+          if(!isFinite(n) || n < 0) return 'Görev sayısı negatif olamaz.';
+          if(Math.round(n) !== n) return 'Görev sayısı tam sayı olarak yazılır.';
+          return '';
+        } },
+
+      { key:'zamanindaTeslim', label:'Zamanında teslim oranı', type:'percent', cols:6, min:0, max:100,
+        hint:'Dönemde termininde teslim edilen görevlerin yüzdesi. Liste ekranı bu alanı ilerleme ' +
+             'çubuğuyla gösterir ve dört değerlendirmenin ortalamasını KPI olarak basar.',
+        validate:yuzdeDogrula('Zamanında teslim oranı') },
+
+      { key:'revizyonOrani', label:'Revizyon oranı', type:'percent', cols:6, min:0, max:100,
+        hint:'Revizyon istenen işlerin yüzdesi — düşük olması iyidir. Liste ekranındaki eşikler: ' +
+             '%10 ve altı iyi, %20 ve altı uyarı, üstü riskli.',
+        validate:yuzdeDogrula('Revizyon oranı') }
+    ]});
+
+  /* Eğitim ihtiyacı çoklu seçimdir; GV.form'da multiselect/tags tipi YOK (form-brief §4).
+     Bilinen konular onay kutusu grubu, kalanlar virgüllü serbest metin olarak alınır. */
+  var egitimAlanlari = EGITIM_KONULARI.map(function(konu, i){
+    return { key:'egt' + i, type:'checkbox', label:konu, checkLabel:konu, cols:6 };
+  });
+  egitimAlanlari.push(
+    { key:'egitimDiger', label:'Listede olmayan eğitim ihtiyaçları', type:'text', cols:12,
+      placeholder:'Virgülle ayırın — örn. Veri modelleme, Teknik yazım',
+      hint:'Yukarıdaki kutular veride yazılı eğitim ihtiyacı konularından üretildi (' +
+           (EGITIM_KONULARI.length ? EGITIM_KONULARI.join(' · ') : 'veride konu yok') +
+           '). Yeni bir konu buraya virgülle yazılır ve kayda eklenir.',
+      validate:function(v){
+        var s = metin(v);
+        if(s === '') return '';
+        var bos = s.split(',').filter(function(x){ return metin(x) === ''; }).length;
+        return bos ? 'Konular tek virgülle ayrılır; boş konu bırakılmaz.' : '';
+      } },
+
+    { key:'gelisimPlani', label:'Gelişim planı', type:'textarea', cols:12, rows:3,
+      placeholder:'Örn. Mimari tasarım liderliği',
+      hint:'Dönem sonrası için üzerinde anlaşılan gelişim yönü. Bu metin bir hedef kaydı ya da eğitim ' +
+           'kaydı doğurmaz; eğitim planlaması eğitim ekranından yürür.',
+      validate:function(v, d){
+        var s = metin(v);
+        if(s === '' && durumOf(d) === 'Tamamlandı')
+          return 'Gelişim planı “Tamamlandı” olarak kapatılan dönemde zorunludur.';
+        if(s === '—') return 'Gelişim planına tire yazmayın; boş bırakabilirsiniz.';
+        return '';
+      } }
+  );
+
+  sections.push({ title:'Eğitim ihtiyacı ve gelişim planı',
+    desc:'İşaretlenen konular personelin eğitim ihtiyacı olarak kaydedilir ve performans listesinde ' +
+         '“Eğitim İhtiyacı Olanlar” sekmesine düşer. Kayıt eğitim planı ya da eğitim kaydı üretmez.',
+    fields:egitimAlanlari });
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Değerlendirme durumu dönem eksenidir, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — performans listelerinde, sekmelerde ve sayaçlarda görünür',
+        hint:'Kapatılırsa değerlendirme arşive düşer; personelin diğer dönemleri ve eğitim kayıtları ' +
+             'silinmez. Ölçüm: ' + toplamKayit + ' kaydın ' + aktifKayit + ' tanesi aktif.' }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunluSayisi = 0;
+  sections.forEach(function(s){
+    (s.fields || []).forEach(function(f){ if(f.required) zorunluSayisi++; });
+  });
+
+  var form = GV.form({
+    mount:'#formMount', id:'performans', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER — türetilen değerler elle girdirilmez (ders L-08)
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlanır; GV.refresh() mount'u
+     taze kopyayla değiştirdiği için birikmezler (ders L-16).
+     ================================================================= */
+  function okunanPuan(v, k){
+    /* Onay yetkisi yoksa alan formda yok — düzenlemede kayıttaki değer okunur, değiştirilmez. */
+    if(k in v) return metin(v[k]) === '' ? null : Number(v[k]);
+    return duzenle && kayit[k] != null ? Number(kayit[k]) : null;
+  }
+
+  function puanOzetiCiz(){
+    var hedef = document.getElementById('puanOzet');
+    if(!hedef) return;
+    var v = form.read();
+
+    var oz  = okunanPuan(v, 'ozDegerlendirme');
+    var yon = okunanPuan(v, 'yoneticiDegerlendirme');
+    var pm  = okunanPuan(v, 'pmDegerlendirme');
+    var kal = okunanPuan(v, 'kaliteSonucu');
+    var yetkinlikler = ['problemCozme','teknikGelisim','ekipCalismasi','iletisim','musteriGeriBildirim']
+      .map(function(k){ return okunanPuan(v, k); });
+
+    var genel = ort([oz, yon, pm]);
+    var yetkinlikOrt = ort(yetkinlikler);
+    var girilen = [oz, yon, pm].filter(function(x){ return x != null; }).length;
+    var empK = v.personel ? (DB.emp(v.personel) || {}) : {};
+
+    var not;
+    if(genel == null){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Genel puan henüz hesaplanamıyor',
+        text:'Öz değerlendirme, yönetici ve proje yöneticisi puanlarından en az biri girilmeden genel ' +
+             'puan hesaplanmaz. Girilen puan sayısı: ' + girilen + ' / 3.' });
+    }else{
+      not = GV.notice({ tone:'neutral', icon:'i-star', title:'Genel puan hesaplandı, karara çevrilmedi',
+        text:'Genel puan ' + bir(genel) + ' / ' + PUAN_MAX + ' — ' + girilen +
+             ' değerlendirmenin ortalaması, performans listesindeki ortalama puan KPI’ı ile aynı formül. ' +
+             'Bu sayı tek başına bir sonuç değildir: sistem bu puandan terfi, zam, prim ya da uyarı ' +
+             'üretmez, bir eşiğe bağlamaz. Sayının anlamı görev yükü, dönem koşulları ve dış ' +
+             'bağımlılıklarla birlikte insan tarafından yorumlanır.' });
+    }
+
+    var karsilastirma = (genel != null && sirketOrt != null)
+      ? (genel > sirketOrt ? 'kayıtlı ortalamanın üstünde' : genel < sirketOrt
+          ? 'kayıtlı ortalamanın altında' : 'kayıtlı ortalamayla aynı')
+      : null;
+
+    hedef.innerHTML = not + ozetListe([
+      ['Personel', v.personel ? GV.user(v.personel, { sm:true }) + sub(empK.pozisyon || '') : faint('Seçilmedi')],
+      ['Bağlı yönetici', empK.yonetici ? GV.user(empK.yonetici, { sm:true })
+        : faint(v.personel ? 'Yönetici tanımlı değil' : '—')],
+      ['Dönem · durum', (v.donem ? tagOf(v.donem) : faint('Seçilmedi')) + ' ' +
+        GV.badge(durumOf(v) === 'Açık' ? 'Bekliyor' : 'Tamamlandı')],
+      ['Öz değerlendirme', puanRozet(oz)],
+      ['Yönetici değerlendirmesi', canOnay || duzenle ? puanRozet(yon) : faint('Rolünüze kapalı')],
+      ['Proje yöneticisi değerlendirmesi', canOnay || duzenle ? puanRozet(pm) : faint('Rolünüze kapalı')],
+      ['Genel puan <span class="u-faint">(türetilir)</span>', genel == null ? faint('Hesaplanamadı')
+        : '<b>' + bir(genel) + ' / ' + PUAN_MAX + '</b>' +
+          sub(girilen + ' değerlendirmenin ortalaması')],
+      ['Genel puan çubuğu', genel == null ? faint('—')
+        : GV.progress(puanYuzde(genel), { tone:(puanTon(genel) || '').replace('is-','') || null })],
+      ['Yetkinlik ortalaması <span class="u-faint">(türetilir)</span>', yetkinlikOrt == null
+        ? faint('Hesaplanamadı')
+        : '<b>' + bir(yetkinlikOrt) + ' / ' + PUAN_MAX + '</b>' +
+          sub(yetkinlikler.filter(function(x){ return x != null; }).length + ' yetkinlik girildi')],
+      ['Görev kalite sonucu', puanRozet(kal)],
+      ['Kayıtlı değerlendirme ortalaması', sirketOrt == null ? faint('—')
+        : bir(sirketOrt) + ' / ' + PUAN_MAX + sub('sistemdeki ' + toplamKayit + ' kaydın genel puan ortalaması')],
+      ['Bu kaydın yeri', karsilastirma ? esc(karsilastirma) + sub('yalnız bilgi — otomatik karar yok')
+        : faint('Karşılaştırılamadı')],
+      ['Ölçek', OLCEK + sub('veriden ölçüldü · kayıtlarda görülen aralık ' +
+        (olculenMin == null ? '—' : bir(olculenMin) + ' – ' + bir(olculenMax)))],
+      ['Atanacak kod', duzenle ? '<span class="cell-code">' + esc(kayit.kod) + '</span>'
+        : '<span class="cell-code">' + esc(yeniKod(v.donem)) + '</span>' + sub('dönem değişince yeniden hesaplanır')]
+    ]);
+  }
+
+  function gorevOzetiCiz(){
+    var hedef = document.getElementById('gorevOzet');
+    if(!hedef) return;
+    var v = form.read();
+
+    if(!v.personel){
+      hedef.innerHTML = GV.notice({ tone:'neutral', icon:'i-info', title:'Önce personel seçin',
+        text:'Görev ekseni ölçümü seçilen personelin görev kayıtlarından okunur; personel seçilmeden ' +
+             'karşılaştırma yapılamaz.' });
+      return;
+    }
+
+    var g = gorevOlcumu(v.personel);
+    var girilenAdet = metin(v.gorevSayisi) === '' ? null : sayi(v.gorevSayisi);
+    var girilenZaman = metin(v.zamanindaTeslim) === '' ? null : sayi(v.zamanindaTeslim);
+    var girilenRev = metin(v.revizyonOrani) === '' ? null : sayi(v.revizyonOrani);
+
+    var not = GV.notice({ tone:'info', icon:'i-tasks',
+      title:'Görev sayıları görevlerden türetilmiyor — ölçüldü',
+      text:'Görev kayıtlarında çeyrek dönem ekseni yok ve tamamlanma tarihi ' + DB.tasks.length +
+           ' görevin yalnız ' + DB.tasks.filter(function(t){ return !!t.tamamlanma; }).length +
+           ' tanesinde dolu. ' + DB.empName(v.personel) + ' için görev koleksiyonunda ' + g.toplam +
+           ' görev sorumluluğu görünüyor; değerlendirmelerde yazılı dönem görev sayıları ise 22 ile 41 ' +
+           'arasında. Mock görev kümesi bir dönemin tamamını taşımadığı için bu üç alan elle girilir; ' +
+           'aşağıdaki ölçüm yalnız karşılaştırma içindir ve forma kendiliğinden yazılmaz.',
+      actions:[{ label:'Personelin görevleri', href:'app-gorev.html?f_sorumlu=' + v.personel },
+               { label:'Kapasite', href:'app-kapasite.html' }] });
+
+    function fark(girilen, olculen, birim){
+      if(girilen == null || olculen == null) return faint('Karşılaştırılamadı');
+      var d = girilen - olculen;
+      if(d === 0) return 'Aynı';
+      return (d > 0 ? '+' : '') + bir(d) + ' ' + birim + sub('girilen değer ile ölçülen kesit arasındaki fark');
+    }
+
+    hedef.innerHTML = not + ozetListe([
+      ['Girilen görev sayısı', girilenAdet == null ? faint('Girilmedi') : num(girilenAdet)],
+      ['Görev kayıtlarında sorumluluk', num(g.toplam) + sub(g.acik + ' tanesi henüz tamamlanmadı')],
+      ['Görev kayıtlarında tamamlanan', num(g.biten) +
+        sub(g.zamaninda + ' tanesi termininde teslim edildi')],
+      ['Adet farkı', fark(girilenAdet, g.biten, 'görev')],
+      ['Girilen zamanında teslim', girilenZaman == null ? faint('Girilmedi') : GV.progress(girilenZaman)],
+      ['Ölçülen zamanında teslim', g.zamanOrani == null
+        ? faint('Tamamlanan görev yok') : GV.progress(g.zamanOrani) +
+          sub(g.zamaninda + ' / ' + g.biten + ' tamamlanan görev')],
+      ['Girilen revizyon oranı', girilenRev == null ? faint('Girilmedi') : num('%' + girilenRev)],
+      ['Ölçülen revizyon oranı', g.revizyonOrani == null ? faint('Görev kaydı yok')
+        : num('%' + g.revizyonOrani) + sub(g.revizyonlu + ' / ' + g.toplam + ' görevde revizyon var')],
+      ['Bu kart ne yapar', faint('Yalnız karşılaştırır — girilen değerleri değiştirmez')]
+    ]);
+  }
+
+  function gelisimOzetiCiz(){
+    var hedef = document.getElementById('gelisimOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var konular = secilenKonular(v);
+    var empK = v.personel ? (DB.emp(v.personel) || {}) : {};
+    var egitimler = v.personel ? egitimleri(v.personel) : [];
+    var digerler = v.personel ? digerDonemler(v.personel, duzenle ? kayit.kod : null) : [];
+
+    var not = konular.length
+      ? GV.notice({ tone:'info', icon:'i-graduation', title:'Eğitim ihtiyacı işaretlendi',
+          text:konular.length + ' eğitim ihtiyacı işaretlendi: ' + konular.join(', ') + '. Kayıt ' +
+               'performans listesinin “Eğitim İhtiyacı Olanlar” sekmesine düşer. Bu form eğitim kaydı, ' +
+               'eğitim planı ya da katılımcı ataması üretmez; eğitim ekranından açılır.',
+          actions:[{ label:'Eğitim ve yetkinlik', href:'app-egitim.html' }] })
+      : GV.notice({ tone:'neutral', icon:'i-info', title:'Eğitim ihtiyacı işaretlenmedi',
+          text:'Bu dönem için eğitim ihtiyacı işaretlenmedi; kayıt “Eğitim İhtiyacı Olanlar” sekmesinde ' +
+               'görünmez. Ölçüm: sistemdeki ' + toplamKayit + ' değerlendirmenin ' +
+               DB.performance.filter(function(p){ return (p.egitimIhtiyaci || []).length; }).length +
+               ' tanesinde eğitim ihtiyacı var.' });
+
+    hedef.innerHTML = not + ozetListe([
+      ['İşaretlenen eğitim ihtiyacı', konular.length ? konular.map(tagOf).join(' ') : faint('Yok')],
+      ['Personelin yetkinlikleri', (empK.yetkinlik || []).length
+        ? empK.yetkinlik.map(tagOf).join(' ')
+        : faint(v.personel ? 'Yetkinlik yazılmamış' : 'Personel seçilmedi')],
+      ['Personelin eğitim kayıtları', egitimler.length
+        ? '<b class="u-num">' + egitimler.length + '</b> kayıt' +
+          sub(egitimler.map(function(t){ return t.ad + ' · ' + t.durum; }).join(' · '))
+        : faint(v.personel ? 'Eğitim kaydı yok' : '—')],
+      ['Personelin diğer dönemleri', digerler.length
+        ? '<b class="u-num">' + digerler.length + '</b> dönem' +
+          sub(digerler.map(function(p){
+            var gp = genelPuan(p);
+            return p.donem + ' · ' + (gp == null ? 'puansız' : bir(gp) + '/' + PUAN_MAX);
+          }).join(' · '))
+        : faint(v.personel ? 'Başka dönem yok' : '—')],
+      ['Gelişim planı', metin(v.gelisimPlani) ? esc(v.gelisimPlani) : faint('Yazılmadı')],
+      ['Kaydın doğurduğu iş', faint('Yok — değerlendirme kaydı hedef, eğitim ya da ücret kaydı üretmez')]
+    ]);
+  }
+
+  function secilenKonular(v){
+    var out = [];
+    EGITIM_KONULARI.forEach(function(konu, i){ if(v['egt' + i]) out.push(konu); });
+    metin(v.egitimDiger).split(',').forEach(function(s){
+      var k = metin(s);
+      if(k && out.indexOf(k) === -1) out.push(k);
+    });
+    return out;
+  }
+
+  function ozetleriCiz(){ puanOzetiCiz(); gorevOzetiCiz(); gelisimOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    personel:'Personel', donem:'Dönem', durum:'Değerlendirme durumu',
+    ozDegerlendirme:'Öz değerlendirme', yoneticiDegerlendirme:'Yönetici değerlendirmesi',
+    pmDegerlendirme:'Proje yöneticisi değerlendirmesi', kaliteSonucu:'Görev kalite sonucu',
+    zamanindaTeslim:'Zamanında teslim oranı', revizyonOrani:'Revizyon oranı',
+    gorevSayisi:'Tamamlanan görev sayısı', problemCozme:'Problem çözme',
+    teknikGelisim:'Teknik gelişim', ekipCalismasi:'Ekip çalışması',
+    iletisim:'Departmanlar arası iletişim', musteriGeriBildirim:'Müşteri geri bildirimi',
+    egitimIhtiyaci:'Eğitim ihtiyacı', gelisimPlani:'Gelişim planı', aktif:'Kayıt durumu'
+  };
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  /* Karşılaştırma normalleştirmesi: tanımsız, null, false, boş metin ve '—' aynı kovaya düşer. */
+  function norm(x){
+    if(Object.prototype.toString.call(x) === '[object Array]') return x.join(', ');
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(Object.prototype.toString.call(v) === '[object Array]') return v.length ? v.join(', ') : '—';
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')       return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'personel')    return DB.empName(v);
+    if(PUAN_ALAN.indexOf(k) !== -1)  return bir(Number(v)) + ' / ' + PUAN_MAX;
+    if(YUZDE_ALAN.indexOf(k) !== -1) return '%' + v;
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.egitimIhtiyaci = secilenKonular(v);
+    EGITIM_KONULARI.forEach(function(konu, i){ delete v['egt' + i]; });
+    delete v.egitimDiger;
+
+    PUAN_ALAN.concat(YUZDE_ALAN, ['gorevSayisi']).forEach(function(k){
+      if(!(k in v)) return;                     /* onay yetkisi yoksa puan anahtarı hiç yok */
+      v[k] = metin(v[k]) === '' ? null : Number(v[k]);
+    });
+    v.gelisimPlani = metin(v.gelisimPlani) || null;
+    v.aktif = !!v.aktif;
+    if(!('durum' in v)) v.durum = duzenle ? kayit.durum : 'Açık';
+
+    return v;
+  }
+
+  /* Bu form eğitim, hedef, ücret ya da onay kaydı YAZMAZ. Kaydetmeden önce
+     insanın görmesi gereken tutarsızlıklar burada toplanır — hiçbiri kaydı
+     kendiliğinden reddetmez ya da bir karara bağlamaz. */
+  function dengeUyarilari(v){
+    var out = [];
+    var oz  = 'ozDegerlendirme' in v ? v.ozDegerlendirme : null;
+    var yon = 'yoneticiDegerlendirme' in v ? v.yoneticiDegerlendirme
+                                           : (duzenle ? kayit.yoneticiDegerlendirme : null);
+    var pm  = 'pmDegerlendirme' in v ? v.pmDegerlendirme : (duzenle ? kayit.pmDegerlendirme : null);
+    var genel = ort([oz, yon, pm]);
+
+    if(v.durum === 'Tamamlandı' && (yon == null || pm == null)){
+      out.push('Dönem “Tamamlandı” olarak kapatılıyor ama yönetici ya da proje yöneticisi puanı boş; ' +
+               'genel puan eksik değerlendirmeyle hesaplanır.');
+    }
+    if(v.durum === 'Açık' && genel != null){
+      out.push('Dönem “Açık” bırakılıyor ama puanlar girilmiş; açık dönem kayıtları listede “Bekliyor” ' +
+               'olarak görünür ve tamamlananlar sekmesine düşmez.');
+    }
+    if(oz != null && yon != null && Math.abs(oz - yon) >= 1){
+      out.push('Öz değerlendirme (' + bir(oz) + ') ile yönetici değerlendirmesi (' + bir(yon) + ') ' +
+               'arasında ' + bir(Math.abs(oz - yon)) + ' puan fark var. Bu bir hata değildir; ' +
+               'değerlendirme görüşmesinde konuşulması gereken bir ayrımdır.');
+    }
+    if(v.revizyonOrani != null && v.revizyonOrani > 20){
+      out.push('Revizyon oranı %' + v.revizyonOrani + ' — listede riskli aralıkta görünecek. Sistem bu ' +
+               'orandan bir sonuç üretmez; nedeni (kapsam değişikliği, belirsiz gereksinim, dış ' +
+               'bağımlılık) insan tarafından yorumlanır.');
+    }
+    if(v.zamanindaTeslim != null && v.zamanindaTeslim < 70){
+      out.push('Zamanında teslim oranı %' + v.zamanindaTeslim + ' — dönem ortalamasının belirgin ' +
+               'altında. Kayıt yine de olduğu gibi yazılır, bir uyarı ya da yaptırım üretilmez.');
+    }
+    if(!v.egitimIhtiyaci.length && genel != null && genel < PUAN_MAX * 0.7){
+      out.push('Genel puan ' + bir(genel) + ' / ' + PUAN_MAX + ' olmasına rağmen eğitim ihtiyacı ' +
+               'işaretlenmedi; gelişim planı olmadan dönem kapanıyor.');
+    }
+    if(duzenle && norm(kayit.personel) !== norm(v.personel)){
+      out.push('Değerlendirilen personel ' + DB.empName(kayit.personel) + ' → ' + DB.empName(v.personel) +
+               ' olarak değişiyor; kayıt kodu (' + kayit.kod + ') değişmez ve eski kodda kalır.');
+    }
+    if(duzenle && norm(kayit.donem) !== norm(v.donem)){
+      out.push('Dönem ' + kayit.donem + ' → ' + v.donem + ' olarak değişiyor; kayıt kodu dönemden ' +
+               'üretilmişti ve ' + kayit.kod + ' olarak kalır.');
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: değerlendirme listelerde, sekmelerde ve sayaçlarda görünmeyecek. ' +
+               'Personelin diğer dönemleri ve eğitim kayıtları silinmez.');
+    }
+    if(!canOnay){
+      out.push('Rolünüzde onay yetkisi olmadığı için yönetici puanı, proje yöneticisi puanı ve dönem ' +
+               'kapatma alanları forma basılmadı; bu alanlara dokunulmaz.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28).
+         `kod` ve onay yetkisi olmayan rolde karar anahtarları v'de yoktur, dokunulmaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod(v.donem);
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. */
+      var yeni = {
+        kod:kod, personel:v.personel, donem:v.donem, durum:v.durum,
+        ozDegerlendirme:v.ozDegerlendirme,
+        yoneticiDegerlendirme:'yoneticiDegerlendirme' in v ? v.yoneticiDegerlendirme : null,
+        pmDegerlendirme:'pmDegerlendirme' in v ? v.pmDegerlendirme : null,
+        zamanindaTeslim:v.zamanindaTeslim, revizyonOrani:v.revizyonOrani, gorevSayisi:v.gorevSayisi,
+        kaliteSonucu:v.kaliteSonucu, problemCozme:v.problemCozme, teknikGelisim:v.teknikGelisim,
+        ekipCalismasi:v.ekipCalismasi, iletisim:v.iletisim, musteriGeriBildirim:v.musteriGeriBildirim,
+        egitimIhtiyaci:v.egitimIhtiyaci, gelisimPlani:v.gelisimPlani, aktif:v.aktif
+      };
+      DB.performance.unshift(yeni);
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Performans değerlendirmesi oluşturuldu — ' + DB.empName(v.personel) + ' · ' + v.donem +
+              ' · ' + v.durum,
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-performans.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce okuyun',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz değerlendirme yeni değerlerle yazılır; kayıt bir terfi, ' +
+           'zam, prim ya da uyarı kararı üretmez, eğitim ve ücret kayıtlarına da dokunmaz.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'İnsan Kaynakları',
+    title:basligi,
+    sub: duzenle
+      ? kayit.kod + ' · ' + DB.empName(kayit.personel) + ' · ' + kayit.donem +
+        ' — değişiklikler aktivite geçmişine yazılır · ' + alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunluSayisi +
+        ' zorunlu · puanlar ' + OLCEK + ' ölçeğinde.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-performans.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>

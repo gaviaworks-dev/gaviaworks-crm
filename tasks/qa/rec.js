@@ -80,6 +80,8 @@ const MAP = {
   'app-arac-yakit-form.html': 'fuelLogs',
   'app-arac-gider-form.html': 'vehicleExpenses',
   'app-arac-kaza-form.html': 'accidents',
+  'app-destek-paket-form.html': 'supportPackages',
+  'app-performans-form.html': 'performance',
 };
 
 /* Kaydın GERÇEKTEN yüklendiğinin ölçütü.

@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Bakım Paketi Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="destek" data-screen="paket">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today
+     crm.js  → DB.customers
+     ops.js  → DB.supportPackages, DB.tickets
+     misc.js → DB.contracts
+     work.js → DB.activities -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? DB.supportPackages.filter(function(x){ return x.kod === id; })[0] : null;
+  var duzenle = !!kayit;
+
+  /* GV.empty metnini ÖN-ESCAPE ETME: bileşen kendisi escape ediyor. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({
+      eyebrow:'Destek ve Bakım', title:'Kayıt bulunamadı',
+      sub:'Düzenlenmek istenen bakım paketi kayıtlı değil.',
+      actions:[{ label:'Bakım paketlerine dön', cls:'btn-line', href:'app-destek-paket.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Bakım paketi bulunamadı',
+      desc:'“' + id + '” kodlu bakım paketi kayıtlı değil. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-destek-paket.html">Bakım paketlerine dön</a>' }) + '</section>';
+    return;
+  }
+
+  var basligi = duzenle ? kayit.kod + ' · ' + kayit.ad + ' · Düzenle' : 'Yeni Bakım Paketi';
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (ders L-07)
+     Paket bedeli ayrıca can('finans') ile kapatılır; yetkisi olmayan role
+     forma HİÇ basılmaz ve düzenlemede kayıttaki tutara dokunulmaz.
+     ================================================================= */
+  var canYaz    = duzenle ? GV.perm.can('duzenle') : GV.perm.can('ekle');
+  var canFinans = GV.perm.can('finans');
+
+  if(!canYaz){
+    GV.pageHead({
+      eyebrow:'Destek ve Bakım', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Bakım paketlerine dön', cls:'btn-line', href:'app-destek-paket.html' }]
+    });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok',
+      desc:(duzenle ? 'Bakım paketi düzenleme' : 'Bakım paketi oluşturma') +
+           ' yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. Paketleri listede ' +
+           'görüntüleyebilir, ancak kaydı değiştiremezsiniz.' }) + '</section>';
+    /* GV.errorState kendi “Tekrar dene” butonunu basar; yeniden denenecek bir yükleme
+       yok — ölü kontrol bırakmamak için gerçek aksiyonla değiştirilir. */
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-destek-paket.html">Bakım paketleri</a>' +
+        ' <a class="btn btn-acc" href="app-destek.html">Destek talepleri</a>';
+    }
+    return;
+  }
+
+  /* =================================================================
+     YARDIMCILAR
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function metin(v){ return String(v == null ? '' : v).trim(); }
+  function yuvarla(n){ return Math.round(n * 100) / 100; }
+  function pad(n, len){ var s = String(n); while(s.length < len) s = '0' + s; return s; }
+  function distinct(arr){
+    var o = []; arr.forEach(function(v){ if(v != null && v !== '' && o.indexOf(v) === -1) o.push(v); });
+    return o;
+  }
+  function anahtarVar(list, ad){
+    return (list || []).some(function(x){ return Object.prototype.hasOwnProperty.call(x, ad); });
+  }
+
+  function dl(pairs){
+    return '<dl class="gv-dl">' + pairs.filter(Boolean).map(function(p){
+      var e = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (e ? ' class="is-empty"' : '') + '>' +
+        (e ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function ozetListe(rows){
+    return '<div class="gv-summary">' + rows.filter(Boolean).map(function(p){
+      return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + p[0] + '</span>' +
+        '<span class="gv-summary-val">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function tagOf(t){ return t ? '<span class="tag">' + esc(t) + '</span>' : ''; }
+  function faint(t){ return '<span class="u-faint">' + esc(t) + '</span>'; }
+  function para(v){ return '<span class="cell-money">' + F.money(v) + '</span>'; }
+  function paraSade(v){ return '<span class="u-num">' + F.money(v) + '</span>'; }
+  function saat(v){ return '<span class="u-num">' + F.hours(v) + '</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+      (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' + govde + '</section>';
+  }
+
+  /* Kalan gün sayısal bir eşiktir, TONE sözlüğünde karşılığı yok — ton AÇIKÇA geçilir.
+     Eşik liste ekranıyla aynı: yenileme penceresi 60 gün. */
+  function kalanTon(iso){
+    var d = F.days(iso);
+    if(d == null) return null;
+    if(d < 0)   return 'is-danger';
+    if(d <= 15) return 'is-danger';
+    if(d <= 30) return 'is-warn';
+    if(d <= 60) return 'is-warn';
+    return 'is-ok';
+  }
+  function kalanBadge(iso){
+    var d = F.days(iso);
+    if(d == null) return faint('—');
+    var m = d < 0 ? 'Süresi doldu · ' + (-d) + ' gün' : d === 0 ? 'Bugün son gün' : d + ' gün kaldı';
+    return GV.badge(m, kalanTon(iso));
+  }
+
+  /* =================================================================
+     EKSENLER
+     PARA EKSENİ: paket bedeli NET eksendedir — BKP-001 tutarı, bağlı olduğu
+     sözleşme kaydının (SZL-2026-022) tutarıyla birebir aynıdır. Etiketlerde
+     ve aktivite kaydında eksen açıkça yazılır.
+     ================================================================= */
+  var PARA_EKSEN = '(KDV hariç)';
+
+  /* Dönem uzunluğu (ay) — liste ekranındaki `donemAy` ile BİREBİR aynı formül;
+     yıllık gelir ve toplam kota bu değerden türer. */
+  function donemAy(bas, bit){
+    if(!bas || !bit) return 12;
+    var a = String(bas).slice(0,10).split('-'), b = String(bit).slice(0,10).split('-');
+    var m = (Number(b[0]) - Number(a[0])) * 12 + (Number(b[1]) - Number(a[1])) +
+            (Number(b[2]) >= Number(a[2]) ? 1 : 0);
+    return m > 0 ? m : 12;
+  }
+  /* KOTA ARİTMETİĞİ: kullanilan + kalan = aylikSaat × dönem ayı. */
+  function kotaHesap(aylik, bas, bit){ return yuvarla(sayi(aylik) * donemAy(bas, bit)); }
+  function kayitliKota(p){ return yuvarla(sayi(p.kullanilan) + sayi(p.kalan)); }
+  function tuketimOran(kullanilan, toplam){
+    return toplam > 0 ? Math.max(0, Math.min(100, Math.round(kullanilan / toplam * 100))) : 0;
+  }
+
+  var DURUMLAR = distinct(DB.supportPackages.map(function(p){ return p.durum; }));
+  var PAKET_ADLARI = distinct(DB.supportPackages.map(function(p){ return p.ad; })).sort();
+
+  /* =================================================================
+     BAĞLI KOLEKSİYONLAR
+     ================================================================= */
+  function musteriOf(kod){
+    return kod ? DB.customers.filter(function(c){ return c.kod === kod; })[0] || null : null;
+  }
+  function musteriAd(kod){ var c = musteriOf(kod); return c ? c.unvan : (kod || '—'); }
+  function musteriKisa(kod){ var c = musteriOf(kod); return c ? c.kisa : (kod || '—'); }
+
+  var MUS_SECENEK = DB.customers.map(function(c){
+    return { value:c.kod, label:c.unvan + ' — ' + c.kod };
+  });
+
+  /* Sözleşme bağı YAZILI TEKİL BAĞDIR (ders L-13): `sozlesme` alanında sözleşme
+     kodu durur, türetilmez. DB.contracts alan adları veriden yoklanarak okunur;
+     olmayan alan uydurulmaz. */
+  var SZ_MUSTERI_VAR = anahtarVar(DB.contracts, 'musteri');
+  function szMusteri(s){ return SZ_MUSTERI_VAR ? s.musteri : null; }
+  function szAd(s){ return s.ad || s.konu || s.baslik || ''; }
+  function sozlesmeOf(kod){
+    return kod ? DB.contracts.filter(function(s){ return s.kod === kod; })[0] || null : null;
+  }
+  var SZ_SECENEK = DB.contracts.map(function(s){
+    var ad = szAd(s), m = szMusteri(s);
+    return { value:s.kod,
+             label:s.kod + (ad ? ' · ' + ad : '') + (m ? ' — ' + musteriKisa(m) : '') };
+  });
+
+  function talepleriOf(mus){
+    return mus ? DB.tickets.filter(function(t){ return t.musteri === mus; }) : [];
+  }
+  function acikTalepMi(t){ return ['Kapandı','Çözüldü'].indexOf(t.durum) === -1; }
+  /* `kalan`, müşterinin destek taleplerindeki `kalanDestek` ile birebir aynıdır.
+     Talepler bu formdan yazılmaz; değer yalnız karşılaştırılır. */
+  function kalanDestekDegerleri(mus){
+    return distinct(talepleriOf(mus).map(function(t){ return t.kalanDestek; }));
+  }
+  function harcananToplam(mus){
+    return yuvarla(talepleriOf(mus).reduce(function(s, t){ return s + sayi(t.harcananSure); }, 0));
+  }
+
+  /* Aynı müşterinin diğer paketleri — paket müşteri başına tekil değildir,
+     ama çakışan dönem uyarı konusudur. */
+  function digerPaketler(mus){
+    return DB.supportPackages.filter(function(p){
+      return p.musteri === mus && (!duzenle || p.kod !== kayit.kod);
+    });
+  }
+
+  var acts = duzenle
+    ? DB.activities.filter(function(a){ return a.kayit === kayit.kod; })
+        .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+    : [];
+
+  /* =================================================================
+     ÖLÇÜMLER — sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var toplamPaket   = DB.supportPackages.length;
+  var aktifPaket    = DB.supportPackages.filter(function(p){
+    return p.durum === 'Aktif' && !(F.days(p.bitis) != null && F.days(p.bitis) < 0); }).length;
+  var kritikPaket   = DB.supportPackages.filter(function(p){
+    return tuketimOran(sayi(p.kullanilan), kayitliKota(p)) >= 80; }).length;
+  var sozlesmeliPaket = DB.supportPackages.filter(function(p){ return !!p.sozlesme; }).length;
+  /* Kota aritmetiğinin veride tuttuğu kayıt sayısı — kaydın kendisi de bu kuralla yazılır. */
+  var dengeliPaket = DB.supportPackages.filter(function(p){
+    return kayitliKota(p) === kotaHesap(p.aylikSaat, p.baslangic, p.bitis); }).length;
+
+  /* =================================================================
+     FORM KAYDI
+     `kullanilan` ve `kalan` TÜRETİLEN değerlerdir — forma alan olarak
+     basılmaz, aşağıdaki kota kartında hesaplanıp gösterilir (ders L-08).
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {};
+    Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
+  }else{
+    formRec = {
+      musteri:'', ad:PAKET_ADLARI[0] || '', sozlesme:'',
+      baslangic:DB.today, bitis:'', aylikSaat:'',
+      tutar:'', durum:DURUMLAR.indexOf('Aktif') !== -1 ? 'Aktif' : (DURUMLAR[0] || ''),
+      yenileme:false, yenilemeTarihi:'', aktif:true
+    };
+  }
+
+  /* Yeni kod dizi uzunluğundan değil, en yüksek mevcut numaradan +1 üretilir;
+     kod biçimi (ön ek ve basamak genişliği) veriden okunur, uydurulmaz. */
+  function yeniKod(){
+    var max = 0, on = 'BKP-', gen = 3;
+    DB.supportPackages.forEach(function(p){
+      var m = /^(.*?)(\d+)$/.exec(String(p.kod || ''));
+      if(!m) return;
+      on = m[1]; gen = m[2].length;
+      if(+m[2] > max) max = +m[2];
+    });
+    return on + pad(max + 1, gen);
+  }
+  var siradakiKod = duzenle ? kayit.kod : yeniKod();
+
+  /* =================================================================
+     ÜST BLOKLAR
+     ================================================================= */
+  var kapsamNot = GV.notice({
+    tone:'neutral', icon:'i-paperclip',
+    title:'Bu formun yazmadıkları',
+    text:'Destek talebi, talepte harcanan süre, süre düşümü, fatura ve sözleşme kaydı bu formdan ' +
+         'doğmaz. Paketin kullanılan ve kalan saati elle girilmez: kota aritmetiğinden (aylık saat × ' +
+         'dönem ayı) hesaplanır ve aşağıdaki kota kartında gösterilir. Kalan saatin destek ' +
+         'taleplerindeki kalan destek değeriyle eşitliği burada yalnız denetlenir, talep kayıtları ' +
+         'destek ekranından yürür.',
+    actions:[{ label:'Destek talepleri', href:'app-destek.html' },
+             { label:'Sözleşmeler', href:'app-sozlesme.html?t=tumu' }] });
+
+  var ust = '';
+
+  if(duzenle){
+    var mTalepler   = talepleriOf(kayit.musteri);
+    var mAcik       = mTalepler.filter(acikTalepMi).length;
+    var kdDegerler  = kalanDestekDegerleri(kayit.musteri);
+    var kayitKota   = kayitliKota(kayit);
+    var beklenenKota = kotaHesap(kayit.aylikSaat, kayit.baslangic, kayit.bitis);
+    var kdUyum      = kdDegerler.length === 1 && yuvarla(sayi(kdDegerler[0])) === yuvarla(sayi(kayit.kalan));
+
+    var bagliMetin = [];
+    if(mTalepler.length) bagliMetin.push(mTalepler.length + ' destek talebi (' + mAcik + ' açık)');
+    if(kayit.sozlesme)   bagliMetin.push('1 sözleşme bağı (' + kayit.sozlesme + ')');
+    if(digerPaketler(kayit.musteri).length)
+      bagliMetin.push(digerPaketler(kayit.musteri).length + ' başka bakım paketi');
+    if(acts.length)      bagliMetin.push(acts.length + ' aktivite kaydı');
+
+    ust += '<section class="gv-card"><div class="gc-body">' + GV.notice(
+      bagliMetin.length
+        ? { tone:kdUyum ? 'info' : 'warn', icon:kdUyum ? 'i-info' : 'i-alert',
+            title:'Bu pakete bağlı kayıtlar var',
+            text:musteriAd(kayit.musteri) + ' müşterisinde ' + bagliMetin.join(', ') + ' bulunuyor. ' +
+                 'Paketin kalan saati (' + F.hours(kayit.kalan) + ') ile destek taleplerindeki kalan ' +
+                 'destek değeri ' +
+                 (kdDegerler.length === 0
+                   ? 'karşılaştırılamıyor: taleplerde kalan destek yazılı değil.'
+                   : kdDegerler.length > 1
+                     ? 'tek değere inmiyor: taleplerde ' + kdDegerler.map(function(x){ return F.hours(x); }).join(' · ') +
+                       ' değerleri var.'
+                     : kdUyum
+                       ? 'birebir aynı (' + F.hours(kdDegerler[0]) + ').'
+                       : 'birbirini tutmuyor: taleplerde ' + F.hours(kdDegerler[0]) + ' yazılı.') +
+                 ' Aylık saati ya da dönem tarihlerini değiştirirseniz kota yeniden hesaplanır ve bu ' +
+                 'eşitlik bozulabilir; kaydetmeden önce ayrıca sorulur.',
+            actions:[{ label:'Müşteri kaydı', href:'app-musteri.html?q=' + kayit.musteri },
+                     { label:'Destek talepleri', href:'app-destek.html?t=tumu&f_musteri=' + kayit.musteri }] }
+        : { tone:'neutral', icon:'i-info', title:'Bu pakete bağlı başka kayıt yok',
+            text:musteriAd(kayit.musteri) + ' için destek talebi, sözleşme bağı ve başka bakım paketi ' +
+                 'bulunmuyor. Ölçüm: sistemde ' + toplamPaket + ' bakım paketi kayıtlı, ' + aktifPaket +
+                 ' tanesi aktif.',
+            actions:[{ label:'Müşteri kaydı', href:'app-musteri.html?q=' + kayit.musteri },
+                     { label:'Destek talepleri', href:'app-destek.html' }] }) +
+      '</div></section>';
+
+    var son = acts[0];
+    var sz  = sozlesmeOf(kayit.sozlesme);
+    ust += kart('Kayıt Özeti', 'i-info', null,
+      '<div class="gc-body">' + dl([
+        ['Paket kodu', '<span class="cell-code">' + esc(kayit.kod) + '</span>'],
+        ['Paket adı', '<b>' + esc(kayit.ad) + '</b>'],
+        ['Müşteri', '<a href="app-musteri.html?q=' + esc(kayit.musteri) + '">' +
+          esc(musteriAd(kayit.musteri)) + '</a>' + sub(kayit.musteri)],
+        ['Durum', GV.badge(kayit.durum) +
+          (kayit.yenileme ? ' <span class="badge is-warn no-dot">Yenilenecek</span>' : '') +
+          (kayit.aktif === false ? ' <span class="tag">Arşiv kaydı</span>' : '')],
+        ['Dönem', F.date(kayit.baslangic) + ' — ' + F.date(kayit.bitis) + ' ' +
+          kalanBadge(kayit.bitis) + sub(donemAy(kayit.baslangic, kayit.bitis) + ' ay')],
+        ['Aylık saat kotası', saat(kayit.aylikSaat)],
+        ['Toplam kota <span class="u-faint">(kayıtlı)</span>', saat(kayitKota) +
+          (kayitKota === beklenenKota
+            ? sub('aylık saat × dönem ayı ile birebir tutuyor')
+            : sub('aritmetik beklentisi ' + F.hours(beklenenKota) + ' — kayıtlı değer farklı'))],
+        ['Kullanılan · kalan', saat(kayit.kullanilan) + ' / ' + saat(kayit.kalan) +
+          sub('%' + tuketimOran(sayi(kayit.kullanilan), kayitKota) + ' tüketim')],
+        ['Taleplerdeki kalan destek', kdDegerler.length
+          ? kdDegerler.map(function(x){ return F.hours(x); }).join(' · ') +
+            (kdUyum ? sub('paketin kalanıyla birebir aynı') : sub('paketin kalanıyla uyuşmuyor'))
+          : faint('Taleplerde yazılı değil')],
+        canFinans
+          ? ['Paket bedeli <span class="u-faint">' + PARA_EKSEN + '</span>',
+             kayit.tutar == null ? null : '<b>' + para(kayit.tutar) + '</b>' +
+               sub('yıllığa normalize: ' +
+                   F.money(Math.round(sayi(kayit.tutar) / donemAy(kayit.baslangic, kayit.bitis) * 12)))]
+          : null,
+        ['Sözleşme bağı', kayit.sozlesme
+          ? '<a class="cell-code" href="app-sozlesme.html?t=tumu&q=' + esc(kayit.sozlesme) + '">' +
+            esc(kayit.sozlesme) + '</a>' + (sz && szAd(sz) ? sub(szAd(sz)) : '')
+          : faint('Sözleşmeye bağlı değil')],
+        ['Yenileme işareti', kayit.yenileme
+          ? 'İşaretli' + sub(kayit.yenilemeTarihi ? F.date(kayit.yenilemeTarihi) : 'tarih yazılmadı')
+          : faint('İşaretsiz')],
+        ['Açık destek talebi', mAcik
+          ? '<b class="u-num">' + mAcik + '</b> açık' + sub(mTalepler.length + ' talebin içinde')
+          : faint('Açık talep yok')],
+        ['Son değiştiren', son ? esc(son.kisi) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-destek.html?t=tumu&f_musteri=' + esc(kayit.musteri) + '">' +
+        ico('i-support','ic-sm') + ' Talepleri gör</a>');
+
+  }else{
+    ust += '<section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', title:'Yeni bakım paketi oluşturuluyor',
+        text:'Kaydettiğinizde sıradaki paket kodu ' + siradakiKod + ' olarak atanır, kullanılan süre ' +
+             'sıfır ve kalan saat toplam kotaya eşit olarak açılır, aktivite geçmişine “Bakım paketi ' +
+             'oluşturuldu” satırı düşer ve paket listesine dönülür. Destek talebi, süre düşümü ve fatura ' +
+             'bu formdan doğmaz. Ölçüm: sistemde ' + toplamPaket + ' bakım paketi var, ' + aktifPaket +
+             ' tanesi aktif, ' + sozlesmeliPaket + ' tanesi bir sözleşmeye bağlı, ' + kritikPaket +
+             ' tanesinin kotası kritik (≥ %80).',
+        actions:[{ label:'Bakım paketleri', href:'app-destek-paket.html' },
+                 { label:'Destek talepleri', href:'app-destek.html' }] }) +
+      '</div></section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-shield-check') + 'Paket Bilgileri</h2>' +
+        '<div class="gc-sub">' + (duzenle ? 'Paket kodu değiştirilmez' : 'Paket kodu kaydederken atanır') +
+        ' · zorunlu alanlar yıldızla işaretlidir.</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clock') + 'Saat Kotası ve Denge</h2>' +
+        '<div class="gc-sub">Kullanılan ve kalan saat elle girilmez; kota aritmetiğinden hesaplanır: ' +
+          'kullanılan + kalan = aylık saat × dönem ayı. Aylık saati ya da dönem tarihlerini ' +
+          'değiştirdikçe burası yeniden hesaplanır.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-destek.html">' + ico('i-support','ic-sm') +
+            ' Destek talepleri</a></div></div>' +
+      '<div class="gc-body" id="kotaOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-file-check') + 'Müşteri, Sözleşme ve Bedel</h2>' +
+        '<div class="gc-sub">Sözleşme bağı yazılı tekil bağdır: paket kaydındaki sözleşme kodundan ' +
+          'okunur, müşteriden türetilmez.</div></div>' +
+        '<div class="gc-head-acts">' +
+          '<a class="btn btn-line btn-sm" href="app-sozlesme.html?t=tumu">' + ico('i-file-check','ic-sm') +
+            ' Sözleşmeler</a></div></div>' +
+      '<div class="gc-body" id="bagOzet"></div>' +
+    '</section>' +
+
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + kapsamNot + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-destek-paket.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' ' +
+          (duzenle ? 'Değişiklikleri kaydet' : 'Kaydet') + '</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? '<section class="gv-card">' +
+          '<div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Aktivite Geçmişi</h2></div>' +
+          '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
+      : '');
+
+  /* =================================================================
+     ALANLAR
+     ================================================================= */
+  var sections = [];
+
+  sections.push({ title:'Müşteri ve paket',
+    desc:'Paketin hangi müşteriye ait olduğu, paket adı ve bağlı olduğu sözleşme. Paket kodu sistem ' +
+         'tarafından atanır, elle girilmez.',
+    fields:[
+      { key:'musteri', label:'Müşteri', type:'select', options:MUS_SECENEK, required:true, cols:6,
+        placeholder:'Müşteri seçin',
+        hint:'Destek talepleri müşteri koduyla eşleşir; kalan saat karşılaştırması bu müşterinin ' +
+             'talepleri üzerinden yapılır. Sistemde ' + DB.customers.length + ' müşteri kayıtlı.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.sozlesme){
+            var s = sozlesmeOf(d.sozlesme);
+            if(s && SZ_MUSTERI_VAR && szMusteri(s) && szMusteri(s) !== v)
+              return 'Seçili sözleşme (' + d.sozlesme + ') ' + musteriKisa(szMusteri(s)) +
+                     ' müşterisine ait — müşteriyi ya da sözleşmeyi düzeltin.';
+          }
+          return '';
+        } },
+
+      { key:'ad', label:'Paket adı', type:'select', options:PAKET_ADLARI, required:true, cols:6,
+        placeholder:'Paket adı seçin',
+        hint:'Küme: ' + PAKET_ADLARI.join(' · ') + '. Liste ekranındaki paket adı süzgeci bu kümeyi ' +
+             'kullanır; ad, aylık saat kotasını kendiliğinden belirlemez, saat ayrıca yazılır.' },
+
+      { key:'sozlesme', label:'Bağlı sözleşme', type:'select', options:SZ_SECENEK, cols:12,
+        placeholder:'Sözleşmeye bağlı değil',
+        hint:'Yazılı tekil bağ: paket kaydındaki sözleşme kodu. Ölçüm: ' + toplamPaket + ' paketin ' +
+             sozlesmeliPaket + ' tanesi bir sözleşmeye bağlı. Sözleşme kaydı bu formdan doğmaz; ' +
+             'sözleşme bedeliyle paket bedeli aynı net eksendedir.',
+        validate:function(v, d){
+          if(!v) return '';
+          var s = sozlesmeOf(v);
+          if(!s) return 'Bu sözleşme kaydı bulunamadı.';
+          if(SZ_MUSTERI_VAR && szMusteri(s) && d.musteri && szMusteri(s) !== d.musteri)
+            return 'Sözleşme ' + v + ' ' + musteriKisa(szMusteri(s)) + ' müşterisine ait; paket ise ' +
+                   musteriKisa(d.musteri) + ' müşterisinde. Bağ tekildir, çapraz kurulmaz.';
+          var baska = DB.supportPackages.filter(function(p){
+            return p.sozlesme === v && (!duzenle || p.kod !== kayit.kod); })[0];
+          return baska ? 'Bu sözleşme ' + baska.kod + ' (' + baska.ad + ') paketine zaten bağlı.' : '';
+        } }
+    ]});
+
+  sections.push({ title:'Dönem ve saat kotası',
+    desc:'Dönem uzunluğu ve aylık saat, toplam kotayı belirler. Kullanılan ve kalan saat bu ikisinden ' +
+         'hesaplanır; forma elle girilmez.',
+    fields:[
+      { key:'baslangic', label:'Dönem başlangıcı', type:'date', required:true, cols:6,
+        hint:'Sistem tarihi ' + F.date(DB.today) + '. Dönem uzunluğu ay olarak hesaplanır ve toplam ' +
+             'kotanın çarpanıdır; başlangıcı değiştirmek kotayı da değiştirir.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.bitis && v >= d.bitis)
+            return 'Dönem başlangıcı bitişten (' + F.date(d.bitis) + ') önce olmalıdır.';
+          return '';
+        } },
+
+      { key:'bitis', label:'Dönem bitişi', type:'date', required:true, cols:6,
+        hint:'Bitişe 60 gün kala yenileme penceresi açılır; liste ekranındaki “Yenilemesi Yaklaşan” ' +
+             'sekmesi bu eşiği kullanır.',
+        validate:function(v, d){
+          if(!v) return '';
+          if(d.baslangic && v <= d.baslangic)
+            return 'Dönem bitişi başlangıçtan (' + F.date(d.baslangic) + ') sonra olmalıdır.';
+          var kota = kotaHesap(d.aylikSaat, d.baslangic, v);
+          if(duzenle && kota < sayi(kayit.kullanilan))
+            return 'Bu dönemle toplam kota ' + F.hours(kota) + ' olur; müşterinin bu paketten ' +
+                   'kullandığı süre ' + F.hours(kayit.kullanilan) + '. Kalan saat negatife düşemez.';
+          return '';
+        } },
+
+      { key:'aylikSaat', label:'Aylık saat kotası', type:'number', required:true, cols:6, min:1, max:400,
+        placeholder:'Örn. 20',
+        hint:'Toplam kota = aylık saat × dönem ayı. Ölçüm: ' + toplamPaket + ' paketin ' + dengeliPaket +
+             ' tanesinde kayıtlı kullanılan + kalan toplamı bu aritmetiğe birebir uyuyor.',
+        validate:function(v, d){
+          var s = metin(v);
+          if(s === '') return '';
+          if(sayi(v) <= 0) return 'Aylık saat kotası sıfırdan büyük olmalıdır.';
+          var kota = kotaHesap(v, d.baslangic, d.bitis);
+          if(duzenle && kota < sayi(kayit.kullanilan))
+            return 'Bu aylık saatle toplam kota ' + F.hours(kota) + ' olur; kayıtlı kullanılan süre ' +
+                   F.hours(kayit.kullanilan) + '. Kalan saat negatife düşemez.';
+          return '';
+        } },
+
+      { key:'durum', label:'Paket durumu', type:'select', options:DURUMLAR, required:true, cols:6,
+        hint:'Küme: ' + DURUMLAR.join(' · ') + '. “Süresi doldu” ayrı bir durum değildir; bitiş tarihi ' +
+             'geçmişte kalan paket listede kendiliğinden öyle görünür.' }
+    ]});
+
+  var bedelAlanlari = [];
+  if(canFinans){
+    bedelAlanlari.push({ key:'tutar', label:'Paket bedeli ' + PARA_EKSEN, type:'money',
+      required:true, cols:6, min:0,
+      hint:'Dönem bedeli, KDV hariç net tutar — bağlı sözleşme kaydının tutarıyla aynı eksende ' +
+           '(BKP-001 bedeli ile SZL-2026-022 tutarı birebir aynı). Yıllık gelir bu bedelin dönem ayına ' +
+           'bölünüp 12 ile çarpılmasıyla bulunur.',
+      validate:function(v, d){
+        var s = metin(v);
+        if(s === '') return '';
+        var n = sayi(v);
+        if(n <= 0) return 'Paket bedeli sıfırdan büyük olmalıdır.';
+        if(Math.round(n) !== n) return 'Bedel tam lira olarak yazılır (kuruş kullanılmaz).';
+        var kota = kotaHesap(d.aylikSaat, d.baslangic, d.bitis);
+        if(kota > 0 && n / kota < 1)
+          return 'Saat başı bedel 1 ₺’nin altına düşüyor (' + F.hours(kota) + ' kota için ' +
+                 F.money(n) + '); bedel ya da kota hatalı görünüyor.';
+        return '';
+      } });
+  }
+  bedelAlanlari.push(
+    { key:'yenileme', label:'Yenileme işareti', type:'switch', cols:6,
+      onLabel:'Paket yenileme listesinde — müşteri sorumlusuna hatırlatma düşer',
+      hint:'Liste ekranındaki “Yenilemeye işaretle” toplu işlemi de bu alanı yazar. İşaret, paketin ' +
+           'yenilendiği anlamına gelmez; yenileme dönemi bir yıl uzatıldığında işaret kapanır.' },
+
+    { key:'yenilemeTarihi', label:'Yenileme tarihi', type:'date', cols:6,
+      hint:'Yenileme görüşmesinin planlandığı gün. İşaret kapalıyken boş bırakılır; işaret açılıp tarih ' +
+           'yazılmazsa dönem bitişi kullanılır.',
+      validate:function(v, d){
+        if(!d.yenileme && v)
+          return 'Yenileme işareti kapalıyken tarih yazılmaz — işareti açın ya da tarihi boşaltın.';
+        if(!v) return '';
+        if(d.baslangic && v < d.baslangic)
+          return 'Yenileme tarihi dönem başlangıcından (' + F.date(d.baslangic) + ') önce olamaz.';
+        return '';
+      } }
+  );
+
+  sections.push({ title:'Bedel, yenileme ve durum',
+    desc:'Paket bedeli net eksendedir (KDV hariç) ve bağlı sözleşme tutarıyla aynı eksende okunur. ' +
+         'Yenileme işareti paketin yenilendiğini değil, yenileme takibine alındığını gösterir.',
+    fields:bedelAlanlari });
+
+  sections.push({ title:'Kayıt durumu',
+    desc:'Paket durumu destek ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
+    fields:[
+      { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
+        onLabel:'Kayıt aktif — paket listelerinde, sayaçlarda ve kota raporlarında görünür',
+        hint:'Kapatılırsa paket arşive düşer; müşterinin destek talepleri ve sözleşmesi silinmez, ' +
+             'yalnız paket aktif sayaçlardan çıkar.',
+        validate:function(v, d){
+          if(!v && d.durum === 'Aktif')
+            return 'Durumu “Aktif” olan paket arşivlenemez — önce paket durumunu değiştirin.';
+          return '';
+        } }
+    ]});
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+  var zorunluSayisi = 0;
+  sections.forEach(function(s){
+    (s.fields || []).forEach(function(f){ if(f.required) zorunluSayisi++; });
+  });
+
+  var form = GV.form({
+    mount:'#formMount', id:'destekpaket', record:formRec, sections:sections
+  });
+
+  /* =================================================================
+     CANLI ÖZETLER — dinleyiciler mount İÇİNDEKİ düğüme bağlanır (ders L-16)
+     ================================================================= */
+  function turetilen(v){
+    var ay    = donemAy(v.baslangic, v.bitis);
+    var kota  = kotaHesap(v.aylikSaat, v.baslangic, v.bitis);
+    var kull  = duzenle ? yuvarla(sayi(kayit.kullanilan)) : 0;
+    var kalan = yuvarla(kota - kull);
+    return { ay:ay, kota:kota, kullanilan:kull, kalan:kalan, oran:tuketimOran(kull, kota) };
+  }
+
+  function kotaOzetiCiz(){
+    var hedef = document.getElementById('kotaOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var t = turetilen(v);
+    var kd = kalanDestekDegerleri(v.musteri);
+    var harcanan = harcananToplam(v.musteri);
+    var kdTek = kd.length === 1 ? yuvarla(sayi(kd[0])) : null;
+    var kdUyum = kdTek != null && kdTek === t.kalan;
+
+    var not;
+    if(!v.aylikSaat || !v.baslangic || !v.bitis){
+      not = GV.notice({ tone:'neutral', icon:'i-info', title:'Kota henüz hesaplanamıyor',
+        text:'Toplam kota aylık saat ile dönem uzunluğundan çıkar; aylık saat, dönem başlangıcı ve ' +
+             'bitişi doldurulmadan kullanılan ve kalan saat yazılamaz.' });
+    }else if(t.kalan < 0){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Kota dengesi bozuluyor',
+        text:'Bu dönem ve aylık saatle toplam kota ' + F.hours(t.kota) + ' oluyor, oysa paketten ' +
+             'kullanılan süre ' + F.hours(t.kullanilan) + '. Kalan saat negatife düşer; aylık saati ' +
+             'artırın ya da dönemi uzatın.' });
+    }else if(duzenle && (t.kota !== kayitliKota(kayit))){
+      not = GV.notice({ tone:'warn', icon:'i-alert', title:'Kota yeniden hesaplanacak',
+        text:'Kayıtlı toplam kota ' + F.hours(kayitliKota(kayit)) + ', yeni değerlerle ' +
+             F.hours(t.kota) + ' oluyor. Kullanılan süre (' + F.hours(t.kullanilan) + ') korunur, kalan ' +
+             'saat ' + F.hours(kayit.kalan) + ' yerine ' + F.hours(t.kalan) + ' olarak yazılır. ' +
+             'Destek taleplerindeki kalan destek değeri bu formdan güncellenmez; kaydetmeden önce ' +
+             'ayrıca sorulur.' });
+    }else if(t.oran >= 90){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Kota tükenmek üzere',
+        text:'Kotanın %' + t.oran + '’i kullanıldı; kalan ' + F.hours(t.kalan) + '. Ek saat ihtiyacı ' +
+             'yeni dönem ya da ek paket gerektirir; bu form saat eklemez.' });
+    }else if(t.oran >= 80){
+      not = GV.notice({ tone:'warn', icon:'i-gauge', title:'Kota kritik eşikte',
+        text:'Kotanın %' + t.oran + '’i kullanıldı; liste ekranındaki “Kota Kritik” sekmesi bu paketi ' +
+             'gösterir. Kalan ' + F.hours(t.kalan) + '.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Kota aritmetiği tutarlı',
+        text:'Kullanılan + kalan = aylık saat × dönem ayı: ' + F.hours(t.kullanilan) + ' + ' +
+             F.hours(t.kalan) + ' = ' + F.hours(v.aylikSaat) + ' × ' + t.ay + ' ay = ' +
+             F.hours(t.kota) + '.' });
+    }
+
+    var kdNot = !v.musteri
+      ? GV.notice({ tone:'neutral', icon:'i-info', title:'Müşteri seçilmedi',
+          text:'Kalan saatin destek taleplerindeki kalan destek değeriyle eşitliği ancak müşteri ' +
+               'seçildikten sonra denetlenebilir.' })
+      : kd.length === 0
+        ? GV.notice({ tone:'neutral', icon:'i-support', title:'Karşılaştırılacak destek talebi yok',
+            text:musteriAd(v.musteri) + ' müşterisinin taleplerinde kalan destek değeri yazılı değil; ' +
+                 'kalan saat yalnız kota aritmetiğinden okunur.' })
+        : kd.length > 1
+          ? GV.notice({ tone:'warn', icon:'i-alert', title:'Taleplerde tek bir kalan destek değeri yok',
+              text:musteriAd(v.musteri) + ' müşterisinin taleplerinde ' +
+                   kd.map(function(x){ return F.hours(x); }).join(' · ') + ' değerleri yazılı. Paketin ' +
+                   'kalanı tek değerdir; talep kayıtları destek ekranından düzeltilmelidir.' })
+          : kdUyum
+            ? GV.notice({ tone:'ok', icon:'i-check-circle', title:'Kalan saat taleplerle birebir aynı',
+                text:'Paketin kalanı ' + F.hours(t.kalan) + ', ' + musteriAd(v.musteri) +
+                     ' müşterisinin destek taleplerindeki kalan destek de ' + F.hours(kdTek) + '.' })
+            : GV.notice({ tone:'warn', icon:'i-alert', title:'Kalan saat taleplerle uyuşmuyor',
+                text:'Paketin kalanı ' + F.hours(t.kalan) + ', taleplerdeki kalan destek ' +
+                     F.hours(kdTek) + '. Bu iki değer birebir aynı olmalıdır; talepler bu formdan ' +
+                     'yazılmaz, düzeltme destek ekranından yürür.' });
+
+    hedef.innerHTML = not + kdNot + ozetListe([
+      ['Bugün <span class="u-faint">(sistem tarihi)</span>', F.date(DB.today)],
+      ['Dönem', v.baslangic && v.bitis
+        ? F.date(v.baslangic) + ' — ' + F.date(v.bitis) + ' ' + kalanBadge(v.bitis)
+        : faint('Girilmedi')],
+      ['Dönem uzunluğu', v.baslangic && v.bitis
+        ? '<span class="u-num">' + t.ay + '</span> ay' : faint('—')],
+      ['Aylık saat', metin(v.aylikSaat) === '' ? faint('Girilmedi') : saat(sayi(v.aylikSaat))],
+      ['Toplam kota <span class="u-faint">(türetilen)</span>',
+        t.kota > 0 ? '<b>' + F.hours(t.kota) + '</b>' + sub('aylık saat × dönem ayı') : faint('—')],
+      ['Kullanılan <span class="u-faint">(türetilen)</span>',
+        duzenle ? saat(t.kullanilan) + sub('kayıtlı değer korunur, bu formdan yazılmaz')
+                : saat(0) + sub('yeni pakette kullanım sıfırdan başlar')],
+      ['Kalan <span class="u-faint">(türetilen)</span>',
+        t.kota > 0
+          ? (t.kalan < 0
+              ? '<b class="u-danger">' + F.hours(t.kalan) + '</b>' + sub('negatif — kaydedilemez')
+              : '<b>' + F.hours(t.kalan) + '</b>')
+          : faint('—')],
+      duzenle ? ['Kayıtlı kalan', saat(kayit.kalan) +
+        (yuvarla(sayi(kayit.kalan)) !== t.kalan ? sub(F.hours(t.kalan) + ' olarak yazılacak') : '')] : null,
+      ['Tüketim', t.kota > 0
+        ? GV.progress(t.oran, { tone:t.oran >= 90 ? 'danger' : t.oran >= 80 ? 'warn' : 'ok' })
+        : faint('—')],
+      ['Taleplerdeki kalan destek', kd.length
+        ? kd.map(function(x){ return F.hours(x); }).join(' · ') +
+          (kdUyum ? sub('kalan saatle birebir aynı') : sub('kalan saatle karşılaştırın'))
+        : faint('Yazılı değil')],
+      v.musteri ? ['Taleplerde harcanan süre', harcanan
+        ? saat(harcanan) + sub(talepleriOf(v.musteri).length + ' talep toplamı')
+        : faint('Harcanan süre yok')] : null,
+      v.musteri ? ['Açık destek talebi', (function(){
+        var n = talepleriOf(v.musteri).filter(acikTalepMi).length;
+        return n ? '<b class="u-num">' + n + '</b> açık' : faint('Açık talep yok');
+      })()] : null
+    ]);
+  }
+
+  function bagOzetiCiz(){
+    var hedef = document.getElementById('bagOzet');
+    if(!hedef) return;
+    var v = form.read();
+    var t = turetilen(v);
+    var sz = sozlesmeOf(v.sozlesme);
+    var diger = v.musteri ? digerPaketler(v.musteri) : [];
+    var cakisan = diger.filter(function(p){
+      return v.baslangic && v.bitis && p.baslangic <= v.bitis && p.bitis >= v.baslangic; });
+
+    var not;
+    if(!v.sozlesme){
+      not = GV.notice({ tone:'neutral', icon:'i-file-check', title:'Paket bir sözleşmeye bağlı değil',
+        text:'Sözleşme bağı zorunlu değildir ama yazılı tekil bağdır: bağ kurulmazsa paket bedeli ' +
+             'sözleşme tutarıyla karşılaştırılamaz ve listedeki “Sözleşmeyi aç” aksiyonu müşterinin ' +
+             'sözleşmelerine düşer. Ölçüm: ' + toplamPaket + ' paketin ' + sozlesmeliPaket +
+             ' tanesi bağlı.',
+        actions:[{ label:'Sözleşmeler', href:'app-sozlesme.html?t=tumu' }] });
+    }else if(!sz){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Seçili sözleşme kaydı bulunamadı',
+        text:'“' + v.sozlesme + '” kodlu sözleşme sözleşme kayıtlarında yok; bağ kopuk yazılır.' });
+    }else if(SZ_MUSTERI_VAR && szMusteri(sz) && v.musteri && szMusteri(sz) !== v.musteri){
+      not = GV.notice({ tone:'danger', icon:'i-alert', title:'Sözleşme başka müşteriye ait',
+        text:'Sözleşme ' + sz.kod + ' ' + musteriAd(szMusteri(sz)) + ' müşterisinde, paket ise ' +
+             musteriAd(v.musteri) + ' müşterisinde. Bağ çapraz kurulamaz.' });
+    }else if(canFinans && sz.tutar != null && metin(v.tutar) !== '' &&
+             Math.round(sayi(sz.tutar)) !== Math.round(sayi(v.tutar))){
+      not = GV.notice({ tone:'warn', icon:'i-wallet', title:'Paket bedeli sözleşme tutarından farklı',
+        text:'Sözleşme ' + sz.kod + ' tutarı ' + F.money(sz.tutar) + ', paket bedeli ' +
+             F.money(sayi(v.tutar)) + ' — ikisi de KDV hariç net eksendedir. Sözleşme birden çok kalem ' +
+             'içeriyorsa fark beklenen olabilir; değilse bedel gözden geçirilmelidir.' });
+    }else{
+      not = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Sözleşme bağı tutarlı',
+        text:'Paket ' + sz.kod + ' sözleşmesine bağlı' +
+             (canFinans && sz.tutar != null && metin(v.tutar) !== ''
+               ? ' ve paket bedeli sözleşme tutarıyla (' + F.money(sz.tutar) + ') birebir aynı.'
+               : '.') });
+    }
+
+    var paraNot = canFinans
+      ? GV.notice({ tone:'neutral', icon:'i-wallet', title:'Paket bedeli net eksendedir',
+          text:'Bedel KDV hariç yazılır ve sözleşme tutarıyla aynı eksende okunur. Yıllık gelir ' +
+               'karşılaştırılabilir olsun diye dönem bedeli dönem ayına bölünüp 12 ile çarpılır; liste ' +
+               'ekranındaki “Yıllık paket geliri” sayacı da bu formülü kullanır.' })
+      : GV.notice({ tone:'neutral', icon:'i-lock', title:'Bedel alanı rolünüze kapalı',
+          text:'Rolünüzde (' + GV.session.rolAd + ') finansal tutar yetkisi yok; paket bedeli forma hiç ' +
+               'basılmadı ve kayıttaki tutara dokunulmaz. Müşteri, sözleşme bağı, dönem, saat kotası ve ' +
+               'durum alanlarını düzenlemeye devam edebilirsiniz.' });
+
+    var yillik = (canFinans && metin(v.tutar) !== '' && t.ay > 0)
+      ? Math.round(sayi(v.tutar) / t.ay * 12) : null;
+    var saatBedel = (canFinans && metin(v.tutar) !== '' && t.kota > 0)
+      ? Math.round(sayi(v.tutar) / t.kota) : null;
+
+    hedef.innerHTML = not + paraNot + ozetListe([
+      ['Müşteri', v.musteri
+        ? esc(musteriAd(v.musteri)) + sub(v.musteri) : faint('Seçilmedi')],
+      ['Paket adı', v.ad ? tagOf(v.ad) : faint('Seçilmedi')],
+      ['Sözleşme bağı', v.sozlesme
+        ? '<span class="cell-code">' + esc(v.sozlesme) + '</span>' +
+          (sz && szAd(sz) ? sub(szAd(sz)) : '')
+        : faint('Sözleşmeye bağlı değil')],
+      (canFinans && sz && sz.tutar != null)
+        ? ['Sözleşme tutarı <span class="u-faint">' + PARA_EKSEN + '</span>', paraSade(sz.tutar)] : null,
+      canFinans
+        ? ['Paket bedeli <span class="u-faint">' + PARA_EKSEN + '</span>',
+           metin(v.tutar) === '' ? faint('Girilmedi') : '<b>' + para(sayi(v.tutar)) + '</b>'] : null,
+      canFinans ? ['Yıllığa normalize gelir <span class="u-faint">' + PARA_EKSEN + '</span>',
+        yillik == null ? faint('—') : paraSade(yillik) + sub('dönem bedeli ÷ ' + t.ay + ' ay × 12')] : null,
+      canFinans ? ['Saat başı bedel <span class="u-faint">' + PARA_EKSEN + '</span>',
+        saatBedel == null ? faint('—') : paraSade(saatBedel) + sub(F.hours(t.kota) + ' kota üzerinden')] : null,
+      ['Paket durumu', v.durum ? GV.badge(v.durum) : faint('Seçilmedi')],
+      ['Yenileme işareti', v.yenileme
+        ? '<span class="badge is-warn no-dot">Yenilenecek</span>' +
+          sub(v.yenilemeTarihi ? F.date(v.yenilemeTarihi) : 'tarih yazılmadı, dönem bitişi kullanılacak')
+        : faint('İşaretsiz')],
+      ['Kayıt durumu', v.aktif ? 'Aktif kayıt' : '<span class="tag">Arşivlenecek</span>'],
+      v.musteri ? ['Müşterinin diğer paketleri', diger.length
+        ? '<b class="u-num">' + diger.length + '</b> paket' +
+          sub(diger.map(function(p){ return p.kod + ' · ' + p.ad; }).join(' · '))
+        : faint('Başka paket yok')] : null,
+      cakisan.length ? ['Dönemi çakışan paket',
+        '<b class="u-warn">' + cakisan.length + '</b> paket' +
+        sub(cakisan.map(function(p){ return p.kod + ' (' + p.baslangic + ' — ' + p.bitis + ')'; }).join(' · '))] : null
+    ]);
+  }
+
+  function ozetleriCiz(){ kotaOzetiCiz(); bagOzetiCiz(); }
+
+  form.el.addEventListener('input',  function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  form.el.addEventListener('change', function(e){ if(e.target && e.target.name) ozetleriCiz(); });
+  ozetleriCiz();
+
+  /* =================================================================
+     KAYDET
+     ================================================================= */
+  var ALAN_ADI = {
+    musteri:'Müşteri', ad:'Paket adı', sozlesme:'Bağlı sözleşme', baslangic:'Dönem başlangıcı',
+    bitis:'Dönem bitişi', aylikSaat:'Aylık saat kotası', kullanilan:'Kullanılan saat',
+    kalan:'Kalan saat', tutar:'Paket bedeli ' + PARA_EKSEN, durum:'Paket durumu',
+    yenileme:'Yenileme işareti', yenilemeTarihi:'Yenileme tarihi', aktif:'Kayıt durumu'
+  };
+  var SAAT_ALAN  = ['aylikSaat','kullanilan','kalan'];
+  var TARIH_ALAN = ['baslangic','bitis','yenilemeTarihi'];
+  var PARA_ALAN  = ['tutar'];
+
+  /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+
+  function norm(x){
+    if(x == null || x === false || x === '' || x === '—') return '';
+    return String(x);
+  }
+  function gorunur(k, v){
+    if(v == null || v === '' || v === '—') return '—';
+    if(k === 'aktif')    return v ? 'Aktif kayıt' : 'Arşivlendi';
+    if(k === 'yenileme') return v ? 'Yenilenecek olarak işaretli' : 'İşaretsiz';
+    if(PARA_ALAN.indexOf(k) !== -1)  return F.money(sayi(v)) + ' ' + PARA_EKSEN;
+    if(SAAT_ALAN.indexOf(k) !== -1)  return F.hours(sayi(v));
+    if(TARIH_ALAN.indexOf(k) !== -1) return F.date(v);
+    if(k === 'musteri')  return musteriAd(v) + ' (' + v + ')';
+    return String(v);
+  }
+
+  function degerleriOku(){
+    var raw = form.submit();
+    if(!raw) return null;
+
+    var v = {};
+    Object.keys(raw).forEach(function(k){ v[k] = raw[k]; });
+
+    v.sozlesme  = metin(v.sozlesme) || null;
+    v.aylikSaat = yuvarla(sayi(v.aylikSaat));
+    v.yenileme  = !!v.yenileme;
+    v.aktif     = !!v.aktif;
+    /* İşaret kapalıyken ölü tarih bırakılmaz; açıkken tarih yazılmadıysa dönem bitişi kullanılır. */
+    v.yenilemeTarihi = v.yenileme ? (metin(v.yenilemeTarihi) || v.bitis) : null;
+
+    if(canFinans) v.tutar = metin(v.tutar) === '' ? null : Math.round(sayi(v.tutar));
+    else          delete v.tutar;                 /* yetkisiz rol tutara HİÇ dokunmaz */
+
+    /* TÜRETİLEN ALANLAR — forma girilmez, burada hesaplanır.
+       kullanilan + kalan = aylikSaat × dönem ayı. */
+    var t = turetilen(v);
+    v.kullanilan = t.kullanilan;
+    v.kalan      = t.kalan;
+
+    if(v.kalan < 0){
+      GV.toast('Kalan saat negatife düşüyor — aylık saati artırın ya da dönemi uzatın.', 'danger');
+      return null;
+    }
+    return v;
+  }
+
+  /* Bu form destek talebi, süre düşümü, sözleşme ve fatura kaydı YAZMAZ.
+     Girilen değerler bağlı kayıtlarla çelişiyorsa kullanıcı kaydetmeden önce uyarılır. */
+  function dengeUyarilari(v){
+    var out = [];
+    var ay = donemAy(v.baslangic, v.bitis);
+    var kd = kalanDestekDegerleri(v.musteri);
+    var kdTek = kd.length === 1 ? yuvarla(sayi(kd[0])) : null;
+
+    if(duzenle && kayitliKota(kayit) !== v.kullanilan + v.kalan){
+      out.push('Toplam kota ' + F.hours(kayitliKota(kayit)) + ' yerine ' + F.hours(v.kullanilan + v.kalan) +
+               ' oluyor (' + F.hours(v.aylikSaat) + ' × ' + ay + ' ay). Kullanılan süre ' +
+               F.hours(v.kullanilan) + ' korunur, kalan saat ' + F.hours(kayit.kalan) + ' yerine ' +
+               F.hours(v.kalan) + ' yazılır — kota dengesi bu formda yeniden kurulur.');
+    }
+    if(duzenle && (norm(kayit.baslangic) !== norm(v.baslangic) || norm(kayit.bitis) !== norm(v.bitis))){
+      out.push('Dönem ' + F.date(kayit.baslangic) + ' – ' + F.date(kayit.bitis) + ' yerine ' +
+               F.date(v.baslangic) + ' – ' + F.date(v.bitis) + ' olarak değişiyor; dönem uzunluğu ' +
+               ay + ' ay ve toplam kota bu uzunluktan hesaplanıyor.');
+    }
+    if(duzenle && norm(kayit.aylikSaat) !== norm(v.aylikSaat)){
+      out.push('Aylık saat kotası ' + F.hours(kayit.aylikSaat) + ' yerine ' + F.hours(v.aylikSaat) +
+               ' oluyor.');
+    }
+    if(kdTek != null && kdTek !== v.kalan){
+      out.push('Kaydettikten sonra paketin kalanı ' + F.hours(v.kalan) + ' olacak, oysa ' +
+               musteriAd(v.musteri) + ' müşterisinin destek taleplerinde kalan destek ' + F.hours(kdTek) +
+               ' yazılı. Bu iki değer birebir aynı olmalıdır; talep kayıtları bu formdan güncellenmez, ' +
+               'düzeltme destek ekranından yürür.');
+    }
+    if(kd.length > 1){
+      out.push('Müşterinin destek taleplerinde kalan destek tek değere inmiyor (' +
+               kd.map(function(x){ return F.hours(x); }).join(' · ') + '); paketin kalanıyla eşitlik ' +
+               'denetlenemiyor.');
+    }
+    if(v.bitis && F.days(v.bitis) < 0){
+      out.push('Dönem bitişi ' + F.date(v.bitis) + ' — süresi dolmuş görünüyor; paket listede “Süresi ' +
+               'doldu” olarak okunur. Yenileme bu formdan değil, liste ekranındaki yenileme ' +
+               'aksiyonundan yürür.');
+    }
+    if(!v.sozlesme){
+      out.push('Paket bir sözleşme kaydına bağlanmadı; sözleşme bağı yazılı tekil bağdır ve ' +
+               'türetilemez, sonradan bu formdan eklenmelidir.');
+    }
+    if(duzenle && norm(kayit.sozlesme) !== norm(v.sozlesme)){
+      out.push('Sözleşme bağı ' + (kayit.sozlesme || 'yok') + ' → ' + (v.sozlesme || 'yok') +
+               ' olarak değişiyor; sözleşme kaydının kendisi bu formdan değiştirilmez.');
+    }
+    if(duzenle && norm(kayit.musteri) !== norm(v.musteri)){
+      out.push('Müşteri ' + musteriAd(kayit.musteri) + ' → ' + musteriAd(v.musteri) + ' olarak ' +
+               'değişiyor; kullanılan süre eski müşterinin taleplerinden gelmişti, kalan saat ' +
+               'karşılaştırması artık yeni müşterinin talepleri üzerinden yapılır.');
+    }
+    if(v.yenileme && !duzenle){
+      out.push('Paket doğrudan yenileme listesine işaretli açılıyor; müşteri sorumlusuna hatırlatma ' +
+               'düşer.');
+    }
+    if(!v.aktif && (!duzenle || kayit.aktif !== false)){
+      out.push('Kayıt arşive alınıyor: paket listelerde, sayaçlarda ve kota raporlarında görünmeyecek. ' +
+               'Müşterinin destek talepleri ve sözleşmesi silinmez.');
+    }
+    return out;
+  }
+
+  function yaz(v){
+    if(duzenle){
+      /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır — eski → yeni değer.
+         `kod` ve finans yetkisi olmayan rolde `tutar` v'de yoktur, dokunulmaz. */
+      var degisen = 0;
+      Object.keys(v).forEach(function(k){
+        if(norm(kayit[k]) === norm(v[k])) return;
+        DB.activities.unshift({
+          kayit:kayit.kod, tarih:simdi(), kisi:GV.session.ad,
+          metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+          eski:gorunur(k, kayit[k]), yeni:gorunur(k, v[k]),
+          tone:'accent', icon:'i-edit'
+        });
+        kayit[k] = v[k];
+        degisen++;
+      });
+      GV.toast(degisen
+        ? kayit.kod + ' güncellendi · ' + degisen + ' alan'
+        : 'Değişiklik yok — kayıt olduğu gibi bırakıldı', degisen ? 'ok' : 'info');
+    }else{
+      var kod = yeniKod();
+      /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur. */
+      DB.supportPackages.unshift({
+        kod:kod, musteri:v.musteri, ad:v.ad,
+        baslangic:v.baslangic, bitis:v.bitis,
+        aylikSaat:v.aylikSaat, kullanilan:v.kullanilan, kalan:v.kalan,
+        tutar:canFinans ? v.tutar : null,
+        durum:v.durum, sozlesme:v.sozlesme,
+        yenileme:v.yenileme, yenilemeTarihi:v.yenilemeTarihi,
+        aktif:v.aktif
+      });
+      DB.activities.unshift({
+        kayit:kod, tarih:simdi(), kisi:GV.session.ad,
+        metin:'Bakım paketi oluşturuldu — ' + musteriAd(v.musteri) + ' · ' + v.ad + ' · ' +
+              F.hours(v.aylikSaat) + '/ay · toplam kota ' + F.hours(v.kullanilan + v.kalan),
+        eski:null, yeni:kod, tone:'ok', icon:'i-plus'
+      });
+      GV.toast(kod + ' oluşturuldu', 'ok');
+    }
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
+    setTimeout(function(){ location.href = 'app-destek-paket.html'; }, 700);
+  }
+
+  function kaydet(){
+    var v = degerleriOku();
+    if(!v) return;
+
+    var uyari = dengeUyarilari(v);
+    if(!canFinans && !duzenle){
+      uyari.unshift('Rolünüzde finansal tutar yetkisi olmadığı için paket bedeli forma basılmadı; kayıt ' +
+                    'bedeli boş olarak açılacak ve tutarı finans yetkisi olan bir kullanıcı girmelidir.');
+    }
+    if(!uyari.length){ yaz(v); return; }
+
+    /* form.submit() dirty bayrağını düşürdü; onay verilmezse kaydedilmemiş
+       değişiklik uyarısı geri konur. */
+    GV.confirm({
+      tone:'warn', title:'Kaydetmeden önce onaylayın',
+      okLabel:'Yine de kaydet', cancelLabel:'Vazgeç',
+      text:uyari.join(' ') + ' Kaydederseniz paket kaydı yeni değerlerle yazılır; destek talepleri, ' +
+           'sözleşme ve fatura kayıtları olduğu gibi kalır.'
+    }).then(function(ok){
+      if(ok){ yaz(v); return; }
+      form.setDirty(true);
+      GV.toast('Kaydedilmedi — kayıt olduğu gibi bırakıldı', 'info');
+    });
+  }
+
+  GV.pageHead({
+    eyebrow:'Destek ve Bakım',
+    title:basligi,
+    sub: duzenle
+      ? kayit.kod + ' · ' + musteriAd(kayit.musteri) + ' — değişiklikler aktivite geçmişine yazılır · ' +
+        alanSayisi + ' alan.'
+      : 'Zorunlu alanlar yıldızla işaretlidir · ' + alanSayisi + ' alan, ' + zorunluSayisi +
+        ' zorunlu · atanacak kod ' + siradakiKod + '.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-destek-paket.html' },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+});
+</script>
+</body>
+</html>
