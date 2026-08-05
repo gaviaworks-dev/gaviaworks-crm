@@ -73,6 +73,9 @@ const MAP = {
   'app-demirbas-form.html': 'assets',
   'app-zimmet-form.html': 'assignments',
   'app-toplanti-form.html': 'meetings',
+  'app-arac-form.html': 'vehicles',
+  'app-arac-bakim-form.html': 'maintenance',
+  'app-arac-muayene-form.html': 'inspections',
 };
 
 /* Kaydın GERÇEKTEN yüklendiğinin ölçütü.
