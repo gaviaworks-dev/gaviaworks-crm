@@ -67,6 +67,9 @@ document.addEventListener('gv:ready', function(){
   /* Demirbaşa aktarım — bağ veride YAZILI: `DB.assets[].siparis` (VB-07, ders L-13).
      Tedarikçi eşleşmesi ya da tarih yakınlığı bağ yerine geçmez. */
   var varliklar = DB.assets.filter(function(a){ return a.siparis === o.kod; });
+  /* Araca aktarım — aynı yön kuralının filo tarafı: `DB.vehicles[].siparis` (VB-28,
+     §22 madde 24). Araç demirbaştan ayrı bir modüldür, bu yüzden ayrı okunur. */
+  var araclar = DB.vehicles.filter(function(v){ return v.siparis === o.kod; });
   /* Yalnız tedarikçi eşleşmesiyle bulunan kayıtlar — bu bir sipariş bağı DEĞİLDİR,
      ayrı ve açıkça etiketli bir referans listesi olarak gösterilir. */
   var tedarikciVarliklari = DB.assets.filter(function(a){ return a.tedarikci === o.tedarikci; });
@@ -269,7 +272,7 @@ document.addEventListener('gv:ready', function(){
     { key:'teklif',   lbl:'Teklif Karşılaştırması', ic:'i-quote',   cnt:teklifler.length },
     { key:'onay',     lbl:'Onay Zinciri',          ic:'i-stamp',    cnt:adimlar.length },
     { key:'teslimat', lbl:'Teslimat',              ic:'i-truck' },
-    { key:'demirbas', lbl:'Demirbaşa Aktarım',     ic:'i-package',  cnt:varliklar.length },
+    { key:'demirbas', lbl:'Envantere Aktarım',     ic:'i-package',  cnt:varliklar.length + araclar.length },
     { key:'aktivite', lbl:'Aktivite Geçmişi',      ic:'i-activity', cnt:acts.length }
   ];
 
@@ -644,8 +647,34 @@ document.addEventListener('gv:ready', function(){
         (bağ alanı veride yoksa uydurulmaz; boş durum + açık not basılır)
      ================================================================= */
   var pDemirbas;
-  if(varliklar.length){
-    pDemirbas = '<div class="gc-body flush">' +
+  /* Araç bloğu — filo modülü demirbaştan ayrıdır, kolon seti de farklıdır
+     (plaka · mülkiyet · km). Bağ `DB.vehicles[].siparis` alanında YAZILI. */
+  var pAracBlok = !araclar.length ? '' :
+    '<div class="gc-body flush">' +
+      tbl('<th>Araç</th><th>Plaka</th><th>Marka / model</th><th>Mülkiyet</th>' +
+          '<th>Alış tarihi</th><th class="num">Alış bedeli (KDV hariç)</th>' +
+          '<th>Kullanım</th><th>Ana sürücü</th><th>Durum</th>',
+        araclar.map(function(v){
+          return '<tr>' +
+            '<td class="cell-wrap"><a class="cell-main" href="app-arac-detay.html?id=' + esc(v.kod) + '">' +
+              esc(v.kod) + '</a><span class="cell-code">' + esc(v.tip || '') + '</span></td>' +
+            '<td><span class="u-num">' + esc(v.plaka) + '</span></td>' +
+            '<td class="cell-wrap"><span class="cell-main">' + esc(v.marka + ' ' + v.model) + '</span>' +
+              '<span class="cell-sub">' + esc(String(v.modelYili || '') + ' · ' + (v.yakit || '')) + '</span></td>' +
+            '<td>' + esc(v.mulkiyet) + '</td>' +
+            '<td><span class="cell-date">' + F.date(v.alisTarihi) + '</span></td>' +
+            '<td class="num">' + para(v.alisBedeli) + '</td>' +
+            '<td>' + esc(v.kullanim || '—') + '</td>' +
+            '<td>' + (v.anaSurucu ? GV.user(v.anaSurucu, { sm:true }) : '<span class="u-faint">Tahsis yok</span>') + '</td>' +
+            '<td>' + GV.badge(v.durum) + '</td></tr>';
+        }).join('')) +
+      sayac('<b>' + araclar.length + '</b> araç bu siparişten filoya alındı ' +
+        '<span class="u-faint">— bağ `DB.vehicles[].siparis` alanında yazılı</span>',
+        '<a class="btn btn-line btn-sm" href="app-arac.html">' + ico('i-truck','ic-sm') +
+        ' Araç listesi</a>') +
+    '</div>';
+  if(varliklar.length || araclar.length){
+    pDemirbas = (!varliklar.length ? '' : '<div class="gc-body flush">' +
       tbl('<th>Demirbaş</th><th>Kategori</th><th>Marka / model</th><th>Seri no</th>' +
           '<th>Alış tarihi</th><th class="num">Alış fiyatı (KDV hariç)</th><th>Lokasyon</th>' +
           '<th>Zimmetli</th><th>Durum</th>',
@@ -666,13 +695,13 @@ document.addEventListener('gv:ready', function(){
       sayac('<b>' + varliklar.length + '</b> demirbaş bu siparişten envantere alındı',
         '<a class="btn btn-line btn-sm" href="app-demirbas.html">' + ico('i-package','ic-sm') +
         ' Demirbaş listesi</a>') +
-      '</div>';
+      '</div>') + pAracBlok;
   }else{
     pDemirbas = '<div class="gc-body">' + GV.notice({
       tone:o.durum === 'Teslim alındı' ? 'warn' : 'info',
       icon:o.durum === 'Teslim alındı' ? 'i-alert' : 'i-truck',
       title:o.durum === 'Teslim alındı'
-        ? 'Bu siparişten envantere alınan demirbaş yok'
+        ? 'Bu siparişten envantere alınan demirbaş ya da araç yok'
         : 'Sipariş henüz teslim alınmadı',
       text:(o.durum === 'Teslim alındı'
         ? 'Sipariş teslim alınmış ancak hiçbir demirbaş kartı bu siparişe bağlanmamış. ' +
@@ -685,9 +714,10 @@ document.addEventListener('gv:ready', function(){
           : ' Bu siparişin tedarikçisine (' + esc(tedAd(o.tedarikci)) + ') ait kayıtlı demirbaş da yok.') }) +
       '</div>' +
       '<div class="gc-body flush">' + GV.empty({
-        icon:'i-package', title:'Bu siparişe bağlı demirbaş kaydı yok',
-        desc:'`DB.assets[].siparis` alanında bu sipariş kodunu gösteren kayıt bulunamadı. Teslim alınan ' +
-             'ekipman envantere girildiğinde demirbaş kartı bu alanla siparişe bağlanır.',
+        icon:'i-package', title:'Bu siparişe bağlı envanter kaydı yok',
+        desc:'Ne `DB.assets[].siparis` ne de `DB.vehicles[].siparis` alanında bu sipariş kodunu ' +
+             'gösteren kayıt bulunamadı. Teslim alınan ekipman envantere, araç ise filoya ' +
+             'girildiğinde kart bu alanla siparişe bağlanır.',
         action:'<a class="btn btn-acc" href="app-demirbas.html">Demirbaş listesine git</a>' }) + '</div>' +
       (tedarikciVarliklari.length
         ? '<div class="gc-body flush">' +
