@@ -222,7 +222,7 @@ GV.report({
 
 ## 6. Diğer Ortak Bileşenler
 
-> ### ⚠️ GERÇEK `GV.*` YÜZEYİ — 37 üye (9. oturumda ölçüldü, `ui.js` + `shell.js` tarandı)
+> ### ⚠️ GERÇEK `GV.*` YÜZEYİ — 38 üye (9. oturumda ölçüldü, **üç** dosya tarandı)
 >
 > **`shell.js` (12):** `built` · `counters` · `esc` · `ico` · `isBuilt` · `markWip` · `on` ·
 > `pageHead` · `perm` · `refresh` · `session` · `shell`
@@ -230,6 +230,13 @@ GV.report({
 > `dateCell` · `drawer` · `empty` · `errorState` · `fmt` · `form` · `list` · `modal` ·
 > `notice` · `pri` · `progress` · `report` · `result` · `skeleton` · `tabs` · `toast` ·
 > `tone` · `upload` · `user`
+> **`dashboard.js` (1):** `dashboard(mount)` — `app-panel.html` çağırır (`GV.dashboard('#dash')`).
+>
+> > **Kendi ölçümümün düzeltmesi.** Bu blok ilk yazıldığında "37 üye" diyordu çünkü yalnız
+> > `ui.js` + `shell.js` tarandı. `GV.dashboard` **`assets/js/dashboard.js`** içinde tanımlı ve
+> > gerçekten çağrılıyor. Ders: `GV.*` yüzeyi taranırken **`assets/js/` altındaki tüm dosyalar**
+> > taranır — bugün dört dosya var (`shell.js` · `ui.js` · `dashboard.js` · `login.js`;
+> > `login.js` `GV.*` üyesi tanımlamaz).
 >
 > **Bu listede olmayan bir `GV.*` adı ÇAĞRILMAZ.** Sözlük beş oturum boyunca kodda karşılığı
 > olmayan **sekiz** ad taşıdı — `GV.notify` · `GV.cols` · `GV.filters` · `GV.export` ·
