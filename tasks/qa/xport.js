@@ -41,11 +41,15 @@ const url = (t) => BASE + t + (t.indexOf('?') === -1 ? '?' : '&') + 'role=' + RO
 
 /* ---- ui.js yaması: GV.list dönüşüne __probe ekle (yalnız bellekte) ---- */
 const UI_SRC = fs.readFileSync(path.join(LIB.repoRoot(), 'assets/js/ui.js'), 'utf8');
-const ANCHOR = `    return {
-      state:state,
-      refresh:render,`;
-if (UI_SRC.indexOf(ANCHOR) === -1) throw new Error('xport: ui.js içinde GV.list dönüş bloğu bulunamadı — yama kurulamıyor');
-const PATCHED = UI_SRC.replace(ANCHOR, `    var __gvApi = {
+/* Dönüş bloğu TEK parça olarak yakalanır — üye eklendikçe çapa kaymasın diye
+   regex kullanılır. ⚠️ L-24: ilk sürüm iki ayrı metin çapası kullanıyordu;
+   `ui.js` dönüşüne `exportRows` eklenince ikinci çapa tutmadı ve script hata
+   VERMEDEN 141 ekran tarayıp "0 kolon, temiz" dedi. Çapa kaybolursa ARAÇ DURUR. */
+const RET = /(    return \{\n      state:state,\n      refresh:render,)([\s\S]*?\n    \};)/;
+const m = UI_SRC.match(RET);
+if (!m) throw new Error('xport: ui.js içinde GV.list dönüş bloğu bulunamadı — yama kurulamıyor');
+
+const PROBE = `    var __gvApi = {
       __probe:function(){
         var cols = visibleCols();
         var rows = source();
@@ -62,8 +66,8 @@ const PATCHED = UI_SRC.replace(ANCHOR, `    var __gvApi = {
               try { exp = c.exportValue ? c.exportValue(r) : r[c.key]; } catch(e){ exp = null; }
               scr = scr.replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').trim();
               exp = exp == null ? '' : String(exp).replace(/<[^>]*>/g,'').trim();
-              if(scr === '—') scr = '';
-              if(exp === '—') exp = '';
+              if(scr === '\u2014') scr = '';
+              if(exp === '\u2014') exp = '';
               out.n++;
               if(scr) out.ekranDolu++;
               if(exp) out.ciktiDolu++;
@@ -74,12 +78,12 @@ const PATCHED = UI_SRC.replace(ANCHOR, `    var __gvApi = {
         };
       },
       state:state,
-      refresh:render,`)
-  .replace(`      setFilter:function(k, v){ state.filters[k] = v; reset(); render(); }
-    };`, `      setFilter:function(k, v){ state.filters[k] = v; reset(); render(); }
-    };
+      refresh:render,`;
+
+const PATCHED = UI_SRC.replace(RET, PROBE + '$2' + `
     (window.__gvLists = window.__gvLists || []).push(__gvApi);
     return __gvApi;`);
+if (PATCHED.indexOf('__gvLists') === -1) throw new Error('xport: yama uygulanmadı — ölçüm geçersiz olurdu');
 
 (async () => {
   const browser = await chromium.launch();
@@ -136,6 +140,11 @@ const PATCHED = UI_SRC.replace(ANCHOR, `    var __gvApi = {
 
   console.log('\n=== ÖZET ===');
   console.log(`Taranan ekran: ${list.length} · GV.list kuran ekran: ${listli} · yüklenen kayıt: ${screens.reduce((a, s) => a + s.kayit, 0)}`);
+  /* Sıfır liste ya da sıfır kolon = ölçüm YAPILMADI demektir, "temiz" demek değil (L-24). */
+  if (!listli || !kolonTop) {
+    console.log('\nGEÇERSİZ — hiçbir GV.list örneği ölçülemedi; yama ya da hedef listesi bozuk');
+    process.exit(2);
+  }
   console.log(`Çıktıya giren kolon: ${kolonTop} · ölçülen hücre: ${hucreTop}`);
   console.log(`Ekranda dolu ama çıktıda boş hücre: ${hucreYalan} (%${(hucreYalan / (hucreTop || 1) * 100).toFixed(1)})`);
   console.log(`Tamamen taşımayan kolon: ${screens.reduce((a, s) => a + s.bad.length, 0)} · kısmi: ${screens.reduce((a, s) => a + s.partial.length, 0)}`);
