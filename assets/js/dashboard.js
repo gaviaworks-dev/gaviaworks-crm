@@ -314,7 +314,7 @@
         card({ title:'Bugünkü Görüşmeler', icon:'i-phone', link:'app-musteri-iletisim.html', flush:true,
           body:rows(today.map(function(i){
             return row([
-              { html:'<span class="cell-main">' + esc(i.konu) + '</span><span class="cell-sub">' + esc(i.kontak) + '</span>' },
+              { html:'<span class="cell-main">' + esc(i.konu) + '</span><span class="cell-sub">' + esc(DB.interactionContact(i)) + '</span>' },
               { html:'<span class="tag">' + esc(i.tur) + '</span>' },
               { html:'<span class="cell-date">' + String(i.tarih).slice(11,16) + '</span>' }
             ]);

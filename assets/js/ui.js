@@ -1594,10 +1594,21 @@
     if(!items || !items.length){
       return GV.empty({ icon:'i-activity', title:'Henüz hareket yok', desc:'Bu kayıt üzerinde yapılan tüm değişiklikler burada listelenir.' });
     }
+    /* `kisi` KİŞİ KODUDUR, ad değil (VB-12). Ad koleksiyonun kendisinde tutulur;
+       burada çözülür ki ad değişince timeline sessizce eskimesin. `EMP-*` personel,
+       `YTK-*` müşteri yetkilisidir. Kod olmayan bir değer geldiğinde olduğu gibi
+       basılır — eski çağıranı kırmamak için, ama bu yol `canon.js` eksen 22b ile
+       veri tarafında, `pers.js` ile ekran tarafında YASAKLANMIŞTIR. */
+    var kisiAd = function(v){
+      if(!v) return '—';
+      if(/^EMP-/.test(v) && window.DB && DB.empName)     return DB.empName(v);
+      if(/^YTK-/.test(v) && window.DB && DB.contactName) return DB.contactName(v);
+      return v;
+    };
     return '<div class="gv-timeline">' + items.map(function(a){
       return '<div class="gv-tl-item">' +
         '<span class="gv-tl-dot is-' + (a.tone || 'neutral') + '">' + ico(a.icon || 'i-dot','ic-sm') + '</span>' +
-        '<div class="gv-tl-head"><span class="gv-tl-who">' + esc(a.kisi || '—') + '</span>' +
+        '<div class="gv-tl-head"><span class="gv-tl-who">' + esc(kisiAd(a.kisi)) + '</span>' +
         '<span class="gv-tl-when">' + Fmt.dt(a.tarih) + '</span></div>' +
         '<div class="gv-tl-text">' + esc(a.metin) + '</div>' +
         (a.eski != null || a.yeni != null

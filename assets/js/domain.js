@@ -28,7 +28,11 @@
 
   function can(action){ return !(GV.perm && GV.perm.can) || !!GV.perm.can(action); }
   function saat(){ return (window.DB ? DB.today : '') + 'T09:00'; }
-  function kim(){ return (GV.session && GV.session.ad) || 'Sistem'; }
+  /* Aktivite kaydı kişiyi KOD olarak tutar, ad olarak değil (VB-12).
+     Ad `GV.activity` içinde `DB.empName` ile çözülür; oturum yoksa kayıt
+     kişisiz kalır — uydurma bir "Sistem" adı yazmak, olmayan bir personeli
+     varmış gibi gösterirdi (canon eksen 22b onu ihlal sayar). */
+  function kim(){ return (GV.session && GV.session.emp) || null; }
   function log(kayit, metin, eski, yeni, tone, icon){
     if(!window.DB || !DB.activities) return;
     DB.activities.unshift({ kayit:kayit, tarih:saat(), kisi:kim(), metin:metin,
