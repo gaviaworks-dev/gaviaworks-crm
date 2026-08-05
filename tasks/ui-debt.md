@@ -1441,8 +1441,10 @@ sessizce geçer — çünkü kontrol edilecek değer yoktur.
 
 | Ekran | Aksiyon | Engel |
 |---|---|---|
-| `app-dokuman-sure` | `hatirlat` (satır + toplu) | **VB-29** — "şu kayda şu tarihte hatırlatma gönderildi" ekseni hiçbir koleksiyonda yok |
-| `app-panel-duyurular` | `oku` (satır + toplu) | Okundu bilgisi sayfa-yerel `READ` nesnesinde ve **tarihten türetiliyor** (`F.days(a.tarih) <= -14`) — kalıcı okuma ekseni yok. VB-29 ile **aynı sınıf**, aynı turda |
+| ~~`app-dokuman-sure`~~ | ~~`hatirlat`~~ | ✅ **ÇÖZÜLDÜ** — `DB.reminders` açıldı, aksiyon hem hatırlatma hem bildirim kaydı yazıyor |
+| ~~`app-panel-duyurular`~~ | ~~`oku`~~ | ✅ **ÇÖZÜLDÜ** — `DB.announcements[].okuyanlar` açıldı, okuma kişi bazlı ve yazılı |
+
+> **UID-30 KAPANDI.** `act.js` ölçümü: 141 ekran · 207 aksiyon · **🔴 yalan 0 · ⚫ ölü 0**.
 
 ---
 
@@ -1490,7 +1492,35 @@ yönlendiriyor), bu beşi yönlendirmiyor da, veri de yazmıyor.
 
 ---
 
-## VB-29 · `hatirlat` aksiyonunun veri ekseni YOK
+## ✅ VB-29 · `hatirlat` aksiyonunun veri ekseni YOK — ÇÖZÜLDÜ (2026-08-05, 10. oturum)
+
+**Açılan eksen:** `DB.reminders` (`misc.js`) — `kod · kayit · tur · tarih · kanal ·
+gonderen · alici · durum`. Üç gerçek kayıtla dolduruldu (L-22: **alan açmak bağ yazmak
+değildir**, boş koleksiyon kapanış sayılmaz).
+
+**`DB.notifications`'tan ayrımı yazıldı:** bildirim **alıcının kutusundaki** kayıttır
+(okundu ekseni vardır); hatırlatma **kayda ilişkin gönderim olayıdır** (kim, ne zaman,
+hangi kanaldan, hangi kayıt için). Aynı olay ikisini birden üretir — `app-dokuman-sure`
+artık her ikisini de yazıyor.
+
+**Aynı turda kapanan ikinci eksen — duyuru okuma (`oku`, UID-30).**
+`app-panel-duyurular` okuma durumunu sayfa-yerel bir nesnede tutuyor ve **tarihten
+türetiyordu** ("14 günden eski duyuru okunmuş sayılır"). İki kusur birdeydi: türetilmiş
+değer durum gibi davranıyordu (L-08) **ve** "Okundu işaretle" hiçbir yere yazmadığı için
+yeşil mesaj basıp veriyi değiştirmiyordu. Eksen `DB.announcements[].okuyanlar` olarak
+açıldı (kişi bazlı), ekran oturum sahibinin kodunu okuyup yazıyor; yeni "Okuyan kişi"
+kolonu duyurunun kaç kişiye ulaştığını gösteriyor.
+
+**Tarama ekseni yazılmadan kapatılmadı** (VB-19 dersi): `canon.js` **eksen 19** —
+hatırlatmanın `kayit`i gerçek bir kaydı, `gonderen`i gerçek bir personeli, `alici`sı
+personel ya da müşteriyi gösterir; duyuru `okuyanlar` dizisindeki her kod gerçek
+personeldir; iki koleksiyon da **boş olamaz**. **645 kontrol temiz.**
+Araç önce **bozuk vakayla sınandı** (L-24): `kayit:'DOK-YOK-999'` ve `EMP-999`
+yazıldığında ikisini de yakaladı, sonra geri alındı.
+
+---
+
+## VB-29 (özgün kayıt) · `hatirlat` aksiyonunun veri ekseni YOK
 
 **Nerede:** `app-dokuman-sure.html` (satır + toplu) · `app-fatura.html` ·
 `app-tahsilat.html` — "hatırlatma gönder" aksiyonu.

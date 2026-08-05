@@ -514,12 +514,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [x] 🔴 **UID-27** · `GV.list` `run`'sız aksiyonda sahte başarı mesajı — **çözüldü 9. oturum**
       → gerçek sayı 79 değil **129 ihlal / 65 ekran**; yalan yedek kaldırıldı, `run`suz aksiyon
       `disabled` + "bu sürümde yok". İhlal **129 → 28**. Eksen: `tasks/qa/act.js`
-- [~] **UID-30** · Ekranın kendi `run` gövdesi yalan söylüyor — gerçek sayı **10 yalan / 5 ekran**
+- [x] **UID-30** · Ekranın kendi `run` gövdesi yalan söylüyor — gerçek sayı **10 yalan / 5 ekran**
       (28/21 kaydı aracın kendi dört yanlış hükmünden şişmişti, ders **L-26**). 10. oturumda
       **6'sı çözüldü** (`app-butce` revizyon+uyarı · `app-destek-sla` eskale ×2 ·
       `app-ayar-otomasyon` ac+dene). **Kalan 4** veri ekseni bekliyor: `hatirlat` ×2 (VB-29) ·
-      `oku` ×2 (duyuru okuma ekseni yok) — tutarlılık turunda
-- [ ] **VB-29** · `hatirlat` aksiyonunun veri ekseni yok → `DB.reminders` ya da bağ alanı
+      `oku` ×2 (duyuru okuma ekseni yok) — **ikisi de aynı oturumda kapandı**, `act.js` 0 ihlal
+- [x] **VB-29** · `hatirlat` veri ekseni — **çözüldü 10. oturum** → `DB.reminders` + duyuru
+      `okuyanlar` ekseni; `canon.js` eksen 19 (645 kontrol temiz)
 - [ ] **act.js kalıcı tarama setinde** — her turda koşulur, sayı artarsa regresyon
       (10. oturumda üç yanlış hüküm düzeltildi: çıktı modalını onay modalı sanıyordu ·
       girdi soran modalı kendi onaylıyordu · görünmeyen toplu işlem butonunu "ölü" sayıyordu)
