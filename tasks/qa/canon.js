@@ -427,6 +427,68 @@ DB.surveys.filter(a => /^PRJ-/.test(a.ilgili || '')).forEach(a => {
       a.kod + ' anket tarihi ' + a.tarih + ' < proje teslimi ' + p.gercekBitis);
 });
 
+/* ---------- 21. §22 BAĞ KAPSAMI — "alan açmak bağ yazmak değildir" (VB-28 · L-22) ----------
+   Eksen 15 "bağ verilen kod gerçekten var mı" diye soruyor; **boş alan her zaman
+   geçiyor**. VB-05 tam bu yüzden "kapandı" sayılmıştı: `DB.tasks[].destek` şemada
+   vardı ama 0/25 kayıtta doluydu. Bu eksen tersini sorar: **bağ VERİLMİŞ mi.**
+   Her satır için en az bir kaydın gerçekten değer taşıması beklenir; taşımıyorsa
+   madde kapalı sayılamaz. Sayı da raporlanır ki defterdeki iddia ölçülebilsin. */
+head('21) §22 bağ kapsamı — her bağ en az bir kayıtta DOLU (L-22)');
+const BAGLAR = [
+  ['destek → görev',        DB.tasks,          'destek'],
+  ['destek → hata',         DB.bugs,           'destek'],
+  ['destek → değişiklik',   DB.changeRequests, 'destek'],
+  ['hata → görev',          DB.bugs,           'gorev'],
+  ['hata → koşum',          DB.bugs,           'test'],
+  ['hata → sprint',         DB.bugs,           'sprint'],
+  ['koşum → sprint',        DB.tests,          'sprint'],
+  ['teslim → kabul koşumu', DB.deliveries,     'test'],
+  ['teslim → taksit',       DB.deliveries,     'milestone'],
+  ['sipariş → demirbaş',    DB.assets,         'siparis'],
+  ['sipariş → araç',        DB.vehicles,       'siparis'],
+  ['aday → müşteri',        DB.leads,          'musteri'],
+  ['sohbet mesajı → görev', DB.messages,       'gorev'],
+  ['sözleşme → teklif',     DB.contracts,      'teklif']
+];
+BAGLAR.forEach(([ad, arr, alan]) => {
+  const dolu = arr.filter(r => r[alan] != null && r[alan] !== '' &&
+                              !(Array.isArray(r[alan]) && !r[alan].length)).length;
+  say(dolu > 0, ad + ' (' + alan + ') — ' + arr.length + ' kaydın HİÇBİRİNDE dolu değil (L-22)');
+  console.log('  · ' + ad.padEnd(24) + alan.padEnd(12) + dolu + ' / ' + arr.length);
+});
+
+/* 21b. sipariş → araç bütünlüğü (§22 madde 24). Demirbaş tarafının (15d) ikizi. */
+ref(DB.vehicles, 'siparis', DB.orders, 'DB.orders');
+DB.vehicles.filter(v => v.siparis).forEach(v => {
+  const o = DB.orders.filter(x => x.kod === v.siparis)[0];
+  if (!o) return;
+  say(o.durum === 'Teslim alındı',
+      v.kod + ' siparişi ' + o.kod + ' durumu "' + o.durum + '" — yalnız teslim alınan sipariş araç doğurur');
+  say(v.alisBedeli === o.tutar,
+      v.kod + ' alisBedeli=' + money(v.alisBedeli) + ' ≠ sipariş neti=' + money(o.tutar));
+  say(v.mulkiyet === 'Satın alınan',
+      v.kod + ' siparişi var ama mülkiyeti "' + v.mulkiyet + '" — kiralık araç sipariş doğurmaz');
+  say(v.alisTarihi >= o.tarih,
+      v.kod + ' alisTarihi=' + v.alisTarihi + ' < sipariş tarihi ' + o.tarih);
+});
+
+/* 21c. sohbet mesajı → görev (§22 madde 15) ve aday → müşteri (§22 madde 6).
+   İkisi de bağı KAYNAK kayıtta tutar; hedefte ayna alan doğmamalıdır (§9d). */
+ref(DB.messages, 'gorev',   DB.tasks,     'DB.tasks');
+ref(DB.leads,    'musteri', DB.customers, 'DB.customers');
+say(!DB.tasks.some(t => 'kanal' in t || 'mesaj' in t),
+    'DB.tasks[].kanal/mesaj ayna alanı doğmuş — bağ DB.messages[].gorev üzerindedir (§9d)');
+say(!DB.customers.some(c => 'lead' in c),
+    'DB.customers[].lead ayna alanı doğmuş — bağ DB.leads[].musteri üzerindedir (§9d)');
+/* Kazanılan aday müşteri kaydı gösteriyorsa, o müşteri adayın talebinden SONRA açılmış olmalı */
+DB.leads.filter(l => l.asama === 'Kazanıldı' && l.musteri).forEach(l => {
+  const c = DB.customers.filter(x => x.kod === l.musteri)[0];
+  if (!c) return;
+  say(c.ilkKayit >= l.talepTarihi,
+      l.kod + ' kazanıldı → ' + c.kod + ' ama müşteri kaydı (' + c.ilkKayit +
+      ') adayın talebinden (' + l.talepTarihi + ') ÖNCE açılmış');
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
