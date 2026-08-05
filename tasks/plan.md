@@ -503,7 +503,11 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [ ] **UID-10** · Yan panelde başlık / kaydırılan içerik ayrımı yok (+ para birimi eki, filtre sayacı)
 - [x] **UID-11** · Finans yetkisi yokken KPI "₺0" gösteriyor — **çözüldü 10. oturum**
       → `kpis[].perm` / `mask()` sözleşmesi; 17 ekranda 28 `canFinans ? x : 0` silindi
-- [ ] **UID-12** · `app-gorev.html`'de "Tümü" sekmesi yok, dış bağlantı kayıt gizliyor (+ `search.extra`)
+- [x] **UID-12** · `app-gorev.html` "Tümü" sekmesi — **çözüldü 10. oturum** (UID-21 ile aynı turda)
+      → sekme eklendi, dış bağlantılar hizalandı, `search.extra` sprint/modül kodlarını katıyor;
+      ayrıca `app-rapor-proje`'de hiç okunmayan üç `?proje=`/`?sprint=`/`?sorumlu=` parametresi bulundu
+- [x] **UID-21** · `app-referans` yönlendiren bağlantısı yanlış eksende süzüyordu — **çözüldü**
+      → `app-lead` ve `app-musteri`'ye `referans` süzgeci; REF-001 → 2 aday, REF-002 → 3 müşteri
 - [ ] **UID-13** · `GV.list` toplu işlemlerinde `show` / yetki kapısı yok → `bulk[].show`
 - [ ] **UID-14** · Detay sekmesi tabloları ≤760px'de kayboluyor → `.gv-tablewrap` kararı
 - [ ] **UID-15** · Dört eski detay ekranı shell iskeletini elle kopyalıyor → dördü tek turda `buildSkeleton()`e

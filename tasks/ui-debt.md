@@ -348,7 +348,24 @@ ve `meta` satırı gizlenecek. Ekranlardaki `canFinans ? x : 0` deseni silinecek
 
 ---
 
-## UID-12 · `app-gorev.html`'de "Tümü" sekmesi yok — dış bağlantılar kayıt gizliyor
+## ✅ UID-12 + UID-21 · Dış bağlantılar sessizce yanlış küme döndürüyor — ÇÖZÜLDÜ (2026-08-05)
+
+İkisi de aynı sınıf: **bağlantı çalışıyor ama yanlış sonuç veriyor** — sahte butondan
+daha tehlikeli, çünkü hata görünmüyor.
+
+| Ne | Ölçüm | Çözüm |
+|---|---|---|
+| `app-gorev` "Tümü" sekmesi yok | `?f_sprint=` ile gelen kullanıcı **İş Havuzu**'nun süzdüğü alt kümeyi görüyordu | 14. sekme `tumu` eklendi, **tüm dış bağlantılar ona çevrildi** |
+| `?q=SPR-*` 0 kayıt | `search.fields` sprint taşımıyordu | `search.extra` sprint · modül · sorumlu/veren adını arama metnine katıyor — ölçüldü: `?t=tumu&q=SPR-2026-020` **1 kayıt** |
+| `app-referans` → adaylar | Bağlantı yönlendirenin **TÜRÜNE** göre süzüyordu; REF-001'den gidince aynı kanaldan gelen herkes listeleniyordu | `app-lead` ve `app-musteri`'ye `referans` süzgeci eklendi; ölçüldü: REF-001 → **2 aday**, REF-002 → **3 müşteri**. Yönlendirenin "kazandırdığı müşteriler" aksiyonu da eklendi |
+| **Yeni bulgu** — `app-rapor-proje` | Üç bağlantı `?proje=` · `?sprint=` · `?sorumlu=` yazıyordu; `GV.list` yalnız **`f_` önekli** parametreyi okur → **hiçbir filtre uygulanmıyordu** | Üçü de `?t=tumu&f_*` oldu |
+
+**Genel kural yazıldı:** bir liste ekranına dışarıdan filtreli link veriliyorsa, o ekranda
+filtreyi kısıtlamayan bir **"Tümü" sekmesi** bulunmalıdır ve link onu hedeflemelidir.
+
+---
+
+## UID-12 (özgün kayıt) · `app-gorev.html`'de "Tümü" sekmesi yok — dış bağlantılar kayıt gizliyor
 
 **Nerede:** `app-gorev.html` sekme seti; ona link veren **tüm** ekranlar (sprint, hata, proje,
 milestone, sohbet, toplantı).
@@ -815,7 +832,7 @@ liste süzgeci, iletişim formu ve müşteri detayı modalı aynı sözlükten b
 
 ---
 
-## UID-21 · `app-referans.html` "yönlendirdiği adaylar" bağlantısı yanlış eksende süzüyor
+## UID-21 (özgün kayıt · UID-12 ile birlikte ÇÖZÜLDÜ) · `app-referans.html` yanlış eksende süzüyor
 
 **Nerede:** `app-referans.html` satır aksiyonu → `app-lead.html?t=tumu&f_kaynak=<tur>`.
 
