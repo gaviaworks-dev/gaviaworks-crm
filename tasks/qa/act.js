@@ -21,6 +21,7 @@
  *   MUTASYON   → veri değişti                                  ✅
  *   YÖNLENDİRME→ adres değişti (başka ekrana gitti)             ✅
  *   PANEL      → modal/drawer açıldı (kullanıcıya bir şey sundu) ✅
+ *   ÇIKTI      → çıktı modalı onaylandı ve DOSYA indirildi         ✅
  *   DÜRÜST RED → veri değişmedi ama warn/danger tonda uyarı bastı ✅
  *   🔴 YALAN   → veri değişmedi AMA **başarı (ok) mesajı** bastı  İHLAL
  *   ⚫ ÖLÜ     → veri değişmedi, hiçbir geri bildirim yok         İHLAL
@@ -89,10 +90,13 @@ async function ready(page, t) {
 async function passConfirm(page) {
   /* YALNIZ gerçek onay modalı: `GV.confirm` `size:'sm'` + tam iki aksiyon üretir.
      Önceden herhangi bir `[data-act="1"]`'e basılıyordu; drawer'ın kendi aksiyon
-     butonuna basıp paneli kapatıyor ve aksiyonu 'ÖLÜ' gösteriyordu. */
+     butonuna basıp paneli kapatıyor ve aksiyonu 'ÖLÜ' gösteriyordu.
+     İkinci düzeltme (10. oturum): çıktı modalı da `is-sm` + iki aksiyondur ama
+     **form kontrolü taşır**; onay modalı hiçbir zaman girdi sormaz. */
   const isConfirm = await page.evaluate(
     `(() => { const m = document.querySelector('.gv-modal.is-sm');
-       return !!(m && m.querySelectorAll('[data-act]').length === 2); })()`);
+       return !!(m && m.querySelectorAll('[data-act]').length === 2
+                   && !m.querySelector('input, select, textarea')); })()`);
   if (!isConfirm) return false;
   const ok = await page.$('.gv-modal.is-sm [data-act="1"]');
   if (!ok) return false;
@@ -101,7 +105,38 @@ async function passConfirm(page) {
   return true;
 }
 
-function verdict(before, after, toasts, confirmed) {
+/* Girdi soran modal/panel açık mı? Öyleyse aksiyonun İKİNCİ adımı (doldur → kaydet)
+   bu araçla ölçülmez; buton sağlıklıdır ama zincirin devamı ölçüsüz kalır.
+   Sessizce yeşil sayılmaz — ayrı sayaçta raporlanır (L-19 ruhu). */
+async function formModalOpen(page) {
+  return await page.evaluate(
+    `!!document.querySelector('.gv-modal input, .gv-modal select, .gv-modal textarea, .gv-drawer input, .gv-drawer select, .gv-drawer textarea')`);
+}
+
+/* Çıktı modalı açıldıysa CSV seçip "Çıktı Al"a bas — gerçekten dosya üretiyor mu
+   ölçülsün diye. (UID-07: seçili kapsamı dışa aktarma bileşene alındı; çıktı bir
+   MUTASYON değildir ama ölü de değildir — kendi hükmü vardır.) */
+async function passExport(page) {
+  const isExport = await page.evaluate(
+    `!!document.querySelector('.gv-modal [name=expfmt]')`);
+  if (!isExport) return false;
+  await page.evaluate(`(() => {
+    const r = document.querySelector('.gv-modal [name=expfmt][value="csv"]');
+    if (r) r.checked = true;
+  })()`);
+  const ok = await page.$('.gv-modal [data-act="1"]');
+  if (!ok) return false;
+  await ok.click().catch(() => {});
+  await page.waitForTimeout(SETTLE);
+  return true;
+}
+
+function verdict(before, after, toasts, confirmed, exported, formish) {
+  /* ÇIKTI: dosya indirildi ya da yazdırma penceresi açıldı. Veri değişmez,
+     ama kullanıcıya gerçek bir çıktı verilir — yalan da ölü de değildir. */
+  if (exported) return exported.file
+    ? { v: 'ÇIKTI', bad: false }
+    : { v: '🔴 YALAN', bad: true, why: 'çıktı modalı onaylandı ama dosya üretilmedi' };
   /* Yönlendirme ÖNCE bakılır: sayfa gittiyse DB parmak izi yeni sayfanınkidir,
    * karşılaştırmak anlamsızdır. URL `page.url()`'den gelir — sayfa içi
    * `location.href` yönlendirme yarışında eski değeri döndürüyordu ve 32 form
@@ -109,12 +144,12 @@ function verdict(before, after, toasts, confirmed) {
   if (before.nav !== after.nav) return { v: 'YÖNLENDİRME', bad: false };
   if (before.db !== after.db) return { v: 'MUTASYON', bad: false };
   // confirm modalı sayılmaz; ondan SONRA açık kalan overlay gerçek bir panel demektir
-  if (after.overlay > before.overlay && !confirmed) return { v: 'PANEL', bad: false };
+  if (after.overlay > before.overlay && !confirmed) return { v: 'PANEL', bad: false, form: !!formish };
   const ok = toasts.some(t => t.tone === 'ok');
   const uyari = toasts.some(t => t.tone === 'warn' || t.tone === 'danger');
   if (ok) return { v: '🔴 YALAN', bad: true, why: 'başarı mesajı bastı, veri değişmedi' };
   if (uyari) return { v: 'DÜRÜST RED', bad: false };
-  if (after.overlay > before.overlay) return { v: 'PANEL', bad: false };
+  if (after.overlay > before.overlay) return { v: 'PANEL', bad: false, form: !!formish };
   return { v: '⚫ ÖLÜ', bad: true, why: 'hiçbir geri bildirim yok, veri değişmedi' };
 }
 
@@ -122,6 +157,9 @@ function verdict(before, after, toasts, confirmed) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
+  /* İndirilen dosya sayacı — "çıktı gerçekten üretildi mi" ölçümü (UID-07) */
+  let dl = 0;
+  page.on('download', async (d) => { dl++; try { await d.delete(); } catch (e) {} });
   const list = LIB.fullTargets(process.argv[2]);
   console.log(`hedef: ${list.length} ekran`);
 
@@ -155,13 +193,24 @@ function verdict(before, after, toasts, confirmed) {
       const before = await fp(page);
       const btn = await page.$(`[data-bulk="${key}"]`);
       if (!btn) continue;
+      /* Buton görünmüyorsa (seçilebilir satır yok: boş sekme ya da kanban görünümü)
+         tıklama sessizce başarısız olur ve aksiyon yanlışlıkla "ÖLÜ" sayılırdı.
+         Ulaşılamayan aksiyon ihlal değildir ama görünmez de kalmaz. */
+      if (!(await btn.isVisible().catch(() => false))) {
+        rows.push({ t, tip: 'toplu', key, v: 'ULAŞILMADI', bad: false, unreach: true });
+        continue;
+      }
       denenen++;
       await btn.click().catch(() => {});
       await page.waitForTimeout(SETTLE);
-      const confirmed = await passConfirm(page);
+      const dl0 = dl;
+      const didExp = await passExport(page);
+      if (didExp) await page.waitForTimeout(SETTLE);
+      const formish = didExp ? false : await formModalOpen(page);
+      const confirmed = didExp ? false : await passConfirm(page);
       const toasts = await toastsOf(page);
       const after = await fp(page);
-      const r = verdict(before, after, toasts, confirmed);
+      const r = verdict(before, after, toasts, confirmed, didExp ? { file: dl > dl0 } : null, formish);
       if (r.bad) ihlal++;
       rows.push({ t, tip: 'toplu', key, ...r });
     }
@@ -179,10 +228,14 @@ function verdict(before, after, toasts, confirmed) {
       denenen++;
       await btn.click().catch(() => {});
       await page.waitForTimeout(SETTLE);
-      const confirmed = await passConfirm(page);
+      const dl0 = dl;
+      const didExp = await passExport(page);
+      if (didExp) await page.waitForTimeout(SETTLE);
+      const formish = didExp ? false : await formModalOpen(page);
+      const confirmed = didExp ? false : await passConfirm(page);
       const toasts = await toastsOf(page);
       const after = await fp(page);
-      const r = verdict(before, after, toasts, confirmed);
+      const r = verdict(before, after, toasts, confirmed, didExp ? { file: dl > dl0 } : null, formish);
       if (r.bad) ihlal++;
       rows.push({ t, tip: 'satır', key, ...r });
     }
@@ -200,10 +253,14 @@ function verdict(before, after, toasts, confirmed) {
         denenen++;
         // form-brief: kaydet sonrası GV.refresh + listeye dönüş; yönlendirmeye zaman tanı
         await page.waitForTimeout(1500);
-        const confirmed = await passConfirm(page);
+        const dl0 = dl;
+        const didExp = await passExport(page);
+        if (didExp) await page.waitForTimeout(SETTLE);
+        const formish = didExp ? false : await formModalOpen(page);
+      const confirmed = didExp ? false : await passConfirm(page);
         const toasts = await toastsOf(page);
         const after = await fp(page);
-        const r = verdict(before, after, toasts, confirmed);
+        const r = verdict(before, after, toasts, confirmed, didExp ? { file: dl > dl0 } : null, formish);
         if (r.bad) ihlal++;
         rows.push({ t, tip: 'kaydet', key: '(kaydet)', ...r });
       }
@@ -229,8 +286,22 @@ function verdict(before, after, toasts, confirmed) {
   console.log(`Taranan ekran: ${ekran} · yüklenen kayıt: ${kayitli}`);
   console.log(`Tetiklenen aksiyon: ${denenen}`);
   console.log(`Devre dışı ("bu sürümde yok"): ${todoB} toplu · ${todoR} ekranda satır aksiyonu — dürüst, ihlal değil`);
-  console.log(`  MUTASYON ${say('MUTASYON')} · YÖNLENDİRME ${say('YÖNLENDİRME')} · PANEL ${say('PANEL')} · DÜRÜST RED ${say('DÜRÜST RED')}`);
+  console.log(`  MUTASYON ${say('MUTASYON')} · YÖNLENDİRME ${say('YÖNLENDİRME')} · PANEL ${say('PANEL')} · ÇIKTI ${say('ÇIKTI')} · DÜRÜST RED ${say('DÜRÜST RED')}`);
+  const formPanels = rows.filter(r => r.form);
   console.log(`  🔴 YALAN ${say('🔴 YALAN')} · ⚫ ÖLÜ ${say('⚫ ÖLÜ')}`);
+  const unreach = rows.filter(r => r.unreach);
+  if (unreach.length) {
+    console.log(`  Ulaşılamayan aksiyon: ${unreach.length} — toplu işlem barı açılamadı ` +
+                `(seçilebilir satır yok: boş sekme ya da kanban görünümü)`);
+    for (const r of unreach) console.log(`      ${r.t}: ${r.key}`);
+  }
+  console.log(`  Girdi soran panel açan aksiyon: ${formPanels.length} — buton sağlıklı, ` +
+              `ama "doldur → kaydet" adımı bu eksende ÖLÇÜLMEDİ`);
+  if (formPanels.length) {
+    const byS = {};
+    for (const r of formPanels) (byS[r.t] = byS[r.t] || []).push(`${r.key}[${r.tip}]`);
+    for (const f of Object.keys(byS).sort()) console.log(`      ${f}: ${byS[f].join(' · ')}`);
+  }
   console.log(bad.length
     ? `\nİHLAL — ${bad.length} aksiyon, ${Object.keys(byScreen).length} ekran`
     : `\nTEMİZ — ${denenen} aksiyonun tamamı ölçülebilir bir sonuç üretti`);
