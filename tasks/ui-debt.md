@@ -1100,8 +1100,23 @@ else GV.toast(act.label + ' — ' + state.selected.length + ' kayıt işlendi', 
 bilgisi veriliyor; seçim temizleniyor, liste yeniden çiziliyor — yani ekran da
 "bir şey oldu" gibi davranıyor. Veri değişmiyor.
 
-**Ölçüm (9. oturum, tüm ekranlar tarandı):** **79 toplu işlem aksiyonu, 47 ekranda**
-`run` taşımıyor. Bunların bir kısmı `confirm` metni de gösteriyor — kullanıcı
+**Ölçüm — İKİ KEZ ÖLÇÜLDÜ, İLK SAYIM EKSİKTİ.**
+
+| | İlk kayıt (statik grep) | Gerçek (`act.js` çalışma zamanı) |
+|---|---|---|
+| İhlal | **79** aksiyon / 47 ekran | **129** aksiyon / **65** ekran |
+| 🔴 yalan (başarı basıp veri değiştirmeyen) | — | **94** (87 toplu · 7 satır) |
+| ⚫ ölü (hiç geri bildirim vermeyen) | — | **35** (26 satır · 5 kaydet · 4 toplu) |
+| Sağlıklı | — | 60 mutasyon · 33 yönlendirme · 9 panel · 10 dürüst red |
+
+İlk sayım **iki yönden** eksikti: (a) yalnız `bulk[]`e bakıyordu, `rowActions[]` ve
+form kaydet düğmeleri kapsam dışıydı; (b) statik regex iç içe nesneleri yanlış
+ayrıştırıyordu (`app-fatura.html`'de 2 saydı, gerçekte 3 toplu işlem var).
+**Ders L-25:** ölçüm ekseni olmadan yazılan borç kaydı borcu **eksik sayar**.
+
+Tek başına en büyük kalem `disa` — **53 ekranda** "seçilenleri dışa aktar".
+
+**Özgün kayıt:** 79 toplu işlem aksiyonu, 47 ekranda `run` taşımıyor. Bunların bir kısmı `confirm` metni de gösteriyor — kullanıcı
 "12 kaydı arşivlemek istediğinize emin misiniz?" onayını veriyor, yeşil
 "Arşivle — 12 kayıt işlendi" mesajını alıyor ve **hiçbir kayıt arşivlenmiyor**.
 
@@ -1126,7 +1141,26 @@ Kısmen sahte (7 ekran): `app-butce` 1/3 · `app-destek-paket` 1/4 · `app-dokum
 ama bu kez hata **ekranda değil ortak bileşende** ve **varsayılan davranış** olarak.
 CLAUDE.md'nin "sahte buton, çalışmayan aksiyon **yasak**" kuralının en büyük ihlali.
 
-**Çözüm (Blok 3'ün İLK maddesi, tek turda):**
+### ✅ ÇÖZÜM KAYDI — 9. oturum, ortak katmanda tek yerde
+
+`ui.js`'teki yalan yedek (`else GV.toast(...'kayıt işlendi','ok')`) **kaldırıldı**;
+aynı sert kural tek yerde hem `bulk[]` hem `rowActions[]` için kuruldu:
+**`run` yoksa aksiyon `disabled` basılır ve "bu sürümde yok" der.**
+
+**Neden gizlemedik (karar gerekçesi):** Üç seçenek değerlendirildi —
+(a) gizle, (b) devre dışı göster, (c) dürüst uyarı. **(b) + (c) seçildi.**
+Gizlemek 47 ekranın toplu işlem barını boşaltıp kapsamı olduğundan **küçük**
+gösterirdi; ayrıca gizleme **UID-13'ün yetki için** öngördüğü davranıştır ve
+"yetkin yok" ile "henüz yazılmadı" aynı şeymiş gibi görünürdü. Devre dışı + dürüst
+etiket ikisini ayırır ve projenin `data-wip` geleneğiyle aynı mantıktadır.
+
+**Ölçülen sonuç:** ihlal **129 → 28** (65 → 21 ekran). **85 toplu aksiyon** artık
+dürüstçe devre dışı. Eksik-`run` yolundan gelen ihlal **sıfır**.
+
+**KALAN 28 FARKLI SINIFTIR → UID-30.** Bunlarda `run` **var** ve çağrılıyor;
+yalan söyleyen bileşen değil, ekranın **kendi `run` gövdesi**.
+
+**Çözüm (özgün plan):**
 1. `ui.js`'teki `else GV.toast(...)` yedeği **kaldırılacak** — bileşen asla yapmadığı
    bir işi yaptım demez.
 2. `run` taşımayan `bulk[]` maddesi toplu işlem barına **hiç basılmayacak**
@@ -1234,3 +1268,71 @@ sessizce geçer — çünkü kontrol edilecek değer yoktur.
 3. `canon.js`'e yeni eksen: **"§22'nin her bağı için en az bir kayıt gerçekten bağ taşır"**.
    Bu eksen bugün olmadığı için üç eksik bağ ve bir boş alan dört oturum boyunca görünmedi.
 4. `plan.md` ve `handoff.md`'deki "38 bağlantı" ifadesi **37**'ye düzeltilecek.
+
+
+---
+
+## UID-30 · Ekranın kendi `run` gövdesi yalan söylüyor — 28 aksiyon / 21 ekran
+
+**UID-27'nin kardeşi ama farklı sınıf.** UID-27'de *bileşen* çağıranın vermediği
+yordamın yerine başarı varsayıyordu; burada yordam **var**, çağrılıyor, ama içi
+ya yalnız `GV.toast` basıyor ya da ölçülebilir hiçbir şey yapmıyor.
+
+**Ölçüm (`act.js`, UID-27 düzeltmesinden SONRA):** 🔴 **13 yalan** · ⚫ **15 ölü**.
+
+| Ekran | Aksiyon | Hüküm |
+|---|---|---|
+| `app-arac` | `km` (satır) | yalan |
+| `app-ayar-otomasyon` | `dene` (satır) · `ac` (toplu) | yalan |
+| `app-butce` | `revizyon` · `uyari` (toplu) | yalan |
+| `app-destek-sla` | `ata` · `eskale` (satır) · `eskale` (toplu) | yalan |
+| `app-destek` | `donustur` (satır) | yalan |
+| `app-dokuman-sure` | `hatirlat` (satır + toplu) | yalan → **VB-29** |
+| `app-panel-duyurular` | `oku` (satır + toplu) | yalan |
+| `app-zimmet` | `onay` (satır) | ölü |
+| `app-komisyon` | `onayla` (satır) | ölü |
+| `app-satinalma` | `onayla` (satır) | ölü |
+| `app-istalebi` | `kabul` (satır) | ölü |
+| `app-toplanti-karar` | `durum` (satır) | ölü |
+| `app-demirbas` | `zimmet` (satır) | ölü |
+| `app-egitim` | `katilimci` (satır) | ölü |
+| `app-satinalma-teklif` | `kars` (satır) | ölü |
+| `app-destek-memnuniyet` | `takip` · `yorum` (satır) | ölü |
+| `app-ayar-kullanici` | `rol` · `yetki` (satır) | ölü |
+| `app-ayar-entegrasyon` | `ayar` · `kes` (satır) | ölü |
+| `app-dokuman` | `onizle` (satır) | ölü |
+| `app-zaman-onay` | `kirilim` (satır) | ölü |
+| 5 form ekranı | `(kaydet)` | ölü |
+
+**Çözüm (Blok 3, UID-27'nin devamı):** Her biri tek tek incelenir — gerçek mutasyon
+yazılır ya da aksiyon config'ten silinir. **Toplu bir kök neden yoktur**, bu yüzden
+UID-27 gibi tek satırla kapanmaz. `act.js` her turda sayıyı ölçer; **sayı artarsa
+regresyon**, azalırsa ilerleme.
+
+**Not — beş form kaydet düğmesi ayrı incelenmeli:** `app-arac-form` ·
+`app-arac-gider-form` · `app-arac-kaza-form` · `app-arac-sigorta-form` ·
+`app-satinalma-form`. Diğer 31 form kaydet düğmesi doğru çalışıyor (listeye
+yönlendiriyor), bu beşi yönlendirmiyor da, veri de yazmıyor.
+
+---
+
+## VB-29 · `hatirlat` aksiyonunun veri ekseni YOK
+
+**Nerede:** `app-dokuman-sure.html` (satır + toplu) · `app-fatura.html` ·
+`app-tahsilat.html` — "hatırlatma gönder" aksiyonu.
+
+**Sorun:** Aksiyon bir **bildirim/hatırlatma kaydı** üretmeli ama `DB.notifications`
+kullanıcıya gönderilen bildirimi tutuyor, "şu kayda şu tarihte hatırlatma gönderildi"
+ekseni **hiçbir koleksiyonda yok**. Bu yüzden `run` yazılsa bile yazacağı yer yok;
+bugün yalnız `GV.toast` basıyor (UID-30'da **yalan** sayıldı).
+
+**UID-27'nin `disa` kaleminden farkı:** `disa` bir **bileşen yeteneği** boşluğu
+(`doExport` zaten var, seçili kapsamla çağrılamıyor — UID-07). `hatirlat` ise bir
+**veri ekseni** boşluğu; bileşen tarafında yapılacak bir şey yok.
+
+**Çözüm (kapanış fazında):** `DB.reminders` koleksiyonu açılacak
+(kayıt kodu · tür · gönderim tarihi · kanal · gönderen · durum) ya da
+`DB.notifications`'a "hangi kayda ilişkin" bağ alanı eklenecek. Karar
+`assumptions.md`'ye yazılacak. Ardından üç ekranın `run`'ı gerçek mutasyona
+çevrilecek ve `canon.js`'e "hatırlatma kaydı gerçekten var olan bir kaydı gösterir"
+ekseni girecek.
