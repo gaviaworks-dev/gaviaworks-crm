@@ -417,3 +417,49 @@ components.md §9 şiddet→etki eşlemesi. Bu eşleme 6. oturumda `HTA-2026-071
 **Eksen yazılmadan kapatılmadı (VB-19 dersi):** `canon.js` **eksen 21** §22'nin 14 bağını
 tek tek sayar ve her birinin en az bir kayıtta dolu olduğunu doğrular; rapor kaç kayıtta
 dolu olduğunu **ayrıca yazar** ki defterdeki iddia ölçülebilsin (L-25 · L-19).
+
+
+## V-40 · Kişi kimliği alanları KODA çevrildi, ad ikinci kez yazılmadı (VB-12 · VB-13)
+
+**Seçenekler tartıldı:** (a) borcun önerdiği gibi **yeni alan açmak**
+(`tickets.yetkili` · `interactions.kontakKod`), eskisini ad olarak bırakmak;
+(b) mevcut alanı **yerinde koda çevirmek**.
+
+**Seçilen: (b).** Gerekçe: (a) aynı kişiyi iki alanda tutardı — VB-12'nin şikâyet
+ettiği kusurun ta kendisi. Ad bir kez, `DB.contacts`'ta tutulur; gösterim
+`DB.contactName(kod)` üzerinden yapılır. Alan sayısı artmadı, ayrışacak ikinci
+kaynak doğmadı.
+
+**`DB.interactions[].kontak` neden `null` olabiliyor:** görüşme bir **ADAYLA**
+yapıldığında (`lead` dolu) muhatap henüz müşteri yetkilisi değildir ve
+`DB.contacts`'ta karşılığı yoktur. İki seçenek vardı — adaylar için `YTK-*` kaydı
+açmak ya da adı adayın kendi `yetkili` alanından okumak. **İkincisi seçildi:**
+aday yetkilisi için `DB.contacts` kaydı açmak, `musteri` alanı boş bir yetkili
+doğururdu ve "yetkili = müşterinin yetkilisi" tanımını bozardı. Ad zaten
+`DB.leads[].yetkili`'de **bir kez** yazılı; ikinci kez yazmak L-13 ihlali olurdu.
+Düşüş ortak katmanda: **`DB.interactionContact(i)`** — beş ekran aynı `if`'i
+yazmasın diye.
+
+**`DB.activities[].kisi` neden `EMP-*`:** aktiviteyi yazan taraf **personeldir**;
+müşteri yetkilisi de yazabilsin diye `YTK-*` kalıbı da kabul edilir ve
+`GV.activity` ikisini de çözer. Oturum yoksa alan **null** kalır — `domain.js`
+eskiden `'Sistem'` yazıyordu; var olmayan bir personeli varmış gibi göstermek
+canon eksen 22b'nin ihlalidir, uydurma ad yerine boş bırakmak doğrudur.
+
+**Ad benzersizliği kuralı KALDI, gerekçesi değişti.** Eskiden bağ bütünlüğü için
+zorunluydu (ad = bağ). Artık bağ kodla kurulu; kural yalnız **listede iki kişinin
+karışmaması** için duruyor ve form metni bunu açıkça söylüyor.
+
+## V-41 · `DB.referrers[].kontak` yalnız ÖLÇÜLEN iki çiftte dolu
+
+8 yönlendirenin 2'sinde bağ yazıldı: **REF-001 ≡ YTK-001** · **REF-004 ≡ YTK-014**.
+Ölçüt gevşek bir benzerlik değil, **dört alanın birebir aynı olması**: ad, telefon,
+e-posta, pozisyon. Kalan 6'sında alan `null` ve bu uydurulmadı — REF-002 (Ayten Berk),
+REF-003, REF-005, REF-006, REF-007, REF-008 hiçbir müşteri yetkilisiyle iletişim
+bilgisi paylaşmıyor; bir kısmı zaten kişi değil (REF-008 "Teknoloji Zirvesi 2026"
+bir **etkinlik**). Alan altı kayıtta da **açık** yazıldı (`kontak:null`) çünkü şema
+kayıttan kayda değişemez (VB-18 dersi).
+
+`canon.js` eksen **24b** iki yönlü kilitler: bağ varsa dört alan birebir aynı olmalı;
+bağ **yoksa** aynı telefon ya da e-posta ikinci bir yerde geçmemeli — yani sessiz
+kopya artık imkânsız.

@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 241 / 295 madde tamam (%81) · 20 kısmen · 34 açık** — 11. oturum, 2026-08-05
+**İLERLEME: 242 / 297 madde tamam (%81) · 20 kısmen · 35 açık** — 11. oturum, 2026-08-05
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -562,6 +562,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       bağı gerçek kayıtla dolduruldu. Yeni eksenler: `canon.js` **21** ("bağ verilmiş mi" — L-22)
       ve `tasks/qa/bag.js` ("bağ ekranda görünüyor mu")
 - [ ] **bag.js kalıcı tarama setinde** — §22 bağı kullanıcıya ulaşıyor mu (VB-28 ekseni)
+- [x] **VB-12 · VB-13** · Kişi kimliği ekseni — **çözüldü 11. oturum**
+      → borç iki alan sayıyordu, ölçülen **üç**: `tickets.acan` · `interactions.kontak` ·
+      **`activities.kisi`** (192 kayıt). Üçü de yerinde **koda çevrildi** (ayrı alan açmak
+      aynı kişiyi iki yerde tutmak olurdu, V-40). `GV.session.ad` → `.emp` **154 yazım /
+      62 dosya**; `esc(son.kisi)` ailesi 35 yer; ad kaskadı silindi. VB-13: `referrers.kontak`
+      (REF-001≡YTK-001 · REF-004≡YTK-014). Eksenler: `canon.js` **24 · 24b** + `tasks/qa/pers.js`
+- [ ] **pers.js kalıcı tarama setinde** — kod ekranda adın yerine geçiyor mu (VB-12 ekseni)
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (111 kullanım · `canon.js` ekseni)
 - [ ] **VB-16** · `DB.analyses[].maliyet` → `tahminiBedel` (VB-04 ile aynı turda)
 - [x] **VB-06 · VB-23 · VB-25** · Aynı işlem ekrandan ekrana ayrışıyordu — **çözüldü 10. oturum**

@@ -472,6 +472,7 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | `grip-qa.js` | Rail tutamağı: geometri, yüzey rengi, hover yakalama noktaları, odak, içerik örtme | `TEMİZ — tüm ölçümler geçti` |
 | `act.js` | **"Bu buton gerçekten bir şey yapıyor mu?"** Her toplu işlem / satır aksiyonu / form kaydet tetiklenir, DB parmak izi karşılaştırılır. Hüküm: MUTASYON · YÖNLENDİRME · PANEL · ÇIKTI · DÜRÜST RED (sağlıklı) · 🔴 YALAN · ⚫ ÖLÜ (ihlal). Ölçülemeyenler ayrı sayılır: girdi soran panelin ikinci adımı, ulaşılamayan toplu işlem (L-23) | `TEMİZ` + ihlal sayısı |
 | `ctl.js` | **"Kontrol ile etiketi arasında boşluk var mı, kontroller tasarım sisteminde mi?"** Her ekranda filtre paneli · kolon yöneticisi · çıktı modalı da açılır; kontrol ile etiket metninin **gerçek piksel aralığı** Range ile ölçülür (UID-08/09) | `TEMİZ` |
+| `pers.js` | **"Kişi alanı ekranda AD gösteriyor mu, KOD değil?"** `canon.js` eksen 24 veride kodun yazılı olduğunu ölçer; bu script kodun ekrana **sızmadığını**. İhlal, kodun **birincil ad konumunda** durmasıdır (`.cell-main` · `.gv-tl-who` · sınıfsız `td`/`dd`); `.cell-sub` / `.cell-code` ikincil etiketi **meşrudur** | `TEMİZ — N vaka` |
 | `akt.js` | **"Detay ekranının Aktivite sekmesi gerçekten DOLU mu?"** `canon.js` eksen 22 veriyi ölçer (koleksiyonun en az bir kaydında aktivite var mı), `akt.js` kaydı `?id=` ile açıp sekmeyi tıklar ve `.gv-tl-item` sayar. **İkisi aynı şeyi ölçmez:** `app-proje-hata-detay` bağlı görevin hareketlerini de bastığı için `DB.bugs` boşken bile timeline gösterebilir — canon koleksiyonun kendi kapsamını, `akt.js` kullanıcının gördüğünü ölçer | `TEMİZ — N ekran` |
 | `bag.js` | **"§22 bağı EKRANDA görünüyor mu?"** `canon.js` bağın veride yazılı olduğunu ölçer; bu script kullanıcıya **ulaştığını** ölçer — ikisi ayrı sorudur (görev detayı üç kaynağın hiçbirini basmıyordu). Her hüküm bir olumlu + bir olumsuz vakayla kurulur (L-24) | `TEMİZ — N vaka` |
 | `xport.js` | **"Çıktı ekrandaki bilgiyi taşıyor mu?"** `ui.js` bellekte yamalanıp her `GV.list` örneğinin kolonları ve kayıtları okunur; her hücrenin EKRAN değeri (`render`) ile ÇIKTI değeri (`exportValue` ‖ `r[key]`) karşılaştırılır (UID-07) | `TEMİZ — N kolon` |
@@ -488,6 +489,12 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 > Tarih yakınlığı, tedarikçi eşleşmesi, kategori benzerliği ve etiket metni **bağ değildir**.
 > Bağı olmayan kayıt **bağsız bırakılır** ve gerekçesi `assumptions.md`'ye yazılır.
 
+**KİŞİ KURALI (VB-12 · VB-13 — 11. oturum):** Bir kişiyi gösteren alan **kod** taşır,
+**ad değil**. Ad tek yerde tutulur (`DB.employees` · `DB.contacts`) ve gösterimde
+`DB.empName` / `DB.contactName` ile çözülür. Ad üzerinden kurulan bağ, ad değişince
+sessizce kopar; bu yüzden `app-musteri-yetkili-form` bir "ad kaskadı" yazmak zorunda
+kalmıştı — kaskad çevrimle birlikte **silindi**.
+
 **Yön kuralı:** Bağ **doğan / bağımlı** kaydın üstünde tutulur, hedefte ayna alan **açılmaz**.
 İki yönlü bağ zamanla ayrışır ve hangisinin doğru olduğu belirsizleşir.
 
@@ -502,6 +509,10 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | koşum → modül / sprint | `DB.tests[].moduller` (dizi) · `.sprint` | |
 | teslim → modül / kabul koşumu | `DB.deliveries[].moduller` (dizi) · `.test` | |
 | teslim → taksit | `DB.deliveries[].milestone` | tekil |
+| talebi açan yetkili | `DB.tickets[].acan` | **`YTK-*` KODU** (VB-12). Yetkili talebin müşterisine ait olmalı — canon eksen 24 |
+| görüşülen yetkili | `DB.interactions[].kontak` | **`YTK-*` KODU**; ADAY görüşmesinde **null** ve ad `DB.leads[].yetkili`'den okunur. Gösterim: `DB.interactionContact(i)` |
+| aktiviteyi yazan kişi | `DB.activities[].kisi` | **`EMP-*`** (ya da `YTK-*`) KODU. `GV.activity` adı çözer; oturum yoksa **null**, uydurma ad yazılmaz |
+| yönlendiren → müşteri yetkilisi | `DB.referrers[].kontak` | Aynı kişiyse `YTK-*`. Bağ varsa ad/tel/e-posta/pozisyon **birebir** aynı; bağ yoksa aynı iletişim bilgisi ikinci kez geçemez (VB-13, eksen 24b) |
 | demirbaş → sipariş | `DB.assets[].siparis` | `DB.assets.filter(a => a.siparis === kod)` — siparişte ayna alan **yok** |
 | araç → sipariş | `DB.vehicles[].siparis` | `DB.vehicles.filter(v => v.siparis === kod)` — demirbaş tarafının ikizi, siparişte ayna alan **yok**. Siparişin **neti** aracın `alisBedeli`ne eşittir (canon eksen 21b). Kiralık araçta alan **daima null** |
 | aday → müşteri | `DB.leads[].musteri` | ⚠️ Alan "adayın **ilişkili olduğu** müşteri kaydı"dır. §22 madde 6 ("kazanılan satış → müşteri") karşılığı `asama:'Kazanıldı'` **ile birlikte** okunur; mevcut müşteriden doğan fırsatta da dolu olur. `DB.customers[].lead` ayna alanı **açılmaz** (V-38) |

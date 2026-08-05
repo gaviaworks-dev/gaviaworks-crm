@@ -877,7 +877,75 @@ form ekranları bittikten sonra eklenecek — parça parça eklemek `links.js` k
 
 ---
 
-## VB-12 · Yetkili bağı kodla değil ADLA kuruluyor
+## ✅ VB-12 + VB-13 · Kişi kimliği ekseni — ÇÖZÜLDÜ (2026-08-06, 11. oturum)
+
+> İkisi tek turda kapandı çünkü **tek soruydu**: bir kişiyi gösteren alan onun
+> **adını** mı yoksa **kodunu** mu taşır. Kayıt iki alan sayıyordu; ölçülen **üç**.
+
+### Çevrilen üç alan
+
+| Alan | Önce | Sonra | Kayıt |
+|---|---|---|---|
+| `DB.tickets[].acan` | `'Yusuf Balaban'` | **`'YTK-012'`** | 7 / 7 eşleşti |
+| `DB.interactions[].kontak` | `'Hakan Demirtaş'` | **`'YTK-001'`** | 7 / 8 · biri **null** |
+| `DB.activities[].kisi` | `'Onur Şahin'` | **`'EMP-008'`** | **192 / 192** |
+
+**`ILT-004` neden null:** görüşme bir **ADAYLA** yapılmış (`lead:'LEAD-2026-004'`).
+Adayın yetkilisi henüz müşteri yetkilisi değildir, `DB.contacts`'ta karşılığı yoktur ve
+ad **ikinci kez yazılmadı** (L-13). Ad `DB.leads[].yetkili` alanından okunur; bu düşüşü
+beş ekranın ayrı ayrı yazmaması için ortak katmana **`DB.interactionContact(i)`** kondu.
+
+### Ad kaskadı SİLİNDİ — borcun asıl bedeli buydu
+
+`app-musteri-yetkili-form.html` ad değişince aynı firmadaki `tickets.acan` ve
+`interactions.kontak` satırlarını **elle güncellemek** zorundaydı; firma değişiminde
+kaskad bilinçli olarak çalışmıyordu, yani bağ orada zaten kopuyordu. Kaskad kaldırıldı:
+bağ kodla kurulu olduğu için ad değişikliği artık **hiçbir kayda dokunmuyor**, yalnız
+kaç kaydın etkilendiği aktiviteye yazılıyor. Ad benzersizliği kuralı **kaldı** ama
+gerekçesi değişti — artık bağ bütünlüğü değil, listelerde okunabilirlik.
+
+### VB-13 — aynı kişi iki koleksiyonda
+
+`DB.referrers[].kontak` açıldı: **REF-001 ≡ YTK-001** · **REF-004 ≡ YTK-014**
+(ölçüm: ad, telefon, e-posta ve pozisyon dördü de birebir aynı). Kalan 6 yönlendirende
+alan `null` ve **şema tekdüze** (VB-18 dersi: anahtar kayıttan kayda değişmez).
+Sessiz kopya artık imkânsız: eksen 24b bağsız bir yönlendiren bir yetkiliyle **aynı
+telefon ya da e-postayı** taşıyorsa ihlal sayıyor.
+
+### Ortak katman
+
+| Ekleme | Ne için |
+|---|---|
+| `DB.contact(kod)` · `DB.contactName(kod)` · `DB.referrer(kod)` | `DB.emp`/`DB.empName` ile aynı desen; her ekranın `DB.contacts.filter(...)` yazması bitti |
+| `DB.interactionContact(i)` | Muhatap adı — yetkili kodundan ya da adayın `yetkili` alanından |
+| `GV.activity` içinde kod çözümü | `EMP-*` → `DB.empName`, `YTK-*` → `DB.contactName`. Ad artık **tek yerde** |
+| `GV.session.ad` → `GV.session.emp` | **154 yazım / 62 dosya** — aktivite yazan her yer koda geçti |
+| `esc(son.kisi)` → `esc(DB.empName(son.kisi))` | 35 yer / 34 dosya — "Son değiştiren" ailesi kodu basacaktı |
+
+### Ölçüm — iki yeni eksen, ikisi de sınandıktan sonra
+
+| Eksen | Sorduğu soru | Sınama |
+|---|---|---|
+| `canon.js` **24 · 24b** | Kişi alanı kod kalıbına uyuyor mu · hedef gerçek mi · yetkili **aynı firmadan** mı · yönlendiren ile yetkilinin dört alanı birebir mi · bağsız yönlendiren sessiz kopya mı | **6 bozuk vakanın 6'sı** yakalandı |
+| `tasks/qa/pers.js` | Kod **ekranda adın yerine** geçiyor mu | 2 olumlu + 2 olumsuz (DOM enjeksiyonu) |
+
+**`pers.js` ilk koşumda İKİ GERÇEK HATA buldu** — ve kendi ölçüm hatasını da:
+
+1. **Gerçek:** `app-musteri-iletisim.html` kolonu `{ key:'kontak' }` idi, `render` yoktu →
+   listede **`YTK-001` yazıyordu**. Arama alanı da kod üzerinden arıyordu, yani
+   "Hakan" yazan kullanıcı sonuç alamıyordu. İkisi de düzeltildi (`render` +
+   `exportValue` + `search.extra`).
+2. **Aracın kendi hatası (L-26):** ilk sürüm `innerText` okuyordu; sekme tıklamasından
+   sonra yalnız son panel görünür kaldığı için **ekranda var olan bir adı "yok"** gösterdi.
+   Gövde klonlanıp `<script>` düğümleri atılarak `textContent` okunmaya geçildi.
+3. **Aracın ikinci hatası:** "kod sayfada geçmesin" kuralı fazla katıydı — bu projede
+   her kayıt kendi kodunu `.cell-sub` / `.cell-code` ile ikincil etiket olarak gösterir.
+   Kural keskinleştirildi: ihlal, kodun **birincil ad konumunda** (`.cell-main`,
+   `.gv-tl-who`, sınıfsız `td`/`dd`) durmasıdır.
+
+---
+
+## VB-12 (özgün kayıt) · Yetkili bağı kodla değil ADLA kuruluyor
 
 **Nerede:** `DB.tickets[].acan` · `DB.interactions[].kontak` — ikisi de düz metin kişi adı tutuyor.
 `app-destek-detay.html` bağı `yetkili.ad === ticket.acan` metin eşleşmesiyle kuruyor.
