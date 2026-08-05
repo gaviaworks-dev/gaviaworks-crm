@@ -489,6 +489,104 @@ DB.leads.filter(l => l.asama === 'Kazanıldı' && l.musteri).forEach(l => {
       ') adayın talebinden (' + l.talepTarihi + ') ÖNCE açılmış');
 });
 
+/* ---------- 22. AKTİVİTE KAPSAMI — her detay ekranı için en az bir kayıt (UID-16) ----------
+   `DB.activities` 8 kayıt ve 4 kod öneki taşıyordu; 26 detay ekranının **22'sinde**
+   "Aktivite Geçmişi" sekmesi HER kayıtta boş durum basıyordu. Ekran doğru davranıyordu,
+   eksik olan veriydi — ama bunu gösteren bir eksen yoktu, bu yüzden borç defterinde
+   yalnız beş önek (TKL · EMP · ARC · REF · YTK) yazılıydı; gerçek sayı 22'ydi (L-25).
+   Aşağıdaki koleksiyon listesi **26 detay ekranının okuduğu koleksiyonlardır**;
+   yeni bir detay ekranı üretilirse buraya da eklenir. */
+head('22) Aktivite kapsamı — her detay ekranı koleksiyonu (UID-16)');
+const DETAY_KOLL = [
+  ['vehicles','app-arac-detay'], ['assets','app-demirbas-detay'], ['tickets','app-destek-detay'],
+  ['documents','app-dokuman-detay'], ['invoices','app-fatura-detay'], ['tasks','app-gorev-detay'],
+  ['deptRequests','app-istalebi-detay'], ['leaves','app-izin-detay'], ['commissions','app-komisyon-detay'],
+  ['leads','app-lead-detay'], ['customers','app-musteri-detay'], ['analyses','app-onanaliz-detay'],
+  ['employees','app-personel-detay'], ['changeRequests','app-proje-degisiklik-detay'],
+  ['projects','app-proje-detay'], ['bugs','app-proje-hata-detay'], ['deliveries','app-proje-teslim-detay'],
+  ['tests','app-proje-test-detay'], ['referrers','app-referans-detay'], ['purchases','app-satinalma-detay'],
+  ['orders','app-siparis-detay'], ['contracts','app-sozlesme-detay'], ['payments','app-tahsilat-detay'],
+  ['suppliers','app-tedarikci-detay'], ['quotes','app-teklif-detay'], ['meetings','app-toplanti-detay']
+];
+const AKT_KAYIT = {};
+DB.activities.forEach(a => { AKT_KAYIT[a.kayit] = (AKT_KAYIT[a.kayit] || 0) + 1; });
+let kapsanan = 0;
+DETAY_KOLL.forEach(([koll, ekran]) => {
+  const arr = DB[koll] || [];
+  say(arr.length > 0, koll + ' koleksiyonu yok ya da boş (' + ekran + ')');
+  const n = arr.filter(r => AKT_KAYIT[r.kod]).length;
+  if (n) kapsanan++;
+  say(n > 0, ekran + ' → DB.' + koll + ' (' + arr.length + ' kayıt) hiçbirinde aktivite YOK — ' +
+      'sekme her kayıtta boş durum basar (UID-16 · L-22)');
+  console.log('  · ' + ekran.padEnd(30) + koll.padEnd(16) +
+              String(n) + ' / ' + arr.length + ' kayıtta aktivite');
+});
+console.log('  → aktivitesi olan detay ekranı: ' + kapsanan + ' / ' + DETAY_KOLL.length);
+
+/* 22b. Aktivite kaydının kendi bütünlüğü. `kisi` bugün AD tutuyor (kod değil) —
+   bu, VB-12'nin ("kişi bağı kodla değil adla kuruluyor") üçüncü vakasıdır ve
+   kişi kimliği turunda koda çevrilecektir. Çevrimin mekanik olabilmesi için
+   adın GERÇEK ve personel adlarıyla birebir olması şart: burada ölçülür. */
+const TUM_KOD = {};
+Object.keys(DB).forEach(k => {
+  if (Array.isArray(DB[k])) DB[k].forEach(r => { if (r && r.kod) TUM_KOD[r.kod] = k; });
+});
+const EMP_AD = DB.employees.map(e => e.ad);
+const TON = ['ok', 'warn', 'danger', 'info', 'accent', 'neutral'];
+DB.activities.forEach(a => {
+  say(!!TUM_KOD[a.kayit], 'aktivite kayit=' + a.kayit + ' → hiçbir koleksiyonda yok');
+  say(EMP_AD.indexOf(a.kisi) !== -1, 'aktivite (' + a.kayit + ') kisi="' + a.kisi + '" → personel adı değil');
+  say(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(a.tarih),
+      'aktivite (' + a.kayit + ') tarih="' + a.tarih + '" biçimi YYYY-MM-DDTHH:MM değil');
+  say(a.tarih.slice(0, 10) <= DB.today,
+      'aktivite (' + a.kayit + ') tarihi ' + a.tarih.slice(0, 10) + ' > DB.today (' + DB.today + ')');
+  say(TON.indexOf(a.tone) !== -1, 'aktivite (' + a.kayit + ') tone="' + a.tone + '" sözlükte yok');
+  say(/^i-[a-z-]+$/.test(a.icon || ''), 'aktivite (' + a.kayit + ') icon="' + a.icon + '" geçersiz');
+  say(!!a.metin, 'aktivite (' + a.kayit + ') metin boş');
+});
+/* Aynı kaydın aktiviteleri aynı dakikada iki kez olamaz (sıralama belirsizleşir) */
+const AKT_ANAHTAR = {};
+DB.activities.forEach(a => {
+  const k = a.kayit + '|' + a.tarih;
+  say(!AKT_ANAHTAR[k], 'aktivite çakışması: ' + a.kayit + ' için ' + a.tarih + ' iki kez yazılmış');
+  AKT_ANAHTAR[k] = 1;
+});
+
+/* ---------- 23. KİŞİ VE TARİH TUTARLILIĞI — UID-16 turunda ölçülen iki çelişki ----------
+   İkisi de "veriyi yakından okuyan" bir iş sırasında ortaya çıktı: aktivite kaydı
+   yazmak için kaydın yaşam döngüsüne bakmak gerekti ve iki yerde tarih mantığının
+   tutmadığı görüldü. Eksen yazılmadan düzeltme kabul edilmez (VB-19 dersi). */
+head('23) Zimmet ve yönlendirme tarih mantığı');
+/* 23a. Bir personele, İŞE GİRMEDEN ÖNCE demirbaş zimmetlenemez.
+   Ölçülmüştü: ZMT-2025-005 monitörü 2025-11-03'te EMP-016'ya veriyordu,
+   oysa EMP-016'nın `girisTarihi` 2026-06-15 — zimmet de iade de personel
+   şirkete katılmadan önceydi. Kayıt tenure'ü örtüşen EMP-015'e çekildi. */
+DB.assignments.forEach(z => {
+  const e = DB.employees.filter(x => x.kod === z.personel)[0];
+  say(!!e, z.kod + ' personel=' + z.personel + ' → DB.employees içinde yok');
+  if (!e) return;
+  say(z.teslimTarihi >= e.girisTarihi,
+      z.kod + ' teslim ' + z.teslimTarihi + ' < ' + e.kod + ' işe giriş ' + e.girisTarihi);
+  if (z.iadeTarihi) say(z.iadeTarihi >= z.teslimTarihi,
+      z.kod + ' iade ' + z.iadeTarihi + ' < teslim ' + z.teslimTarihi);
+  say(has(DB.assets, z.demirbas), z.kod + ' demirbas=' + z.demirbas + ' → DB.assets içinde yok');
+});
+/* 23b. `sonYonlendirme` SAKLANAN bir türevdir (L-08): yönlendirenin en son
+   getirdiği adayın talep tarihinden ESKİ olamaz. Ölçülmüştü: 8 yönlendirenin
+   3'ünde kart tarihi modellenmiş adaydan geriydi (REF-001 · REF-006 · REF-008).
+   `yonlendirme` ömür boyu sayaçtır ve sistem öncesi yönlendirmeleri de kapsar,
+   bu yüzden modellenen aday sayısından KÜÇÜK olamaz ama büyük olabilir. */
+DB.referrers.forEach(r => {
+  const ls = DB.leads.filter(l => l.referans === r.kod);
+  say(r.yonlendirme >= ls.length,
+      r.kod + ' yonlendirme sayacı=' + r.yonlendirme + ' < modellenmiş aday=' + ls.length);
+  if (!ls.length) return;
+  const enSon = ls.map(l => l.talepTarihi).sort().pop();
+  say(r.sonYonlendirme >= enSon,
+      r.kod + ' sonYonlendirme=' + r.sonYonlendirme + ' < en son aday talebi ' + enSon +
+      ' — saklanan türev eskimiş (L-08)');
+});
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
