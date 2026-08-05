@@ -1,7 +1,16 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 195 / 274 madde tamam (%71) · 32 kısmen · 47 açık** — 8. oturum, 2026-08-05
-> Sayı 237'den 274'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
+**İLERLEME: 212 / 275 madde tamam (%77) · 22 kısmen · 41 açık** — 9. oturum, 2026-08-05
+> Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
+>
+> **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
+> kutuları sayıldığında gerçek **196 / 275** çıktı — bir madde eksik sayılmış. Sayı artık
+> `grep -c '^- \[x\]'` ile ölçülüyor, elle güncellenmiyor.
+>
+> **9. oturumda kapanan 16 madde:** dört doküman (G · I · J · L) + **12 eskimiş kayıt**.
+> O on ikisi hâlâ "form bekliyor" diyordu, oysa form bloğu 8. oturumda **36/36** kapanmıştı;
+> defter ekranların gerisinde kalmıştı. `[~]`→`[x]` geçen 11 madde bu yüzden; görev formu
+> `[ ]`→`[~]` oldu (form var, **kontrol listesi koleksiyonu** hâlâ veride yok).
 
 > **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
 > Kaynak: PROMPT.md (29 bölüm) — hiçbir modül/alan/sekme/durum/rol/rapor atlanmadı.
@@ -102,26 +111,28 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-personel.html` — personel listesi (6 sekme, kapasite + maaş maskeleme)
 
 ### Wave 2 — Satış & CRM (§8, §9, §10)
-- [~] Müşteri Adayları listesi (28 alan · §8.1) + detay + form
-      → `app-lead.html` ✅ (8 sekme, 9 filtre, 13 kolon) · `app-lead-detay.html` ✅ (9 sekme) · form bekliyor
+- [x] Müşteri Adayları listesi (28 alan · §8.1) + detay + form
+      → `app-lead.html` ✅ (8 sekme, 9 filtre, 13 kolon) · `app-lead-detay.html` ✅ (9 sekme) · `app-lead-form.html` ✅
 - [x] Satış Pipeline — 15 aşamalı kanban (§8.2) + aşama kuralları (zorunlu alan, sorumlu, onay, otomatik görev, max bekleme, gecikme uyarısı)
       → `app-pipeline.html` (`DB.pipelineStages` 15 aşama, 10 kural ekseni drawer'da, max bekleme aşımı kolonu)
 - [x] Satış Fırsatı detayı → fırsat `DB.leads` ekseninde modellendi; pipeline satır aksiyonu
       `app-lead-detay.html`'i açar (ayrı ekran üretilmedi, bilinçli)
-- [~] Referans Kaynakları (17 tür · §9) + Yönlendiren Kişi kartı (21 alan) + detay + form
-      → `app-referans.html` ✅ · `app-referans-detay.html` ✅ (6 sekme) · form bekliyor
+- [x] Referans Kaynakları (17 tür · §9) + Yönlendiren Kişi kartı (21 alan) + detay + form
+      → `app-referans.html` ✅ · `app-referans-detay.html` ✅ (6 sekme) · `app-referans-form.html` ✅
 - [x] Referans komisyon akışı → `app-komisyon.html` · `app-komisyon-detay.html` (6 sekme, onay + ödeme mutasyonu) · yönlendiren detayının komisyon sekmesi (kart ↔ kayıt doğrulaması canon eksen 14)
 - [~] Ön Analiz listesi (28 değerlendirme alanı · §10) + detay + form + 10 çıktı
-      → `app-onanaliz.html` ✅ · `app-onanaliz-detay.html` ✅ (7 sekme, 28 alanın 28'i veride mevcut) · form ve çıktılar bekliyor
-- [~] Teklifler listesi (25 alan · §10) + detay (kalemler, versiyon, revizyon) + form + PDF çıktı
-      → `app-teklif.html` ✅ · `app-teklif-detay.html` ✅ (7 sekme) · form bekliyor
+      → `app-onanaliz.html` ✅ · `app-onanaliz-detay.html` ✅ (7 sekme, 28 alanın 28'i veride mevcut) · `app-onanaliz-form.html` ✅ · **10 çıktı bekliyor** (§10)
+- [x] Teklifler listesi (25 alan · §10) + detay (kalemler, versiyon, revizyon) + form + PDF çıktı
+      → `app-teklif.html` ✅ · `app-teklif-detay.html` ✅ (7 sekme) · `app-teklif-form.html` ✅ ·
+      PDF `GV.list` `export` şeridinden
 
 ### Wave 3 — Müşteriler (§8.3)
 - [x] Müşteri listesi (sekmeler: Tüm/Aktif/Potansiyel/Riskli/Pasif) → `app-musteri.html` (5 sekme)
 - [x] `app-musteri-detay.html` — müşteri detayı, **15 sekme** (finans maskeleme, iletişim kaydı ekleme modalı)
 - [x] Müşteri detayı — **15 sekme:** Genel Bilgiler · Yetkililer · İletişim Geçmişi · Satış Fırsatları · Teklifler · Sözleşmeler · Projeler · Görevler · Toplantılar · Destek Talepleri · Faturalar · Tahsilatlar · Dosyalar · Raporlar · Aktivite Geçmişi
 - [x] Yetkili kişiler listesi → `app-musteri-yetkili.html` · İletişim geçmişi → `app-musteri-iletisim.html`
-- [ ] Müşteri formu + Yetkili formu + İletişim kaydı formu
+- [x] Müşteri formu + Yetkili formu + İletişim kaydı formu → `app-musteri-form.html` ✅ ·
+      `app-musteri-yetkili-form.html` ✅ · `app-musteri-iletisim-form.html` ✅
 
 ### Wave 4 — Projeler (§11)
 - [x] `app-proje-detay.html` — proje detayı, **22 sekme** (Gantt sekmesi `.gv-gantt` CSS'ini nihayet tüketti, teknik envanter, iş yükü, kanban)
@@ -135,7 +146,7 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-proje-degisiklik-detay.html` — değişiklik talebi detayı (7 sekme, etki analizi, sözleşme etkisi projeksiyonu)
 - [x] `app-proje-teslim.html` — teslimler (müşteri onayı, teslim→taksit→fatura zinciri)
 - [x] `app-proje-teslim-detay.html` — teslim detayı (6 sekme, altı kontrollük zincir doğrulaması)
-- [~] Proje listesi + form (24 alan) → `app-proje.html` ✅ (8 sekme, sağlık + sapma) · form bekliyor
+- [x] Proje listesi + form (24 alan) → `app-proje.html` ✅ (8 sekme, sağlık + sapma) · `app-proje-form.html` ✅
 - [x] Proje detayı — **22 sekme:** Genel Bakış · Proje Ekibi · Modüller · Milestone · Sprintler · Görevler · İş Yükü · Takvim · Gantt · Kanban · Zaman Kayıtları · Toplantılar · Dosyalar · Revizyonlar · Değişiklik Talepleri · Testler · Hatalar · Teslimler · Bütçe · Maliyetler · Raporlar · Aktivite Geçmişi
 - [x] Teknik envanter alanları (repo, canlı, test, tasarım, sunucu, 3. taraf servisler — §3)
       → `app-proje-detay.html` teknik envanter sekmesi
@@ -146,20 +157,21 @@ departman/proje/kayıt/şirket bazlı erişim.
       **takvim görünümü yok**, görevler yalnız `app-ajanda.html`'de takvim ekseninde görünüyor
 - [x] Görev detayı — 50+ alanlı görev kartı → `app-gorev-detay.html` (8 sekme, durum geçişi,
       zaman kaydı, onay zinciri, alt görev, bağımlılık)
-- [ ] Görev formu + alt görev + kontrol listesi + bağımlılık
-      → `DB.subtasks` ✅ · `DB.taskDeps` ✅ · **kontrol listesi koleksiyonu veride yok** · form bekliyor
+- [~] Görev formu + alt görev + kontrol listesi + bağımlılık
+      → `app-gorev-form.html` ✅ · `DB.subtasks` ✅ · `DB.taskDeps` ✅ ·
+      **kontrol listesi koleksiyonu veride yok**
 - [x] 19 görev durumu + geçiş kuralları (yetki, zorunlu alan, bildirim) → `DB.taskStatuses` 19 kayıt
 - [x] 18 görev türü → `DB.taskTypes` 18 kayıt
 - [x] 15 görev otomasyonu (§12 — atama, kabul, termin, gecikme, eskalasyon, bağımlılık, kontrol, revizyon, tekrarlayan, iş yükü)
       → `DB.automations` 22 kural · `app-ayar-otomasyon.html`
-- [~] Departmanlar arası iş talebi (§13) — liste + detay + form
-      → `app-istalebi.html` ✅ · `app-istalebi-detay.html` ✅ (6 sekme, kabul akışı + göreve dönüşüm) · form bekliyor
+- [x] Departmanlar arası iş talebi (§13) — liste + detay + form
+      → `app-istalebi.html` ✅ · `app-istalebi-detay.html` ✅ (6 sekme, kabul akışı + göreve dönüşüm) · `app-istalebi-form.html` ✅
 
 ### Wave 6 — Personel & İK (§14)
-- [~] Personel listesi + detay (23 alan) + form
-      → `app-personel.html` ✅ · `app-personel-detay.html` ✅ (11 sekme) · form bekliyor
-- [~] İzin yönetimi (6 izin türü, bakiye, vekil, onay akışı, çakışma kontrolü, departman takvimi)
-      → `app-izin.html` ✅ · `app-izin-detay.html` ✅ (6 sekme, çakışma tarihlerden hesaplanıyor) · form bekliyor
+- [x] Personel listesi + detay (23 alan) + form
+      → `app-personel.html` ✅ · `app-personel-detay.html` ✅ (11 sekme) · `app-personel-form.html` ✅
+- [x] İzin yönetimi (6 izin türü, bakiye, vekil, onay akışı, çakışma kontrolü, departman takvimi)
+      → `app-izin.html` ✅ · `app-izin-detay.html` ✅ (6 sekme, çakışma tarihlerden hesaplanıyor) · `app-izin-form.html` ✅
 - [x] `app-zaman.html` — zaman kayıtları (manuel giriş, faturalanabilirlik)
 - [x] `app-zaman-onay.html` — haftalık timesheet onayı (kırılım drawer'ı, iade akışı, eksik/fazla mesai)
 - [x] `app-kapasite.html` — kapasite ve doluluk
@@ -169,20 +181,20 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [ ] Yetkinlik ekseni — `DB.trainings`'te yetkinlik/kazanım alanı yok (VB kaydı gerekli)
 
 ### Wave 7 — Demirbaş & Filo (§15, §16)
-- [~] Demirbaş listesi (19 kategori) + detay (28 alan) + form
-      → `app-demirbas.html` ✅ · `app-demirbas-detay.html` ✅ (6 sekme) · form bekliyor
+- [x] Demirbaş listesi (19 kategori) + detay (28 alan) + form
+      → `app-demirbas.html` ✅ · `app-demirbas-detay.html` ✅ (6 sekme) · `app-demirbas-form.html` ✅
 - [~] Zimmet süreci (12 adım: seçim, tutanak, dijital onay, fotoğraf, iade, hasar, çıkış kontrolü)
       → `app-zimmet.html` ✅ (zimmet/iade listesi, `DB.assignments` 7 kayıt) ·
       **tutanak, dijital onay, fotoğraf ve hasar adımları veride yok** · zimmet formu bekliyor
-- [~] Araç listesi + detay + form (**demirbaştan ayrı özel modül**)
-      → `app-arac.html` ✅ · `app-arac-detay.html` ✅ (10 sekme) · form bekliyor
+- [x] Araç listesi + detay + form (**demirbaştan ayrı özel modül**)
+      → `app-arac.html` ✅ · `app-arac-detay.html` ✅ (10 sekme) · `app-arac-form.html` ✅ + 6 filo formu
 - [x] Araç: kimlik · satın alma/kiralama · zimmet · bakım · muayene · trafik sigortası · kasko · yakıt/şarj · giderler (18 kalem) · kaza/hasar/ceza
 - [x] Yenileme bildirimleri: 60/30/15/7 gün + süresi doldu (`app-arac-detay` yenileme takvimi)
 - [x] Araç maliyet hesabı (aylık / yıllık / km başına) — veriden türetiliyor, yazılı değil
 
 ### Wave 8 — Satın Alma & Tedarik (§17)
-- [~] Satın alma talebi listesi + detay + form (14 alan)
-      → `app-satinalma.html` ✅ · `app-satinalma-detay.html` ✅ (6 sekme) · form bekliyor
+- [x] Satın alma talebi listesi + detay + form (14 alan)
+      → `app-satinalma.html` ✅ · `app-satinalma-detay.html` ✅ (6 sekme) · `app-satinalma-form.html` ✅
 - [x] Tutar/kategoriye göre çok aşamalı onay akışı (6 onay makamı) — `app-ayar-onay` + talep detayı `GV.chain`
 - [x] `app-satinalma-teklif.html` — teklif toplama ve karşılaştırma (9 kriter, yan yana matris, tedarikçi seçimi)
 - [~] Sipariş & teslimat (18 alan) + eksik teslim + iade
@@ -200,7 +212,7 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-destek-memnuniyet.html` — memnuniyet anketleri (puan dağılımı, NPS, yanıt oranı,
       düşük puan takibi)
 - [x] Ortak katman: `DB.slaPolicies` · `DB.surveys` · `GV.badge` destek durumları
-- [~] Destek talebi detay + form ekranı → `app-destek-detay.html` ✅ (6 sekme) · form bekliyor
+- [x] Destek talebi detay + form ekranı → `app-destek-detay.html` ✅ (6 sekme) · `app-destek-form.html` ✅
 - [x] Destek → görev / hata / geliştirme / değişiklik / ek teklif dönüşümü
       → `DB.tasks[].destek` · `DB.bugs[].destek` · `DB.changeRequests[].destek` yazılı (VB-05 kapandı)
 - [x] `app-sohbet.html` — sohbet modülü (11 kanal türü, kanal/mesaj arama, tepki, dosya paylaşımı, kanal bilgisi drawer'ı)
@@ -411,12 +423,12 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] D. Rol & yetki matrisi (tablo) → `docs/D-rol-yetki-matrisi.md`
 - [x] E. Menü ve sayfa haritası → `docs/E-menu-sayfa-haritasi.md`
 - [ ] F. Sayfa analizleri
-- [ ] G. Veri modeli
+- [x] G. Veri modeli → `docs/G-veri-modeli.md` (816 satır · 65 koleksiyon · 636 kayıt)
 - [x] H. İş akışları → `docs/H-is-akislari.md`
-- [ ] I. API ve teknik servisler
-- [ ] J. Otomasyonlar (tablo)
+- [x] I. API ve teknik servisler → `docs/I-api-teknik-servisler.md` (848 satır · 37 `GV.*` yüzeyi)
+- [x] J. Otomasyonlar (tablo) → `docs/J-otomasyonlar.md` (575 satır · 22 kural · 31 bildirim tipi)
 - [x] K. Raporlar → `docs/K-raporlar.md`
-- [ ] L. Geliştirme yol haritası
+- [x] L. Geliştirme yol haritası → `docs/L-yol-haritasi.md` (786 satır · 9 faz · 24 sprint)
 - [ ] M. Eksik ve ek öneriler
 
 ---
