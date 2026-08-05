@@ -11,7 +11,7 @@
 
 **Güncelleme:** 2026-08-05, 8. oturum sonu · **141 ekran** · 26 detay · **36 form ekranı**
 **plan.md:** **195 / 274 madde (%71)** · 32 kısmen · 47 açık
-**FORM BLOĞU KAPANDI — 36/36.** · **Doküman bloğu: 12'nin 5'i bitti (C · D · E · H · K)**
+**FORM BLOĞU KAPANDI — 36/36.** · **Doküman bloğu: 12'nin 5'i bitti (C · D · E · H · K) — 7 kaldı**
 **VB-19 çözüldü** — teklif→sözleşme KDV çift uygulaması, zincir uçtan uca dengelendi.
 
 **Son taramalar (hepsi bu oturumda, DÜZELTİLMİŞ harness ile):**
@@ -54,7 +54,13 @@ Yeni form ekranı yazılacaksa sözleşme: `tasks/form-brief.md` (+ filo ise `ta
 
 </details>
 
-### A2. SIRADAKİ İŞ — doküman bloğu (9 madde)
+### A2. SIRADAKİ İŞ — doküman bloğu (7 madde)
+
+> **SAYIM DÜZELTMESİ (9. oturum).** Bu dosya bir tur boyunca "9 madde kaldı" dedi; **doğrusu 7**.
+> `docs/` içinde **C · D · E · H · K** hazır ve `plan.md` G bölümünde `[x]` işaretli.
+> **Kalan yedi:** B yönetici özeti · F sayfa analizleri · G veri modeli ·
+> I API ve teknik servisler · J otomasyonlar · L geliştirme yol haritası · M eksik ve ek öneriler.
+
 Aşağıdaki B bölümüne bak. **Dörtlü dalga kuralı geçerli** (ders L-20).
 
 **Üretim yöntemi (7. oturumda oturdu, aynen uygula):**
@@ -76,7 +82,7 @@ Aşağıdaki B bölümüne bak. **Dörtlü dalga kuralı geçerli** (ders L-20).
 6. Dosya dosya stage → commit → push → **`plan.md`'yi aynı turn içinde işaretle**
    (başlıktaki ilerleme satırı da güncellenir).
 
-### B. Doküman çıktıları — 12'nin 3'ü bitti, **9 kaldı**
+### B. Doküman çıktıları — 12'nin 5'i bitti, **7 kaldı**
 `plan.md` **G. DOKÜMAN ÇIKTILARI**: PROMPT.md **§26**'nın B'den M'ye 12 çıktısı.
 Çıktı yeri **`docs/`** — klasör açıldı, `docs/*.md` **repoda izleniyor**
 (`docs/screenshots/` ignore).
@@ -90,11 +96,14 @@ Aşağıdaki B bölümüne bak. **Dörtlü dalga kuralı geçerli** (ders L-20).
 `docs/H-is-akislari.md` (811 satır · 22 akış adım adım; 12 tam · 9 kısmi · 1 açık) ·
 `docs/K-raporlar.md` (691 satır · **103 rapor** dokuz başlıkla).
 
-**KALAN DOKUZ — sıradaki iş, dörtlü dalgalar hâlinde:**
+**KALAN YEDİ — sıradaki iş, dörtlü dalgalar hâlinde:**
 
-*Dalga 1:* **G veri modeli** · **J otomasyonlar** · **F sayfa analizleri** · **I API ve teknik servisler**
-*Dalga 2:* **L geliştirme yol haritası** · **M eksik ve ek öneriler** · **B yönetici özeti**
-(B ve M en sona kalsın — ötekilerin çıktısını özetliyorlar.)
+*Dalga 1:* **G veri modeli** · **I API ve teknik servisler** · **J otomasyonlar** · **L yol haritası**
+*Dalga 2:* **F sayfa analizleri** — 141 ekran tek ajana sığmaz; dört modül grubuna bölünür
+(müşteri ve satış · proje ve geliştirme · İK ve operasyon · finans, filo, raporlar, ayarlar),
+ortak başlık şablonu orkestratörden gelir, birleştirme orkestratörde.
+*Dalga 3:* **B yönetici özeti** · **M eksik ve ek öneriler** — ikisini **orkestratör yazar**,
+ajana verilmez; öteki on dokümanı özetliyorlar.
 
 Her doküman ajanına verilecek kalıp (5 dokümanda çalıştı):
 > "Tek markdown dosyası yaz: `docs/X.md`. Başka dosyaya dokunma, git çalıştırma,
