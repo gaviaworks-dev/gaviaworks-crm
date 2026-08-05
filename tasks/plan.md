@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 212 / 275 madde tamam (%77) · 22 kısmen · 41 açık** — 9. oturum, 2026-08-05
+**İLERLEME: 213 / 275 madde tamam (%77) · 22 kısmen · 40 açık** — 9. oturum, 2026-08-05
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
@@ -422,7 +422,7 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] C. Modül haritası (tablo) → `docs/C-modul-haritasi.md`
 - [x] D. Rol & yetki matrisi (tablo) → `docs/D-rol-yetki-matrisi.md`
 - [x] E. Menü ve sayfa haritası → `docs/E-menu-sayfa-haritasi.md`
-- [ ] F. Sayfa analizleri
+- [x] F. Sayfa analizleri → `docs/F-sayfa-analizleri.md` (4586 satır · **141 / 141 ekran** · 18 eksen)
 - [x] G. Veri modeli → `docs/G-veri-modeli.md` (816 satır · 65 koleksiyon · 636 kayıt)
 - [x] H. İş akışları → `docs/H-is-akislari.md`
 - [x] I. API ve teknik servisler → `docs/I-api-teknik-servisler.md` (848 satır · 37 `GV.*` yüzeyi)
@@ -494,6 +494,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [ ] **UID-17** · Dokuz ekran kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl(pairs, opts)`
 - [ ] **UID-18** · `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor
 - [ ] **UID-19** · Tablo toplam satırı için ortak sınıf yok → `.gtable tfoot` + `tr.is-total`
+- [ ] 🔴 **UID-27** · `GV.list` `run`'sız toplu işlemde **sahte başarı mesajı** basıyor —
+      79 aksiyon / 47 ekran. **Blok 3'ün ilk maddesi**, UID-13 ile tek sözleşmede
+- [ ] **UID-26** · Kolon/filtre/çıktı/toplu/kanban `GV.list` içine kilitli → `GV.*` yüzeyine alınacak
+      (UID-06 · UID-07 · UID-17'nin ortak kökü)
+- [ ] **UID-28** · Maskeleme kararı kardeş ekranlar arasında ayrışıyor (UID-11 · UID-25 ile aynı tur)
+- [ ] **UID-29** · `app-arac-yakit` "Geçen Ay" sekmesi sabit `'2026-07'` yazılmış
+- [ ] **VB-27** · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor → `canon.js` ekseni yok
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (tek turda, `canon.js`'e dokunur)
 - [ ] **VB-06** · Fatura ↔ tahsilat mutasyonları birbirini kapatmıyor → `GV.fin.settle*` tek yerde
 - [x] **VB-19** · Teklif → sözleşme aktarımı KDV'yi iki kez uyguluyordu (çözüldü 2026-08-05, `canon.js` eksen 18)
