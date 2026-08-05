@@ -321,6 +321,24 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.referrers[].hakedis` · `.odenen` · `.bekleyen` | **NET** | Komisyon kayıtlarından türetilir: `hakedis = Σ DB.commissions[referans].tutar` · `odenen = Σ durum:'Ödendi'` · `bekleyen = hakedis − odenen`. 8 kaydın 8'inde birebir doğrulandı. (`hakedis` alan adı **VB-04** ile yeniden adlandırılacak) |
 | `DB.suppliers[].toplamTutar` | **NET** | Ömür boyu iş hacmi. Ölçüldü: brüt olsaydı /1,2 tam liraya inerdi, 6 tedarikçinin 3'ünde inmiyor. TDR-003: 126.000 / 3 = 42.000 = `SAT-2026-015` net `tahminiMaliyet`i |
 
+**TEKLİF → SÖZLEŞME AKTARIMI (VB-19, 8. oturumda ölçülüp düzeltildi):**
+`DB.contracts[].tutar` teklifin **NETİNE** eşittir (`quote.araToplam − quote.indirim`),
+**brütüne değil**. Brütü almak KDV'yi zincirde ikinci kez uygular.
+
+Ölçüm: teklifi yazılı 3 sözleşmenin **3'ünde de** `tutar` teklifin brütünü taşıyordu
+(600.000 / 354.000 / 1.104.000 — hepsi teklif netinin tam 1,2 katı). Hata **sessizdi**,
+çünkü zincirin geri kalanı bu yanlış çapaya göre kendi içinde tutarlıydı:
+Σ taksit = tutar · fatura = taksit · tahsilat = fatura brütü · ciro = Σ tutar.
+Bu yüzden eksen 9/10/11 hiçbir çelişki görmüyordu. Bağımsız çapa `toplamCiro` oldu:
+7 müşterinin 5'inde `Σ contract.tutar`'a **birebir** eşit, `Σ(tutar/1,2)`'ye değil —
+yani `tutar` gerçekten NET eksenidir ve bozuk olan aktarımdı.
+
+Düzeltmede zincirin tamamı yeniden dengelendi: 3 sözleşme · 11 taksit · 9 fatura ·
+9 tahsilat · 3 proje `sozlesmeTutari` · 3 müşteri `toplamCiro`/`bekleyenTahsilat`.
+Taksitler oranı korunarak yeniden dağıtıldı, kuruş artığı **son taksite** yazıldı
+(SZL-2025-018: 5 × 153.333 + 153.335 = 920.000). `canon.js` **eksen 18** bunu her turda
+doğrular.
+
 **Ödeme planı bütünlüğü:** Projeli her sözleşmenin taksit seti `DB.milestones`'ta **tamdır** —
 `Σ odeme = sözleşme tutarı` ve `taksit` numaraları 1..N boşluksuzdur (19 milestone / 6 sözleşme).
 Proje bazlı olmayan sözleşme (SZL-2026-022, aylık bakım) milestone tutmaz, aylık fatura olarak yürür.
