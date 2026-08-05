@@ -9,33 +9,42 @@
 > **`tasks/ui-debt.md`** = arayüz + veri borç defteri. Üretim sırasında görülen sorun oraya yazılır,
 > **o an düzeltilmez** (istisna: ölçülmüş, kök nedeni ortak katmanda olan gerçek hata).
 
-**Güncelleme:** 2026-08-04, 7. oturum sonu · **132 ekran** · 26 detay · **27 form ekranı**
-**plan.md:** **181 / 274 madde (%66)** · 32 kısmen · 61 açık
-**Form kuyruğu: 36 hedefin 27'si bitti, 9 kaldı** (aşağıda liste)
+**Güncelleme:** 2026-08-05, 8. oturum sonu · **135 ekran** · 26 detay · **30 form ekranı**
+**plan.md:** **187 / 274 madde (%68)** · 32 kısmen · 55 açık
+**Form kuyruğu: 36 hedefin 30'u bitti, 6 kaldı** · **Doküman bloğu: 12'nin 3'ü bitti**
 
 **Son taramalar (hepsi bu oturumda, DÜZELTİLMİŞ harness ile):**
-`gate.js` 540 yükleme (108×5 rol, form ekranları eklenmeden önce) · `rec.js` **53/53 hedef** ·
-`tabs.js` 26 detay, 26/26 kayıt, 223 sekme · `esc.js` 108 ekran · `mut.js` / `listen.js` 44+ hedef ·
-`canon.js` **601 kontrol** · `dbref.js` **132 ekran** · `links.js` temiz.
+**8. oturum kapanışında koşuldu:** `rec.js` **56/56 hedef** (her ekran gerçek kayıtla açıldı) ·
+`esc.js` / `mut.js` / `listen.js` 7 hedef, **3/3 kayıt yüklendi**, üçü de temiz ·
+`dbref.js` **135 ekran** · `links.js` temiz · `canon.js` **601 kontrol** temiz.
+**Koşulmadı:** `gate.js` tam süpürmesi (135 ekran × 5 rol) — 8. oturumda zaman yetmedi,
+9. oturumun ilk QA işi.
 
 ---
 
 ## 1. KALAN İŞ — SIRAYLA
 
-### A. Form kuyruğu: 9 hedef (hepsi filo + iki tekil)
+### A. Form kuyruğu: 6 hedef kaldı
 `node links.js` çıktısı **canlı kuyruktur**, elle sayma.
 
-| Ekran | Kaynak liste | Not |
+> **8. oturum notu — YARIM DOSYA YOK.** Bu altısı için ajan açıldı ve **sekizi de API
+> hatasıyla düştü** (5 saatlik oturum tavanı). Hepsi tam olarak "şimdi dosyayı yazıyorum"
+> anında, `Write` çağrısından **önce** kesildi — diske **hiçbir şey yazılmadı**, doğrulandı.
+> Yani sıfırdan başlanacak, kurtarılacak yarım dosya aranmasın.
+
+| Ekran | Kaynak liste | Ekrana özel kritik nokta |
 |---|---|---|
-| `app-arac-form.html` | `app-arac.html` | §16 kimlik + satın alma/kiralama |
-| `app-arac-bakim-form.html` | `app-arac-bakim.html` | |
-| `app-arac-muayene-form.html` | `app-arac-muayene.html` | sonuç Geçti/Kaldı + sonraki muayene |
-| `app-arac-sigorta-form.html` | `app-arac-sigorta.html` | trafik + kasko ayrı poliçe ekseni |
-| `app-arac-yakit-form.html` | `app-arac-yakit.html` | |
-| `app-arac-gider-form.html` | `app-arac-gider.html` | 18 gider kalemi |
-| `app-arac-kaza-form.html` | `app-arac-kaza.html` | kaza / hasar / ceza tek ekran |
-| `app-destek-paket-form.html` | `app-destek-paket.html` | **kota aritmetiği**: `kullanilan + kalan = aylikSaat × ay` bozulmayacak |
-| `app-performans-form.html` | `app-performans.html` | otomatik karar YOK, karar desteği |
+| `app-arac-sigorta-form.html` | `app-arac-sigorta.html` | trafik + kasko **ayrı poliçe ekseni** (`tur` ayırır, tek kayıtta birleştirme); yenileme eşikleri 60/30/15/7 gün, `app-arac-detay.html` ile aynı |
+| `app-arac-yakit-form.html` | `app-arac-yakit.html` | `tutar = litre × birimFiyat` (pompa fiyatı **KDV dahil**; `YKT-2026-088` 52,4 × 48,9 = 2.562 ile doğrulandı) · km monotonluğu |
+| `app-arac-gider-form.html` | `app-arac-gider.html` | 18 gider kalemi liste süzgecinden · gider→bakım/poliçe **bağ alanı veride YOK**, uydurma |
+| `app-arac-kaza-form.html` | `app-arac-kaza.html` | **iki ayrı koleksiyon**: `DB.accidents` + `DB.fines` — tek kayıtta birleştirme, kod öneki hangisi olduğunu söyler |
+| `app-destek-paket-form.html` | `app-destek-paket.html` | **kota aritmetiği**: `kullanilan + kalan = aylikSaat × dönem ayı`, ayrıca `kalan` = müşterinin taleplerindeki `kalanDestek`. İkisi de türetilir, elle girdirilmez · `tutar` **NET** |
+| `app-performans-form.html` | `app-performans.html` | karar desteği — **otomatik karar üretmez**; puan ölçeği veriden ölçülür, varsayılmaz |
+
+**Filo para ekseni artık yazılı** (8. oturumda ölçüldü, components.md §9b): `maintenance.maliyet` ·
+`policies.prim` · `vehicleExpenses.tutar` · `fuelLogs.tutar` hepsi **BRÜT (KDV dahil)** —
+gider kaydı kaynak tutarı olduğu gibi taşıyor (8 kaydın 3'ü birebir eşleşti). Etikette
+"(KDV dahil)" yazılır.
 
 **Üretim yöntemi (7. oturumda oturdu, aynen uygula):**
 1. **Aynı anda en fazla 3 ajan**, her biri tek dosya. Prompt'a şu üç maddeyi MUTLAKA yaz:
@@ -56,15 +65,32 @@
 6. Dosya dosya stage → commit → push → **`plan.md`'yi aynı turn içinde işaretle**
    (başlıktaki ilerleme satırı da güncellenir).
 
-### B. Doküman çıktıları — **hiç ele alınmadı**
+### B. Doküman çıktıları — 12'nin 3'ü bitti, **9 kaldı**
 `plan.md` **G. DOKÜMAN ÇIKTILARI**: PROMPT.md **§26**'nın B'den M'ye 12 çıktısı.
-Kolon şemaları §26'da yazılı (C modül haritası 7 kolon, D yetki matrisi 9 kolon,
-J otomasyonlar 6 kolon). Kaynak: `plan.md` + `components.md` + `assets/data/*.js` —
-**uydurulmaz, türetilir**. Çıktı yeri: **`docs/`** (yeni klasör, gitignored DEĞİL;
-`docs/screenshots/` gitignored ama `docs/*.md` değil).
-Sıra: B yönetici özeti · C modül haritası · D rol/yetki matrisi · E menü ve sayfa haritası ·
-F sayfa analizleri · G veri modeli · H iş akışları · I API ve teknik servisler ·
-J otomasyonlar · K raporlar · L yol haritası · M eksik ve ek öneriler.
+Çıktı yeri **`docs/`** — klasör açıldı, `docs/*.md` **repoda izleniyor**
+(`docs/screenshots/` ignore).
+
+**Biten üç (8. oturum):**
+`docs/C-modul-haritasi.md` (252 satır · 15 modül, 89 alt modül, 7 kolonlu tablo) ·
+`docs/D-rol-yetki-matrisi.md` (187 satır · 27 rol × 9 kolon) ·
+`docs/E-menu-sayfa-haritasi.md` (423 satır · 15 bölüm, 89 menü kalemi, 135 ekran, tip dağılımı).
+
+**Kalan dokuz:** B yönetici özeti · F sayfa analizleri · **G veri modeli** · H iş akışları ·
+I API ve teknik servisler · **J otomasyonlar** · K raporlar · L yol haritası ·
+M eksik ve ek öneriler. (G ve J için ajan açıldı, ikisi de API hatasıyla düştü —
+**dosya yazılmadı**, sıfırdan başlanacak.)
+
+**Üç dokümanın ortaya çıkardığı ve doğrulanması gereken iki bulgu:**
+1. **`DB.permMatrix` 11 eksen saklıyor**, `app-ayar-yetki.html` bunlardan **19 boolean eksen
+   türetiyor** — plan.md ve PROMPT.md'nin "20 yetki ekseni" sayısının kodda karşılığı yok.
+   D dokümanı bunu dürüstçe yazdı; sayının hangisinin doğru olduğu **karara bağlanmalı**.
+2. **`plan.md` C bölümündeki menü haritası `shell.js`'teki gerçek menüden farklı** — plan'da
+   Fırsatlar · Modüller · Kanban · Gantt · Klasörler · Riskli Müşteriler · Tamamlananlar var,
+   kodda yok. C dokümanı **kodu esas aldı**; plan.md'nin menü tablosu güncellenmeli ya da
+   eksik menü kalemleri açılmalı.
+
+**Yöntem notu:** doküman ajanı ekran ajanından **çok daha ucuz ve hızlı** (3 doküman ~3,5 dk,
+~55k token). Ekran işi tıkanırsa doküman bloğu paralel ilerletilebilir.
 
 ### C. Wave 13 kapanış
 - Tüm `data-wip` bağlantıların gerçek `href`'e dönmesi (form kuyruğu bitince kendiliğinden).
@@ -101,7 +127,23 @@ yine "TEMİZ" diyordu. Kalıcı çözüm iki yeni dosya:
 Düzeltilmiş harness ile yeniden koşulan taramaların hepsi temiz çıktı — ekranlarda hata yoktu,
 **hatalı olan araçtı**.
 
-### İŞ 2 — form ekranları: 3 → 27 (24 yeni ekran)
+### 8. OTURUM — kısa özet
+**Blok 0:** `.gitignore`'daki `tasks/` satırı kaldırıldı. Dosyalar zaten tracked'di ama kural
+yüzünden commit'li kopyalar 6. oturumda donmuştu (`plan.md` 157/274, `handoff.md` 108 ekran).
+Sekiz defter güncellendi, üçü (`detay-brief` · `research` · `todo`) ilk kez repoya girdi.
+**Klonlayan artık gerçek durumu görüyor.**
+
+**Blok A:** üç filo formu (`arac` · `arac-bakim` · `arac-muayene`) üretildi ve taramadan geçti.
+Altı form + iki doküman ajanı API hatasıyla düştü, **dosya yazmadılar**.
+
+**Düzeltilen gerçek hata:** `app-arac-muayene.html` sonuç kolonu `Geçti`→"Onaylandı",
+diğerini "Reddedildi" basıyordu; oysa kendi süzgeci `Geçti`/`Kaldı` sunuyor ve arama ham
+değerde çalışıyordu — aynı kayıt kolonda başka, süzgeçte başka okunuyordu. Sözlük ikisini de
+tonluyor, ham değere çevrildi.
+**Ayrıca:** `app-arac-form.html` başlığı kayıt kodu yerine plakayı taşıyordu (form-brief §2
+ihlali); `rec.js` bunu "kayıt yüklenmedi" diye yakaladı — L-19 harness'ı çalışıyor.
+
+### 7. OTURUM — form ekranları: 3 → 27 (24 yeni ekran)
 Satış/müşteri 8/8 · proje-görev 7/7 · destek-iş talebi 2/3 · personel 2/3 · demirbaş-filo 2/9 ·
 satın alma-finans 5/5 · toplantı 1/1.
 
