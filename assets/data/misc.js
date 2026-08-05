@@ -27,7 +27,7 @@ DB.contracts = [
     imzaTarihi:'2026-05-14', baslangic:'2026-05-18', bitis:'2026-07-24', durum:'Tamamlandı',
     odemePlani:'%40 · %30 · %30', garanti:'6 ay', yenileme:false, aktif:true },
   { kod:'SZL-2025-018', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', teklif:'TKL-2025-007',
-    proje:'PRJ-2026-003', ad:'Saha Operasyon ERP Faz 1 Sözleşmesi',
+    proje:'PRJ-2026-003', ad:'Mobil Operasyon ERP Faz 1 Sözleşmesi',
     tutar:920000, kdvOran:20, kdv:184000, toplam:1104000, doviz:'TRY',
     imzaTarihi:'2025-09-08', baslangic:'2025-09-15', bitis:'2026-09-30', durum:'Aktif',
     odemePlani:'6 eşit milestone', garanti:'12 ay', yenileme:true, yenilemeTarihi:'2026-09-30', aktif:true },

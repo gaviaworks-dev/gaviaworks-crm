@@ -81,7 +81,7 @@ DB.timelogs = [
   { kod:'ZMN-9019', personel:'EMP-004', tarih:'2026-07-31', gorev:null, proje:null, musteri:null,
     sure:4, faturalanabilir:false, aciklama:'Ekip toplantısı ve tasarım incelemesi', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9020', personel:'EMP-005', tarih:'2026-07-27', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
-    sure:7, faturalanabilir:true, aciklama:'Saha verisi senkron kuyruğu', onay:'Bekliyor', aktif:true },
+    sure:7, faturalanabilir:true, aciklama:'Mobil ekip verisi senkron kuyruğu', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9021', personel:'EMP-005', tarih:'2026-07-28', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
     sure:7, faturalanabilir:true, aciklama:'Yeniden deneme mantığı', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9022', personel:'EMP-005', tarih:'2026-07-29', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',

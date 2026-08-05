@@ -20,6 +20,22 @@ DB.taskTypes = ['Genel görev','Müşteri görevi','Proje görevi','Satış gör
 DB.priorities = ['Kritik','Yüksek','Orta','Düşük'];
 DB.impacts = ['Çok yüksek','Yüksek','Orta','Düşük'];
 
+/* ---- Proje · hata · test sözlükleri (VB-22) ----------------------------
+   Altı eksenin `DB.*` karşılığı yoktu; üç form ekranı kümeleri liste
+   ekranlarının süzgecinden ve mevcut kayıtlardan TÜRETMEK zorunda kalmıştı.
+   Sonuç: veride hiç kullanılmayan değer forma girmiyor (proje 'Askıda'),
+   tek değerli eksende select tek seçenekli kalıyordu (VB-17 ile aynı sınıf).
+   Kümeler ekranlarda zaten yazılı olan değerlerden alındı — uydurulmadı. */
+DB.projectStatuses = ['Planlama','Geliştirme','Test','Teslim','Askıda'];
+DB.healthLevels    = ['İyi','Dikkat','Riskli'];
+/* ⚠️ 'Tamamlandı' bir FAZ DEĞİL, bir durumdur (VB-20). Bugün 9 projede `faz`
+   alanında duruyor; sözlük gerçeği anlatsın diye listelendi ve VB-20 turunda
+   `durum` eksenine taşınacak. Sözlük bugünü yazar, niyeti değil (L-21). */
+DB.projectPhases   = ['Faz 1','Faz 2','Faz 3','Tamamlandı'];
+DB.bugStatuses     = ['Açık','Devam ediyor','Kapandı'];
+DB.reproLevels     = ['Her zaman','Bazen','Nadiren','Tekrarlanamadı'];
+DB.testResults     = ['Başarılı','Kısmi','Başarısız'];
+
 /* Durum geçiş kuralları — yetki + zorunlu alan + bildirim */
 DB.taskTransitions = {
   'Havuzda':        { next:['Atandı','İptal edildi'],                       yetki:['pm','takimlideri','depmudur','sahip','operasyon'], zorunlu:['sorumlu'],       bildirim:['sorumlu'] },
@@ -56,7 +72,7 @@ DB.projects = [
     ucuncuTaraf:['OpenAI API','Findeks servisi'], teknikSorumlu:'EMP-007', musteriSorumlu:'EMP-002',
     riskler:['Model doğruluğu regülasyon eşiğinin üstünde tutulmalı'],
     gecikmeNedeni:null, sonGuncelleme:'2026-08-02' },
-  { kod:'PRJ-2026-003', ad:'Marmara Enerji Saha Operasyon ERP — Faz 1', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
+  { kod:'PRJ-2026-003', ad:'Marmara Enerji Mobil Operasyon ERP — Faz 1', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
     pm:'EMP-003', ekip:['EMP-005','EMP-006','EMP-004','EMP-009','EMP-010'], durum:'Geliştirme', saglik:'Dikkat',
     baslangic:'2025-09-15', planlananBitis:'2026-09-30', gercekBitis:null, ilerleme:64,
     sozlesmeTutari:920000, butce:720000, gerceklesenMaliyet:512000, tahminiSure:2100, harcananSure:1388,
@@ -201,7 +217,7 @@ DB.projectModules = [
   { kod:'MOD-006', proje:'PRJ-2026-002', ad:'Skorlama modeli', durum:'Geliştirme', ilerleme:70, sorumlu:'EMP-007', efor:240 },
   { kod:'MOD-007', proje:'PRJ-2026-002', ad:'Başvuru inceleme paneli', durum:'Geliştirme', ilerleme:35, sorumlu:'EMP-006', efor:200 },
   { kod:'MOD-008', proje:'PRJ-2026-002', ad:'Karar raporlama', durum:'Planlama', ilerleme:0, sorumlu:'EMP-005', efor:120 },
-  { kod:'MOD-009', proje:'PRJ-2026-003', ad:'Saha ekip yönetimi', durum:'Tamamlandı', ilerleme:100, sorumlu:'EMP-005', efor:340 },
+  { kod:'MOD-009', proje:'PRJ-2026-003', ad:'Mobil ekip yönetimi', durum:'Tamamlandı', ilerleme:100, sorumlu:'EMP-005', efor:340 },
   { kod:'MOD-010', proje:'PRJ-2026-003', ad:'İş emri takibi', durum:'Test', ilerleme:92, sorumlu:'EMP-006', efor:420 },
   { kod:'MOD-011', proje:'PRJ-2026-003', ad:'Logo ERP entegrasyonu', durum:'Geliştirme', ilerleme:44, sorumlu:'EMP-005', efor:380 },
   { kod:'MOD-012', proje:'PRJ-2026-003', ad:'Rapor merkezi', durum:'Planlama', ilerleme:10, sorumlu:'EMP-006', efor:300 },
@@ -232,7 +248,7 @@ DB.milestones = [
   /* PRJ-2026-003 · SZL-2025-018 · 6 eşit milestone → 184.000 × 6 = 1.104.000 */
   { kod:'MS-010', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:1, ad:'Analiz ve altyapı kurulumu', tarih:'2025-11-28', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
   { kod:'MS-011', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:2, ad:'Çekirdek modül teslimi', tarih:'2026-01-30', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-012', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:3, ad:'Saha mobil uygulaması', tarih:'2026-03-27', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-012', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:3, ad:'Mobil ekip uygulaması', tarih:'2026-03-27', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
   { kod:'MS-013', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:4, ad:'Logo ERP entegrasyonu', tarih:'2026-05-29', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
   { kod:'MS-005', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:5, ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:153333, odemeDurum:'Bekliyor', ilerleme:64 },
   { kod:'MS-006', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:6, ad:'Entegrasyon testi ve Faz 1 kapanışı', tarih:'2026-09-30', durum:'Planlandı', odeme:153335, odemeDurum:'Bekliyor', ilerleme:20 },

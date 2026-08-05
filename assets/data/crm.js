@@ -11,6 +11,17 @@ DB.refTypes = ['Mevcut müşteri','Eski müşteri','Personel','Şirket ortağı'
   'Freelancer','Tedarikçi','Harici kişi','Kurumsal firma','Etkinlik','Dijital reklam',
   'Organik arama','Sosyal medya','Web formu','Telefon','E-posta'];
 
+/* İletişim kanalı sözlüğü (VB-14) — aynı eksen üç yerde farklı tanımlıydı: veride
+   üç değer, liste süzgecinde dört, müşteri detayı modalında beşinci bir 'Mesaj'
+   vardı (hiçbir kayıtta ve hiçbir sözlükte geçmiyordu). Sözlük olmadığı için her
+   ekran kendi listesini yazıyordu. `DB.refTypes` ile aynı desen. */
+DB.interactionTypes = ['Toplantı','Telefon','E-posta','Ziyaret'];
+
+/* Süre birimi sözlüğü (VB-17) — `DB.analyses[].sureBirim` için küme yoktu; dört
+   kaydın dördü de 'hafta' olduğu için ön analiz formu TEK SEÇENEKLİ bir select
+   basmak zorunda kalmıştı, kullanıcı gerçek bir seçim yapamıyordu. */
+DB.timeUnits = ['saat','gün','hafta','ay'];
+
 DB.sectors = ['Lojistik','Sağlık','Perakende','Eğitim','İnşaat','Turizm','Üretim','Finans',
   'Enerji','Gıda','Otomotiv','Tekstil','Kamu','Teknoloji','Hukuk','Tarım'];
 
