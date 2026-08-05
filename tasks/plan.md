@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 217 / 280 madde tamam (%78) · 23 kısmen · 40 açık** — 9. oturum, 2026-08-05
+**İLERLEME: 218 / 283 madde tamam (%77) · 23 kısmen · 42 açık** — 9. oturum, 2026-08-05
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
@@ -502,8 +502,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [ ] **UID-17** · Dokuz ekran kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl(pairs, opts)`
 - [ ] **UID-18** · `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor
 - [ ] **UID-19** · Tablo toplam satırı için ortak sınıf yok → `.gtable tfoot` + `tr.is-total`
-- [ ] 🔴 **UID-27** · `GV.list` `run`'sız toplu işlemde **sahte başarı mesajı** basıyor —
-      79 aksiyon / 47 ekran. **Blok 3'ün ilk maddesi**, UID-13 ile tek sözleşmede
+- [x] 🔴 **UID-27** · `GV.list` `run`'sız aksiyonda sahte başarı mesajı — **çözüldü 9. oturum**
+      → gerçek sayı 79 değil **129 ihlal / 65 ekran**; yalan yedek kaldırıldı, `run`suz aksiyon
+      `disabled` + "bu sürümde yok". İhlal **129 → 28**. Eksen: `tasks/qa/act.js`
+- [ ] **UID-30** · Ekranın kendi `run` gövdesi yalan söylüyor — **28 aksiyon / 21 ekran**
+      (13 yalan · 15 ölü). Toplu kök neden yok, tek tek incelenir
+- [ ] **VB-29** · `hatirlat` aksiyonunun veri ekseni yok → `DB.reminders` ya da bağ alanı
+- [ ] **act.js kalıcı tarama setinde** — her turda koşulur, sayı artarsa regresyon
 - [ ] **UID-26** · Kolon/filtre/çıktı/toplu/kanban `GV.list` içine kilitli → `GV.*` yüzeyine alınacak
       (UID-06 · UID-07 · UID-17'nin ortak kökü)
 - [ ] **UID-28** · Maskeleme kararı kardeş ekranlar arasında ayrışıyor (UID-11 · UID-25 ile aynı tur)
