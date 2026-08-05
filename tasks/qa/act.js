@@ -48,6 +48,7 @@ const LIB = require('./qa-lib');
 const BASE = 'http://127.0.0.1:8791/';
 const ROLE = 'sahip';                       // tam yetkili — yetki kapısı bu taramanın konusu değil
 const SETTLE = 260;                          // aksiyon sonrası bekleme (ms)
+const ROW_TRIES = 5;                         // satır aksiyonu kaç satırda denenir (ön koşul tuzağı)
 
 /* ---- hedefler: qa-lib'den. Bu script kendi listesini KURMAZ (ders L-24) ---- */
 const url = (t) => BASE + t + (t.indexOf('?') === -1 ? '?' : '&') + 'role=' + ROLE;
@@ -131,6 +132,10 @@ async function passExport(page) {
   return true;
 }
 
+/* Hüküm sıralaması — bir satır aksiyonunun EN İYİ sonucu esastır. */
+const ORDER = ['⚫ ÖLÜ', '🔴 YALAN', 'DÜRÜST RED', 'PANEL', 'ÇIKTI', 'YÖNLENDİRME', 'MUTASYON'];
+const RANK = (r) => ORDER.indexOf(r.v);
+
 function verdict(before, after, toasts, confirmed, exported, formish) {
   /* ÇIKTI: dosya indirildi ya da yazdırma penceresi açıldı. Veri değişmez,
      ama kullanıcıya gerçek bir çıktı verilir — yalan da ölü de değildir. */
@@ -146,9 +151,11 @@ function verdict(before, after, toasts, confirmed, exported, formish) {
   // confirm modalı sayılmaz; ondan SONRA açık kalan overlay gerçek bir panel demektir
   if (after.overlay > before.overlay && !confirmed) return { v: 'PANEL', bad: false, form: !!formish };
   const ok = toasts.some(t => t.tone === 'ok');
-  const uyari = toasts.some(t => t.tone === 'warn' || t.tone === 'danger');
+  /* 'info' tonu da dürüst bir reddir ("bu kayıt zaten onaylı") — 'ok' değildir,
+     bir şey olduğunu iddia etmez. Metni saklanır ki gözle doğrulanabilsin. */
+  const uyari = toasts.filter(t => ['warn', 'danger', 'info'].indexOf(t.tone) !== -1)[0];
   if (ok) return { v: '🔴 YALAN', bad: true, why: 'başarı mesajı bastı, veri değişmedi' };
-  if (uyari) return { v: 'DÜRÜST RED', bad: false };
+  if (uyari) return { v: 'DÜRÜST RED', bad: false, why: uyari.tone + ': ' + uyari.text.slice(0, 70) };
   if (after.overlay > before.overlay) return { v: 'PANEL', bad: false, form: !!formish };
   return { v: '⚫ ÖLÜ', bad: true, why: 'hiçbir geri bildirim yok, veri değişmedi' };
 }
@@ -215,29 +222,47 @@ function verdict(before, after, toasts, confirmed, exported, formish) {
       rows.push({ t, tip: 'toplu', key, ...r });
     }
 
-    /* --- 2) satır aksiyonları (yalnız ilk satır) --- */
+    /* --- 2) satır aksiyonları --- ÇOK SATIR DENENİR.
+       Tek satır denemek yanıltıyordu: ilk satır aksiyonun ön koşulunu sağlamıyorsa
+       (zaten onaylı kayıt, onay aşamasında olmayan talep) yordam dürüstçe reddediyor,
+       araç bunu "aksiyon çalışmıyor" sanıyordu. Aksiyon, satırlardan **herhangi
+       birinde** gerçek bir sonuç üretiyorsa çalışıyordur. */
     await ready(page, t);
     const racts = await page.evaluate(
       `Array.from(document.querySelectorAll('tr [data-rowact]')).slice(0, 12).map(b => b.dataset.rowact)`);
     const uniqR = [...new Set(racts)];
     for (const key of uniqR) {
-      await ready(page, t);
-      const before = await fp(page);
-      const btn = await page.$(`tr [data-rowact="${key}"]`);
-      if (!btn) continue;
+      let best = null, tried = 0;
+      for (let i = 0; i < ROW_TRIES; i++) {
+        await ready(page, t);
+        const n = await page.evaluate(`document.querySelectorAll('tr [data-rowact="${key}"]').length`);
+        if (i >= n) break;
+        const before = await fp(page);
+        const btn = (await page.$$(`tr [data-rowact="${key}"]`))[i];
+        if (!btn) break;
+        tried++;
+        await btn.click().catch(() => {});
+        await page.waitForTimeout(SETTLE);
+        const dl0 = dl;
+        const didExp = await passExport(page);
+        if (didExp) await page.waitForTimeout(SETTLE);
+        const formish = didExp ? false : await formModalOpen(page);
+        const confirmed = didExp ? false : await passConfirm(page);
+        const toasts = await toastsOf(page);
+        const after = await fp(page);
+        const r = verdict(before, after, toasts, confirmed, didExp ? { file: dl > dl0 } : null, formish);
+        r.satir = i + 1;
+        /* YALAN maskelenemez: bir satırda yalan söyleyen aksiyon, başka bir satırda
+           dürüstçe reddetse bile ihlaldir. Yalnız ⚫ ÖLÜ daha iyi bir sonuçla
+           gölgelenebilir (o satırda ön koşul tutmamıştır). */
+        if (r.v === '🔴 YALAN') { best = r; break; }
+        if (!best || RANK(r) > RANK(best)) best = r;
+        if (best.v === 'MUTASYON' || best.v === 'YÖNLENDİRME' || best.v === 'ÇIKTI') break;
+      }
+      if (!tried || !best) continue;
       denenen++;
-      await btn.click().catch(() => {});
-      await page.waitForTimeout(SETTLE);
-      const dl0 = dl;
-      const didExp = await passExport(page);
-      if (didExp) await page.waitForTimeout(SETTLE);
-      const formish = didExp ? false : await formModalOpen(page);
-      const confirmed = didExp ? false : await passConfirm(page);
-      const toasts = await toastsOf(page);
-      const after = await fp(page);
-      const r = verdict(before, after, toasts, confirmed, didExp ? { file: dl > dl0 } : null, formish);
-      if (r.bad) ihlal++;
-      rows.push({ t, tip: 'satır', key, ...r });
+      if (best.bad) ihlal++;
+      rows.push({ t, tip: 'satır', key, ...best });
     }
 
     /* --- 3) form kaydet --- */
@@ -277,7 +302,7 @@ function verdict(before, after, toasts, confirmed, exported, formish) {
     console.log('\n=== İHLALLER ===');
     for (const f of Object.keys(byScreen).sort()) {
       console.log('\n' + f);
-      for (const r of byScreen[f]) console.log(`  ${r.v}  [${r.tip}] ${r.key} — ${r.why}`);
+      for (const r of byScreen[f]) console.log(`  ${r.v}  [${r.tip}] ${r.key}${r.satir ? ' (' + r.satir + '. satır)' : ''} — ${r.why}`);
     }
   }
 
