@@ -282,9 +282,26 @@ istisnasını elle geçen ekranlar sonrasında sadeleştirilecek. **Nokta yamas�
 
 ---
 
-## UID-15 · Dört detay ekranı shell iskeletini elle kopyalıyor
+## UID-15 · ON ÜÇ ekran shell iskeletini elle kopyalıyor
 
-**Nerede:** `app-gorev-detay.html` · `app-musteri-detay.html` · `app-lead-detay.html` ·
+> ### ⚠️ SAYI DÜZELTMESİ (9. oturum, F dokümanı üretilirken ölçüldü)
+> Bu madde beş oturum boyunca **"dört detay ekranı"** diyordu. `grep -l 'class="gv-app"'`
+> ile sayıldı: **13 ekran**, ve yarısı detay ekranı bile değil — **liste ekranları da**
+> aynı kalıbı taşıyor:
+>
+> **Detay (6):** `app-gorev-detay` · `app-musteri-detay` · `app-lead-detay` ·
+> `app-proje-detay` · `app-personel-detay` · `app-teklif.html`\*
+> **Liste ve panel (7):** `app-gorev` · `app-lead` · `app-musteri` · `app-personel` ·
+> `app-pipeline` · `app-proje` · `app-panel`
+>
+> \* `app-teklif.html` liste ekranıdır, buraya sınıflandırma kolaylığı için yazıldı.
+>
+> **Etkisi büyüdü:** `GV.pageHead` bu **13 ekranın hiçbirinde çalışmıyor** (`buildSkeleton()`
+> `.gv-app` görünce erken dönüyor, `#gvPageHead` hiç doğmuyor). Yani sayfa başlığı,
+> breadcrumb beslemesi ve `[data-listcount]` sayacı 13 ekranda **elle** kurulmuş durumda.
+> Çözüm turu dört değil **on üç** ekranı kapsar; iş yükü tahmini üçe katlanmalı.
+
+**Nerede (özgün kayıt):** `app-gorev-detay.html` · `app-musteri-detay.html` · `app-lead-detay.html` ·
 `app-proje-detay.html` — dördü de `.gv-app` > rail/menü/divider/overlay/top/main markup'ını
 kendi `<body>`'sine yazıyor.
 
@@ -1064,3 +1081,106 @@ sonra `openFilters`, `renderBulk` (UID-13'ün `show` kapısıyla birlikte), en s
 zil düz bir `<a href="app-panel-bildirimler.html">` bağlantısı — panel de, okundu
 yordamı da yok. Bildirim merkezi bileşeni **hiç yazılmamış**; PROMPT.md §21'in
 istediği "bildirim merkezi" bugün yalnız ayrı bir ekran olarak var.
+
+---
+
+## 🔴 UID-27 · `GV.list` `run`'ı olmayan toplu işlemde SAHTE BAŞARI mesajı basıyor
+
+> **Defterdeki en yüksek öncelikli madde.** Ölü buton değil, **yalan söyleyen** buton.
+
+**Nerede:** `assets/js/ui.js` → `wire()` içindeki toplu işlem yönlendiricisi (951–952. satır).
+
+```js
+if(act.run) act.run(state.selected.slice());
+else GV.toast(act.label + ' — ' + state.selected.length + ' kayıt işlendi', 'ok');
+```
+
+**Sorun:** `bulk[]` maddesinin `run`'ı yoksa bileşen **yeşil ton (`'ok'`) ile
+"N kayıt işlendi" diyor** ve hiçbir şey yapmıyor. Kullanıcıya işlem başarılı oldu
+bilgisi veriliyor; seçim temizleniyor, liste yeniden çiziliyor — yani ekran da
+"bir şey oldu" gibi davranıyor. Veri değişmiyor.
+
+**Ölçüm (9. oturum, tüm ekranlar tarandı):** **79 toplu işlem aksiyonu, 47 ekranda**
+`run` taşımıyor. Bunların bir kısmı `confirm` metni de gösteriyor — kullanıcı
+"12 kaydı arşivlemek istediğinize emin misiniz?" onayını veriyor, yeşil
+"Arşivle — 12 kayıt işlendi" mesajını alıyor ve **hiçbir kayıt arşivlenmiyor**.
+
+Tamamen sahte olan ekranlar (aksiyonlarının **hepsinde** `run` yok, 40 ekran):
+`app-arac` · `app-arac-bakim` · `app-arac-gider` · `app-arac-kaza` · `app-arac-muayene` ·
+`app-arac-sigorta` · `app-arac-yakit` · `app-demirbas` · `app-destek` ·
+`app-destek-memnuniyet` · `app-dokuman` · `app-fatura` · `app-gorev` · `app-istalebi` ·
+`app-izin` · `app-komisyon` · `app-lead` · `app-musteri` · `app-musteri-iletisim` ·
+`app-musteri-yetkili` · `app-onanaliz` · `app-panel-bildirimler` · `app-panel-onaylar` ·
+`app-performans` · `app-personel` · `app-pipeline` · `app-proje` · `app-referans` ·
+`app-satinalma` · `app-satinalma-teklif` · `app-siparis` · `app-tedarikci` · `app-teklif` ·
+`app-toplanti` · `app-zaman` · `app-zimmet`
+Kısmen sahte (7 ekran): `app-butce` 1/3 · `app-destek-paket` 1/4 · `app-dokuman-sure` 1/4 ·
+`app-proje-degisiklik` 1/6 · `app-proje-hata` 1/6 · `app-proje-milestone` 1/4 ·
+`app-proje-sprint` 1/6 · `app-proje-teslim` 1/6 · `app-proje-test` 1/6 ·
+`app-sozlesme` 1/6 · `app-tahsilat` 1/3
+
+**Neden beş oturum boyunca görünmedi:** Hiçbir QA ekseni bunu ölçmüyor.
+`qa.js` konsola bakıyor (hata yok) · `links.js` `href`'e bakıyor (buton `href` taşımıyor) ·
+`mut.js` `GV.refresh()` sonrası çoğalma arıyor (mutasyon hiç olmadığı için temiz) ·
+`esc.js` metin arıyor. Ders **L-15**'in ("toast çıktı ≠ işlem oldu") tam karşılığı,
+ama bu kez hata **ekranda değil ortak bileşende** ve **varsayılan davranış** olarak.
+CLAUDE.md'nin "sahte buton, çalışmayan aksiyon **yasak**" kuralının en büyük ihlali.
+
+**Çözüm (Blok 3'ün İLK maddesi, tek turda):**
+1. `ui.js`'teki `else GV.toast(...)` yedeği **kaldırılacak** — bileşen asla yapmadığı
+   bir işi yaptım demez.
+2. `run` taşımayan `bulk[]` maddesi toplu işlem barına **hiç basılmayacak**
+   (`rowActions[].show` felsefesiyle aynı; **UID-13** ile birlikte tek sözleşme:
+   `bulk[]` maddesi `run` + `show`/`perm` taşır, yoksa görünmez).
+3. Sonra 47 ekranın toplu işlemleri tek tek gözden geçirilecek: gerçekten istenen
+   aksiyonlara `run` yazılacak, istenmeyenler config'ten silinecek.
+4. `tasks/qa/` altına **yeni tarayıcı**: "her `bulk[]` maddesinin `run`'ı var mı" —
+   eksen yazılmadan düzeltme kabul edilmez (VB-19 dersi).
+
+**Sıra uyarısı:** 2. adım tek başına uygulanırsa 40 ekranda toplu işlem barı boşalır.
+1, 2 ve 3 **aynı turda** yapılır; ardından `GV.list` kullanan tüm liste ekranları
+1440/768/390'da yeniden doğrulanır. **Nokta yaması yok.**
+
+---
+
+## UID-28 · Maskeleme kararı kardeş ekranlar arasında ayrışıyor
+
+**Nerede:** Aynı veriyi gösteren ekran kümeleri; `GV.perm.can(...)` çağrısı bazısında var, bazısında yok.
+
+**Ölçüm (9. oturum, F dokümanı):**
+
+| Küme | Maskeleyen | Maskelemeyen |
+|---|---|---|
+| Doküman gizliliği | `app-dokuman-sure` (1 çağrı) · `app-dokuman-detay` (5 çağrı) — `Gizli`/`Kişisel veri` belge adını `can('log')` ile maskeliyor | **`app-dokuman.html` — `perm.can` çağrısı SIFIR.** Merkez liste aynı kayıtları maskesiz basıyor |
+| Filo para ekseni | — | `app-arac` aylık kira · `app-arac-sigorta` kasko bedeli · `app-arac-yakit` birim fiyat — `can('finans')` denetimi yok |
+
+**En sinsi kısmı:** `app-arac-yakit.html` `tutar`ı maskelerken **birim fiyatı** açık basıyor;
+`litre × birimFiyat = tutar` olduğu için maskelenen sayı **geri hesaplanabiliyor**.
+Maskeleme burada güvenlik değil, dekor.
+
+**Kök neden:** Maskeleme kararı ekran başına bırakılmış; ortak katmanda "bu alan bu yetkiye
+tabidir" diye bir sözleşme yok. **UID-11** (KPI'da maskeleme kavramı yok) ve **UID-25**
+(çıktı yetki kapısı ekran başına) ile **aynı sınıf** — üçü tek turda çözülür.
+
+**Çözüm (kapanış fazında):** Alan → yetki eşlemesi **veri katmanında** ya da `GV.list`
+`columns[]` sözleşmesinde tanımlanacak (`perm:'finans'` gibi), maskeleme bileşende
+uygulanacak; türetilebilir alanlar (birim fiyat ↔ tutar) **birlikte** maskelenecek.
+`canon.js`'e değil, yeni bir yetki tarayıcısına eksen olarak girecek:
+"aynı koleksiyonu gösteren iki ekran aynı alanı farklı maskeliyor mu".
+
+---
+
+## UID-29 · `app-arac-yakit.html` "Geçen Ay" sekmesi sabit tarihe yazılmış
+
+**Nerede:** `app-arac-yakit.html` sekme tanımı.
+
+**Ölçüm:** `filter:function(x){ return String(x.tarih).slice(0,7) === '2026-07'; }`
+— ay **sabit kodlanmış**, `DB.today`'den türetilmemiş. `DB.today` ilerlediğinde
+sekme "geçen ay"ı değil sabit bir takvim ayını göstermeye devam eder; bugün doğru
+görünüyor çünkü `DB.today` 2026-08 içinde.
+
+**Sınıfı:** L-08'in ("türetilebilir değer yazılmaz") ekran tarafındaki ikizi.
+Aynı deseni kuran başka sekme var mı diye `slice(0,7) ===` taraması yapılacak.
+
+**Çözüm (kapanış fazında):** Ay `DB.today`'den türetilecek. Tarama sırasında
+bulunacak benzer sabitlerle **aynı turda**.
