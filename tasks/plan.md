@@ -1,11 +1,15 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 213 / 275 madde tamam (%77) · 22 kısmen · 40 açık** — 9. oturum, 2026-08-05
+**İLERLEME: 213 / 280 madde tamam (%76) · 22 kısmen · 45 açık** — 9. oturum, 2026-08-05
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
 >
 > **Sayım düzeltmesi (9. oturum):** başlık bir tur boyunca **195 / 274** diyordu; işaret
 > kutuları sayıldığında gerçek **196 / 275** çıktı — bir madde eksik sayılmış. Sayı artık
 > `grep -c '^- \[x\]'` ile ölçülüyor, elle güncellenmiyor.
+>
+> **Toplam 275'ten 280'e çıktı:** 9. oturumda ölçülen beş yeni borç (UID-26..29 · VB-27)
+> FAZ bölümüne madde olarak eklendi. Payda büyüdüğü için yüzde sabit kaldı — **bu doğrudur**,
+> yeni iş bulmak ilerlemeyi geri almaz ama bitiş çizgisini uzatır.
 >
 > **9. oturumda kapanan 16 madde:** dört doküman (G · I · J · L) + **12 eskimiş kayıt**.
 > O on ikisi hâlâ "form bekliyor" diyordu, oysa form bloğu 8. oturumda **36/36** kapanmıştı;
