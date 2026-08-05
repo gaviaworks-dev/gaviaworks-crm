@@ -493,10 +493,16 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       → önce fizibilite ölçüldü (`tasks/qa/xport.js`: 141 ekran · 68 liste · 623 kolon · 6.335 hücre;
       **tamamen taşımayan kolon 0**, %0,7 kısmi ve hepsi yer tutucu metin). Sonra `exportRows(list, fmt)`
       dönüş yüzeyine alındı + `bulk[].export:true` sözleşmesi; **53 ekran** devre dışıdan çalışır oldu
-- [ ] **UID-08** · Kontrol ile etiketi arasında boşluk yok → tek taban kural (aşağıda ayrıca)
-- [ ] **UID-09** · Native form kontrolleri tasarım sisteminde değil (aşağıda ayrıca)
+- [x] **UID-08** · Kontrol ile etiketi arasında boşluk yok — **çözüldü 10. oturum** (UID-09 ile tek turda)
+      → kök neden `.field label{display:block}` özgüllükle `.f-check`/`.f-radio`'nun `gap`'ini
+      eziyordu; kural artık kalıba bağlı (`:not(:has(input))` + `:where(label:has(> input))`).
+      Ölçüm `tasks/qa/ctl.js`: 2.422 çiftte bitişik **0**, en dar boşluk **8 px**
+- [x] **UID-09** · Native form kontrolleri tasarım sisteminde değil — **çözüldü 10. oturum**
+      → `select` 0/732 native · kutu/radyo 0/4.154 native; tarih alanı bilinçli olarak
+      native bırakıldı (assumptions **V-36**), yalnız takvim düğmesi standartlaştırıldı
 - [ ] **UID-10** · Yan panelde başlık / kaydırılan içerik ayrımı yok (+ para birimi eki, filtre sayacı)
-- [ ] **UID-11** · Finans yetkisi yokken KPI "₺0" gösteriyor → `kpis[].mask` sözleşmesi
+- [x] **UID-11** · Finans yetkisi yokken KPI "₺0" gösteriyor — **çözüldü 10. oturum**
+      → `kpis[].perm` / `mask()` sözleşmesi; 17 ekranda 28 `canFinans ? x : 0` silindi
 - [ ] **UID-12** · `app-gorev.html`'de "Tümü" sekmesi yok, dış bağlantı kayıt gizliyor (+ `search.extra`)
 - [ ] **UID-13** · `GV.list` toplu işlemlerinde `show` / yetki kapısı yok → `bulk[].show`
 - [ ] **UID-14** · Detay sekmesi tabloları ≤760px'de kayboluyor → `.gv-tablewrap` kararı
@@ -518,9 +524,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       (10. oturumda üç yanlış hüküm düzeltildi: çıktı modalını onay modalı sanıyordu ·
       girdi soran modalı kendi onaylıyordu · görünmeyen toplu işlem butonunu "ölü" sayıyordu)
 - [ ] **xport.js kalıcı tarama setinde** — kolon tanımı çıktıyı besliyor mu (UID-07 ekseni)
+- [ ] **ctl.js kalıcı tarama setinde** — kontrol–etiket boşluğu ve native kontrol (UID-08/09 ekseni)
 - [ ] **UID-26** · Kolon/filtre/çıktı/toplu/kanban `GV.list` içine kilitli → `GV.*` yüzeyine alınacak
       (UID-06 · UID-07 · UID-17'nin ortak kökü)
-- [ ] **UID-28** · Maskeleme kararı kardeş ekranlar arasında ayrışıyor (UID-11 · UID-25 ile aynı tur)
+- [x] **UID-28** · Maskeleme ayrışması — **çözüldü 10. oturum** → `columns[].perm` / `mask(row)`;
+      `app-dokuman` gizli belge adı · filo birim fiyat/kasko/kira eksenleri hizalandı
+- [x] **UID-25** · Rapor çıktısı yetki kapısı — **çözüldü 10. oturum** → `disaAktar` kapısı bileşende,
+      9 ekrandaki elle yazılmış kapı silindi
 - [ ] **UID-29** · `app-arac-yakit` "Geçen Ay" sekmesi sabit `'2026-07'` yazılmış
 - [ ] **VB-27** · `DB.surveys[].ilgili` altı yetim proje kodu taşıyor → `canon.js` ekseni yok
 - [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (tek turda, `canon.js`'e dokunur)

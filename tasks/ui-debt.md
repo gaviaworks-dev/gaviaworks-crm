@@ -198,7 +198,63 @@ toplu işlem bunu seçili kayıtlarla çağıracak. Ekranlarda tekrarlanan toast
 
 ---
 
-## UID-08 · Form kontrolü ile etiketi arasında boşluk yok
+## ✅ UID-08 + UID-09 · Kontrol–etiket boşluğu ve native kontroller — ÇÖZÜLDÜ (2026-08-05, 10. oturum)
+
+> İkisi **tek taban kuralın iki yüzü** olduğu için birlikte kapatıldı (plan.md'nin
+> öngördüğü sıra). Yeni ölçüm ekseni: **`tasks/qa/ctl.js`**.
+
+### Ölçüm — borç GERÇEKTİ ve kök neden sanılan yerde değildi
+
+`ui.css` `.f-check` ve `.f-radio` için **`display:flex; gap:var(--sp-5)` zaten yazıyordu**.
+Buna rağmen çalışma zamanında ölçülen boşluk **0 px**'ti. Sebep:
+
+```
+.field label{ display:block; … }      /* 0,1,1 */
+.f-check    { display:flex; gap:… }   /* 0,1,0  → KAYBEDİYOR */
+```
+
+Alan başlığı kuralı, kontrolü **saran** etiketi de yakalıyor ve `display:flex`'i eziyordu;
+`gap` bir blok kutuda hiçbir işe yaramıyor. Aynı hata 5. oturumda **`.f-switch` için tek tek
+yamanmıştı** (`ui.css`'te kendi yorumu duruyor) — kalan iki sınıf geride kaldı. Yani kusurun
+dört kez tekrarlaması bir tesadüf değil, **nokta yamasının doğal sonucuydu**.
+
+| Ölçüm (`ctl.js`, 141 ekran) | Önce | Sonra |
+|---|---|---|
+| Kontrol–etiket çifti | 2.422 | 2.422 |
+| **Bitişik (< 6px)** | **97 → tümü 0 px** (3 ekranlık ön ölçümde) | **0** · en dar **8 px** |
+| Native `select` | 4 / 25 (ön ölçüm) · tam taramada 732'nin bir bölümü | **0 / 732** |
+| Native kutu / radyo | **4.154 / 4.154** | **0 / 4.154** |
+| Açılan panel / modal | — | **197** (filtre · kolon · çıktı) |
+
+> **Kapsam notu:** borç kaydı **Çıktı Al modalı** ve **Gelişmiş Filtre paneli** için
+> yazılmıştı; ikisi de ancak tıklayınca doğuyor. `ctl.js` her liste ekranında üç paneli
+> de açıp içini ölçer — açılışa bakan bir tarama bu borcu göremezdi (L-12 sınıfı).
+
+### Çözüm — iki kural, sıfır ekran yaması
+
+1. **Alan başlığı kuralı kalıba bağlandı:** `.field label:not(:has(input))`.
+   Kontrolü saran etiket alan başlığı **değildir**; ayrım sınıf adına değil kalıba bakar.
+2. **Kontrol + etiket taban kuralı:**
+   `:where(label:has(> input[type=checkbox]), label:has(> input[type=radio]))` →
+   `inline-flex` + `gap:var(--sp-5)`. `:where()` özgüllüğü sıfırladığı için `.f-check`,
+   `.f-radio`, `.lh-toggle` kendi ölçüsünü serbestçe geçebiliyor; **yeni markup da
+   kendiliğinden uyuyor**.
+3. **Kontrol görünümü tür bazında:** `:where(input[type=checkbox], input[type=radio])`
+   `appearance:none` + token'lı kutu / köşe / kenarlık / odak halkası; onay işareti
+   **CSS `clip-path` ile çizildi** (ikon dosyası ya da renk hardcode'u yok),
+   `:indeterminate` de kapsandı. `accent-color` yazan **dört sınıf başına kopya silindi**.
+4. **`select` kuralı `.field` bağlamından çıkarıldı** — sayfalama boyutu, rapor filtre
+   şeridi ve ayar ekranlarındaki `select`'ler native kalıyordu; artık hepsi aynı ok.
+5. **Tarih alanı:** takvim düğmesinin ölçüsü/tonu standartlaştırıldı, native kontrol
+   **korundu** — gerekçe `assumptions.md` **V-36**.
+
+**Görsel doğrulama:** 1440 px'de filtre paneli, çıktı modalı, tablo seçim kutuları ve
+tarih alanı ekran görüntüsüyle teyit edildi; radyo noktası ilk denemede kutuyu doldurup
+**halka** görünümü verdiği için `--sp-5` → `--sp-3`'e çekildi (ölçüm olmadan fark edilmezdi).
+
+---
+
+## UID-08 (özgün kayıt) · Form kontrolü ile etiketi arasında boşluk yok
 
 **Nerede:** Çıktı Al modalındaki radio grubu, Gelişmiş Filtre panelindeki checkbox listesi
 ve aynı kalıbı kuran **tüm ekranlar**.
@@ -245,7 +301,35 @@ bileşeninde **tek yerde**.
 
 ---
 
-## UID-11 · Finans yetkisi yokken KPI "₺0" gösteriyor, maskeli göstermiyor
+## ✅ UID-11 + UID-25 + UID-28 · Maskeleme ve çıktı yetkisi — ÇÖZÜLDÜ (2026-08-05, 10. oturum)
+
+Üçü de aynı sınıftı: **yetki kararı ekran başına bırakılmıştı**. Tek sözleşmeyle kapandı.
+
+| Sözleşme | Nerede | Ne yapar |
+|---|---|---|
+| `kpis[].perm` · `kpis[].mask()` | `GV.list` + `GV.report` | Maskeliyken `.kpi-num.is-masked` + `••••••` basar, `meta` satırını gizler. **`calc` hiç çalışmaz** — hesap yapılmadığı için sızıntı da olmaz |
+| `columns[].perm` · `columns[].mask(row)` | `GV.list` | Hücre `.cell-mask` basar **ve ÇIKTIYA girmez**. `mask` **satırı alır**: gizlilik seviyesi kayıttan kayda değişir |
+| `disaAktar` kapısı | `GV.list` `renderHead` + `renderBulk` + `exportRows` | Yetkisiz rolde çıktı şeridi ve toplu "Dışa aktar" **hiç basılmaz**; `exportRows` ikinci savunma hattı olarak reddeder |
+
+**Silinen ekran kodu:** 28 KPI'da `canFinans ? toplam : 0` (17 ekran) · 9 ekranda elle
+yazılmış `export:!!GV.perm.can('disaAktar')` kapısı · 5 ekranda artık kullanılmayan
+`canExp` değişkeni · dört sınıfta `accent-color` kopyası.
+
+**Ölçüm (çalışma zamanı, rol karşılaştırmalı):**
+
+| Ekran · rol | Önce | Sonra |
+|---|---|---|
+| `app-proje-milestone` · `qa` | "Bekleyen taksit ₺0" | `••••••` (maskeli KPI 1) |
+| `app-musteri` · `destek` | "₺0" | `••••••` |
+| `app-dokuman` · `destek` | gizli belge adları **açık** | 3 hücre maskeli — `app-dokuman-sure` ile aynı ölçüt |
+| `app-arac-yakit` · `idari` | tutar maskeli, **birim fiyat açık** (geri hesaplanabiliyordu) | 10 hücre maskeli (5 satır × 2 kolon) |
+| `app-arac-sigorta` · `idari` | prim maskeli, kasko bedeli açık | 6 hücre maskeli |
+| `app-arac` · `idari` | gider maskeli, aylık kira açık | 4 hücre maskeli |
+| Çıktı butonu · `qa`/`destek`/`idari` | basılıyordu | basılmıyor |
+
+---
+
+## UID-11 (özgün kayıt) · Finans yetkisi yokken KPI "₺0" gösteriyor, maskeli göstermiyor
 
 **Nerede:** `GV.list` / `GV.report` KPI şeridi — para KPI'ı olan **tüm** ekranlar
 (`app-sozlesme`, `app-proje-milestone`, `app-butce`, `app-fatura`, rapor ekranları…).
@@ -1029,7 +1113,7 @@ ton sözlüğüne girecek; `teslimKontrol` kümesi VB-22'nin sözlük turunda ko
 
 ---
 
-## UID-25 · Rapor çıktısı 73 raporda yetki kapısız
+## UID-25 (özgün kayıt · UID-11 ile birlikte ÇÖZÜLDÜ) · Rapor çıktısı 73 raporda yetki kapısız
 
 **Nerede:** `app-rapor-gorev.html` · `app-rapor-filo.html` · `app-rapor-proje.html` ·
 `app-rapor-personel.html` · `app-rapor-referans.html` — `GV.report` / `GV.list` `export`
@@ -1221,7 +1305,7 @@ yalan söyleyen bileşen değil, ekranın **kendi `run` gövdesi**.
 
 ---
 
-## UID-28 · Maskeleme kararı kardeş ekranlar arasında ayrışıyor
+## UID-28 (özgün kayıt · UID-11 ile birlikte ÇÖZÜLDÜ) · Maskeleme kararı kardeş ekranlar arasında ayrışıyor
 
 **Nerede:** Aynı veriyi gösteren ekran kümeleri; `GV.perm.can(...)` çağrısı bazısında var, bazısında yok.
 
