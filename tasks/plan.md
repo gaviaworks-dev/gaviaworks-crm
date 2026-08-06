@@ -197,9 +197,12 @@ departman/proje/kayıt/şirket bazlı erişim.
 ### Wave 7 — Demirbaş & Filo (§15, §16)
 - [x] Demirbaş listesi (19 kategori) + detay (28 alan) + form
       → `app-demirbas.html` ✅ · `app-demirbas-detay.html` ✅ (6 sekme) · `app-demirbas-form.html` ✅
-- [~] Zimmet süreci (12 adım: seçim, tutanak, dijital onay, fotoğraf, iade, hasar, çıkış kontrolü)
-      → `app-zimmet.html` ✅ (zimmet/iade listesi, `DB.assignments` 7 kayıt) ·
-      **tutanak, dijital onay, fotoğraf ve hasar adımları veride yok** · zimmet formu bekliyor
+- [~] Zimmet süreci — PROMPT.md §15'in **12 adımı** tek tek sayıldı (metin bir tur boyunca veriden geriydi):
+      personel seçimi ✅ · demirbaş seçimi ✅ · teslim tarihi ✅ · teslim tutanağı ✅ (`tutanak` + tutanak
+      yazdırma aksiyonu) · dijital personel onayı ✅ (`personelOnay` · `onayTarihi` + imza mutasyonu) ·
+      iade işlemi ✅ (`iadeTarihi` · `durum`) · hasar kaydı ✅ (`hasar`) · zimmet geçmişi ✅ ·
+      `app-zimmet.html` + `app-zimmet-form.html` ✅ · **eksik ekipman kaydı ve iade kontrolü veride yok** ·
+      **teslim fotoğrafları** ve **işten ayrılış kontrolü** açık
 - [x] Araç listesi + detay + form (**demirbaştan ayrı özel modül**)
       → `app-arac.html` ✅ · `app-arac-detay.html` ✅ (10 sekme) · `app-arac-form.html` ✅ + 6 filo formu
 - [x] Araç: kimlik · satın alma/kiralama · zimmet · bakım · muayene · trafik sigortası · kasko · yakıt/şarj · giderler (18 kalem) · kaza/hasar/ceza
@@ -392,8 +395,10 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] analysis · quote · quote_item · contract · invoice · payment
 - [x] project · module · milestone · sprint · delivery · change_request · test · bug
 - [~] task · subtask · task_dependency · dept_request ✅ · **checklist_item koleksiyonu yok**
-- [~] employee · leave · timelog · timesheet · performance · training ✅ ·
-      **`DB.trainings`'te yetkinlik/kazanım alanı yok** · **işe giriş/çıkış (onboarding/offboarding) koleksiyonu yok**
+- [x] employee · leave · timelog · timesheet · performance · training · onboarding — **11. oturumda kapandı**
+      → `DB.trainings[].kazanim` açıldı (4/4 eğitimde dolu, `DB.employees[].yetkinlik` ile **aynı sözlük**) ·
+      `DB.onboarding` yazıldı (3 kayıt · `tur` Giriş/Çıkış · `adimlar[]` kontrol listesi) + `app-personel-giris.html`.
+      **İşten ayrılış kaydı veride yok** — ayrılmış personel olmadığı için uydurulmadı (L-13 · V2-05)
 - [x] asset · assignment · vehicle · maintenance · inspection · insurance · casco · fuel · expense · accident · fine
 - [~] purchase_request · approval · supplier_quote · order · supplier ✅ ·
       **siparişte eksik/kısmi teslim ve iade alanı yok**
@@ -413,19 +418,23 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] **Lead→müşteri dönüşümü** → `app-lead-detay.html` "Müşteriye dönüştür" (gerçek `DB.customers` kaydı)
 - [x] **Ön analiz** → `app-onanaliz.html` + `app-onanaliz-detay.html` (28 değerlendirme alanı)
 - [x] **Teklif ve sözleşme** → `app-teklif-detay` → `app-sozlesme-detay` → ödeme planı zinciri
-- [~] **Proje başlatma** → sözleşme → proje → milestone zinciri ekranlarda kurulu;
-      **proje açılış formu yok**, akış tek işlemle tetiklenemiyor
+- [~] **Proje başlatma** → sözleşme → proje → milestone zinciri ekranlarda kurulu ·
+      `app-proje-form.html` **8. oturumda üretildi** (24 alan + teknik envanter, bağlı sözleşmeyi okuyup
+      bedel ekseni doğruluyor) — metin bunun gerisinde kalmıştı. Açık kalan: **sözleşmeden tek işlemle
+      proje açma** (form sözleşme kaydından ön doldurulmuyor)
 - [x] **Görev atama** → `app-gorev-detay.html` görev atama mutasyonu + `DB.activities` kaydı
 - [x] **Görev kabulü** → görev durum geçişi (Havuzda → Kabul edildi), yetki kapılı
 - [x] **Görev kontrolü** → "Kontrol Bekleyenler" sekmesi + detayda kontrol/onay zinciri
 - [x] **Revizyon** → `app-gorev-detay.html` "Revize iste" mutasyonu
 - [x] **Sohbetten görev oluşturma** → `app-sohbet.html` (16 alanlı devir → `DB.tasks` + kanal mesajı)
 - [x] **Departmanlar arası iş talebi** → `app-istalebi-detay.html` kabul akışı + göreve dönüşüm
-- [~] **İzin talebi** → `app-izin.html` + `app-izin-detay.html` onay akışı ve çakışma kontrolü ✅ ·
-      **izin talep formu bekliyor** (akış yalnız var olan kayıt üzerinden ilerletilebiliyor)
+- [x] **İzin talebi** → `app-izin.html` + `app-izin-detay.html` onay akışı ve çakışma kontrolü ✅ ·
+      `app-izin-form.html` **8. oturumda üretildi** (bakiye · vekil · çakışma) — akış artık talep açmaktan
+      onaya kadar uçtan uca yürüyor; metin bir tur boyunca form bloğunun gerisinde kalmıştı
 - [x] **Satın alma talebi** → `app-satinalma-detay.html` tutar eşikli 6 makamlı `GV.chain` onayı
-- [~] **Demirbaş zimmeti** → `app-zimmet.html` zimmet/iade ✅ · tutanak, dijital onay, fotoğraf adımları yok
-- [~] **Araç zimmeti** → `app-arac-detay.html` zimmet sekmesi ✅ · aynı eksik adımlar
+- [~] **Demirbaş zimmeti** → `app-zimmet.html` zimmet/iade + tutanak + dijital onay + hasar ✅
+      (metin veriden geriydi, bkz. Wave 7) · **teslim fotoğrafı** ve **eksik ekipman kaydı** açık
+- [~] **Araç zimmeti** → `app-arac-detay.html` zimmet sekmesi ✅ · aynı iki eksik adım
 - [x] **Araç bakımı** → `app-arac-bakim.html` + araç detayında bakım kaydı ekleme mutasyonu
 - [x] **Sigorta yenilemesi** → `app-arac-sigorta.html` + 60/30/15/7 gün yenileme takvimi
 - [x] **Kasko yenilemesi** → aynı ekran, ayrı poliçe ekseni
@@ -461,8 +470,10 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 
 ## H. KABUL KRİTERLERİ (§28)
 
-- [~] GaviaCRM arayüz diliyle görsel uyum → shell/rail/menü davranışı hizalandı (UID-01 kapandı);
-      kalan hizalama, boşluk ve kontrast işleri **UI ve UX Kalite Geçişi** fazında
+- [x] GaviaCRM arayüz diliyle görsel uyum → shell/rail/menü davranışı hizalandı (UID-01, `grip-qa.js`);
+      **boşluk** denetimi ihlal 0 (token'sız 2+ haneli px yok, yalnız üç kırılım eşiği literal) ·
+      **kontrast** 8 ekran · 279 metin · AA altı **0** (11. oturum) · üç kırılımda taşma yok (`qa.js` 142 ekran).
+      Ölçüye gelmeyen tek kalıntı "optik denge"dir ve göz kararıdır → **V2-02**
 - [x] Yazılım şirketine özgü — inşaat terminolojisi **sıfır**: görünen etiketlerde de, **alan adlarında da**
       (VB-04 kapandı; tam metin taraması `hak ediş|hakedis` → **0 sonuç**)
 - [x] Bütün ana modüller birbirine bağlı → §22'nin **37** bağının 37'si doğrulandı (VB-28 kapandı);
@@ -473,16 +484,22 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] Müşteri ve personel raporları detaylı → 14 + 13 rapor, 8 rapor ekranı
 - [x] Araçlar özel filo modülünde (bakım/muayene/sigorta/kasko) → 8 ekranlık ayrı modül
 - [x] Liste ekranları ortak standart → tüm liste ekranları `GV.list` (PROMPT.md §6 tek bileşende)
-- [~] Yetkilendirme arayüz seviyesinde kalmıyor → 403 kapısı + alan maskeleme ✅;
-      **satır kapsamı (`scope('gor')`) liste ekranlarında uygulanmıyor** (UID-05)
+- [x] Yetkilendirme arayüz seviyesinde kalmıyor → 403 kapısı + alan maskeleme + **satır kapsamı**;
+      UID-05 kapandı: `GV.list` `scopeField` süzgeci zincirin **başında** (sekme sayaçları ve çıktı da kapsamlı).
+      Ölçüm `app-gorev`: `frontend` **5/25** · `depmudur` **0/25** · `sahip` 25.
+      `musteri` kapsamı uygulanamıyor — `GV.session` personelden kuruluyor, müşteri kimliği oturumda yok → **V2-03**
 - [x] Aktivite ve değişiklik geçmişi → `GV.activity` + `app-ayar-log` eski→yeni değer ✅;
       `DB.activities` **26 detay ekranı koleksiyonunun 26'sını** kapsıyor (UID-16 kapandı),
       `canon.js` eksen 22 ve `akt.js` her turda ölçer
-- [~] Masaüstü + mobil (1440/768/390) → üç kırılımda da konsol/taşma temiz ✅;
-      mobilde satır aksiyonu yok (UID-02), detay tabloları ≤760px'de gizleniyor (UID-14)
+- [x] Masaüstü + mobil (1440/768/390) → üç kırılımda da konsol/taşma temiz (`qa.js` 142 ekran);
+      **UID-02 kapandı** — 390 px'te 4 ekranda 36 kart · 108 buton · 44 px altı **0**, satır aksiyonu şeridi
+      tablo satırıyla mobil kartta **tek yerden** üretiliyor · **UID-14 kapandı** — tablo yalnız kart ikizi
+      varsa gizleniyor, 4 detay ekranında 35 tablonun 35'i 390 px'te görünür
 - [x] Çoklu şirket / SaaS'a hazır yapı → `app-ayar-sirket.html` tenant listesi + şirket bazlı kapsam
-- [~] Aynı bilgi tekrar girilmiyor → canonical veri disiplini `canon.js` ile 14 eksende doğrulanıyor;
-      formlar üretilmeden bu kriter uçtan uca ölçülemez
+- [x] Aynı bilgi tekrar girilmiyor → canonical veri disiplini `canon.js` ile **24 eksende / 2.588 kontrolde**
+      doğrulanıyor; **36 formun 36'sı** `?id=` ile var olan kaydı okuyup ön dolduruyor (elle yeniden
+      girilmiyor) ve **36'sı da** `GV.form` kullanıyor, alan kümeleri veri katmanındaki sözlüklerden
+      geliyor (VB-14 · VB-17 · VB-22). Ayna alan yasağı §9d ile korunuyor (V-38)
 
 ---
 
