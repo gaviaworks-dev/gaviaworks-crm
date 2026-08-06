@@ -61,6 +61,20 @@ document.addEventListener('gv:ready', function(){
                                           .sort(function(a,b){ return a.sira - b.sira; }) : [];
   var tercih    = teklifler.filter(function(q){ return q.tercih; })[0] || null;
   var siparisTeklif = teklifler.filter(function(q){ return q.tedarikci === o.tedarikci; })[0] || null;
+  /* Kalem dökümü ve iadeler — §17 "Ürünler · Miktar · Birim fiyat · Eksik teslim · İade".
+     Eksik miktar ALAN DEĞİLDİR, kalemden türetilir: miktar - teslimAlinan (L-08). */
+  var kalemler = DB.orderLines.filter(function(l){ return l.siparis === o.kod; })
+                              .sort(function(a,b){ return a.sira - b.sira; });
+  var iadeler  = DB.orderReturns.filter(function(r){ return r.siparis === o.kod; });
+  var kalemNet = kalemler.reduce(function(t,l){ return t + l.miktar * l.birimFiyat; }, 0);
+  var siparilenAdet = kalemler.reduce(function(t,l){ return t + l.miktar; }, 0);
+  var teslimAdet    = kalemler.reduce(function(t,l){ return t + l.teslimAlinan; }, 0);
+  var eksikAdet     = siparilenAdet - teslimAdet;
+  var eksikKalem    = kalemler.filter(function(l){ return l.teslimAlinan < l.miktar; });
+  var iadeAdet      = iadeler.reduce(function(t,r){ return t + r.miktar; }, 0);
+  /* Kalemlerden türeyen teslim kontrolü — kayıttaki alanla karşılaştırılır, ezilmez. */
+  var turemisKontrol = kalemler.length ? (eksikKalem.length ? 'Eksik' : 'Tam') : null;
+
   var acts      = DB.activities.filter(function(a){ return a.kayit === o.kod; });
   var talepActs = p ? DB.activities.filter(function(a){ return a.kayit === p.kod; }) : [];
 
@@ -191,15 +205,28 @@ document.addEventListener('gv:ready', function(){
       text:o.kod + ' · ' + tedAd(o.tedarikci) + ' · ' + paraMetin(o.toplam) + ' (KDV dahil) — ' +
            'sipariş durumu “Teslim alındı” olacak, teslim tarihi bugün (' + F.date(DB.today) + ') olarak ' +
            'yazılacak ve teslim kontrolü “Tam” işaretlenecek' +
+           (eksikKalem.length
+             ? '. Eksik gelen ' + eksikKalem.length + ' kalemin kalan ' + F.num(eksikAdet) +
+               ' birimi de teslim alınmış sayılır — kalem dökümü buna göre kapanır'
+             : '') +
            (p ? '. Kaynak talep ' + p.kod + ' de teslim alındı durumuna geçer.' : '.'),
       okLabel:'Teslim alındı işaretle'
     }).then(function(ok){
       if(!ok) return;
       var saat = DB.today + 'T' + new Date().toTimeString().slice(0,5);
       var eskiDurum = o.durum, eskiTeslim = o.teslimTarihi;
+      var eskiEksik = eksikAdet;
       o.durum = 'Teslim alındı';
       o.teslimTarihi = DB.today;          /* bu andan sonra GERÇEKLEŞEN tarihtir */
       o.teslimKontrol = 'Tam';
+      /* Kalem dökümü siparişle birlikte kapanır: 'Tam' demek her kalemin tamamının
+         geldiği demektir, aksi hâlde kayıt kendi kalemleriyle çelişirdi. */
+      kalemler.forEach(function(l){ l.teslimAlinan = l.miktar; });
+      if(eskiEksik > 0){
+        DB.activities.unshift({ kayit:o.kod, tarih:saat, kisi:GV.session.emp,
+          metin:'Eksik kalan ' + F.num(eskiEksik) + ' birim teslim alındı, kalem dökümü kapandı',
+          eski:'Eksik', yeni:'Tam', tone:'ok', icon:'i-truck' });
+      }
       DB.activities.unshift({ kayit:o.kod, tarih:saat, kisi:GV.session.emp,
         metin:'Sipariş teslim alındı — teslim kontrolü “Tam”, planlanan teslim ' + F.date(eskiTeslim),
         eski:eskiDurum, yeni:'Teslim alındı', tone:'ok', icon:'i-package' });
@@ -587,6 +614,96 @@ document.addEventListener('gv:ready', function(){
       ico('i-check') + ' Teslim alındı işaretle</button></div>'
     : '';
 
+  /* ---- Kalem dökümü · eksik teslim (§17) --------------------------------
+     Eksik miktar tabloda HESAPLANIR; veride "eksik" diye bir alan yoktur. */
+  function kalemBlok(){
+    if(!kalemler.length){
+      return GV.notice({ tone:'warn', icon:'i-alert', title:'Bu siparişin kalem dökümü yok',
+        text:'Sipariş ' + paraMetin(o.tutar) + ' (KDV hariç) tutarında ama kalem kaydı bulunmuyor; ' +
+             'eksik teslim ve iade kalem düzeyinde izlenemiyor.' });
+    }
+    var tutarNot = kalemNet === o.tutar
+      ? GV.notice({ tone:'ok', icon:'i-check-circle', title:'Kalem toplamı sipariş netiyle uyuşuyor',
+          text:kalemler.length + ' kalemin toplamı ' + paraMetin(kalemNet) + ' — siparişin net tutarına ' +
+               '(' + paraMetin(o.tutar) + ') eşit. Sipariş neti kalemlerden türer, ayrı yazılmaz.' })
+      : GV.notice({ tone:'danger', icon:'i-alert', title:'Kalem toplamı sipariş netiyle uyuşmuyor',
+          text:'Kalemlerin toplamı ' + paraMetin(kalemNet) + ', siparişin neti ' + paraMetin(o.tutar) +
+               '. Aradaki fark ' + paraMetin(Math.abs(kalemNet - o.tutar)) + ' — veri düzeltmesi gerekir.' });
+
+    var kontrolNot = (turemisKontrol && val(o.teslimKontrol) && turemisKontrol !== o.teslimKontrol)
+      ? GV.notice({ tone:'danger', icon:'i-alert', title:'Teslim kontrolü kalemlerle çelişiyor',
+          text:'Kayıtta “' + o.teslimKontrol + '” yazılı ama kalemlerden türeyen sonuç “' + turemisKontrol + '”.' })
+      : '';
+
+    var eksikNot = eksikKalem.length
+      ? GV.notice({ tone:'warn', icon:'i-truck', title:'Eksik teslim var',
+          text:kalemler.length + ' kalemin ' + eksikKalem.length + ' tanesi eksik geldi · toplam ' +
+               F.num(eksikAdet) + ' birim bekleniyor. Sipariş bu yüzden “' + o.durum + '” durumunda kalır; ' +
+               'kalan kalemler gelmeden teslim alındı işaretlenmez.' })
+      : '';
+
+    return '<div class="u-mt-8">' + tutarNot + kontrolNot + eksikNot + '</div>' +
+      '</div><div class="gc-body flush">' +
+      tbl('<th class="num th-narrow">#</th><th>Ürün</th><th class="num">Sipariş</th>' +
+          '<th class="num">Teslim alınan</th><th class="num">Eksik</th>' +
+          '<th class="num">Birim fiyat</th><th class="num">Tutar (KDV hariç)</th><th>Durum</th>',
+        kalemler.map(function(l, i){
+          var eksik = l.miktar - l.teslimAlinan;
+          return '<tr>' +
+            '<td class="num"><span class="u-num">' + (i + 1) + '</span></td>' +
+            '<td class="cell-wrap"><span class="cell-main">' + esc(l.urun) + '</span>' +
+              (l.aciklama ? '<span class="cell-sub">' + esc(l.aciklama) + '</span>' : '') + '</td>' +
+            '<td class="num"><span class="u-num">' + F.num(l.miktar) + '</span>' +
+              '<span class="cell-sub">' + esc(l.birim) + '</span></td>' +
+            '<td class="num"><span class="u-num">' + F.num(l.teslimAlinan) + '</span></td>' +
+            '<td class="num">' + (eksik > 0 ? '<b class="u-danger u-num">' + F.num(eksik) + '</b>'
+                                            : '<span class="u-faint">—</span>') + '</td>' +
+            '<td class="num">' + para(l.birimFiyat) + '</td>' +
+            '<td class="num">' + para(l.miktar * l.birimFiyat) + '</td>' +
+            '<td>' + (eksik > 0 ? GV.badge('Eksik') : GV.badge('Tam')) + '</td></tr>';
+        }).join('') +
+        '<tr class="is-total"><td class="num"></td><td><b>Toplam</b></td>' +
+          '<td class="num"><b class="u-num">' + F.num(siparilenAdet) + '</b></td>' +
+          '<td class="num"><b class="u-num">' + F.num(teslimAdet) + '</b></td>' +
+          '<td class="num">' + (eksikAdet > 0 ? '<b class="u-danger u-num">' + F.num(eksikAdet) + '</b>'
+                                              : '<span class="u-faint">—</span>') + '</td>' +
+          '<td class="num"></td><td class="num">' + para(kalemNet) + '</td><td></td></tr>') +
+      sayac('<b>' + kalemler.length + '</b> kalem · ' + F.num(teslimAdet) + ' / ' + F.num(siparilenAdet) +
+            ' birim teslim alındı' + (eksikAdet ? ' · <b>' + F.num(eksikAdet) + '</b> birim eksik' : '')) +
+      '</div><div class="gc-body">';
+  }
+
+  /* ---- İadeler (§17) ---- */
+  function iadeBlok(){
+    if(!kalemler.length) return '';
+    if(!iadeler.length){
+      return '<div class="u-mt-8">' + GV.notice({ tone:'neutral', icon:'i-info', title:'İade kaydı yok',
+        text:'Bu siparişin hiçbir kalemi tedarikçiye iade edilmedi.' }) + '</div>';
+    }
+    return '<div class="u-mt-8">' + GV.notice({ tone:'warn', icon:'i-refresh',
+        title:iadeler.length + ' iade kaydı var',
+        text:'Toplam ' + F.num(iadeAdet) + ' birim tedarikçiye iade edildi. İade, teslim alınmış miktarı ' +
+             'geri götürmez — teslim gerçekleşmiştir, mal ayrıca iade edilmiştir; iki eksen ayrı tutulur.' }) +
+      '</div></div><div class="gc-body flush">' +
+      tbl('<th>İade no</th><th>Kalem</th><th class="num">Miktar</th><th>İade tarihi</th>' +
+          '<th>Neden</th><th>Çözüm</th><th>Kaydeden</th><th>Durum</th>',
+        iadeler.map(function(r){
+          var l = kalemler.filter(function(x){ return x.kod === r.kalem; })[0];
+          return '<tr>' +
+            '<td><span class="cell-code">' + esc(r.kod) + '</span></td>' +
+            '<td class="cell-wrap"><span class="cell-main">' + esc(l ? l.urun : r.kalem) + '</span></td>' +
+            '<td class="num"><span class="u-num">' + F.num(r.miktar) + '</span>' +
+              '<span class="cell-sub">' + esc(r.birim) + '</span></td>' +
+            '<td>' + GV.dateCell(r.tarih, { done:true }) + '</td>' +
+            '<td class="cell-wrap">' + esc(r.neden) + '</td>' +
+            '<td class="cell-wrap">' + esc(r.cozum) + '</td>' +
+            '<td>' + GV.user(r.kaydeden, { sm:true }) + '</td>' +
+            '<td>' + GV.badge(r.durum) + '</td></tr>';
+        }).join('')) +
+      sayac('<b>' + iadeler.length + '</b> iade kaydı · ' + F.num(iadeAdet) + ' birim') +
+      '</div><div class="gc-body">';
+  }
+
   var pTeslimat = '<div class="gc-body">' + teslimDurumNot + teslimNotu +
     GV.dl([
       ['Sipariş durumu', GV.badge(o.durum)],
@@ -624,10 +741,7 @@ document.addEventListener('gv:ready', function(){
              : ihtiyacFark === 0 ? '<b class="u-ok">Planlanan teslim ihtiyaç tarihinde</b>'
              : '<b class="u-ok">Planlanan teslim ihtiyaç tarihinden ' + Math.abs(ihtiyacFark) + ' gün önce</b>')]
     ]) +
-    GV.notice({ tone:'neutral', icon:'i-info', title:'Kalem bazlı teslim dökümü tutulmuyor',
-      text:'Teslimat, sipariş kaydının teslim tarihi ve teslim kontrolü alanları üzerinden izlenir. ' +
-           'Kısmi teslim kalemleri, iade ve eksik kalem kayıtları ayrı bir koleksiyonda tutulmadığı için ' +
-           'burada listelenemez.' }) +
+    kalemBlok() + iadeBlok() +
     (teslimAlinabilir ? '' : (teslimAlindi || iptal ? '' : GV.notice({ tone:'neutral', icon:'i-lock',
       title:'Teslim alma yetkiniz yok',
       text:'Bu sipariş henüz teslim alınmadı, ancak rolünüzde kayıt düzenleme yetkisi tanımlı değil. ' +

@@ -24,6 +24,11 @@ document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
   var ted = function(k){ return DB.suppliers.filter(function(s){ return s.kod === k; })[0] || {}; };
   var tal = function(k){ return DB.purchases.filter(function(p){ return p.kod === k; })[0] || {}; };
+  /* Eksik birim siparişte YAZILI DEĞİLDİR, kalem dökümünden türer (L-08) */
+  var eksikBirim = function(o){
+    return DB.orderLines.filter(function(l){ return l.siparis === o.kod; })
+      .reduce(function(t,l){ return t + Math.max(0, l.miktar - l.teslimAlinan); }, 0);
+  };
   GV.pageHead({ eyebrow:'Tedarik', title:'Siparişler ve Teslimat',
     actions:[{ label:'Talepler', icon:'i-cart', href:'app-satinalma.html' },
              { label:'Yeni Sipariş', icon:'i-plus', cls:'btn-acc', href:'app-siparis-form.html' }] });
@@ -37,6 +42,9 @@ document.addEventListener('gv:ready', function(){
       { label:'Geciken teslimat', icon:'i-alert', tone:'danger',
         calc:function(a){ return a.filter(function(x){ return x.durum === 'Sipariş verildi' && F.days(x.teslimTarihi) < 0; }).length; } },
       { label:'Teslim alınan', icon:'i-check-circle', tone:'ok', calc:function(a){ return a.filter(function(x){ return x.durum === 'Teslim alındı'; }).length; } },
+      /* §17 "Eksik teslim" — sipariş kapanmadan kalem eksiği olan kayıtlar */
+      { label:'Eksik teslim', icon:'i-package', tone:'warn',
+        calc:function(a){ return a.filter(function(x){ return x.teslimKontrol === 'Eksik'; }).length; } },
       { label:'Toplam tutar', icon:'i-wallet', tone:'info', format:F.moneyK,
         perm:'finans', calc:function(a){ return a.reduce(function(s,x){ return s + x.toplam; }, 0); } }
     ],
@@ -45,6 +53,8 @@ document.addEventListener('gv:ready', function(){
       { key:'geciken', label:'Geciken Teslimat', icon:'i-alert',
         filter:function(x){ return x.durum === 'Sipariş verildi' && F.days(x.teslimTarihi) < 0; } },
       { key:'teslim', label:'Teslim Alınanlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Teslim alındı'; } },
+      { key:'eksik', label:'Eksik Teslim / İade', icon:'i-package',
+        filter:function(x){ return x.teslimKontrol === 'Eksik' || x.teslimKontrol === 'İade'; } },
       { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
     ],
     columns:[
@@ -74,6 +84,13 @@ document.addEventListener('gv:ready', function(){
       { key:'teslimKontrol', label:'Teslim kontrolü', render:function(x){
           return x.teslimKontrol ? GV.badge(x.teslimKontrol) : '<span class="u-faint">—</span>'; },
         exportValue:function(x){ return x.teslimKontrol; } },
+      /* Kalem dökümünden TÜRETİLİR (DB.orderLines), siparişte "eksik" alanı yoktur */
+      { key:'eksikBirim', label:'Eksik birim', cellClass:'num',
+        sortValue:function(x){ return eksikBirim(x); },
+        render:function(x){
+          var e = eksikBirim(x);
+          return e > 0 ? '<b class="u-danger u-num">' + F.num(e) + '</b>' : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return eksikBirim(x) || ''; } },
       { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
     ],
     filters:[

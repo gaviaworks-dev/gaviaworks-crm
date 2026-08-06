@@ -86,7 +86,18 @@ DB.assets = [
     durum:'Depoda', zimmetli:null, zimmetTarihi:null, iadeTarihi:null, barkod:'GW-DMB-0015', siparis:'SIP-2026-008', aktif:true }
 ];
 
-/* ---- Zimmet kayıtları --------------------------------------------------- */
+/* ---- Zimmet kayıtları ---------------------------------------------------
+   PROMPT.md §15 zimmet sürecinin **12 adımı** bu koleksiyonda karşılık bulur:
+     personel/demirbaş seçimi · `teslimTarihi` · `tutanak` · `personelOnay` +
+     `onayTarihi` (dijital onay) · `iadeTarihi` (iade işlemi) · `iadeKontrol` +
+     `iadeAlan` (iade kontrolü) · `hasar` · `eksik` (eksik ekipman kaydı) ·
+     zimmet geçmişi (koleksiyonun kendisi).
+   `iadeKontrol` YALNIZ iade edilmiş kayıtta anlamlıdır (üç değer: 'Sorunsuz' ·
+   'Hasarlı' · 'Eksikli'); aktif zimmette alan yazılmaz, çünkü henüz iade yoktur.
+   `hasar` ve `eksik` AYRI eksenlerdir: biri gelen malın durumunu, diğeri hiç
+   gelmeyen parçayı anlatır; tek alanda birleştirilmezler.
+   **Teslim fotoğrafları** bu prototipte yoktur — gerçek dosya deposu ister,
+   `ui-debt.md` V2-06'da yazılıdır (uydurma dosya adı yazılmadı, L-13). */
 DB.assignments = [
   { kod:'ZMT-2024-001', demirbas:'DMB-2024-001', personel:'EMP-005', teslimTarihi:'2024-01-22', iadeTarihi:null,
     durum:'Aktif', tutanak:'zimmet-2024-001.pdf', personelOnay:'Onaylandı', onayTarihi:'2024-01-22', hasar:null, aktif:true },
@@ -98,7 +109,8 @@ DB.assignments = [
     durum:'Aktif', tutanak:'zimmet-2025-004.pdf', personelOnay:'Onaylandı', onayTarihi:'2025-04-05', hasar:null, aktif:true },
   { kod:'ZMT-2025-005', demirbas:'DMB-2025-005', personel:'EMP-015', teslimTarihi:'2025-11-03', iadeTarihi:'2026-05-14',
     durum:'İade edildi', tutanak:'zimmet-2025-005.pdf', personelOnay:'Onaylandı', onayTarihi:'2025-11-03',
-    hasar:'Ekran çerçevesinde çizik', aktif:true },
+    hasar:'Ekran çerçevesinde çizik', iadeKontrol:'Eksikli', eksik:'Orijinal şarj adaptörü teslim edilmedi',
+    iadeAlan:'EMP-011', aktif:true },
   { kod:'ZMT-2026-006', demirbas:'DMB-2026-012', personel:'EMP-007', teslimTarihi:'2026-01-18', iadeTarihi:null,
     durum:'Aktif', tutanak:'zimmet-2026-006.pdf', personelOnay:'Onaylandı', onayTarihi:'2026-01-18', hasar:null, aktif:true },
   { kod:'ZMT-2026-007', demirbas:'DMB-2025-004', personel:'EMP-006', teslimTarihi:'2025-02-24', iadeTarihi:null,
@@ -404,9 +416,15 @@ DB.supplierQuotes = [
    `SIP-2026-007` (OpenAI API kredisi) ve `SIP-2026-009` (ofis sarfı) demirbaş doğurmaz.
    -------------------------------------------------------------------------- */
 DB.orders = [
+  /* Kısmi teslim örneği (§17 "Eksik teslim" · "İade"). `teslimKontrol` sözlüğü UID-24'ten
+     beri üç değerlidir (Tam · Eksik · İade) ama hiçbir kayıt 'Eksik'i kullanmıyordu.
+     Bu sipariş 2026-08-01'de KISMİ teslim aldı: dört kalemin üçü tam geldi, biri eksik,
+     bir kutu hasarlı çıkıp iade edildi. Sipariş **açık kalır** — durum hâlâ 'Sipariş
+     verildi', çünkü kalan kalem beklenmektedir; `teslimTarihi` PLANLANAN tarihtir ve
+     `kismiTeslimTarihi` ilk parti tarihini ayrı tutar (ikisi karışmaz). */
   { kod:'SIP-2026-009', talep:'SAT-2026-013', tedarikci:'TDR-005', tarih:'2026-07-26', teslimTarihi:'2026-08-08',
-    tutar:8400, vergi:1680, toplam:10080, doviz:'TRY', durum:'Sipariş verildi', fatura:null, irsaliye:null,
-    teslimKontrol:null, aktif:true },
+    tutar:8400, vergi:1680, toplam:10080, doviz:'TRY', durum:'Sipariş verildi', fatura:null, irsaliye:'IRS-4498',
+    teslimKontrol:'Eksik', kismiTeslimTarihi:'2026-08-01', aktif:true },
   { kod:'SIP-2026-008', talep:'SAT-2026-012', tedarikci:'TDR-005', tarih:'2026-07-16', teslimTarihi:'2026-07-30',
     tutar:28500, vergi:5700, toplam:34200, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-TDR-1188',
     irsaliye:'IRS-4471', teslimKontrol:'Tam', aktif:true },
@@ -419,6 +437,46 @@ DB.orders = [
   { kod:'SIP-2025-006', talep:'SAT-2025-010', tedarikci:'TDR-007', tarih:'2025-03-06', teslimTarihi:'2025-03-20',
     tutar:1680000, vergi:336000, toplam:2016000, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-TOY-3320',
     irsaliye:'IRS-2210', teslimKontrol:'Tam', aktif:true }
+];
+
+/* ---- Sipariş kalemleri (§17 "Ürünler · Miktar · Birim fiyat · Eksik teslim")
+   Siparişin `tutar` alanı **kalemlerin netinden türer**, ayrı yazılmaz:
+     Σ (miktar × birimFiyat) = order.tutar   (dört siparişin dördünde de tutar)
+   `teslimAlinan` kalem bazlı gerçekleşen miktardır; `miktar - teslimAlinan` **eksik
+   teslim**tir ve ekranda buradan hesaplanır — "eksik" diye ayrı alan yazılmaz (L-08).
+   Siparişin `teslimKontrol` alanı bu kalemlerle çelişemez: bir kalem bile eksikse
+   sipariş 'Eksik'tir. -------------------------------------------------------- */
+DB.orderLines = [
+  /* SIP-2026-009 · kısmi teslim · Σ net 2.700 + 2.480 + 2.340 + 880 = 8.400 */
+  { kod:'SPK-001', siparis:'SIP-2026-009', sira:1, urun:'A4 fotokopi kağıdı (5.000 yaprak koli)',
+    miktar:6, birim:'koli', birimFiyat:450, teslimAlinan:6, aciklama:null },
+  { kod:'SPK-002', siparis:'SIP-2026-009', sira:2, urun:'Temizlik malzemesi seti',
+    miktar:4, birim:'set', birimFiyat:620, teslimAlinan:4, aciklama:null },
+  { kod:'SPK-003', siparis:'SIP-2026-009', sira:3, urun:'Yazıcı toneri (mono)',
+    miktar:3, birim:'adet', birimFiyat:780, teslimAlinan:1, aciklama:'Tedarikçi stoğu yetmedi, 2 adet bekleniyor' },
+  { kod:'SPK-004', siparis:'SIP-2026-009', sira:4, urun:'Beyaz tahta kalemi (12\'li kutu)',
+    miktar:8, birim:'kutu', birimFiyat:110, teslimAlinan:8, aciklama:'1 kutu hasarlı çıktı, iade edildi (IAD-2026-001)' },
+  /* SIP-2026-008 · tam teslim · 3 × 9.500 = 28.500 (DMB-2026-013/014/015 bu kalemden doğdu) */
+  { kod:'SPK-005', siparis:'SIP-2026-008', sira:1, urun:'Ergohuman Enjoy Elite çalışma sandalyesi',
+    miktar:3, birim:'adet', birimFiyat:9500, teslimAlinan:3, aciklama:null },
+  /* SIP-2026-007 · tam teslim · 1 × 64.000 (demirbaş doğurmaz — tüketilen kredi) */
+  { kod:'SPK-006', siparis:'SIP-2026-007', sira:1, urun:'OpenAI API kredi paketi',
+    miktar:1, birim:'paket', birimFiyat:64000, teslimAlinan:1, aciklama:null },
+  /* SIP-2025-006 · tam teslim · 1 × 1.680.000 (ARC-004'ü doğuran kalem) */
+  { kod:'SPK-007', siparis:'SIP-2025-006', sira:1, urun:'Toyota Corolla Hybrid 1.8 — Lacivert',
+    miktar:1, birim:'adet', birimFiyat:1680000, teslimAlinan:1, aciklama:null }
+];
+
+/* ---- Sipariş iadeleri (§17 "İade") --------------------------------------
+   İade **kalem** düzeyinde tutulur; siparişin tamamını iade etmek gerektiğinde
+   her kalem için bir kayıt açılır. Bağ tek yönlüdür: iade kaydı siparişi ve
+   kalemi gösterir, siparişte ayna alan yoktur (§9d).
+   Tek yazılı örnek SPK-004'ün hasarlı kutusudur — uydurulmuş ikinci bir iade
+   yoktur (L-13). ------------------------------------------------------------ */
+DB.orderReturns = [
+  { kod:'IAD-2026-001', siparis:'SIP-2026-009', kalem:'SPK-004', miktar:1, birim:'kutu',
+    tarih:'2026-08-01', neden:'Kutu ezik, kalemler kurumuş', durum:'Tedarikçide',
+    cozum:'Yenisi gönderilecek', kaydeden:'EMP-011' }
 ];
 
 /* ---- Destek talepleri (PROMPT.md §18) -----------------------------------
