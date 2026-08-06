@@ -407,9 +407,9 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.purchases[].tahminiMaliyet` | **NET** | Talebin tahmini bedeli. Doğan siparişin `tutar`ı ile birebir (3/3 doğrulandı) |
 | `DB.supplierQuotes[].fiyat` | **NET** | Teklif edilen bedel — talep ve sipariş ile aynı eksende |
 | `DB.orders[].tutar / .vergi / .toplam` | net / KDV / **BRÜT** | `toplam = tutar + vergi` |
-| `DB.analyses[].maliyet` | **NET, indirim öncesi** | Alan adı yanıltıcı: iç maliyet değil, **teklifin `araToplam`'ı**. Teklife dönmüş 3 analizin 3'ünde birebir; indirim sonrası netle 2/3, brütle 0/3. Ad **VB-16** ile düzeltilecek |
+| `DB.analyses[].tahminiBedel` | **NET, indirim öncesi** | İç maliyet **değil**, teklifin `araToplam`'ı. Teklife dönmüş 3 analizin 3'ünde birebir; indirim sonrası netle 2/3, brütle 0/3. Ad VB-16'da `maliyet`ten çevrildi — eski ad bir ekranın kârlılık hesaplayıp sessizce yanlış sonuç vermesine açıktı. **İç maliyet ekseni veride yoktur** |
 | `DB.referrers[].ciro` · `.sabitBedel` | **NET** | Yönlendirenin getirdiği **ömür boyu** net ciro; `DB.customers[].toplamCiro` ile aynı eksen. Bağlı müşterilerin toplamından **küçük olamaz** (sistem öncesi yönlendirmeler dahildir) — 8 kaydın 4'ünde birebir, 4'ünde büyük |
-| `DB.referrers[].hakedis` · `.odenen` · `.bekleyen` | **NET** | Komisyon kayıtlarından türetilir: `hakedis = Σ DB.commissions[referans].tutar` · `odenen = Σ durum:'Ödendi'` · `bekleyen = hakedis − odenen`. 8 kaydın 8'inde birebir doğrulandı. (`hakedis` alan adı **VB-04** ile yeniden adlandırılacak) |
+| `DB.referrers[].komisyonToplam` · `.odenen` · `.bekleyen` | **NET** | Komisyon kayıtlarından türetilir: `komisyonToplam = Σ DB.commissions[referans].tutar` · `odenen = Σ durum:'Ödendi'` · `bekleyen = komisyonToplam − odenen`. 8 kaydın 8'inde birebir doğrulandı. Ad VB-04'te `hakedis`ten çevrildi — **inşaat terimi yasağı** (CLAUDE.md · PROMPT §1). `DB.commissions[].kazanimTarihi` de aynı turda `hakedisTarihi`den çevrildi |
 | `DB.suppliers[].toplamTutar` | **NET** | Ömür boyu iş hacmi. Ölçüldü: brüt olsaydı /1,2 tam liraya inerdi, 6 tedarikçinin 3'ünde inmiyor. TDR-003: 126.000 / 3 = 42.000 = `SAT-2026-015` net `tahminiMaliyet`i |
 
 **TEKLİF → SÖZLEŞME AKTARIMI (VB-19, 8. oturumda ölçülüp düzeltildi):**

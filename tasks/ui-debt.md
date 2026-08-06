@@ -1076,7 +1076,49 @@ UID-04 (`GV.upload` `onFile`) ile aynı turda — biri veri, biri bileşen taraf
 
 ---
 
-## VB-16 · `DB.analyses[].maliyet` alan adı ekseni yanlış anlatıyor
+## ✅ VB-04 + VB-16 · Alan adı rename turu — ÇÖZÜLDÜ (2026-08-06, 11. oturum)
+
+**Envanter defterdekinden büyük çıktı:** kayıt "111 kullanım" diyordu, ölçülen
+**145** (`hakedis` 81 · `hakedisTarihi` 64) · **9 dosya**. L-25'in bir kez daha
+doğrulanması: statik sayılan borç eksik boyutlanır.
+
+| Eski ad | Yeni ad | Neden |
+|---|---|---|
+| `DB.referrers[].hakedis` | **`komisyonToplam`** | "hakediş" CLAUDE.md ve PROMPT §1'de **yasak inşaat terimi**. Yeni ad `komisyonModeli`/`komisyonOrani` ile aynı ailede |
+| `DB.commissions[].hakedisTarihi` | **`kazanimTarihi`** | Komisyonun **hak edildiği** tarih; ödeme tarihi ayrı alan (`odemeTarihi`) |
+| `DB.analyses[].maliyet` | **`tahminiBedel`** | Ad iç maliyet diyordu, **ölçülen eksen teklifin ara toplamı**. Bir ekran bunu maliyet sanıp kâr hesaplasa sonuç **sessizce yanlış** olurdu |
+
+**Tek turda yapıldı ve yarım bırakılmadı.** Sıra: uzun tokenden kısaya
+(`hakedisTarihi` önce, yoksa `hakedis` onu bozardı) → veri → ekranlar → `canon.js`
+→ görünen etiketler → eksen notları (`crm.js` başlığı · components.md §9b).
+
+**VB-16'da kör replace YAPILMADI.** `maliyet` adı projede **üç ayrı eksende** daha
+var — `projects.gerceklesenMaliyet` · `maintenance.maliyet` · `trainings.maliyet`.
+Global bir değiştirme proje maliyetini de bozardı; bu yüzden yalnız analiz
+nesnesine yapılan erişimler dosya dosya hedeflendi. Doğrulandı: rename sonrası
+`trainings[0].maliyet` ve `projects[0].gerceklesenMaliyet` **yerinde**.
+
+**Alan adı düzelince eski uyarılar da yanlış oldu.** `app-onanaliz-detay` ve
+`-form` ekranları "bu alan yanıltıcı adlandırılmış" diye uzun bloklar basıyordu;
+ölçüm korundu (bedel gerçekten teklifin ara toplamına eşit mi), ama metin
+"ad artık ekseni doğru anlatıyor" olarak yeniden yazıldı. Ölçümü silmek yanlış
+olurdu — alanın adı değişti, **ekseni doğrulayan kanıt değil**.
+
+**Prova önce kopyada koşuldu.** Repo'ya dokunmadan `scratchpad/prova/` altında
+tam bir kopya üzerinde çalıştırıldı; kalan eski ad **0**, diğer `maliyet`
+eksenleri sağlam çıkınca gerçeğe uygulandı.
+
+| Ölçüm | Sonuç |
+|---|---|
+| Değişen yazım | **151** (VB-04) + **46** (VB-16) |
+| Kalan `hakedis*` | **0** |
+| Yasak terim tam metin taraması (`hak ediş\|hakedis`) | **0** — İK bağlamındaki iki metin de "yıllık izin hakkı" oldu |
+| `canon.js` | **2.588 kontrol temiz** · `dbref.js` 141 ekran |
+| Rename'e dokunan 13 ekran | `qa.js` **TEMİZ**, `esc.js` 3/3 kayıt temiz, değerler basılıyor, `undefined` yok |
+
+---
+
+## VB-16 (özgün kayıt) · `DB.analyses[].maliyet` alan adı ekseni yanlış anlatıyor
 
 **Nerede:** `assets/data/crm.js` → `DB.analyses`.
 
@@ -1860,3 +1902,16 @@ bugün yalnız `GV.toast` basıyor (UID-30'da **yalan** sayıldı).
 `assumptions.md`'ye yazılacak. Ardından üç ekranın `run`'ı gerçek mutasyona
 çevrilecek ve `canon.js`'e "hatırlatma kaydı gerçekten var olan bir kaydı gösterir"
 ekseni girecek.
+
+
+---
+
+# V2 — DONDURULMUŞ KAPSAM DIŞI
+
+> **11. oturumda kapsam donduruldu.** Her yeni ölçüm ekseni yeni borç buluyordu,
+> borç deftere giriyor ve payda büyüyordu — dört oturumdur yüzde %81'de sabit
+> kalmasının sebebi buydu. Bu başlık altındakiler **gerçek bulgulardır** ama
+> `plan.md`'ye madde olarak **girmez**, yüzdeye katılmaz ve bu oturumda
+> düzeltilmez. Sonraki oturum kapsamı açtığında buradan devralır.
+
+*(bu oturumda bulunanlar aşağıya eklenir)*

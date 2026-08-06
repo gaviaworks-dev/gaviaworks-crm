@@ -51,11 +51,11 @@ DB.payments.forEach(p => {
 head('3) Komisyon ↔ yönlendiren');
 DB.referrers.forEach(r => {
   const k = DB.commissions.filter(k => k.referans === r.kod);
-  const hakedis = k.reduce((s, x) => s + x.tutar, 0);
+  const komisyonToplam = k.reduce((s, x) => s + x.tutar, 0);
   const odenen = k.filter(x => x.durum === 'Ödendi').reduce((s, x) => s + x.tutar, 0);
-  say(hakedis === r.hakedis, r.kod + ' hakedis kart=' + money(r.hakedis) + ' komisyon=' + money(hakedis));
+  say(komisyonToplam === r.komisyonToplam, r.kod + ' komisyonToplam kart=' + money(r.komisyonToplam) + ' komisyon=' + money(komisyonToplam));
   say(odenen === r.odenen, r.kod + ' odenen kart=' + money(r.odenen) + ' komisyon=' + money(odenen));
-  say(r.bekleyen === r.hakedis - r.odenen, r.kod + ' bekleyen ≠ hakedis - odenen');
+  say(r.bekleyen === r.komisyonToplam - r.odenen, r.kod + ' bekleyen ≠ komisyonToplam - odenen');
 });
 DB.commissions.forEach(k => {
   const c = DB.customers.find(c => c.kod === k.musteri);
@@ -237,7 +237,7 @@ DB.referrers.forEach(r => {
   const koms = DB.commissions.filter(k => k.referans === r.kod);
   const top  = koms.reduce((a, k) => a + (k.tutar || 0), 0);
   const od   = koms.filter(k => k.durum === 'Ödendi').reduce((a, k) => a + (k.tutar || 0), 0);
-  say(r.hakedis === top, r.kod + ' hakedis=' + r.hakedis + ' ≠ Σ komisyon=' + top);
+  say(r.komisyonToplam === top, r.kod + ' komisyonToplam=' + r.komisyonToplam + ' ≠ Σ komisyon=' + top);
   say(r.odenen === od,  r.kod + ' odenen=' + r.odenen + ' ≠ Σ ödenmiş komisyon=' + od);
   say(r.bekleyen === top - od, r.kod + ' bekleyen=' + r.bekleyen + ' ≠ ' + (top - od));
 });

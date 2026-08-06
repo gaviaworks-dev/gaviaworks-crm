@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 242 / 297 madde tamam (%81) · 20 kısmen · 35 açık** — 11. oturum, 2026-08-05
+**İLERLEME: 251 / 297 madde tamam (%84) · 19 kısmen · 27 açık** — 11. oturum, 2026-08-05
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -451,8 +451,8 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 
 - [~] GaviaCRM arayüz diliyle görsel uyum → shell/rail/menü davranışı hizalandı (UID-01 kapandı);
       kalan hizalama, boşluk ve kontrast işleri **UI ve UX Kalite Geçişi** fazında
-- [~] Yazılım şirketine özgü — inşaat terminolojisi sıfır → **görünen etiketlerde sıfır** ✅;
-      `hakedis` / `hakedisTarihi` **alan adları** `crm.js` ve 5 ekranda duruyor (VB-04)
+- [x] Yazılım şirketine özgü — inşaat terminolojisi **sıfır**: görünen etiketlerde de, **alan adlarında da**
+      (VB-04 kapandı; tam metin taraması `hak ediş|hakedis` → **0 sonuç**)
 - [x] Bütün ana modüller birbirine bağlı → §22'nin **37** bağının 37'si doğrulandı (VB-28 kapandı);
       `canon.js` eksen 21 her bağın en az bir kayıtta **dolu** olduğunu her turda ölçer (L-22)
 - [x] Görev sistemi ayrıntılı → 19 durum · 18 tür · 13 sekme · alt görev · bağımlılık · onay zinciri
@@ -524,7 +524,7 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       hepsi gerçek olaydan türetildi ve tek tek ölçüldü. Yan bulgu: iki canonical tarih çelişkisi
       (`referrers.sonYonlendirme` 3 kayıt · `ZMT-2025-005` zimmeti) düzeltildi.
       Eksenler: `canon.js` **22 · 22b · 23** + yeni `tasks/qa/akt.js`
-- [ ] **akt.js kalıcı tarama setinde** — detay ekranının aktivite sekmesi dolu mu (UID-16 ekseni)
+- [x] **akt.js kalıcı tarama setinde** — `tasks/qa/akt.js`, her turda koşuluyor
 - [ ] **UID-17** · Dokuz ekran kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl(pairs, opts)`
 - [ ] **UID-18** · `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor
 - [ ] **UID-19** · Tablo toplam satırı için ortak sınıf yok → `.gtable tfoot` + `tr.is-total`
@@ -538,11 +538,11 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       `oku` ×2 (duyuru okuma ekseni yok) — **ikisi de aynı oturumda kapandı**, `act.js` 0 ihlal
 - [x] **VB-29** · `hatirlat` veri ekseni — **çözüldü 10. oturum** → `DB.reminders` + duyuru
       `okuyanlar` ekseni; `canon.js` eksen 19 (645 kontrol temiz)
-- [ ] **act.js kalıcı tarama setinde** — her turda koşulur, sayı artarsa regresyon
+- [x] **act.js kalıcı tarama setinde** — `tasks/qa/act.js`, her turda koşuluyor
       (10. oturumda üç yanlış hüküm düzeltildi: çıktı modalını onay modalı sanıyordu ·
       girdi soran modalı kendi onaylıyordu · görünmeyen toplu işlem butonunu "ölü" sayıyordu)
-- [ ] **xport.js kalıcı tarama setinde** — kolon tanımı çıktıyı besliyor mu (UID-07 ekseni)
-- [ ] **ctl.js kalıcı tarama setinde** — kontrol–etiket boşluğu ve native kontrol (UID-08/09 ekseni)
+- [x] **xport.js kalıcı tarama setinde** — `tasks/qa/xport.js`, her turda koşuluyor
+- [x] **ctl.js kalıcı tarama setinde** — `tasks/qa/ctl.js`, her turda koşuluyor
 - [ ] **UID-26** · Kolon/filtre/çıktı/toplu/kanban `GV.list` içine kilitli → `GV.*` yüzeyine alınacak
       (UID-06 · UID-07 · UID-17'nin ortak kökü)
 - [x] **UID-28** · Maskeleme ayrışması — **çözüldü 10. oturum** → `columns[].perm` / `mask(row)`;
@@ -561,16 +561,20 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       (ters yönde, §9d gereği kaynak kayıtta); `vehicles.siparis` zinciri yazıldı, iki boş destek
       bağı gerçek kayıtla dolduruldu. Yeni eksenler: `canon.js` **21** ("bağ verilmiş mi" — L-22)
       ve `tasks/qa/bag.js` ("bağ ekranda görünüyor mu")
-- [ ] **bag.js kalıcı tarama setinde** — §22 bağı kullanıcıya ulaşıyor mu (VB-28 ekseni)
+- [x] **bag.js kalıcı tarama setinde** — `tasks/qa/bag.js`, her turda koşuluyor
 - [x] **VB-12 · VB-13** · Kişi kimliği ekseni — **çözüldü 11. oturum**
       → borç iki alan sayıyordu, ölçülen **üç**: `tickets.acan` · `interactions.kontak` ·
       **`activities.kisi`** (192 kayıt). Üçü de yerinde **koda çevrildi** (ayrı alan açmak
       aynı kişiyi iki yerde tutmak olurdu, V-40). `GV.session.ad` → `.emp` **154 yazım /
       62 dosya**; `esc(son.kisi)` ailesi 35 yer; ad kaskadı silindi. VB-13: `referrers.kontak`
       (REF-001≡YTK-001 · REF-004≡YTK-014). Eksenler: `canon.js` **24 · 24b** + `tasks/qa/pers.js`
-- [ ] **pers.js kalıcı tarama setinde** — kod ekranda adın yerine geçiyor mu (VB-12 ekseni)
-- [ ] **VB-04** · `hakedis` / `hakedisTarihi` alan adı rename'i (111 kullanım · `canon.js` ekseni)
-- [ ] **VB-16** · `DB.analyses[].maliyet` → `tahminiBedel` (VB-04 ile aynı turda)
+- [x] **pers.js kalıcı tarama setinde** — `tasks/qa/pers.js`, her turda koşuluyor
+- [x] **VB-04** · `hakedis` → **`komisyonToplam`** · `hakedisTarihi` → **`kazanimTarihi`** — **çözüldü 11. oturum**
+      → envanter defterdeki 111 değil **145 kullanım / 9 dosya** çıktı; tek turda çevrildi.
+      Yasak terim tam metin taraması **0** (İK bağlamındaki iki "hak ediş" metni de düzeltildi)
+- [x] **VB-16** · `DB.analyses[].maliyet` → **`tahminiBedel`** — **çözüldü**, VB-04 ile aynı turda
+      → yalnız analiz ekseni çevrildi; proje/bakım/eğitim `maliyet` alanlarına dokunulmadı.
+      Alan adı düzelince eski "bu ad yanıltıcı" uyarı blokları da yeniden yazıldı
 - [x] **VB-06 · VB-23 · VB-25** · Aynı işlem ekrandan ekrana ayrışıyordu — **çözüldü 10. oturum**
       → yeni ortak katman dosyası `assets/js/domain.js` (`GV.fin.settleInvoice/settlePayment` ·
       `GV.delivery.approve`); ölçüldü: fatura kapanınca tahsilat ve taksit de kapanıyor,
