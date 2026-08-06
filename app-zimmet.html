@@ -17,6 +17,9 @@
 
 <script src="assets/data/org.js"></script>
 <script src="assets/data/ops.js"></script>
+<!-- İade akışı DB.activities'e hareket yazar; koleksiyonun dosyası yüklenmeden
+     okunmaz/yazılmaz (ders L-12, `dbref.js` her turda ölçer). -->
+<script src="assets/data/work.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
 <script>
@@ -35,13 +38,15 @@ document.addEventListener('gv:ready', function(){
       { label:'Aktif zimmet', icon:'i-clipboard-check', calc:function(a){ return a.filter(function(x){ return x.durum === 'Aktif'; }).length; } },
       { label:'İmza bekleyen', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.personelOnay === 'Bekliyor'; }).length; } },
       { label:'İade edilen', icon:'i-refresh', tone:'info', calc:function(a){ return a.filter(function(x){ return x.durum === 'İade edildi'; }).length; } },
-      { label:'Hasar kaydı', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(x){ return !!x.hasar; }).length; } }
+      { label:'Hasar kaydı', icon:'i-alert', tone:'danger', calc:function(a){ return a.filter(function(x){ return !!x.hasar; }).length; } },
+      { label:'Eksik ekipman', icon:'i-package', tone:'warn', calc:function(a){ return a.filter(function(x){ return !!x.eksik; }).length; } }
     ],
     tabs:[
       { key:'aktif', label:'Aktif Zimmetler', icon:'i-clipboard-check', filter:function(x){ return x.durum === 'Aktif'; } },
       { key:'imza', label:'İmza Bekleyenler', icon:'i-stamp', filter:function(x){ return x.personelOnay === 'Bekliyor'; } },
       { key:'iade', label:'İade Edilenler', icon:'i-refresh', filter:function(x){ return x.durum === 'İade edildi'; } },
       { key:'hasar', label:'Hasarlı İadeler', icon:'i-alert', filter:function(x){ return !!x.hasar; } },
+      { key:'eksik', label:'Eksik Ekipman', icon:'i-package', filter:function(x){ return !!x.eksik; } },
       { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
     ],
     columns:[
@@ -65,8 +70,17 @@ document.addEventListener('gv:ready', function(){
           return '<span class="u-sm"><a data-wip="Zimmet tutanağı">' + GV.ico('i-file','ic-sm') + ' ' + esc(x.tutanak) + '</a></span>'; },
         exportValue:function(x){ return x.tutanak; } },
       { key:'personelOnay', label:'Personel onayı', render:function(x){ return GV.badge(x.personelOnay); } },
-      { key:'hasar', label:'Hasar / eksik', cellClass:'cell-wrap', render:function(x){
+      /* §15 hasar kaydı ve EKSİK EKİPMAN kaydı ayrı iki eksendir: biri gelen malın
+         durumunu, diğeri hiç gelmeyen parçayı anlatır. Tek kolonda birleştirilmez. */
+      { key:'hasar', label:'Hasar kaydı', cellClass:'cell-wrap', render:function(x){
           return x.hasar ? '<span class="badge is-danger">' + esc(x.hasar) + '</span>' : '<span class="u-faint">—</span>'; } },
+      { key:'eksik', label:'Eksik ekipman', cellClass:'cell-wrap', render:function(x){
+          return x.eksik ? '<span class="badge is-warn">' + esc(x.eksik) + '</span>' : '<span class="u-faint">—</span>'; },
+        exportValue:function(x){ return x.eksik; } },
+      { key:'iadeKontrol', label:'İade kontrolü', render:function(x){
+          if(!x.iadeTarihi) return '<span class="u-faint">İade edilmedi</span>';
+          return x.iadeKontrol ? GV.badge(x.iadeKontrol) : '<span class="u-faint">Kontrol kaydı yok</span>'; },
+        exportValue:function(x){ return x.iadeKontrol; } },
       { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum === 'Aktif' ? 'Aktif' : 'Tamamlandı'); } }
     ],
     filters:[
@@ -91,7 +105,10 @@ document.addEventListener('gv:ready', function(){
               [['Personel', e.ad + ' (' + x.personel + ')'], ['Departman', e.depAd],
                ['Demirbaş', (d.marka || '') + ' ' + (d.model || '')], ['Demirbaş kodu', x.demirbas],
                ['Seri numarası', d.seri || '—'], ['Teslim tarihi', F.date(x.teslimTarihi)],
-               ['Dijital onay', x.personelOnay], ['Hasar kaydı', x.hasar || 'Yok']
+               ['Dijital onay', x.personelOnay], ['Hasar kaydı', x.hasar || 'Yok'],
+               ['Eksik ekipman', x.eksik || 'Yok'],
+               ['İade tarihi', x.iadeTarihi ? F.date(x.iadeTarihi) : 'İade edilmedi'],
+               ['İade kontrolü', x.iadeKontrol || (x.iadeTarihi ? 'Kontrol kaydı yok' : '—')]
               ].map(function(r){ return '<div><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>'; }).join('') + '</div>' +
               '<p class="u-xs u-faint u-mt-4">Yukarıdaki ekipman personele teslim edilmiştir. İade sırasında hasar kontrolü yapılır.</p>',
             actions:[{ label:'Kapat', cls:'btn-line' },
@@ -100,7 +117,51 @@ document.addEventListener('gv:ready', function(){
           if(x.personelOnay === 'Onaylandı'){ GV.toast('Bu tutanak zaten imzalanmış.', 'info'); return; }
           GV.confirm({ title:'Dijital onay', text:DB.empName(x.personel) + ' adına teslim tutanağı onaylanacak.', okLabel:'Onayla' })
             .then(function(ok){ if(ok){ x.personelOnay = 'Onaylandı'; x.onayTarihi = DB.today;
-              GV.toast('Tutanak onaylandı', 'ok'); refresh(); } }); } }
+              GV.toast('Tutanak onaylandı', 'ok'); refresh(); } }); } },
+      /* §15 "İade işlemi · İade kontrolü · Hasar kaydı · Eksik ekipman kaydı" —
+         dört adım tek akışta yürür; iade kontrolü sonucu hasar/eksik girdisinden
+         TÜRETİLİR, kullanıcı ayrıca seçmez (L-08). */
+      { key:'iade', icon:'i-refresh', label:'İade al ve kontrol et',
+        show:function(x){ return x.durum === 'Aktif' && GV.perm.can('duzenle'); },
+        run:function(x, refresh){
+          var d = dmb(x.demirbas);
+          GV.modal({
+            title:'İade ve iade kontrolü', icon:'i-refresh', size:'lg',
+            text:x.kod + ' · ' + esc((d.marka || '') + ' ' + (d.model || x.demirbas)) + ' · ' + DB.empName(x.personel),
+            body:'<div class="gv-fields">' +
+              '<div class="field f-col-6"><label for="zIadeTarih">İade tarihi<span class="req" aria-hidden="true">*</span></label>' +
+                '<input type="date" class="inp" id="zIadeTarih" value="' + DB.today + '" max="' + DB.today + '">' +
+                '<span class="f-hint">Teslim tarihinden (' + F.date(x.teslimTarihi) + ') önce olamaz.</span></div>' +
+              '<div class="field f-col-12"><label for="zHasar">Hasar kaydı</label>' +
+                '<input type="text" class="inp" id="zHasar" placeholder="Örn. Ekran çerçevesinde çizik">' +
+                '<span class="f-hint">Gelen malın durumu. Hasar yoksa boş bırakın.</span></div>' +
+              '<div class="field f-col-12"><label for="zEksik">Eksik ekipman</label>' +
+                '<input type="text" class="inp" id="zEksik" placeholder="Örn. Orijinal şarj adaptörü teslim edilmedi">' +
+                '<span class="f-hint">Hiç teslim edilmeyen parça. Hasardan ayrı bir eksendir.</span></div>' +
+            '</div>',
+            actions:[{ label:'Vazgeç', cls:'btn-line' },
+              { label:'İadeyi kaydet', cls:'btn-acc', icon:'i-check', onClick:function(close, el){
+                  var tarih = el.querySelector('#zIadeTarih').value;
+                  if(!tarih){ GV.toast('İade tarihi zorunludur', 'danger'); return false; }
+                  if(tarih < x.teslimTarihi){ GV.toast('İade tarihi teslim tarihinden önce olamaz', 'danger'); return false; }
+                  var hasar = (el.querySelector('#zHasar').value || '').trim();
+                  var eksik = (el.querySelector('#zEksik').value || '').trim();
+                  x.iadeTarihi  = tarih;
+                  x.durum       = 'İade edildi';
+                  x.hasar       = hasar || null;
+                  x.eksik       = eksik || null;
+                  x.iadeAlan    = GV.session.emp;
+                  /* Sonuç girdiden türer, ayrıca seçilmez */
+                  x.iadeKontrol = eksik ? 'Eksikli' : (hasar ? 'Hasarlı' : 'Sorunsuz');
+                  if(d.kod){ d.durum = 'Depoda'; d.zimmetli = null; d.zimmetTarihi = null; d.iadeTarihi = tarih; }
+                  DB.activities.unshift({ kayit:x.demirbas, tarih:tarih + 'T' + new Date().toTimeString().slice(0,5),
+                    kisi:GV.session.emp, metin:'Zimmet iade alındı (' + x.kod + ') — iade kontrolü ' + x.iadeKontrol +
+                      (hasar ? ' · hasar: ' + hasar : '') + (eksik ? ' · eksik: ' + eksik : ''),
+                    eski:'Zimmetli', yeni:'Depoda', tone:eksik || hasar ? 'warn' : 'ok', icon:'i-refresh' });
+                  GV.toast(x.kod + ' iade alındı · iade kontrolü ' + x.iadeKontrol, eksik || hasar ? 'warn' : 'ok');
+                  refresh();
+                } }]
+          }); } }
     ],
     bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
     emptyState:{ icon:'i-clipboard-check', title:'Bu görünümde zimmet kaydı yok',
