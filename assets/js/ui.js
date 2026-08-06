@@ -388,6 +388,10 @@
     document.body.appendChild(scrim);
     document.body.appendChild(d);
     requestAnimationFrame(function(){ d.classList.add('is-open'); });
+    /* `onMount(gövde, panel)` — panel DOM'a girdikten sonra çağrılır. Çağıran
+       ekranın panelin içine dinleyici bağlaması için tek yol; eskiden panelin
+       düğümüne dışarıdan erişilemiyordu ve ekranlar `setTimeout` ile arıyordu. */
+    if(cfg.onMount) cfg.onMount(d.querySelector('.gv-drawer-body'), d);
     document.body.style.overflow = 'hidden';
 
     function close(){
@@ -477,7 +481,13 @@
 
   GV.list = function(cfg){
     var mount = typeof cfg.mount === 'string' ? document.querySelector(cfg.mount) : cfg.mount;
+    /* UID-06 — sayfadaki liste örneği sayısı. Sayaç düğümü belge genelinde
+       aranırken bu sayı 1 değilse arama yapılmaz (iki örnek birbirinin sayısını
+       ezerdi). `GV.refresh()` mount'u tazelediği için sayı her çizimde yeniden
+       ölçülür, birikmez. */
     if(!mount) return null;
+    mount.setAttribute('data-gvlist', cfg.id || '');
+    GV._listAdet = document.querySelectorAll('[data-gvlist]').length;
 
     var LS_COLS = 'gv.cols.' + (cfg.id || location.pathname);
     var LS_VIEWS = 'gv.views.' + (cfg.id || location.pathname);
@@ -553,6 +563,50 @@
     /* ---- veri hattı ---- */
     function source(){ return (typeof cfg.source === 'function' ? cfg.source() : cfg.source) || []; }
 
+    /* UID-05 — SATIR KAPSAMI. `GV.perm.scope('gor')` `'tum'|'departman'|'proje'|'kendi'`
+       döndürüyordu ama yalnız üç ekran okuyordu; liste ekranları kaynağın TAMAMINI
+       basıyordu. Ölçülen örnek: `app-destek-paket` `musteri` rolüyle 6 müşterinin
+       paketini birden gösteriyordu — maskeleme çalışıyor ama satır kapsamı yoktu.
+       65 ekrana tek tek yazmak yanlış çözümdü; ekran yalnız hangi ALANIN hangi
+       kapsama karşılık geldiğini bildirir, süzmeyi bileşen yapar:
+           scopeField:{ kendi:'sorumlu', departman:'dep', musteri:'musteri' }
+       Karşılaştırılan değer oturumdan gelir. `proje` kapsamı için oturumda bir
+       proje listesi YOK — o kapsamda süzme yapılmaz ve bu **söylenir** (sessizce
+       tam liste basmak, kapsam varmış gibi göstermekten iyidir; L-23). */
+    function scopeBilgi(){ return kapsamNot; }
+    var kapsamNot = '';
+    function afterScope(rows){
+      kapsamNot = '';
+      if(!cfg.scopeField || !GV.perm || !GV.perm.scope) return rows;
+      var k = GV.perm.scope('gor');
+      if(!k || k === 'tum' || k === 'yok') return rows;
+      var alan = cfg.scopeField[k];
+      if(!alan){
+        /* Eşlenmemiş kapsam SESSİZ geçmez (L-23): kullanıcı yetkisinin kısıtlı
+           olduğunu bilir, listenin kısıtlanmadığını da bilmelidir. Eksik eşleme
+           burada görünür olur — yazılmayan süzgeç saklanmaz. */
+        var ad = k === 'proje' ? 'proje' : k === 'departman' ? 'departman'
+               : k === 'musteri' ? 'müşteri' : k;
+        kapsamNot = 'Kapsamınız ' + ad + ' bazlı, ancak bu ekranda ' + ad +
+                    ' süzgeci tanımlı değil — tüm kayıtlar listeleniyor.';
+        return rows;
+      }
+      var me = GV.session || {};
+      var deger = k === 'kendi' ? me.emp : k === 'departman' ? me.dep : k === 'musteri' ? me.musteri : null;
+      if(!deger){
+        kapsamNot = 'Kapsam süzgeci uygulanamadı — oturumda karşılığı olan bir değer yok.';
+        return rows;
+      }
+      var out = rows.filter(function(r){
+        var v = r[alan];
+        return Array.isArray(v) ? v.indexOf(deger) !== -1 : v === deger;
+      });
+      kapsamNot = k === 'kendi' ? 'Yalnız kendi kayıtlarınız gösteriliyor.'
+                : k === 'departman' ? 'Yalnız departmanınızın kayıtları gösteriliyor.'
+                : 'Yalnız size ait kayıtlar gösteriliyor.';
+      return out;
+    }
+
     function afterTab(rows){
       if(!state.tab || !cfg.tabs) return rows;
       var t = cfg.tabs.filter(function(x){ return x.key === state.tab; })[0];
@@ -620,13 +674,16 @@
       });
     }
 
-    function pipeline(){ return afterSort(afterFilters(afterSearch(afterArchive(afterTab(source()))))); }
-    function tabRows(t){ return afterFilters(afterSearch(afterArchive(t.filter ? source().filter(t.filter) : source()))); }
+    /* Kapsam süzgeci zincirin EN BAŞINDA — sekme sayaçları ve KPI'lar da kapsamlı
+       kaynaktan hesaplansın; yoksa kullanıcı göremediği kayıtları sayıda görür. */
+    function kaynak(){ return afterScope(source()); }
+    function pipeline(){ return afterSort(afterFilters(afterSearch(afterArchive(afterTab(kaynak()))))); }
+    function tabRows(t){ return afterFilters(afterSearch(afterArchive(t.filter ? kaynak().filter(t.filter) : kaynak()))); }
 
     /* ---- render parçaları ---- */
     function renderKpis(all){
       if(!cfg.kpis || !cfg.kpis.length) return '';
-      var base = afterArchive(source());
+      var base = afterArchive(kaynak());
       return '<div class="kpi-grid">' + cfg.kpis.map(function(k){
         var gizli = kpiMasked(k);
         var val = gizli ? null : (k.calc ? k.calc(base, all) : 0);
@@ -751,27 +808,42 @@
                 (colMasked(c, r) ? '<span class="cell-mask">' + MASK + '</span>'
                               : (c.render ? c.render(r, i) : esc(r[c.key] == null ? '—' : r[c.key]))) + '</td>';
         });
-        if(cfg.rowActions){
-          tr += '<td class="col-acts"><span class="cell-acts">' + cfg.rowActions.filter(function(a){
-            /* show(row) → o satırda anlamsız olan aksiyon hiç basılmaz.
-               Devre dışı buton bırakmak yerine aksiyonu yok saymak esastır. */
-            return typeof a.show === 'function' ? !!a.show(r) : true;
-          }).map(function(a){
-            var href = typeof a.href === 'function' ? a.href(r) : a.href;
-            return href
-              ? '<a class="ia' + (a.cls ? ' ' + a.cls : '') + '" href="' + href + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</a>'
-              /* AYNI SÖZLEŞME (UID-27): `href` de `run` da yoksa aksiyon ölüdür —
-                 devre dışı basılır ve durumunu söyler. Toplu işlemle tek kural. */
-              : !a.run
-              ? '<button type="button" class="ia is-todo" disabled data-rowact-todo="' + esc(a.key) + '" title="' + esc(a.label) + ' — bu sürümde yok" aria-label="' + esc(a.label) + ' — bu sürümde yok">' + ico(a.icon,'ic-sm') + '</button>'
-              : '<button type="button" class="ia' + (a.cls ? ' ' + a.cls : '') + '" data-rowact="' + esc(a.key) + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</button>';
-          }).join('') + '</span></td>';
-        }
+        if(cfg.rowActions) tr += '<td class="col-acts">' + aksiyonSeridi(r) + '</td>';
         return tr + '</tr>';
       }).join('');
 
       return '<div class="gv-tablewrap"><table class="gtable"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
              renderCardList(rows);
+    }
+
+    /* UID-02 — Satır aksiyon şeridi TEK YERDE üretilir. Eskiden yalnız tablo
+       satırında kuruluyordu; mobil kart listesine hiç basılmıyordu ve 390 px'te
+       satır aksiyonlarına **hiç erişilemiyordu** — arşivde "geri al"/"kalıcı sil",
+       tahsilatta "hatırlatma gönder", otomasyonda "kuralı çalıştır" mobilde yoktu.
+       İkinci bir markup yazmak yerine aynı üretici iki yerden çağrılır. */
+    function aksiyonSeridi(r){
+      if(!cfg.rowActions) return '';
+      return '<span class="cell-acts">' + cfg.rowActions.filter(function(a){
+        /* show(row) → o satırda anlamsız olan aksiyon hiç basılmaz.
+           Devre dışı buton bırakmak yerine aksiyonu yok saymak esastır. */
+        return typeof a.show === 'function' ? !!a.show(r) : true;
+      }).map(function(a){
+        var href = typeof a.href === 'function' ? a.href(r) : a.href;
+        return href
+          ? '<a class="ia' + (a.cls ? ' ' + a.cls : '') + '" href="' + href + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</a>'
+          /* AYNI SÖZLEŞME (UID-27): `href` de `run` da yoksa aksiyon ölüdür —
+             devre dışı basılır ve durumunu söyler. Toplu işlemle tek kural. */
+          : !a.run
+          ? '<button type="button" class="ia is-todo" disabled data-rowact-todo="' + esc(a.key) + '" title="' + esc(a.label) + ' — bu sürümde yok" aria-label="' + esc(a.label) + ' — bu sürümde yok">' + ico(a.icon,'ic-sm') + '</button>'
+          : '<button type="button" class="ia' + (a.cls ? ' ' + a.cls : '') + '" data-rowact="' + esc(a.key) + '" title="' + esc(a.label) + '" aria-label="' + esc(a.label) + '">' + ico(a.icon,'ic-sm') + '</button>';
+      }).join('') + '</span>';
+    }
+
+    /* Kart altındaki aksiyon şeridi — tıklama alanı `.gv-mrow-acts` ile 44 px'e çıkar */
+    function mobilAksiyon(r){
+      var h = aksiyonSeridi(r);
+      /* Şerit boşsa (tüm aksiyonlar `show` ile elendi) sarmalayıcı da basılmaz */
+      return /<(a|button)\b/.test(h) ? '<div class="gv-mrow-acts">' + h + '</div>' : '';
     }
 
     /* Mobil kart listesi — AYNI veri kaynağından üretilir (ikinci markup yazılmaz) */
@@ -780,15 +852,16 @@
         return '<div class="gv-cardlist">' + rows.map(function(r){
           var cols = visibleCols();
           var main = cols[0];
-          return '<div class="gv-mrow"><div class="gv-mrow-top">' +
+          return '<div class="gv-mrow" data-id="' + esc(r[cfg.key]) + '"><div class="gv-mrow-top">' +
             '<div>' + (main.render ? main.render(r,0) : esc(r[main.key])) + '</div></div>' +
             '<div class="gv-mrow-meta">' + cols.slice(1,4).map(function(c){
               return '<span>' + esc(c.label) + ': ' + (c.render ? c.render(r,0) : esc(r[c.key])) + '</span>';
-            }).join('') + '</div></div>';
+            }).join('') + '</div>' + mobilAksiyon(r) + '</div>';
         }).join('') + '</div>';
       }
       return '<div class="gv-cardlist">' + rows.map(function(r,i){
-        return '<div class="gv-mrow' + (cfg.rowClass && /is-late/.test(cfg.rowClass(r) || '') ? ' is-late' : '') + '">' + cfg.mobile(r,i) + '</div>';
+        return '<div class="gv-mrow' + (cfg.rowClass && /is-late/.test(cfg.rowClass(r) || '') ? ' is-late' : '') +
+          '" data-id="' + esc(r[cfg.key]) + '">' + cfg.mobile(r,i) + mobilAksiyon(r) + '</div>';
       }).join('') + '</div>';
     }
 
@@ -856,6 +929,15 @@
              İSTİSNA (UID-07): `export:true` maddesinin yordamı BİLEŞENDE —
              seçili kayıtları `exportRows` ile dışa aktarır, ekran `run` yazmaz. */
           if(b.export && !canExport()) return '';        /* UID-25 — yetkisizde hiç basılmaz */
+          /* UID-13 — `rowActions[]`in `show(row)` sözleşmesi vardı, `bulk[]`in YOKTU:
+             yetki isteyen toplu işlemler HER rolde basılıyor, kontrol ancak `run`
+             içinde çalışıp "yetkiniz yok" diyordu. Kullanıcı basana kadar
+             yapamayacağını bilmiyordu — satır aksiyonunda yasakladığımız ölü buton
+             deseni burada yaşıyordu. Tek sözleşme, aynı ad: `show()` + `perm`.
+             GİZLEME burada doğrudur çünkü "yetkin yok" ile "henüz yazılmadı" ayrı
+             şeylerdir; ikincisi devre dışı + etiketle gösterilir (UID-27). */
+          if(b.perm && GV.perm && !GV.perm.can(b.perm)) return '';
+          if(typeof b.show === 'function' && !b.show(state.selected.slice())) return '';
           if(!b.run && !b.export) return '<button type="button" class="btn btn-sm is-todo" disabled' +
                  ' data-bulk-todo="' + esc(b.key) + '"' +
                  ' title="Bu sürümde yok — aksiyon henüz uygulanmadı"' +
@@ -900,6 +982,11 @@
 
       mount.innerHTML =
         renderKpis(all) +
+        /* UID-05 — Kapsam süzgeci SESSİZ çalışmaz. Kullanıcı eksik liste görüp
+           "kayıt kaybolmuş" sanmamalı; süzgeç uygulandıysa bunu söyleriz (L-23:
+           bileşen olan biteni gizlemez). */
+        (scopeBilgi() ? '<div class="gv-scopebar">' + ico('i-shield','ic-sm') +
+          '<span>' + esc(scopeBilgi()) + '</span></div>' : '') +
         '<div class="gv-card">' +
           renderHead() +
           '<div class="gc-body flush">' + bodyHtml + '</div>' +
@@ -911,8 +998,15 @@
       if(cfg.onRender) cfg.onRender(all, state);
       writeURL();
 
-      /* toplam kayıt bilgisini sayfa başlığına yansıt */
-      var sub = document.querySelector('[data-listcount]');
+      /* UID-06 — Sayaç mount kapsamına değil BELGEYE bağlıydı; aynı sayfada iki
+         `GV.list` örneği kurulursa ikisi de aynı düğüme yazar ve ikincisi
+         birincinin sayısını ezerdi. `app-egitim` katılımcı kırılımını bu yüzden
+         ikinci liste olarak değil elle matris olarak yazmak zorunda kalmıştı.
+         Sıra: `countTarget` → mount kökü → belge (yalnız sayfada TEK liste varsa). */
+      var sub = cfg.countTarget
+        ? (typeof cfg.countTarget === 'string' ? document.querySelector(cfg.countTarget) : cfg.countTarget)
+        : (mount.querySelector('[data-listcount]') ||
+           (GV._listAdet === 1 ? document.querySelector('[data-listcount]') : null));
       if(sub){
         var tabLbl = cfg.tabs ? (cfg.tabs.filter(function(t){ return t.key === state.tab; })[0] || {}).label : '';
         sub.textContent = Fmt.num(total) + ' kayıt' + (tabLbl ? ' · ' + tabLbl : '');
@@ -1032,9 +1126,14 @@
 
       qa('[data-rowact]').forEach(function(b){
         b.addEventListener('click', function(){
-          var id = b.closest('tr').dataset.id;
+          /* UID-02 — Eskiden `closest('tr')` aranıyordu; mobil kartta `<tr>` YOK,
+             bu yüzden aksiyon şeridi karta basılsa bile tıklama patlardı. Artık
+             `data-id` taşıyan en yakın düğüm aranır: tablo satırı da mobil kart da. */
+          var kap = b.closest('[data-id]');
+          var id = kap ? kap.dataset.id : null;
+          if(!id) return;
           var a = cfg.rowActions.filter(function(x){ return x.key === b.dataset.rowact; })[0];
-          var rec = source().filter(function(r){ return String(r[cfg.key]) === String(id); })[0];
+          var rec = kaynak().filter(function(r){ return String(r[cfg.key]) === String(id); })[0];
           if(a && a.run) a.run(rec, render);
         });
       });
@@ -1072,7 +1171,14 @@
         }
         if(f.type === 'text'){
           return '<div class="field fd-field"><label>' + esc(f.label) + '</label>' +
-            '<input type="text" class="inp" data-f="' + f.key + '" value="' + esc(cur || '') + '"></div>';
+            /* UID-10 — Para ve yüzde filtresinde BİRİM EKİ. Form tarafında
+               `f-affix`/`f-suffix` vardı, filtre panelinde yoktu; kullanıcı
+               "en az 50000" yazarken neyin birimi olduğunu göremiyordu. */
+            (f.type === 'money' || f.type === 'percent'
+              ? '<div class="f-affix"><input type="number" class="inp" data-f="' + f.key + '" value="' + esc(cur || '') + '" min="0"' +
+                (f.type === 'percent' ? ' max="100"' : '') + '><span class="f-suffix">' +
+                esc(f.type === 'percent' ? '%' : (f.currency || '₺')) + '</span></div>'
+              : '<input type="' + (f.type === 'number' ? 'number' : 'text') + '" class="inp" data-f="' + f.key + '" value="' + esc(cur || '') + '">') + '</div>';
         }
         return '<div class="field fd-field"><label>' + esc(f.label) + '</label><select data-f="' + f.key + '">' +
           '<option value="">Tümü</option>' +
@@ -1083,9 +1189,37 @@
           }).join('') + '</select></div>';
       }).join('');
 
+      /* UID-10 — "Filtre uygula butonu seçili filtre sayısını göstermiyor".
+         Panel açıkken kaç alanın dolu olduğu butonda canlı sayılır; kullanıcı
+         uygulamadan önce kaç kısıt koyduğunu görür. */
+      function doluSay(el){
+        var n = 0;
+        fields.forEach(function(f){
+          if(f.type === 'multi'){ if(el.querySelectorAll('[data-f="' + f.key + '"]:checked').length) n++; }
+          else if(f.type === 'daterange'){
+            var a = el.querySelector('[data-f="' + f.key + '"][data-part="0"]');
+            var b = el.querySelector('[data-f="' + f.key + '"][data-part="1"]');
+            if((a && a.value) || (b && b.value)) n++;
+          }else{
+            var i = el.querySelector('[data-f="' + f.key + '"]');
+            if(i && String(i.value || '').trim()) n++;
+          }
+        });
+        return n;
+      }
       GV.drawer({
         title:'Gelişmiş Filtre',
         body:body,
+        onMount:function(el, kok){
+          var btn = kok && kok.querySelector('.gv-drawer-foot .btn-acc');
+          if(!btn) return;
+          var taban = btn.textContent;
+          var yaz = function(){
+            var n = doluSay(el);
+            btn.textContent = taban + (n ? ' (' + n + ')' : '');
+          };
+          el.addEventListener('input', yaz); el.addEventListener('change', yaz); yaz();
+        },
         actions:[
           { label:'Temizle', cls:'btn-line', onClick:function(){ state.filters = {}; reset(); render(); } },
           { label:'Uygula', cls:'btn-acc', onClick:function(close, el){
@@ -1195,7 +1329,7 @@
     function openExport(rows){
       var scopes = [
         { key:'filtreli', label:'Filtrelenmiş kayıtlar (' + rows.length + ')' },
-        { key:'tumu', label:'Tüm kayıtlar (' + source().length + ')' }
+        { key:'tumu', label:'Tüm kayıtlar (' + kaynak().length + ')' }
       ];
       if(state.selected.length) scopes.unshift({ key:'secili', label:'Seçili kayıtlar (' + state.selected.length + ')' });
 
@@ -1212,8 +1346,9 @@
           { label:'Çıktı Al', cls:'btn-acc', onClick:function(close, el){
               var scope = el.querySelector('[name=expscope]:checked').value;
               var fmt = el.querySelector('[name=expfmt]:checked').value;
-              var data = scope === 'tumu' ? source()
-                       : scope === 'secili' ? source().filter(function(r){ return state.selected.indexOf(r[cfg.key]) !== -1; })
+              /* UID-05 — kapsam dışı kayıt DIŞA AKTARILAMAZ; süzgeç burada da geçerli */
+              var data = scope === 'tumu' ? kaynak()
+                       : scope === 'secili' ? kaynak().filter(function(r){ return state.selected.indexOf(r[cfg.key]) !== -1; })
                        : rows;
               doExport(data, fmt);
             } }
@@ -1231,7 +1366,7 @@
       if(!canExport()){ GV.toast('Dışa aktarma yetkiniz yok.', 'danger'); return 0; }
       var rows = (list || []).map(function(x){
         if(x && typeof x === 'object') return x;
-        return source().filter(function(r){ return String(r[cfg.key]) === String(x); })[0];
+        return kaynak().filter(function(r){ return String(r[cfg.key]) === String(x); })[0];
       }).filter(Boolean);
       if(!rows.length){ GV.toast('Dışa aktarılacak kayıt yok', 'warn'); return 0; }
       if(fmt){ doExport(rows, fmt); return rows.length; }
@@ -1801,12 +1936,46 @@
       }).join('');
       if(cfg.onChange) cfg.onChange(picked);
     }
+    /* UID-04 — `onChange` yalnız `{ad, boyut}` veriyordu; gerçek `File` nesnesi
+       dışarı hiç çıkmıyordu. Önizleme yapmak isteyen ekran (logo, profil fotoğrafı)
+       mount üzerine **capture fazlı `change` dinleyicisi** takmak zorunda kalıyordu —
+       bileşenin iç işleyişine sızan bir çözüm. `onFile(file, meta)` her kabul edilen
+       dosya için çağrılır. `preview:true` verilirse bileşen önizlemeyi `.gv-thumb`
+       ile KENDİSİ basar (UID-03) ve ekranın FileReader yazmasına gerek kalmaz. */
     function accept(fileList){
       Array.prototype.forEach.call(fileList, function(f){
         if(f.size > maxMB * 1048576){ GV.toast('“' + f.name + '” ' + maxMB + ' MB sınırını aşıyor.', 'danger'); return; }
-        picked.push({ ad:f.name, boyut:f.size });
+        var meta = { ad:f.name, boyut:f.size, tur:f.type };
+        picked.push(meta);
+        if(cfg.onFile) cfg.onFile(f, meta);
+        if(cfg.preview && /^image\//.test(f.type || '')) onizle(f);
       });
       draw();
+    }
+    /* Önizleme kutusu — kare görsel kuralı bileşende (CLAUDE.md: img değil,
+       div + background-image cover/center). Hedef `cfg.preview` bir seçici ya da
+       düğüm olabilir; verilmezse bileşen kendi kutusunu yükleme alanının üstüne kurar. */
+    function onizleKutu(){
+      if(cfg.preview && cfg.preview !== true){
+        return typeof cfg.preview === 'string' ? document.querySelector(cfg.preview) : cfg.preview;
+      }
+      var b = host.querySelector('[data-gvupimg]');
+      if(!b){
+        b = document.createElement('div');
+        b.className = 'gv-thumb is-lg'; b.setAttribute('data-gvupimg', '');
+        b.setAttribute('aria-hidden', 'true');
+        host.insertBefore(b, host.firstChild);
+      }
+      return b;
+    }
+    function onizle(f){
+      var kutu = onizleKutu(); if(!kutu) return;
+      var okur = new FileReader();
+      okur.onload = function(){
+        kutu.style.backgroundImage = 'url("' + okur.result + '")';
+        kutu.classList.add('has-img');
+      };
+      okur.readAsDataURL(f);
     }
 
     zone.addEventListener('click', function(){ input.click(); });
