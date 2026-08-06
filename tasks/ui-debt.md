@@ -1914,4 +1914,48 @@ ekseni girecek.
 > `plan.md`'ye madde olarak **girmez**, yüzdeye katılmaz ve bu oturumda
 > düzeltilmez. Sonraki oturum kapsamı açtığında buradan devralır.
 
-*(bu oturumda bulunanlar aşağıya eklenir)*
+## V2-01 · `GV.list` yordamlarının bağımsız bileşene ayrıştırılması (UID-26 kalanı)
+
+`openCols` · `openFilters` · `openExport` · `setView` liste örneğinin **dönüş
+yüzeyine alındı** ve dışarıdan çağrılabildiği ölçüldü. Yapılmayan: bunları listeden
+**bağımsız** kurulabilen `GV.cols(cfg)` bileşenlerine dönüştürmek. Dördü de liste
+`state`i (seçili kolonlar, aktif filtreler, sayfa, seçim) üzerinde çalışıyor;
+bağımsızlık bu durumu dışarı taşıyan ayrı bir sözleşme ister. Borcun gerekçe
+gösterdiği üç belirti — UID-06 (ikinci liste örneği) · UID-07 (seçili kapsam
+çıktısı) · UID-17 (`dl` tekrarı) — **başka yollarla kapandı**, kalan değer
+mimari saflıktır.
+
+## V2-02 · "Hizalama ve optik denge" ölçüye gelmiyor
+
+Kapsam B'nin bu maddesi ölçülebilir kısmıyla temiz: `qa.js` 142 ekran × 3 kırılımda
+yatay taşma yok, ikon ölçüleri token'lardan geliyor, tablo satır yoğunluğu korundu.
+Ama "kart içi iç boşlukların optik dengesi" bir **göz kararıdır** ve otomatik bir
+eksene bağlanamadı. Sahte yeşile yazmak yerine buraya alındı: kapatılması için
+tasarımcı gözüyle ekran ekran bakış gerekir, tarayıcıyla değil.
+
+## V2-03 · `musteri` kapsamı oturumda karşılığı olmadığı için uygulanamıyor
+
+UID-05'in `scopeField` sözleşmesi `kendi` ve `departman` kapsamlarını uyguluyor
+(ölçüldü: `app-gorev` `frontend` 5/25, `depmudur` 0/25). **`musteri` kapsamı
+uygulanamıyor**: `GV.session` bir PERSONEL kaydından kuruluyor (`emp` · `dep`),
+müşteri kullanıcısının hangi müşteriye ait olduğu oturumda **yazılı değil**.
+Prototipin giriş ekranı da müşteri kimliği modellemiyor. Süzgeç sessizce
+geçmiyor — çip "bu ekranda süzgeç tanımlı değil" diyor. Kapatmak için
+`buildSession`'a müşteri ekseni eklenmeli.
+
+## V2-04 · `DB.trainings[].kazanim` için tarama ekseni yazılmadı
+
+Yetkinlik ekseni açıldı ve ölçüldü (tamamlanmış eğitimin kazanımı katılımcının
+`yetkinlik` dizisinde yazılı — 2 eksik kayıt tamamlandı). Normalde VB-19 dersi
+gereği `canon.js`'e eksen eklenirdi; **kapsam donduğu için eklenmedi**. Kural
+şudur ve sonraki oturumda eksene çevrilmelidir: *`durum:'Tamamlandı'` olan bir
+eğitimin her `kazanim` değeri, her katılımcısının `yetkinlik` dizisinde bulunur.*
+
+## V2-05 · `DB.onboarding` çıkış (offboarding) tarafı boş
+
+Koleksiyon `tur` alanıyla iki ekseni de destekliyor ve ekran "Çıkışlar" sekmesini
+basıyor, ama **çıkış kaydı yok** — çünkü veride ayrılmış personel yok (16 personelin
+16'sı `aktif:true`). Kayıt uydurmak, olmayan bir ayrılışı varmış gibi göstermek
+olurdu (L-13). Sekme boş durumu dürüstçe basıyor. Ayrılan personel verisi
+yazıldığında çıkış süreci de yazılır.
+

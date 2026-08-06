@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 273 / 297 madde tamam (%91) · 21 kısmen · 3 açık** — 11. oturum, 2026-08-05
+**İLERLEME: 276 / 297 madde tamam (%92) · 21 kısmen · 0 açık** — 11. oturum, 2026-08-06
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -183,8 +183,16 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-kapasite.html` — kapasite ve doluluk
 - [x] `app-performans.html` — performans yönetimi (karar desteği, otomatik karar yok)
 - [x] `app-egitim.html` — eğitim ve yetkinlik (katılımcı kırılımı matrisi, maliyet maskeleme)
-- [ ] Zaman kaydı zamanlayıcısı (start/stop)
-- [ ] Yetkinlik ekseni — `DB.trainings`'te yetkinlik/kazanım alanı yok (VB kaydı gerekli)
+- [x] Zaman kaydı **zamanlayıcısı (start/stop)** — `app-zaman.html` üst şeridinde. Durum
+      `localStorage`'da (`gv.timer`), geçen süre `Date.now()` farkından **türetilir** (saklanan
+      sayaç yok — L-08). Durdurunca en yakın çeyrek saate yuvarlanıp **gerçek `DB.timelogs`
+      kaydı** yazılır; çeyrek saatin altındaki süre kayıt doğurmaz ve bu **söylenir**.
+      Ölçüldü: 45 dk → `sure:0.75`, kayıt 45 → 46, sayaç sıfırlandı, konsol temiz
+- [x] **Yetkinlik ekseni** — `DB.trainings[].kazanim` açıldı (4/4 eğitimde dolu) ve
+      `DB.employees[].yetkinlik` ile **aynı sözlükten** geliyor. Eksen yazılır yazılmaz iki
+      gerçek boşluk buldu: tamamlanmış EGT-2026-010 ve EGT-2026-009'un kazanımları katılımcı
+      EMP-004 / EMP-010'da yazılı değildi — tamamlandı. `app-egitim`'e "Kazandırdığı yetkinlik"
+      kolonu eklendi (çıktıya da giriyor)
 
 ### Wave 7 — Demirbaş & Filo (§15, §16)
 - [x] Demirbaş listesi (19 kategori) + detay (28 alan) + form
@@ -424,8 +432,12 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] **Muayene** → `app-arac-muayene.html` (sonuç Geçti/Kaldı, sonraki muayene tarihi)
 - [x] **Kaza ve hasar** → `app-arac-kaza.html` (kaza/hasar/ceza tek ekranda, ayrı sekmeler)
 - [x] **Destek talebi** → `app-destek-detay.html` (SLA, eskalasyon, göreve dönüştürme)
-- [ ] **Personel işe giriş / işten ayrılış** → ekran, menü kaydı ve koleksiyon **yok**
-      (PROMPT.md §14 "İşe Giriş/Çıkış" · menü haritası bölüm 8'de yazılı, üretilmedi)
+- [x] **Personel işe giriş / işten ayrılış** — koleksiyon + ekran + menü kaydı üretildi.
+      `DB.onboarding` (3 kayıt · `tur` Giriş/Çıkış · `adimlar[]` kontrol listesi) — kayıt
+      tarihleri personelin `girisTarihi` alanıyla **birebir tutarlı** (3/3 doğrulandı).
+      `app-personel-giris.html`: 4 sekme · 4 KPI · adım paneli. **İlerleme ve durum yazılmaz,
+      adımlardan türetilir** (L-08); adım işaretlenince durum `Tamamlandı`ya kendiliğinden
+      geçiyor ve aktivite kaydı yazılıyor (ölçüldü). `work.js` sayfaya eklendi (L-12)
 
 ---
 
