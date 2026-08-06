@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 251 / 297 madde tamam (%84) · 19 kısmen · 27 açık** — 11. oturum, 2026-08-05
+**İLERLEME: 262 / 297 madde tamam (%88) · 19 kısmen · 16 açık** — 11. oturum, 2026-08-05
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -491,11 +491,19 @@ Borç defterindeki **her madde** buranın alt maddesidir; defter tek doğru kayn
 liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** yapılır.
 
 - [x] **UID-01** · Rail collapse tutamağı referans biçimine getirildi (çözüldü 2026-08-04, `grip-qa.js`)
-- [ ] **UID-02** · Mobil kart listesinde satır aksiyonu yok → aksiyon şeridi `GV.list` içinde tek yerde üretilecek
-- [ ] **UID-03** · Kare görsel sınıfı yok → `.gv-thumb` (`is-sm/is-md/is-lg`) bileşen katmanına
-- [ ] **UID-04** · `GV.upload` `File` nesnesini geri vermiyor → `onFile(file, meta)` geri çağrısı
-- [ ] **UID-05** · `GV.perm.scope('gor')` liste ekranlarında uygulanmıyor → `GV.list`'e `scopeField` sözleşmesi
-- [ ] **UID-06** · `GV.list` kayıt sayacı global → `countTarget` + mount kökü içinde arama
+- [x] **UID-02** · Mobil satır aksiyonu — **çözüldü** → şerit `aksiyonSeridi(r)` ile TEK yerde üretilip hem tablo
+      satırına hem mobil karta basılıyor. Asıl kilit tıklamadaydı: `closest('tr')` kartta çalışmıyordu, `data-id`
+      taşıyan en yakın düğüme çevrildi. Ölçüm 390 px: 4 ekranda 36 kart · 108 buton · 44 px altı **0** · tıklama tepki veriyor
+- [x] **UID-03** · `.gv-thumb` — **çözüldü** → kare, `cover/center`, token yarıçap, `is-sm/is-lg`, boş durumda baş harf.
+      `app-ayar-sirket` logo önizlemesi yuvarlak avatar + **inline stil**den kurtuldu (ölçüldü: 80×80, inline yok)
+- [x] **UID-04** · `GV.upload` `onFile(file, meta)` + `preview` — **çözüldü** → bileşen önizlemeyi `.gv-thumb` ile
+      kendisi basıyor; ekrandaki **capture fazlı `change` dinleyicisi** (bileşenin içine sızan çözüm) silindi
+- [x] **UID-05** · `scopeField` — **çözüldü** → kapsam süzgeci zincirin BAŞINDA (sekme sayaçları ve çıktı da kapsamlı).
+      5 ekran bildirdi. Ölçüm: `app-gorev` `frontend` **5/25**, `depmudur` **0/25**, `sahip` 25. Eşlenmemiş kapsam
+      **sessiz geçmiyor**, çip "bu ekranda süzgeç tanımlı değil" diyor. `musteri` kapsamı oturumda müşteri kimliği
+      olmadığı için uygulanamıyor — ölçülüp yazıldı, uydurulmadı
+- [x] **UID-06** · `countTarget` — **çözüldü** → sıra: `countTarget` → mount kökü → belge (yalnız sayfada TEK liste varsa).
+      İkinci `GV.list` örneği artık birincinin sayacını ezmiyor
 - [x] **UID-07** · Toplu işlem "çıktı al" seçili kapsamı dışa aktaramıyor — **çözüldü 10. oturum**
       → önce fizibilite ölçüldü (`tasks/qa/xport.js`: 141 ekran · 68 liste · 623 kolon · 6.335 hücre;
       **tamamen taşımayan kolon 0**, %0,7 kısmi ve hepsi yer tutucu metin). Sonra `exportRows(list, fmt)`
@@ -507,7 +515,9 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 - [x] **UID-09** · Native form kontrolleri tasarım sisteminde değil — **çözüldü 10. oturum**
       → `select` 0/732 native · kutu/radyo 0/4.154 native; tarih alanı bilinçli olarak
       native bırakıldı (assumptions **V-36**), yalnız takvim düğmesi standartlaştırıldı
-- [ ] **UID-10** · Yan panelde başlık / kaydırılan içerik ayrımı yok (+ para birimi eki, filtre sayacı)
+- [x] **UID-10** · Yan panel ayrımı + para birimi + filtre sayacı — **çözüldü** → saf CSS kaydırma gölgesi
+      (`background-attachment:local`, JS yok) · filtre panelinde `money`/`percent` için `f-suffix` · `Uygula (N)`
+      canlı sayaç (`GV.drawer` `onMount` sözleşmesiyle). Ölçüldü: 1 filtre seçilince buton "Uygula (1)"
 - [x] **UID-11** · Finans yetkisi yokken KPI "₺0" gösteriyor — **çözüldü 10. oturum**
       → `kpis[].perm` / `mask()` sözleşmesi; 17 ekranda 28 `canFinans ? x : 0` silindi
 - [x] **UID-12** · `app-gorev.html` "Tümü" sekmesi — **çözüldü 10. oturum** (UID-21 ile aynı turda)
@@ -515,8 +525,13 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       ayrıca `app-rapor-proje`'de hiç okunmayan üç `?proje=`/`?sprint=`/`?sorumlu=` parametresi bulundu
 - [x] **UID-21** · `app-referans` yönlendiren bağlantısı yanlış eksende süzüyordu — **çözüldü**
       → `app-lead` ve `app-musteri`'ye `referans` süzgeci; REF-001 → 2 aday, REF-002 → 3 müşteri
-- [ ] **UID-13** · `GV.list` toplu işlemlerinde `show` / yetki kapısı yok → `bulk[].show`
-- [ ] **UID-14** · Detay sekmesi tabloları ≤760px'de kayboluyor → `.gv-tablewrap` kararı
+- [x] **UID-13** · `bulk[].show` / `perm` — **çözüldü** → `rowActions` ile **tek sözleşme**. 7 ekranda yetki isteyen
+      toplu işleme kapı kondu. Kanıt: `app-proje-teslim` `sahip` 4 madde görüyor, `qa` (can(onay)=false) **2**;
+      "Müşteri Onayı İşaretle" hiç basılmıyor
+- [x] **UID-14** · Detay tablosu ≤760px — **çözüldü** → gizleme artık kalıba bağlı: tablo yalnız **kart ikizi varsa**
+      (`:has(+ .gv-cardlist)`) gizlenir, yoksa kendi içinde yatay kayar. `is-mobilescroll` istisnası **30 ekrandan**
+      kaldırıldı. Ölçüm 390 px: 4 detay ekranında 35 tablonun 35'i görünür, yatay taşma yok; liste ekranlarında
+      tablo hâlâ gizli (regresyon yok)
 - [ ] **UID-15** · Dört eski detay ekranı shell iskeletini elle kopyalıyor → dördü tek turda `buildSkeleton()`e
 - [x] **UID-16** · Detay ekranlarının aktivite sekmesi boş — **çözüldü 11. oturum**
       → borç **beş önek** diyordu, ölçülen **22** (L-25): `DB.activities` 8 kayıt / 4 önekti,
@@ -526,8 +541,10 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       Eksenler: `canon.js` **22 · 22b · 23** + yeni `tasks/qa/akt.js`
 - [x] **akt.js kalıcı tarama setinde** — `tasks/qa/akt.js`, her turda koşuluyor
 - [ ] **UID-17** · Dokuz ekran kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl(pairs, opts)`
-- [ ] **UID-18** · `.cell-wrap` çok kolonlu tabloyu 1440px'de yatay kaydırmaya düşürüyor
-- [ ] **UID-19** · Tablo toplam satırı için ortak sınıf yok → `.gtable tfoot` + `tr.is-total`
+- [x] **UID-18** · `.cell-wrap` — **çözüldü** → sınıfın işi "kırpılmasın" idi ama bunu `min-width` ile yapıyordu:
+      kolona ZEMİN genişlik dayatıyordu. `max-width`e çevrildi; zemin gerçekten isteyen tablo `.cell-wrap.is-wide` kullanır
+- [x] **UID-19** · Toplam satırı — **çözüldü** → `.gtable tfoot` **ve** `tr.is-total` tek kuralda; üst kenarlık,
+      ağırlık ve zemin token'lardan. `.is-grand` genel toplam varyantı
 - [x] 🔴 **UID-27** · `GV.list` `run`'sız aksiyonda sahte başarı mesajı — **çözüldü 9. oturum**
       → gerçek sayı 79 değil **129 ihlal / 65 ekran**; yalan yedek kaldırıldı, `run`suz aksiyon
       `disabled` + "bu sürümde yok". İhlal **129 → 28**. Eksen: `tasks/qa/act.js`
@@ -549,7 +566,7 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       `app-dokuman` gizli belge adı · filo birim fiyat/kasko/kira eksenleri hizalandı
 - [x] **UID-25** · Rapor çıktısı yetki kapısı — **çözüldü 10. oturum** → `disaAktar` kapısı bileşende,
       9 ekrandaki elle yazılmış kapı silindi
-- [ ] **UID-29** · `app-arac-yakit` "Geçen Ay" sekmesi sabit `'2026-07'` yazılmış
+- [x] **UID-29** · (çift kayıt) — zaten çözülmüştü; ölçüldü: `slice(0,7) === '20` kalıbı **0 ekranda**
 - [x] **VB-27** · `DB.surveys[].ilgili` yetim proje kodları — **çözüldü 10. oturum** → altı geçmiş
       proje veriye yazıldı (V-37), `canon.js` eksen 20 eklendi (672 kontrol temiz) ve eksen
       yazılır yazılmaz ikinci bir hata buldu (`ANK-2026-057` teslimden önce tarihliydi)
