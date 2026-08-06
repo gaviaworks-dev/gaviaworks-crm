@@ -53,8 +53,8 @@ DB.lostReasons = ['Bütçe yetersiz','Rakip tercih edildi','Proje ertelendi','İ
 
 /* ---- Yönlendiren kişiler (PROMPT.md §9) ------------------------------
    EKSENLER — üçü de ölçülerek doğrulandı (8 kaydın 8'i):
-   · `hakedis` = Σ DB.commissions[referans].tutar · `odenen` = Σ durum:'Ödendi'
-     · `bekleyen` = hakedis − odenen. Üçü de komisyon kayıtlarından TÜRETİLİR (L-08),
+   · `komisyonToplam` = Σ DB.commissions[referans].tutar · `odenen` = Σ durum:'Ödendi'
+     · `bekleyen` = komisyonToplam − odenen. Üçü de komisyon kayıtlarından TÜRETİLİR (L-08),
        burada yazılı olmaları ömür boyu kart sayacı olduklarındandır.
    · `donusum` = round(kazanilan / yonlendirme × 100).
    · `yonlendirme` · `kazanilan` · `kaybedilen` · `ciro` **ÖMÜR BOYU** sayaçlardır:
@@ -69,42 +69,42 @@ DB.referrers = [
   { kod:'REF-001', ad:'Hakan Demirtaş', tur:'Mevcut müşteri', firma:'Deniz Lojistik A.Ş.', pozisyon:'Bilgi İşlem Müdürü', kontak:'YTK-001',
     tel:'+90 533 100 00 01', eposta:'hakan@denizlojistik.com', sorumlu:'EMP-002',
     yonlendirme:6, kazanilan:3, kaybedilen:1, ciro:1740000, donusum:50, sonYonlendirme:'2026-08-02',
-    komisyonModeli:'Ciro yüzdesi', komisyonOrani:5, sabitBedel:0, hakedis:49700, odenen:32000, bekleyen:17700,
+    komisyonModeli:'Ciro yüzdesi', komisyonOrani:5, sabitBedel:0, komisyonToplam:49700, odenen:32000, bekleyen:17700,
     durum:'Aktif', aktif:true, not:'Sektöründe geniş ağı var, düzenli yönlendirme yapıyor.' },
   { kod:'REF-002', ad:'Ayten Berk', tur:'İş ortağı', firma:'Berk Danışmanlık', kontak:null, pozisyon:'Kurucu',
     tel:'+90 533 100 00 02', eposta:'ayten@berkdanismanlik.com', sorumlu:'EMP-002',
     yonlendirme:5, kazanilan:3, kaybedilen:1, ciro:2270000, donusum:60, sonYonlendirme:'2026-07-29',
-    komisyonModeli:'Sabit bedel', komisyonOrani:0, sabitBedel:25000, hakedis:50000, odenen:25000, bekleyen:25000,
+    komisyonModeli:'Sabit bedel', komisyonOrani:0, sabitBedel:25000, komisyonToplam:50000, odenen:25000, bekleyen:25000,
     durum:'Aktif', aktif:true, not:'Kurumsal dönüşüm projelerinde birlikte çalışıyoruz.' },
   { kod:'REF-003', ad:'Kerem Aydın', tur:'Personel', firma:'Gavia Works', kontak:null, pozisyon:'Genel Müdür',
     tel:'+90 532 000 00 01', eposta:'kerem@gaviaworks.com', sorumlu:'EMP-001',
     yonlendirme:5, kazanilan:4, kaybedilen:0, ciro:2450000, donusum:80, sonYonlendirme:'2026-06-30',
-    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
+    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, komisyonToplam:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Kişisel ağdan gelen talepler.' },
   { kod:'REF-004', ad:'Serdar Kılıç', tur:'Eski müşteri', firma:'Kılıç Tekstil', pozisyon:'Genel Müdür', kontak:'YTK-014',
     tel:'+90 533 100 00 04', eposta:'serdar@kilictekstil.com', sorumlu:'EMP-014',
     yonlendirme:3, kazanilan:2, kaybedilen:1, ciro:1140000, donusum:67, sonYonlendirme:'2026-05-14',
-    komisyonModeli:'Ciro yüzdesi', komisyonOrani:3, sabitBedel:0, hakedis:11400, odenen:11400, bekleyen:0,
+    komisyonModeli:'Ciro yüzdesi', komisyonOrani:3, sabitBedel:0, komisyonToplam:11400, odenen:11400, bekleyen:0,
     durum:'Aktif', aktif:true, not:'2024 e-ticaret projesi müşterimizdi.' },
   { kod:'REF-005', ad:'Web Formu', tur:'Web formu', firma:'gaviaworks.com', kontak:null, pozisyon:'—',
     tel:'—', eposta:'info@gaviaworks.com', sorumlu:'EMP-014',
     yonlendirme:11, kazanilan:2, kaybedilen:6, ciro:420000, donusum:18, sonYonlendirme:'2026-08-01',
-    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
+    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, komisyonToplam:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Site iletişim formu — dönüşüm oranı düşük, nitelik iyileştirilmeli.' },
   { kod:'REF-006', ad:'Linkedin Kampanyası', tur:'Dijital reklam', firma:'—', kontak:null, pozisyon:'—',
     tel:'—', eposta:'—', sorumlu:'EMP-002',
     yonlendirme:8, kazanilan:1, kaybedilen:5, ciro:420000, donusum:13, sonYonlendirme:'2026-07-26',
-    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
+    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, komisyonToplam:0, odenen:0, bekleyen:0,
     durum:'Aktif', aktif:true, not:'Q3 kampanyası — maliyet/dönüşüm oranı izleniyor.' },
   { kod:'REF-007', ad:'Murat Sezer', tur:'Danışman', firma:'Sezer Yönetim Danışmanlığı', kontak:null, pozisyon:'Yönetici Ortak',
     tel:'+90 533 100 00 07', eposta:'murat@sezerdanismanlik.com', sorumlu:'EMP-002',
     yonlendirme:2, kazanilan:1, kaybedilen:0, ciro:1104000, donusum:50, sonYonlendirme:'2026-07-08',
-    komisyonModeli:'Ciro yüzdesi', komisyonOrani:7, sabitBedel:0, hakedis:47600, odenen:0, bekleyen:47600,
+    komisyonModeli:'Ciro yüzdesi', komisyonOrani:7, sabitBedel:0, komisyonToplam:47600, odenen:0, bekleyen:47600,
     durum:'Aktif', aktif:true, not:'Kurumsal müşterilere ERP dönüşümü öneriyor.' },
   { kod:'REF-008', ad:'Teknoloji Zirvesi 2026', tur:'Etkinlik', firma:'—', kontak:null, pozisyon:'—',
     tel:'—', eposta:'—', sorumlu:'EMP-002',
     yonlendirme:5, kazanilan:0, kaybedilen:2, ciro:0, donusum:0, sonYonlendirme:'2026-04-22',
-    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, hakedis:0, odenen:0, bekleyen:0,
+    komisyonModeli:'Yok', komisyonOrani:0, sabitBedel:0, komisyonToplam:0, odenen:0, bekleyen:0,
     durum:'Pasif', aktif:false, not:'Nisan etkinliği — 3 fırsat hâlâ açık.' }
 ];
 
@@ -313,11 +313,12 @@ DB.leads = [
 
 /* ---- Ön analizler (PROMPT.md §10) -------------------------------------
    EKSENLER:
-   · `maliyet` alan adı yanıltıcıdır — ölçülen eksen **iç maliyet değil, teklifin
-     İNDİRİM ÖNCESİ NET satış fiyatıdır** (KDV hariç). Teklife dönmüş üç analizin
-     üçünde de `maliyet` = `DB.quotes[].araToplam` (612.000 · 428.000 · 298.000);
-     indirim sonrası netle 2/3, brütle 0/3 tutuyor. Alan adı **VB-16** ile
-     yeniden adlandırılacak, eksen o zamana kadar burada yazılı.
+   · `tahminiBedel` (VB-16'da `maliyet` adından çevrildi) **iç maliyet DEĞİL**,
+     teklifin **indirim öncesi NET satış fiyatıdır** (KDV hariç). Teklife dönmüş üç
+     analizin üçünde de `DB.quotes[].araToplam`'a birebir eşit (612.000 · 428.000 ·
+     298.000); indirim sonrası netle 2/3, brütle 0/3 tutuyor. Eski ad bir ekranın
+     kârlılık hesaplaması yapmasına ve sonucu sessizce yanlış vermesine açıktı;
+     **iç maliyet ekseni veride hiç yoktur**, o yüzden kâr marjı hesaplanamaz.
    · `isgucu` **saat** ekseninde girilmiştir (420 · 360 · 260 · 190); birim alan
      adında yazılı olmadığı için ekranlar etikette "saat" yazar (assumptions).
    · `sureBirim` sözlüğü **yoktur** — dört kaydın dördü de `'hafta'`. Sözlük
@@ -335,7 +336,7 @@ DB.analyses = [
     beklenen:['Mevcut Excel şablonları','Logo API erişimi','Örnek ödeme planı dosyası'],
     kapsamIci:['Web uygulaması','Yönetim paneli','E-fatura entegrasyonu','Rapor merkezi'],
     kapsamDisi:['Mobil saha uygulaması (Faz 2)','Muhasebe defter kaydı'],
-    hazirlayan:'EMP-003', tarih:'2026-07-20', durum:'Onay bekliyor', maliyet:612000, aktif:true },
+    hazirlayan:'EMP-003', tarih:'2026-07-20', durum:'Onay bekliyor', tahminiBedel:612000, aktif:true },
   { kod:'ANL-2026-002', lead:'LEAD-2026-004', firma:'Zirve Market Zinciri', hizmet:'Mobil Uygulama',
     amac:'Müşteri sadakati ve mobil sipariş kanalı oluşturmak',
     hedefKullanici:'Son tüketici, mağaza personeli, pazarlama', rolSayisi:4,
@@ -348,7 +349,7 @@ DB.analyses = [
     beklenen:['POS API dokümanı','Marka kılavuzu','Kampanya örnekleri'],
     kapsamIci:['iOS ve Android uygulama','Yönetim paneli','Push bildirim','Sadakat modülü'],
     kapsamDisi:['Fiziksel kart basımı','Çağrı merkezi entegrasyonu'],
-    hazirlayan:'EMP-003', tarih:'2026-07-29', durum:'Hazırlanıyor', maliyet:518000, aktif:true },
+    hazirlayan:'EMP-003', tarih:'2026-07-29', durum:'Hazırlanıyor', tahminiBedel:518000, aktif:true },
   { kod:'ANL-2026-003', lead:'LEAD-2026-001', firma:'Başkent Hukuk Bürosu', hizmet:'Özel Yazılım',
     amac:'Dava dosyalarını ve müvekkil belgelerini merkezî yönetmek',
     hedefKullanici:'Avukatlar, stajyerler, sekreterya', rolSayisi:4,
@@ -361,7 +362,7 @@ DB.analyses = [
     beklenen:['Örnek dosya yapısı','Gizlilik politikası'],
     kapsamIci:['Web uygulaması','Müvekkil portalı','Doküman arama','Duruşma takvimi'],
     kapsamDisi:['UYAP otomatik senkronizasyon','Muhasebe modülü'],
-    hazirlayan:'EMP-003', tarih:'2026-07-08', durum:'Onaylandı', maliyet:428000, aktif:true },
+    hazirlayan:'EMP-003', tarih:'2026-07-08', durum:'Onaylandı', tahminiBedel:428000, aktif:true },
   { kod:'ANL-2026-004', lead:'LEAD-2026-002', firma:'Ege Eğitim Kurumları', hizmet:'Web Uygulaması',
     amac:'Veli–okul iletişimini dijitalleştirmek',
     hedefKullanici:'Veliler, öğretmenler, idare', rolSayisi:4,
@@ -374,7 +375,7 @@ DB.analyses = [
     beklenen:['Mevcut sistem erişimi','Veli listesi formatı'],
     kapsamIci:['Veli portalı','Devamsızlık modülü','Duyuru sistemi'],
     kapsamDisi:['Ödeme tahsilatı','Mobil uygulama'],
-    hazirlayan:'EMP-003', tarih:'2026-07-30', durum:'Hazırlanıyor', maliyet:298000, aktif:true }
+    hazirlayan:'EMP-003', tarih:'2026-07-30', durum:'Hazırlanıyor', tahminiBedel:298000, aktif:true }
 ];
 
 /* ---- Teklifler (PROMPT.md §10) ---------------------------------------- */
@@ -460,22 +461,22 @@ DB.interactions = [
 ];
 
 /* ---- Komisyon kazançları -----------------------------------------------
-   NOT: `hakedis` / `hakedisTarihi` ALAN ADLARI hâlâ inşaat terimi taşıyor (VB-04).
+   NOT: `komisyonToplam` / `kazanimTarihi` ALAN ADLARI hâlâ inşaat terimi taşıyor (VB-04).
    Rename tek turda yapılacak; o güne kadar ekranlarda gösterilen ETİKET
    "Komisyon kazancı" / "Kazanç tarihi"dir, alan adı değil. */
 DB.commissions = [
   { kod:'KOM-2026-001', referans:'REF-001', kisi:'Hakan Demirtaş', musteri:'MUS-2025-004', firma:'Ege Eğitim Kurumları',
-    ciro:640000, oran:5, tutar:32000, hakedisTarihi:'2026-04-15', durum:'Ödendi', odemeTarihi:'2026-05-02', onay:'Onaylandı', aktif:true },
+    ciro:640000, oran:5, tutar:32000, kazanimTarihi:'2026-04-15', durum:'Ödendi', odemeTarihi:'2026-05-02', onay:'Onaylandı', aktif:true },
   { kod:'KOM-2026-002', referans:'REF-002', kisi:'Ayten Berk', musteri:'MUS-2026-011', firma:'Anka Finans Teknolojileri',
-    ciro:600000, oran:0, tutar:25000, hakedisTarihi:'2026-06-20', durum:'Ödendi', odemeTarihi:'2026-07-05', onay:'Onaylandı', aktif:true },
+    ciro:600000, oran:0, tutar:25000, kazanimTarihi:'2026-06-20', durum:'Ödendi', odemeTarihi:'2026-07-05', onay:'Onaylandı', aktif:true },
   { kod:'KOM-2026-003', referans:'REF-007', kisi:'Murat Sezer', musteri:'MUS-2025-005', firma:'Marmara Enerji Sistemleri',
-    ciro:680000, oran:7, tutar:47600, hakedisTarihi:'2026-07-08', durum:'Onay bekliyor', odemeTarihi:null, onay:'Bekliyor', aktif:true },
+    ciro:680000, oran:7, tutar:47600, kazanimTarihi:'2026-07-08', durum:'Onay bekliyor', odemeTarihi:null, onay:'Bekliyor', aktif:true },
   { kod:'KOM-2026-004', referans:'REF-001', kisi:'Hakan Demirtaş', musteri:'MUS-2026-009', firma:'Öz Gıda Üretim A.Ş.',
-    ciro:354000, oran:5, tutar:17700, hakedisTarihi:'2026-07-18', durum:'Onaylandı', odemeTarihi:null, onay:'Onaylandı', aktif:true },
+    ciro:354000, oran:5, tutar:17700, kazanimTarihi:'2026-07-18', durum:'Onaylandı', odemeTarihi:null, onay:'Onaylandı', aktif:true },
   { kod:'KOM-2026-005', referans:'REF-002', kisi:'Ayten Berk', musteri:'MUS-2026-008', firma:'Başkent Hukuk Bürosu',
-    ciro:0, oran:0, tutar:25000, hakedisTarihi:null, durum:'Bekliyor', odemeTarihi:null, onay:'—', aktif:true },
+    ciro:0, oran:0, tutar:25000, kazanimTarihi:null, durum:'Bekliyor', odemeTarihi:null, onay:'—', aktif:true },
   { kod:'KOM-2025-006', referans:'REF-004', kisi:'Serdar Kılıç', musteri:'MUS-2025-003', firma:'Anadolu Perakende Ticaret Ltd.',
-    ciro:380000, oran:3, tutar:11400, hakedisTarihi:'2025-06-10', durum:'Ödendi', odemeTarihi:'2025-06-28', onay:'Onaylandı', aktif:true, arsiv:true }
+    ciro:380000, oran:3, tutar:11400, kazanimTarihi:'2025-06-10', durum:'Ödendi', odemeTarihi:'2025-06-28', onay:'Onaylandı', aktif:true, arsiv:true }
 ];
 
 /* ---- Arama yardımcıları (org.js'teki DB.emp / DB.empName ile aynı desen) ----
