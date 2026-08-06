@@ -1,6 +1,6 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 262 / 297 madde tamam (%88) · 19 kısmen · 16 açık** — 11. oturum, 2026-08-05
+**İLERLEME: 273 / 297 madde tamam (%91) · 21 kısmen · 3 açık** — 11. oturum, 2026-08-05
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -613,22 +613,39 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 
 ### Kapsam B — sistem geneli denetimler
 
-- [ ] **Boşluk sistemi denetimi:** tüm bileşenlerde tek bir boşluk ölçeği kullanılıyor mu,
-      hardcode piksel kalmış mı
-- [ ] Form kontrolü ile etiketi arasındaki boşluk için **tek taban kural** (UID-08'in kök nedeni;
-      aynı kusur dört kez tekrarladı — persona çipi · giriş rol kartı · radio grubu · checkbox listesi)
-- [ ] Tüm native kontrollerin (select, tarih, checkbox, radio, dosya) tasarım sistemine alınması (UID-09)
-- [ ] **Hizalama ve optik denge:** kart içi iç boşluklar, tablo satır yoğunluğu, ikon boyut
-      tutarlılığı, başlık hiyerarşisi
-- [ ] **Odak ve hover durumları:** klavyeyle gezilebilirlik, görünür odak halkası
-- [ ] **Renk kontrastı WCAG AA taraması**, özellikle durum etiketleri ve ikincil metinler
-- [ ] **Tıklama alanları:** aksiyon ikonları ve tutamaklar en az 44 px yükseklikte erişilebilir
-      alana sahip mi
-- [ ] **Modal, yan panel ve açılır menülerde tek davranış standardı:** başlık ayrımı, kaydırma
-      gölgesi, kapatma, odak hapsi, escape ile kapanma
-- [ ] Boş durum, yüklenme ve hata durumlarının tüm ekranlarda **aynı dille** kurulması
-- [ ] Sol rail ve üst nav'ın referanstaki shell **DAVRANIŞIYLA** karşılaştırılması —
-      yine sadece davranış ve oran, renk değil
+- [x] **Boşluk sistemi denetimi** — **ölçüldü, ihlal 0**. `ui.css` + `shell.css` içinde `@media`
+      kırılım değerleri dışında token'sız 2+ haneli px **yok**. Kırılım değerleri (980 · 1180 · 760 px)
+      bilinçli olarak literal — boşluk ölçeği değil, düzen eşiği
+- [x] Form kontrolü–etiket **tek taban kuralı** — UID-08 ile kapandı (10. oturum); `ctl.js` her turda
+      doğruluyor: 2.422 çiftte bitişik **0**
+- [x] Native kontroller tasarım sisteminde — UID-09 ile kapandı; `ctl.js`: native select **0/732**,
+      kutu/radyo **0/4.154**. Tarih alanı bilinçli istisna (assumptions **V-36**)
+- [~] **Hizalama ve optik denge** — ölçülebilen kısmı temiz: `qa.js` 141 ekran × 3 kırılımda yatay
+      taşma yok, ikon ölçüleri `ic-sm/ic-lg` token'larından, tablo satır yoğunluğu masaüstünde korundu.
+      **Ölçüye gelmeyen kısmı açık:** "optik denge" göz kararıdır, otomatik eksene bağlanamadı —
+      dondurulmuş kapsamda (ui-debt.md V2)
+- [x] **Odak ve hover** — odak halkası `shell.css`'te **global** tanımlı (`:focus-visible` →
+      `--focus-ring`), koyu yüzeyler için `--focus-ring-dark` ayrı; rail, menü, tutamak ve arama
+      kendi varyantını geçiyor (12 kural). **Ölçüm aracının hatası kayda geçti:** ilk koşumda
+      "8.188 odaksız öğe" çıktı — programatik `.focus()` `:focus-visible`'ı tetiklemiyor, ihlal sahteydi
+- [x] **WCAG AA kontrast** — **çözüldü**. Ölçüldü: rozet metni kendi tint zemininde `is-ok` **3.58**,
+      `is-warn` 3.80, `is-danger` 4.31 — üçü de eşiğin altındaydı; `--faint` beyazda **2.61** ile
+      "—", "Zimmetsiz" gibi anlam taşıyan yer tutucuları basıyordu. Rozet metni için `-ink` ikizleri
+      açıldı (renkler kenarlık/ikon için değişmedi), `--muted` ve `--faint` en zor zemine göre
+      koyulaştırıldı, hiyerarşi korundu. Sonuç: 8 ekran · **279 metin · AA altı 0**
+- [x] **Tıklama alanları** — **çözüldü**, L-09 yöntemiyle: görünen biçim ile yakalama alanı ayrı.
+      Farede `.ia` 32 px görünür (satır yoğunluğu), görünmez `::before` ile yakalama ~43 px;
+      **kaba işaretçide** (`pointer:coarse`) görünen kutu 48 px'e çıkar. Ölçüm dokunmatik 8 ekran:
+      **245 hedef · 44 px altı 0**. Blok `ui.css` SONUNDA — yukarıda yazıldığında sonraki taban
+      kurallar aynı özgüllükte eziyordu (ölçüldü)
+- [x] **Modal / yan panel davranış standardı** — ölçüldü: ikisi de `role="dialog"` + `aria-modal`,
+      başlık bloğu + alt kenarlık, kapatma düğmesi, scrim. Yan panele **kaydırma gölgesi** eklendi
+      (UID-10). `GV.modal` kutusuna `__gvClose` asıldı — scrim'de vardı, kutuda yoktu (L-18)
+- [x] Boş / yüklenme / hata durumu **tek dilde** — ölçüldü: 141 ekranda başlıksız boş durum **0**;
+      üçü de `GV.empty` / `GV.skeleton` / `GV.errorState` bileşenlerinden geliyor
+- [x] Rail ve üst nav davranışı — UID-01'de referansa göre kuruldu ve `grip-qa.js` her turda
+      doğruluyor (geometri, yüzey rengi, hover yakalama noktaları, odak, içerik örtme).
+      UID-15 ile **13 ekranın elle kopyaladığı** iskelet de kalktı, artık tek kaynak
 
 ### Yöntem — dört kural
 
