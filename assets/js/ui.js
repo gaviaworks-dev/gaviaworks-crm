@@ -1899,6 +1899,105 @@
   };
 
   /* ===================================================================
+     8b. BELGE ÇIKTISI — GV.doc(cfg)
+     Bir KAYITTAN türetilmiş yazılı belge üretir (liste çıktısı değildir; o
+     `GV.list` şeridinin işidir). Ön analizin §10'da istediği on çıktı bunun
+     üstünde kurulur, ama bileşen kayıt türü bilmez.
+
+       cfg.baslik   → belge başlığı
+       cfg.altBilgi → başlığın altındaki tek satır künye
+       cfg.bolumler → [{ h:'Başlık', dl:[[etiket, değer]] | liste:[...] |
+                         tablo:{ head:[], rows:[[]] } | metin:'...' }]
+
+     Dönen yüzey: { html(), onizle(), yazdir() }
+       · onizle() → modalde ekranda gösterir
+       · yazdir() → ayrı pencerede yazdırma/PDF (GV.list çıktısıyla aynı biçim)
+     Boş bölüm BASILMAZ; değeri olmayan alan "—" yerine hiç yazılmaz, böylece
+     belge olmayan bilgiyi varmış gibi göstermez (L-13).
+     =================================================================== */
+  GV.doc = function(cfg){
+    cfg = cfg || {};
+    var bolumler = (cfg.bolumler || []).filter(function(b){
+      if(!b) return false;
+      if(b.dl)    return b.dl.filter(function(r){ return r && r[1] != null && r[1] !== ''; }).length > 0;
+      if(b.liste) return (b.liste || []).length > 0;
+      if(b.tablo) return (b.tablo.rows || []).length > 0;
+      return !!b.metin;
+    });
+
+    function govde(){
+      return bolumler.map(function(b){
+        var ic = '';
+        if(b.dl){
+          ic = '<dl class="gv-doc-dl">' + b.dl.filter(function(r){
+            return r && r[1] != null && r[1] !== '';
+          }).map(function(r){
+            return '<div><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>';
+          }).join('') + '</dl>';
+        }else if(b.liste){
+          ic = '<ul class="gv-doc-list">' + b.liste.map(function(x){
+            return '<li>' + esc(String(x)) + '</li>'; }).join('') + '</ul>';
+        }else if(b.tablo){
+          ic = '<table class="gv-doc-table"><thead><tr>' +
+            b.tablo.head.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') +
+            '</tr></thead><tbody>' + b.tablo.rows.map(function(r){
+              return '<tr>' + r.map(function(c){ return '<td>' + esc(String(c == null ? '' : c)) + '</td>'; }).join('') + '</tr>';
+            }).join('') + '</tbody></table>';
+        }else{
+          ic = '<p class="gv-doc-p">' + esc(b.metin) + '</p>';
+        }
+        return '<section class="gv-doc-sec"><h3>' + esc(b.h) + '</h3>' + ic + '</section>';
+      }).join('');
+    }
+
+    function html(){
+      return '<article class="gv-doc">' +
+        '<header class="gv-doc-head"><h2>' + esc(cfg.baslik || 'Belge') + '</h2>' +
+        (cfg.altBilgi ? '<p>' + esc(cfg.altBilgi) + '</p>' : '') + '</header>' +
+        (bolumler.length ? govde()
+          : '<p class="gv-doc-p">Bu belgeyi dolduracak alan kayıtta boş.</p>') +
+      '</article>';
+    }
+
+    function yazdir(){
+      var w = window.open('', '_blank');
+      if(!w){ GV.toast('Açılır pencere engellendi', 'danger'); return; }
+      w.document.write('<html><head><meta charset="utf-8"><title>' + esc(cfg.baslik || 'Belge') + '</title>' +
+        '<style>body{font-family:system-ui,sans-serif;padding:28px;color:#101426;max-width:840px}' +
+        'h2{font-size:19px;margin:0 0 4px}h3{font-size:13px;margin:20px 0 7px;text-transform:uppercase;' +
+        'letter-spacing:.04em;color:#5B6379;border-bottom:1px solid #E3E7EE;padding-bottom:5px}' +
+        '.gv-doc-head p{color:#6A7189;font-size:12px;margin:0 0 6px}' +
+        'dl{margin:0;display:grid;grid-template-columns:200px 1fr;gap:5px 14px;font-size:12px}' +
+        'dl > div{display:contents}dt{color:#6A7189}dd{margin:0;color:#101426}' +
+        'ul{margin:0;padding-left:18px;font-size:12px}li{margin:3px 0}' +
+        'p{font-size:12px;line-height:1.55}' +
+        'table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}' +
+        'th{background:#EDF0F5;text-align:left;padding:6px;border:1px solid #E3E7EE;font-size:10px;text-transform:uppercase}' +
+        'td{padding:6px;border:1px solid #E3E7EE}' +
+        'footer{margin-top:26px;padding-top:10px;border-top:1px solid #E3E7EE;color:#6A7189;font-size:10px}' +
+        '</style></head><body>' + html().replace(/class="[^"]*"/g, '') +
+        '<footer>Gavia Works · ' + Fmt.date(window.DB ? DB.today : '') +
+        ' · bu belge kayıttan türetilmiştir, ayrıca saklanmaz.</footer>' +
+        '</body></html>');
+      w.document.close();
+      setTimeout(function(){ w.print(); }, 300);
+    }
+
+    function onizle(){
+      GV.modal({
+        title:cfg.baslik || 'Belge', icon:cfg.ikon || 'i-file', size:'lg',
+        text:cfg.altBilgi || '',
+        body:'<div class="gv-doc-wrap">' + html() + '</div>',
+        actions:[{ label:'Kapat', cls:'btn-line' },
+          { label:'Yazdır / PDF', cls:'btn-acc', icon:'i-printer', close:false,
+            onClick:function(){ yazdir(); return false; } }]
+      });
+    }
+
+    return { html:html, onizle:onizle, yazdir:yazdir, bolumSayisi:bolumler.length };
+  };
+
+  /* ===================================================================
      9. BASİT SVG GRAFİKLER
      =================================================================== */
   var Chart = {
