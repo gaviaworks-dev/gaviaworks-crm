@@ -532,7 +532,10 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       (`:has(+ .gv-cardlist)`) gizlenir, yoksa kendi içinde yatay kayar. `is-mobilescroll` istisnası **30 ekrandan**
       kaldırıldı. Ölçüm 390 px: 4 detay ekranında 35 tablonun 35'i görünür, yatay taşma yok; liste ekranlarında
       tablo hâlâ gizli (regresyon yok)
-- [ ] **UID-15** · Dört eski detay ekranı shell iskeletini elle kopyalıyor → dördü tek turda `buildSkeleton()`e
+- [x] **UID-15** · Elle shell iskeleti — **çözüldü** → **13 ekranın 13'ü** (defterin 9. oturumda düzelttiği sayı doğruydu).
+      `buildSkeleton()` gövde içeriğini zaten koruyup sarıyordu; iskelet soyuldu, içerik bırakıldı.
+      Ölçüm: 13/13'te `.gv-divider` **`aria-controls="gvMenu"`** geri geldi (kopyalanan markup'ta kayıptı),
+      atlama bağlantısı ve menü shell'den geliyor. `qa.js` 13 ekran × 3 kırılım · `grip-qa.js` · `tabs.js` temiz
 - [x] **UID-16** · Detay ekranlarının aktivite sekmesi boş — **çözüldü 11. oturum**
       → borç **beş önek** diyordu, ölçülen **22** (L-25): `DB.activities` 8 kayıt / 4 önekti,
       26 detay ekranının 22'sinde sekme her kayıtta boştu. **192 kayıt · 73 kayıt kodu** yazıldı,
