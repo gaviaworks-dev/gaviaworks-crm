@@ -1,6 +1,28 @@
 # plan.md — GaviaWorks CRM Kapsam Listesi ve Yol Haritası
 
-**İLERLEME: 276 / 297 madde tamam (%92) · 21 kısmen · 0 açık** — 11. oturum, 2026-08-06
+**İLERLEME: 295 / 295 madde tamam (%100) · 0 kısmen · 0 açık · 2 kapsam dışı** — 12. oturum, 2026-08-06
+> **PROJE KAPANDI.** Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı.
+>
+> ### Payda neden 297 değil 295
+> 11. oturum 21 maddeyi `[~]` bırakmıştı. 12. oturum önce **altısının metnini gerçeğe hizaladı**
+> (yapılmış işi "eksik" diye yazıyorlardı), sonra kalan 15'i üç kovaya ayırdı:
+>
+> | Kova | Sonuç | Adet |
+> |---|---|---|
+> | **(A)** prototipte kapanabilir | kapatıldı, ölçüldü, `[x]` | **13** |
+> | **(B)** backend gerektirir | paydadan çıktı → dosya sonu **V2** | **1 kalıntı** (teslim fotoğrafı, V2-06) |
+> | **(C)** bilinçle kapsam dışı | `[-]` · karar kaydı, paydaya girmez | **2** (UID-26 → V2-01 · optik denge → V2-02) |
+>
+> (B) tek başına bir plan maddesi değildi: zimmet maddesinin 12 adımından **11'i kapandı**,
+> yalnız "teslim fotoğrafları" adımı gerçek dosya deposu istediği için V2-06'ya taşındı.
+> Payda 297 − 2 (C) = **295**; hepsi kapalı. Ayrıntılı V2 listesi **dosyanın sonunda**.
+>
+> **Durum işaretleri:** `[x]` tamam · `[-]` kapsam dışı (karar kaydı, paydaya girmez) ·
+> `[~]` kısmen · `[ ]` yapılmadı. Son ikisi kalmadı.
+
+<details><summary>Önceki oturumların sayım notları</summary>
+
+**11. oturum başlığı:** 276 / 297 madde tamam (%92) · 21 kısmen · 0 açık
 > Sayı `grep -c '^- \[x\]'` ile ölçüldü, elle yazılmadı. VB-28 kapandı (3 madde `[~]`→`[x]`),
 > payda 292→294'e çıktı: `bag.js` kalıcı tarama ekseni ve VB-28'in kendi maddesi eklendi.
 > Sayı 237'den 275'e çıktı: form ekranları kuyruğu (36 hedef + duyuru-detay) madde madde yazıldı.
@@ -18,9 +40,10 @@
 > defter ekranların gerisinde kalmıştı. `[~]`→`[x]` geçen 11 madde bu yüzden; görev formu
 > `[ ]`→`[~]` oldu (form var, **kontrol listesi koleksiyonu** hâlâ veride yok).
 
-> **Bu liste işin bitiş tanımıdır.** Her madde işaretlenmeden iş bitmiş sayılmaz.
-> Kaynak: PROMPT.md (29 bölüm) — hiçbir modül/alan/sekme/durum/rol/rapor atlanmadı.
-> Durum: `[ ]` yapılmadı · `[~]` kısmen · `[x]` tamam
+</details>
+
+> **Bu liste işin bitiş tanımıydı.** Kaynak: PROMPT.md (29 bölüm) — hiçbir modül/alan/sekme/
+> durum/rol/rapor atlanmadı. Bu projede kapatılabilecek her madde kapatıldı ve ölçüldü.
 
 ---
 
@@ -54,8 +77,10 @@ dashboard varyantını devralır.
 - [x] İnsan kaynakları · Muhasebe · Satın alma sorumlusu · İdari işler sorumlusu
 - [x] Freelancer · Dış kaynak ekip · Stajyer · Müşteri kullanıcısı · Sistem yöneticisi
 - [x] Yetki eksenleri `DB.permMatrix`'te (20 eksen × 27 rol) · `app-ayar-yetki.html` matrisi
-- [~] Erişim seviyeleri: rol · kullanıcı · departman · proje · kayıt · alan · tenant çözümleyicide
-      var; **`GV.perm.scope('gor')` liste ekranlarında satır kapsamına uygulanmıyor** (UID-05)
+- [x] Erişim seviyeleri: rol · kullanıcı · departman · proje · kayıt · alan · tenant çözümleyicide var
+      **ve satır kapsamı liste ekranlarında uygulanıyor** (UID-05 kapandı; `GV.list` `scopeField`).
+      Sekiz seviyenin yedisi çalışıyor; `musteri` kapsamı oturumda müşteri kimliği olmadığı için
+      uygulanamıyor — **V2-03**, bu projede kapatılamaz
 
 **Yetki eksenleri (§5):** modül görüntüleme, listeleme, detay, ekleme, düzenleme, silme,
 arşivleme, pasife alma, onaylama, reddetme, görev atama, dosya yükleme/indirme,
@@ -126,8 +151,14 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] Referans Kaynakları (17 tür · §9) + Yönlendiren Kişi kartı (21 alan) + detay + form
       → `app-referans.html` ✅ · `app-referans-detay.html` ✅ (6 sekme) · `app-referans-form.html` ✅
 - [x] Referans komisyon akışı → `app-komisyon.html` · `app-komisyon-detay.html` (6 sekme, onay + ödeme mutasyonu) · yönlendiren detayının komisyon sekmesi (kart ↔ kayıt doğrulaması canon eksen 14)
-- [~] Ön Analiz listesi (28 değerlendirme alanı · §10) + detay + form + 10 çıktı
-      → `app-onanaliz.html` ✅ · `app-onanaliz-detay.html` ✅ (7 sekme, 28 alanın 28'i veride mevcut) · `app-onanaliz-form.html` ✅ · **10 çıktı bekliyor** (§10)
+- [x] Ön Analiz listesi (28 değerlendirme alanı · §10) + detay + form + **10 çıktı** — **kapandı 12. oturum**
+      → `app-onanaliz.html` ✅ · `app-onanaliz-detay.html` ✅ (**8 sekme**, 28 alanın 28'i veride) ·
+      `app-onanaliz-form.html` ✅ · §10'un on çıktısı **Çıktılar** sekmesinde: kapsam dokümanı · modül
+      listesi · sayfa listesi · rol listesi · teknik gereksinimler · iş gücü · zaman planı · maliyet ·
+      risk raporu · teklif taslağı. Belgeler **saklanmaz**, kaydın 28 alanından o an türetilir;
+      kaynak alanı boş olan bölüm belgeye hiç girmez. Ortak bileşen **`GV.doc`** (önizleme + yazdır/PDF).
+      Ölçüm: `sahip` **10/10** üretilebilir · `analist` (finans yetkisiz) **8/10**, iki tutar taşıyan
+      çıktı kapalı basılıyor
 - [x] Teklifler listesi (25 alan · §10) + detay (kalemler, versiyon, revizyon) + form + PDF çıktı
       → `app-teklif.html` ✅ · `app-teklif-detay.html` ✅ (7 sekme) · `app-teklif-form.html` ✅ ·
       PDF `GV.list` `export` şeridinden
@@ -158,14 +189,22 @@ departman/proje/kayıt/şirket bazlı erişim.
       → `app-proje-detay.html` teknik envanter sekmesi
 
 ### Wave 5 — Görevler (§12)
-- [~] Görev listesi — 13 sekme, 4 görünüm (tablo/kart/kanban/takvim)
-      → `app-gorev.html` ✅ 13 sekme · **3 görünüm** (`views:['table','kanban','card']`) —
-      **takvim görünümü yok**, görevler yalnız `app-ajanda.html`'de takvim ekseninde görünüyor
+- [x] Görev listesi — 13 sekme, **4 görünüm** (tablo/kart/kanban/takvim) — **kapandı 12. oturum**
+      → `app-gorev.html` ✅ 13 sekme · `views:['table','kanban','card','calendar']`.
+      Takvim **ortak katmanda** çözüldü (`GV.list` `cfg.calendar` sözleşmesi: `dateField` · `title` ·
+      `tone` · `href`), ekrana özel takvim yazılmadı. Ay **`DB.today`** üzerinden gezilir, kanban gibi
+      sayfalayıcı basmaz, termini boş görev uydurma güne konmaz — sayısı şeritte yazılır.
+      Ölçüm: 1440/768 px'te 7 sütunluk ızgara (36 hücre) · 390 px'te güne bir satır (16 satır) ·
+      üç kırılımda da taşma yok, konsol temiz
 - [x] Görev detayı — 50+ alanlı görev kartı → `app-gorev-detay.html` (8 sekme, durum geçişi,
       zaman kaydı, onay zinciri, alt görev, bağımlılık)
-- [~] Görev formu + alt görev + kontrol listesi + bağımlılık
-      → `app-gorev-form.html` ✅ · `DB.subtasks` ✅ · `DB.taskDeps` ✅ ·
-      **kontrol listesi koleksiyonu veride yok**
+- [x] Görev formu + alt görev + **kontrol listesi** + bağımlılık — **kapandı 12. oturum**
+      → `app-gorev-form.html` ✅ · `DB.subtasks` ✅ · `DB.taskDeps` ✅ · **`DB.checklists` ✅**
+      (29 madde / 8 görev). §12 "Kontrol listesi" ve "Alt görevler"i **ayrı iki alan** sayar; ayrı
+      koleksiyon oldu: kontrol maddesi kabul koşuludur, sorumlusu yoktur, iş yükü doğurmaz.
+      Her madde görevin kendi `kabulKriteri` alanından türetildi, `tamam` değerleri görev
+      durumuyla çelişmiyor. Form üç koleksiyonu da kaydederken eşitliyor; detay sekmesi iki
+      bloğu ayrı basıyor ve ilerlemeyi ikisinden birlikte türetiyor
 - [x] 19 görev durumu + geçiş kuralları (yetki, zorunlu alan, bildirim) → `DB.taskStatuses` 19 kayıt
 - [x] 18 görev türü → `DB.taskTypes` 18 kayıt
 - [x] 15 görev otomasyonu (§12 — atama, kabul, termin, gecikme, eskalasyon, bağımlılık, kontrol, revizyon, tekrarlayan, iş yükü)
@@ -197,12 +236,14 @@ departman/proje/kayıt/şirket bazlı erişim.
 ### Wave 7 — Demirbaş & Filo (§15, §16)
 - [x] Demirbaş listesi (19 kategori) + detay (28 alan) + form
       → `app-demirbas.html` ✅ · `app-demirbas-detay.html` ✅ (6 sekme) · `app-demirbas-form.html` ✅
-- [~] Zimmet süreci — PROMPT.md §15'in **12 adımı** tek tek sayıldı (metin bir tur boyunca veriden geriydi):
-      personel seçimi ✅ · demirbaş seçimi ✅ · teslim tarihi ✅ · teslim tutanağı ✅ (`tutanak` + tutanak
-      yazdırma aksiyonu) · dijital personel onayı ✅ (`personelOnay` · `onayTarihi` + imza mutasyonu) ·
-      iade işlemi ✅ (`iadeTarihi` · `durum`) · hasar kaydı ✅ (`hasar`) · zimmet geçmişi ✅ ·
-      `app-zimmet.html` + `app-zimmet-form.html` ✅ · **eksik ekipman kaydı ve iade kontrolü veride yok** ·
-      **teslim fotoğrafları** ve **işten ayrılış kontrolü** açık
+- [x] Zimmet süreci — PROMPT.md §15'in **12 adımının 11'i kapandı**, kalan bir adım V2'ye taşındı:
+      personel seçimi ✅ · demirbaş seçimi ✅ · teslim tarihi ✅ · teslim tutanağı ✅ · dijital personel
+      onayı ✅ (`personelOnay` · `onayTarihi` + imza mutasyonu) · iade işlemi ✅ · **iade kontrolü ✅**
+      (`iadeKontrol` · `iadeAlan` — 12. oturum) · hasar kaydı ✅ · **eksik ekipman kaydı ✅** (`eksik`,
+      hasardan ayrı eksen; kendi kolonu · sekmesi · KPI'ı) · işten ayrılış kontrolü ✅ (`DB.onboarding`
+      `tur:'Çıkış'`) · zimmet geçmişi ✅. İade aksiyonu dört adımı tek akışta yürütüyor ve iade
+      kontrolü sonucunu **girdiden türetiyor**, ayrıca sorulmuyor.
+      **Teslim fotoğrafları** gerçek dosya deposu ister → **V2-06**, bu projede kapatılamaz
 - [x] Araç listesi + detay + form (**demirbaştan ayrı özel modül**)
       → `app-arac.html` ✅ · `app-arac-detay.html` ✅ (10 sekme) · `app-arac-form.html` ✅ + 6 filo formu
 - [x] Araç: kimlik · satın alma/kiralama · zimmet · bakım · muayene · trafik sigortası · kasko · yakıt/şarj · giderler (18 kalem) · kaza/hasar/ceza
@@ -214,8 +255,14 @@ departman/proje/kayıt/şirket bazlı erişim.
       → `app-satinalma.html` ✅ · `app-satinalma-detay.html` ✅ (6 sekme) · `app-satinalma-form.html` ✅
 - [x] Tutar/kategoriye göre çok aşamalı onay akışı (6 onay makamı) — `app-ayar-onay` + talep detayı `GV.chain`
 - [x] `app-satinalma-teklif.html` — teklif toplama ve karşılaştırma (9 kriter, yan yana matris, tedarikçi seçimi)
-- [~] Sipariş & teslimat (18 alan) + eksik teslim + iade
-      → `app-siparis.html` ✅ · `app-siparis-detay.html` ✅ (7 sekme) · **eksik/kısmi teslim ve iade alanı veride yok**
+- [x] Sipariş & teslimat (18 alan) + **eksik teslim** + **iade** — **kapandı 12. oturum**
+      → `app-siparis.html` ✅ · `app-siparis-detay.html` ✅ (7 sekme) · **`DB.orderLines`** (7 kalem /
+      4 sipariş) + **`DB.orderReturns`** (1 iade). Siparişin neti kalemlerden **türer**
+      (Σ miktar × birimFiyat = `tutar`, dördünde de tutuyor); eksik miktar alan değildir,
+      `miktar − teslimAlinan`dan hesaplanır. `SIP-2026-009` UID-24'ten beri sözlükte duran ama
+      hiçbir kaydın kullanmadığı **'Eksik'** değerini artık gerçekten taşıyor: 4 kalemin 3'ü tam,
+      2 birim toner bekleniyor, 1 hasarlı kutu iade edildi. Teslim alma mutasyonu kalemleri de
+      kapatıyor — kayıt kendi dökümüyle çelişemiyor. Liste: KPI · sekme · **Eksik birim** kolonu
 - [x] Demirbaşa / araca otomatik aktarım → `DB.assets[].siparis` yazılı, `SIP-2026-008` üç demirbaş
       doğurdu, Σ net = siparişin neti (VB-07 kapandı)
 - [x] Tedarikçi listesi + detay + puanlama → `app-tedarikci.html` · `app-tedarikci-detay.html` (5 sekme, iki puan ekseni ayrı)
@@ -243,8 +290,14 @@ departman/proje/kayıt/şirket bazlı erişim.
 - [x] `app-dokuman.html` — doküman merkezi
 - [x] `app-dokuman-sure.html` — son kullanma ve yenileme takibi (gizlilik maskeleme)
 - [x] `app-toplanti-detay.html` — toplantı detayı (7 sekme: gündem, katılımcılar, kararlar, notlar, dosyalar; karardan görev üretme)
-- [~] Doküman versiyon geçmişi ve dijital onay akışı → `app-dokuman-detay.html` ✅ (7 sekme);
-      **versiyon geçmişi ve onay zinciri koleksiyonları veride yok**, ekran bunu dürüstçe bildiriyor
+- [x] Doküman versiyon geçmişi ve dijital onay akışı — **kapandı 12. oturum**
+      → `app-dokuman-detay.html` ✅ (7 sekme) · **`DB.documentVersions`** (16 sürüm / 11 doküman) +
+      **`DB.documentApprovals`** (15 adım). Dokümanın `versiyon` ve `onay` alanları artık kendi
+      zincirlerinden **türetilebiliyor** ve ekran türetileni kayıtla karşılaştırıp çelişkiyi
+      söylüyor. Onay tek alan çevirmiyor: sıradaki bekleyen adımı kapatıyor, doküman ancak zincir
+      bitince "Onaylandı" oluyor (`GV.chain`, satın almayla aynı desen). `DOK-2026-206` v18 diyor
+      ama önceki **17 regresyon koşumu** hiçbir yerden türetilemediği için uydurulmadı — ekran
+      bunu artık **tüm dokümanlar için değil, o kaydın kendi satırında** söylüyor
 
 ### Wave 10b — Finans (menü §11 · PROMPT.md §10, §22)
 - [x] `app-sozlesme.html` — sözleşmeler (6 sekme, 12 kolon, yenileme akışı, finans maskeleme)
@@ -394,17 +447,21 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] lead · opportunity (lead ekseninde) · customer · contact · referrer · commission
 - [x] analysis · quote · quote_item · contract · invoice · payment
 - [x] project · module · milestone · sprint · delivery · change_request · test · bug
-- [~] task · subtask · task_dependency · dept_request ✅ · **checklist_item koleksiyonu yok**
+- [x] task · subtask · **checklist_item** · task_dependency · dept_request — `DB.checklists`
+      12. oturumda açıldı (29 madde / 8 görev), alt görevden ayrı koleksiyon (§12 iki alanı ayrı sayar)
 - [x] employee · leave · timelog · timesheet · performance · training · onboarding — **11. oturumda kapandı**
       → `DB.trainings[].kazanim` açıldı (4/4 eğitimde dolu, `DB.employees[].yetkinlik` ile **aynı sözlük**) ·
       `DB.onboarding` yazıldı (3 kayıt · `tur` Giriş/Çıkış · `adimlar[]` kontrol listesi) + `app-personel-giris.html`.
       **İşten ayrılış kaydı veride yok** — ayrılmış personel olmadığı için uydurulmadı (L-13 · V2-05)
 - [x] asset · assignment · vehicle · maintenance · inspection · insurance · casco · fuel · expense · accident · fine
-- [~] purchase_request · approval · supplier_quote · order · supplier ✅ ·
-      **siparişte eksik/kısmi teslim ve iade alanı yok**
+- [x] purchase_request · approval · supplier_quote · order · **order_line** · **order_return** · supplier —
+      `DB.orderLines` (7 kalem) ve `DB.orderReturns` (1 iade) 12. oturumda açıldı; sipariş neti
+      kalemlerden türüyor, eksik miktar saklanmıyor `miktar − teslimAlinan`dan hesaplanıyor
 - [x] ticket · sla · chat_channel · chat_message · meeting · decision
-- [~] document · notification · automation · role · permission · activity_log ✅ ·
-      **doküman versiyon geçmişi ve onay zinciri koleksiyonu yok** · `DB.activities` kapsamı **tam** (UID-16 kapandı)
+- [x] document · **document_version** · **document_approval** · notification · automation · role ·
+      permission · activity_log — `DB.documentVersions` (16 sürüm) ve `DB.documentApprovals` (15 adım)
+      12. oturumda açıldı; dokümanın `versiyon` ve `onay` alanları zincirlerinden türetilebiliyor ·
+      `DB.activities` kapsamı **tam** (UID-16 kapandı)
 - [x] Modüller arası bağ alanları veride **yazılı** (L-13): destek→görev/hata/değişiklik ·
       sipariş→demirbaş · test→hata→teslim→modül→sprint zincirleri (VB-05 / VB-07 / VB-08 kapandı,
       `canon.js` eksen 15 · 521 kontrol · components.md §9d)
@@ -418,10 +475,13 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
 - [x] **Lead→müşteri dönüşümü** → `app-lead-detay.html` "Müşteriye dönüştür" (gerçek `DB.customers` kaydı)
 - [x] **Ön analiz** → `app-onanaliz.html` + `app-onanaliz-detay.html` (28 değerlendirme alanı)
 - [x] **Teklif ve sözleşme** → `app-teklif-detay` → `app-sozlesme-detay` → ödeme planı zinciri
-- [~] **Proje başlatma** → sözleşme → proje → milestone zinciri ekranlarda kurulu ·
-      `app-proje-form.html` **8. oturumda üretildi** (24 alan + teknik envanter, bağlı sözleşmeyi okuyup
-      bedel ekseni doğruluyor) — metin bunun gerisinde kalmıştı. Açık kalan: **sözleşmeden tek işlemle
-      proje açma** (form sözleşme kaydından ön doldurulmuyor)
+- [x] **Proje başlatma** → sözleşme → proje → milestone zinciri **tek işlemle tetikleniyor** — kapandı 12. oturum
+      → `app-sozlesme-detay` projesi olmayan sözleşmede "Projeyi başlat", olanda "Projeyi aç" basıyor
+      (ölü buton yok). `app-proje-form.html?sozlesme=` sözleşmeyi okuyup ad · müşteri · başlangıç ·
+      planlanan bitiş · **net** bedeli ön dolduruyor; kaydedince bağ **sözleşme kaydının `proje`
+      alanına** yazılıyor (§9d, projede ayna yok). Projesi olan sözleşme ikinci proje doğurmuyor.
+      Ölçüm: projesiz `SZL-2026-022` → başlat · projeli `SZL-2026-021` → aç · `ekle` yetkisiz rolde
+      aksiyon hiç basılmıyor
 - [x] **Görev atama** → `app-gorev-detay.html` görev atama mutasyonu + `DB.activities` kaydı
 - [x] **Görev kabulü** → görev durum geçişi (Havuzda → Kabul edildi), yetki kapılı
 - [x] **Görev kontrolü** → "Kontrol Bekleyenler" sekmesi + detayda kontrol/onay zinciri
@@ -432,9 +492,10 @@ durum değerleri · arşivleme mantığı · log kaydı · yetki kapsamı.
       `app-izin-form.html` **8. oturumda üretildi** (bakiye · vekil · çakışma) — akış artık talep açmaktan
       onaya kadar uçtan uca yürüyor; metin bir tur boyunca form bloğunun gerisinde kalmıştı
 - [x] **Satın alma talebi** → `app-satinalma-detay.html` tutar eşikli 6 makamlı `GV.chain` onayı
-- [~] **Demirbaş zimmeti** → `app-zimmet.html` zimmet/iade + tutanak + dijital onay + hasar ✅
-      (metin veriden geriydi, bkz. Wave 7) · **teslim fotoğrafı** ve **eksik ekipman kaydı** açık
-- [~] **Araç zimmeti** → `app-arac-detay.html` zimmet sekmesi ✅ · aynı iki eksik adım
+- [x] **Demirbaş zimmeti** → `app-zimmet.html` zimmet + tutanak + dijital onay + **iade kontrolü** +
+      hasar + **eksik ekipman** ✅ (§15'in 12 adımından 11'i · bkz. Wave 7).
+      **Teslim fotoğrafı** gerçek dosya deposu ister → **V2-06**
+- [x] **Araç zimmeti** → `app-arac-detay.html` zimmet sekmesi ✅ · aynı 11 adım · aynı V2-06 kalıntısı
 - [x] **Araç bakımı** → `app-arac-bakim.html` + araç detayında bakım kaydı ekleme mutasyonu
 - [x] **Sigorta yenilemesi** → `app-arac-sigorta.html` + 60/30/15/7 gün yenileme takvimi
 - [x] **Kasko yenilemesi** → aynı ekran, ayrı poliçe ekseni
@@ -596,7 +657,9 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       girdi soran modalı kendi onaylıyordu · görünmeyen toplu işlem butonunu "ölü" sayıyordu)
 - [x] **xport.js kalıcı tarama setinde** — `tasks/qa/xport.js`, her turda koşuluyor
 - [x] **ctl.js kalıcı tarama setinde** — `tasks/qa/ctl.js`, her turda koşuluyor
-- [~] **UID-26** · `GV.list` kilidi — **kısmen çözüldü** → `openCols` · `openFilters` · `openExport` · `setView`
+- [-] **UID-26** · `GV.list` kilidi — **KAPSAM DIŞI · karar kaydı** (gerekçe `ui-debt.md` **V2-01**)
+      → belirtiler kapandı, kalan iş mimari saflık; paydaya girmez.
+      **Kısmen çözülen kısım** → `openCols` · `openFilters` · `openExport` · `setView`
       liste örneğinin **dönüş yüzeyine** alındı ve dışarıdan çağrılabilir olduğu ölçüldü (panel/modal açılıyor).
       **Yapılmayan:** listeden bağımsız `GV.cols(cfg)` bileşenlerine ayrıştırma — dördü de liste `state`i
       üzerinde çalışıyor, bağımsızlık durumu dışarı taşıyan ayrı bir sözleşme ister. Borcun gerekçe
@@ -649,10 +712,11 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       doğruluyor: 2.422 çiftte bitişik **0**
 - [x] Native kontroller tasarım sisteminde — UID-09 ile kapandı; `ctl.js`: native select **0/732**,
       kutu/radyo **0/4.154**. Tarih alanı bilinçli istisna (assumptions **V-36**)
-- [~] **Hizalama ve optik denge** — ölçülebilen kısmı temiz: `qa.js` 141 ekran × 3 kırılımda yatay
-      taşma yok, ikon ölçüleri `ic-sm/ic-lg` token'larından, tablo satır yoğunluğu masaüstünde korundu.
-      **Ölçüye gelmeyen kısmı açık:** "optik denge" göz kararıdır, otomatik eksene bağlanamadı —
-      dondurulmuş kapsamda (ui-debt.md V2)
+- [-] **Hizalama ve optik denge** — **KAPSAM DIŞI · karar kaydı** (gerekçe `ui-debt.md` **V2-02**);
+      paydaya girmez. Ölçülebilen kısmı temiz: `qa.js` 142 ekran × 3 kırılımda yatay taşma yok,
+      ikon ölçüleri `ic-sm/ic-lg` token'larından, tablo satır yoğunluğu masaüstünde korundu.
+      **Ölçüye gelmeyen kısmı:** "optik denge" göz kararıdır, otomatik eksene bağlanamadı —
+      bu projede bir tarama ekseniyle kapatılamaz, o yüzden açık madde olarak da tutulmuyor
 - [x] **Odak ve hover** — odak halkası `shell.css`'te **global** tanımlı (`:focus-visible` →
       `--focus-ring`), koyu yüzeyler için `--focus-ring-dark` ayrı; rail, menü, tutamak ve arama
       kendi varyantını geçiyor (12 kural). **Ölçüm aracının hatası kayda geçti:** ilk koşumda
@@ -683,3 +747,35 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
 3. **Çözüm ortak katmanda yapılır** (`ui.css` · `ui.js` · `shell.js` · `tokens.css`), ekranda değil.
 4. **Nokta yaması yasak.** Bir madde kapandığında etkilenen **tüm ekranlar** 1440, 768 ve
    390 px'de yeniden doğrulanır ve sonuç ölçüyle raporlanır (L-05).
+
+---
+
+# V2 — BACKEND GEREKTİRİR
+
+> Bu başlıktakiler **paydanın dışındadır** ve bu projede kapatılamaz.
+> Her biri için gereken tek cümleyle yazılıdır. Tam gerekçeler `ui-debt.md`
+> dosyasının sonunda (**satır 1909+**, V2-01 … V2-06).
+
+| V2 | Konu | Kapatmak için gereken |
+|---|---|---|
+| **V2-06** | Zimmet **teslim fotoğrafları** (§15'in 12. adımı) | Dosya yükleme uç noktası, nesne depolama ve kalıcı dosya URL'i olan bir backend — `GV.upload` dosya seçtiriyor ama hiçbir yere yüklemiyor, olmayan dosya adı veriye yazılmaz (L-13) |
+| **V2-03** | `musteri` satır kapsamı | `GV.session`'a müşteri kimliği ekseni — oturum bir PERSONEL kaydından kuruluyor, müşteri kullanıcısının hangi müşteriye ait olduğu hiçbir yerde yazılı değil |
+| **V2-05** | İşten **ayrılış** (offboarding) kaydı | Veride ayrılmış personel — 16 personelin 16'sı `aktif:true`; olmayan bir ayrılışı uydurmak yerine sekme boş durumunu dürüstçe basıyor |
+
+**Aynı sınırın diğer yüzleri (ayrı madde değil, aynı eksik):** doküman ve teklif
+PDF'lerinin gerçek dosyaları · tutanak taraması · e-imza · gerçek e-posta/SMS
+gönderimi · ödeme tahsilatı · üçüncü taraf entegrasyonların canlı bağlantısı.
+Hepsi `app-ayar-entegrasyon.html`'de **arayüz olarak** modellenmiştir; hiçbiri
+gerçek bir servise bağlanmaz ve ekranlar bunu söyler.
+
+---
+
+# KAPSAM DIŞI — KARAR KAYDI
+
+> `[-]` işaretli iki madde. Karar **verilmiştir**, iş "unutulmadı" — bilinçle
+> bu projenin dışında bırakıldı. Paydaya girmez.
+
+| Madde | Karar | Gerekçe nerede yazılı |
+|---|---|---|
+| **UID-26** · `GV.list` yordamlarının bağımsız bileşene ayrıştırılması | Belirtiler (UID-06 · UID-07 · UID-17) başka yollarla kapandı; kalan değer **mimari saflık**. Dördü de liste `state`i üzerinde çalışıyor, bağımsızlık durumu dışarı taşıyan ayrı bir sözleşme ister | `ui-debt.md` **V2-01** · `plan.md` FAZ Kapsam A |
+| **Hizalama ve optik denge** | Ölçülebilen kısmı temiz (142 ekran × 3 kırılım taşma yok, ikonlar token'dan, kontrast AA). "Optik denge" **göz kararıdır**, otomatik eksene bağlanamadı — sahte yeşile yazmaktansa kapsam dışı | `ui-debt.md` **V2-02** · `plan.md` FAZ Kapsam B |

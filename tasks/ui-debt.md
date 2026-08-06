@@ -1959,3 +1959,22 @@ basıyor, ama **çıkış kaydı yok** — çünkü veride ayrılmış personel 
 olurdu (L-13). Sekme boş durumu dürüstçe basıyor. Ayrılan personel verisi
 yazıldığında çıkış süreci de yazılır.
 
+
+## V2-06 · Teslim fotoğrafları — gerçek dosya deposu ister
+
+PROMPT.md §15 zimmet sürecinin **12 adımından biri** "Teslim fotoğrafları"dır.
+12. oturumda diğer **11 adım kapandı** (tutanak · dijital onay · iade işlemi ·
+iade kontrolü · hasar · eksik ekipman · işten ayrılış kontrolü · zimmet geçmişi
+dahil); bu adım kapanmadı ve **bu projede kapanamaz**.
+
+Sebep: bu bir arayüz eksiği değil, **altyapı eksiğidir.** `GV.upload` bileşeni
+dosya seçtiriyor ve önizleme basıyor ama hiçbir yere yüklemiyor — statik
+prototipte sunucu, depolama ve dosya URL'i yok. `DB.assignments`'a
+`fotograflar:['zimmet-001-1.jpg']` yazmak, olmayan bir dosyayı varmış gibi
+göstermek olurdu (ders **L-13**); zaten `app-dokuman-detay` da "gerçek dosya
+barındırılmıyor, indirme yapılamaz" diyor. Aynı sınır dokümanların gerçek
+dosyaları, teklif PDF'i ve tutanak taraması için de geçerlidir — `tutanak`
+alanı bir **dosya adıdır**, dosyanın kendisi değildir.
+
+Kapatmak için gereken tek cümle: **dosya yükleme uç noktası, nesne depolama ve
+kalıcı dosya URL'i olan bir backend.**
