@@ -27,6 +27,7 @@
 | L-21 | `components.md` beş oturum boyunca kodda karşılığı olmayan **sekiz `GV.*` adı** taşıdı; ekranlar sözlüğe güvenip var olmayan API'yi çağırmaya çalışabilirdi. Düzeltirken **ben de** eksik ölçtüm: yalnız `ui.js` + `shell.js` taradım, `GV.dashboard`'ı (`dashboard.js`) kaçırdım | Bir API sözlüğe yazılmadan önce adı kodda **görülmüş** olmalı; planlanan ama yazılmamış bileşen sözlüğe değil `ui-debt.md`'ye yazılır. Yüzey taranırken **`assets/js/` altındaki TÜM dosyalar** taranır, iki dosya varsayılmaz | 2026-08-05 |
 | L-22 | `DB.tasks[].destek` alanı şemada **vardı** ve VB-05 "bağ yazıldı, kapandı" diye kapatılmıştı; ölçüldüğünde **0/25 kayıtta dolu** çıktı. `canon.js` bunu görmedi çünkü eksen "bağ verilen kod gerçekten var mı" diye soruyor, "bağ **verilmiş mi**" diye sormuyor — boş alan her zaman geçer | **Alan açmak bağ yazmak değildir** (L-13'ün bir adım ilerisi). Bir bağ maddesi kapatılırken alanın **kaç kayıtta dolu olduğu** yazılır; tarama eksenine "her bağ için en az bir kayıt gerçekten bağ taşır" kontrolü eklenir. Kapanmış madde ölçümle **geri açılabilir** | 2026-08-05 |
 | L-23 | `GV.list` `run`'ı olmayan toplu işlemde **yeşil "N kayıt işlendi" başarı mesajı** basıyordu; 79 aksiyon / 47 ekran beş oturum boyunca sahte çalıştı. Hiçbir tarama yakalamadı: konsol temiz, `href` yok, mutasyon olmadığı için `mut.js` de temiz | Ortak bileşen, çağıranın **vermediği** bir yordamın yerine **başarı** varsayamaz. Eksik sözleşmede bileşen ya hiç basmaz ya da açıkça eksik olduğunu söyler — asla "oldu" demez. Genel: **bir hata sınıfı bulunduğunda taramaya ekseni eklenmeden madde kapatılmaz** | 2026-08-05 |
+| L-28 | Beş borç kaydının beşi de kendi kapsamını **yanlış** ölçmüştü: UID-16 "5 önek" dedi, gerçek **22**; UID-17 "9 ekran" dedi, gerçek **60**; VB-04 "111 kullanım" dedi, gerçek **145**; VB-12 "2 alan" dedi, gerçek **3**; VB-28 "3 bağ yok" dedi, ikisi **ters yönde zaten vardı** | **Borç kaydındaki sayı TAHMİNDİR, kapatmadan önce yeniden ölçülür.** Dört sapmanın dördü aynı yönde (eksik) çıktı — statik okuma borcu küçük gösterir. VB-28 altıncı hatayı ekledi: bir bağ "yok" denmeden önce **iki yönde de** aranır, çünkü bağ hedefte değil KAYNAK kayıtta olabilir | 2026-08-06 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -406,3 +407,57 @@ taramasında fark edildi; "0 kolon" ifadesi olmasa gözden kaçacaktı.
 çapa kaymaz. (d) L-17 · L-24 · L-26 ile aynı aile: **araç da ölçülür.** Bu kez hatayı
 yakalayan şey, raporun içindeki **sayının kendisiydi** — bu yüzden her tarama raporunda
 kaç ekran, kaç kayıt, kaç birim ölçüldüğü ayrı ayrı yazılır (L-19).
+
+
+## L-28 · Borç kaydının kendi kapsamı da ölçülmeden güvenilmez
+
+**Olay:** 11. oturumda kapatılan beş borcun **beşinde de** defterdeki kapsam yanlıştı:
+
+| Borç | Defterde | Ölçülen | Sapma |
+|---|---|---|---|
+| UID-16 aktivite kod öneki | 5 önek | **22** | 4,4× |
+| UID-17 yerel `dl()` | 9 ekran | **60 ekran** | 6,7× |
+| VB-04 rename kullanımı | 111 | **145** | 1,3× |
+| VB-12 kişi kimliği alanı | 2 alan | **3** (biri 192 kayıt) | — |
+| VB-28 eksik §22 bağı | 3 bağ yok | **1** (ikisi ters yönde vardı) | ters yön |
+
+**İlk dördü aynı yönde:** gerçek her seferinde defterdekinden **büyük**. Sebep aynı —
+sayı statik bir okumadan (`grep`, göz kararı) geliyordu ve ölçüm ekseni yoktu. Bu,
+**L-25'in bir üst katıdır**: L-25 "ölçüm ekseni olmadan yazılan borç kaydı borcu eksik
+sayar" diyordu; burada görülen, o eksikliğin **kapatma planını da yanlış boyutlandırdığı**.
+UID-17 "dokuz ekranlık iş" sanılıyordu, altmış çıktı.
+
+**Beşincisi ters yönde ve daha öğretici:** VB-28 üç bağın "veride hiç olmadığını"
+söylüyordu. İkisi (`leads.musteri` · `messages.gorev`) **vardı** — ama kayıt onları
+yalnız **hedef** koleksiyonda aramıştı. Oysa components.md §9d bağı *doğan/kaynak*
+kayıtta tutar. Borcun istediği alanlar (`customers.lead` · `tasks.kanal`) tam olarak
+§9d'nin **yasakladığı ayna alanlardı**; açılsalardı iki ekran kendi yazdığı bağla
+çelişecekti.
+
+**Kural:**
+(a) Bir borç kapatılmadan önce **kapsamı yeniden ölçülür**; defterdeki sayı tahmindir
+    ve kapanış kaydına *ölçülen* sayı, sapmasıyla birlikte yazılır.
+(b) Bir bağ "yok" denmeden önce **iki yönde de** aranır — hedefte yoksa kaynakta olabilir.
+(c) Sapma tek yönlü çıkıyorsa (hep eksik) bu bir örüntüdür, tek tek hata değil:
+    statik okumayla sayılan her borç aynı riski taşır.
+
+## L-29 · Ölçüm aracı üç ayrı şekilde kendi hatasını gösterdi
+
+Aynı oturumda üç kez ölçüm aracı yanıldı ve üçü de farklı sınıftı:
+
+1. **Yanlış yerden okuma:** `pers.js` `innerText` kullanıyordu; sekmelerin tamamı
+   tıklandıktan sonra yalnız son panel görünür kaldığı için **ekranda gerçekten var
+   olan bir adı "yok"** gösterdi. Düzeltme: gövde klonlanıp `<script>` düğümleri
+   atılarak `textContent` okunuyor.
+2. **Fazla katı hüküm:** aynı script "kod sayfada hiç geçmesin" diyordu; oysa bu
+   projede her kayıt kendi kodunu `.cell-sub` / `.cell-code` ile **ikincil etiket**
+   olarak gösterir. İki meşru gösterim ihlal sayıldı. Kural **birincil ad konumuna**
+   daraltıldı (`.cell-main` · `.gv-tl-who` · sınıfsız `td`/`dd`).
+3. **Tarayıcı davranışını yanlış modelleme:** kapsam denetimi **8.188 odaksız öğe**
+   raporladı. Programatik `.focus()` `:focus-visible`'ı tetiklemez; ihlallerin tamamı
+   sahteydi, odak halkası `shell.css`'te global tanımlıydı.
+
+**Kural:** L-26'nın "araç sınanmadan güvenilmez" kuralı yalnız *hüküm mantığı* için
+değil, **okuma yöntemi** ve **tarayıcı davranışı** için de geçerlidir. Yeni bir araç
+üç soruyu birden geçmelidir: *doğru yerden mi okuyor · hüküm sağlıklı davranışı ihlal
+sayıyor mu · ölçtüğü şey tarayıcıda gerçekten öyle mi çalışıyor.*
