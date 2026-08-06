@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>İşe Giriş ve Çıkış — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="personel" data-screen="isegiris">
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/hr.js"></script>
+<!-- work.js: DB.activities — süreç adımı güncellendiğinde aktivite kaydı yazılır (L-12) -->
+<script src="assets/data/work.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+  var canDuz = GV.perm.can('duzenle');
+
+  /* İLERLEME TÜRETİLİR, YAZILMAZ (L-08): kayıtta `ilerleme` alanı yoktur,
+     tamamlanan adım oranından hesaplanır. */
+  function ilerleme(o){
+    var a = o.adimlar || [];
+    return a.length ? Math.round(a.filter(function(x){ return x.tamam; }).length / a.length * 100) : 0;
+  }
+  function kalanAdim(o){ return (o.adimlar || []).filter(function(x){ return !x.tamam; }); }
+
+  GV.pageHead({ eyebrow:'İnsan Kaynakları', title:'İşe Giriş ve Çıkış',
+    sub:'<span data-listcount>—</span>',
+    actions:[{ label:'Personel', icon:'i-users', href:'app-personel.html' }] });
+
+  var list = GV.list({
+    /* UID-05 — kendi kaydını gören rol yalnız kendi sürecini görür */
+    scopeField:{ kendi:'personel' },
+    mount:'#liste', id:'isegiris', key:'kod', source:function(){ return DB.onboarding; },
+    exportName:'ise-giris-cikis', exportTitle:'İşe Giriş ve Çıkış Süreçleri',
+    pageSize:25, defaultSort:'tarih', defaultDir:'desc',
+    search:{ placeholder:'Personel, süreç kodu veya not ara', fields:['kod','not','durum','tur'],
+             extra:function(o){ return DB.empName(o.personel); } },
+    tabs:[
+      { key:'acik',  label:'Devam Eden', icon:'i-clock',  filter:function(o){ return o.durum === 'Devam ediyor'; } },
+      { key:'giris', label:'İşe Girişler', icon:'i-user-plus', filter:function(o){ return o.tur === 'Giriş'; } },
+      { key:'cikis', label:'Çıkışlar', icon:'i-logout', filter:function(o){ return o.tur === 'Çıkış'; } },
+      { key:'tumu',  label:'Tümü', icon:'i-list' }
+    ],
+    kpis:[
+      { key:'acik', label:'Devam eden süreç', icon:'i-clock', tone:'warn',
+        calc:function(rows){ return rows.filter(function(o){ return o.durum === 'Devam ediyor'; }).length; } },
+      { key:'adim', label:'Bekleyen adım', icon:'i-clipboard', tone:'danger',
+        calc:function(rows){ return rows.reduce(function(a, o){ return a + kalanAdim(o).length; }, 0); } },
+      { key:'giris', label:'İşe giriş', icon:'i-user-plus', tone:'ok',
+        calc:function(rows){ return rows.filter(function(o){ return o.tur === 'Giriş'; }).length; } },
+      { key:'cikis', label:'Çıkış', icon:'i-logout', tone:'neutral',
+        calc:function(rows){ return rows.filter(function(o){ return o.tur === 'Çıkış'; }).length; } }
+    ],
+    columns:[
+      { key:'kod', label:'Süreç kodu', width:'12%',
+        render:function(o){ return '<span class="cell-code">' + esc(o.kod) + '</span>'; } },
+      { key:'personel', label:'Personel', width:'20%', locked:true, cellClass:'cell-wrap',
+        render:function(o){ return GV.user(o.personel, { sm:true }); },
+        exportValue:function(o){ return DB.empName(o.personel); } },
+      { key:'tur', label:'Süreç', width:'10%',
+        render:function(o){ return GV.badge(o.tur, o.tur === 'Giriş' ? 'is-ok' : 'is-neutral'); } },
+      { key:'tarih', label:'Tarih', width:'11%',
+        render:function(o){ return '<span class="cell-date">' + F.date(o.tarih) + '</span>'; } },
+      { key:'ilerleme', label:'İlerleme', width:'16%',
+        render:function(o){
+          var p = ilerleme(o);
+          return '<div class="gv-progress"><span style="width:' + p + '%"></span></div>' +
+                 '<span class="cell-sub">' + p + '% · ' +
+                 (o.adimlar || []).filter(function(x){ return x.tamam; }).length + '/' +
+                 (o.adimlar || []).length + ' adım</span>';
+        },
+        sortValue:function(o){ return ilerleme(o); },
+        exportValue:function(o){ return ilerleme(o) + '%'; } },
+      { key:'sorumlu', label:'Süreç sorumlusu', width:'16%',
+        render:function(o){ return GV.user(o.sorumlu, { sm:true }); },
+        exportValue:function(o){ return DB.empName(o.sorumlu); } },
+      { key:'durum', label:'Durum', width:'12%',
+        render:function(o){ return GV.badge(o.durum); } },
+      { key:'not', label:'Not', visible:false, cellClass:'cell-wrap' }
+    ],
+    filters:[
+      { key:'tur', label:'Süreç türü', type:'select', options:['Giriş','Çıkış'] },
+      { key:'durum', label:'Durum', type:'select', options:['Devam ediyor','Tamamlandı'] },
+      { key:'sorumlu', label:'Süreç sorumlusu', type:'select',
+        options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
+      { key:'tarih', label:'Tarih aralığı', type:'daterange' }
+    ],
+    rowActions:[
+      { key:'adim', icon:'i-clipboard-check', label:'Adımları aç',
+        run:function(o, refresh){
+          GV.drawer({ title:o.kod + ' — ' + DB.empName(o.personel),
+            body:'<div class="gc-body">' + GV.notice({
+                tone:o.durum === 'Tamamlandı' ? 'ok' : 'info',
+                icon:o.tur === 'Giriş' ? 'i-user-plus' : 'i-logout',
+                title:o.tur + ' süreci · ' + F.date(o.tarih),
+                text:o.not || 'Süreç notu girilmemiş.' }) + '</div>' +
+              '<div class="gc-body flush"><ul class="gv-checklist">' +
+              (o.adimlar || []).map(function(a, i){
+                return '<li><label class="f-check"><input type="checkbox" data-adim="' + i + '"' +
+                  (a.tamam ? ' checked' : '') + (canDuz ? '' : ' disabled') + '>' +
+                  '<span>' + esc(a.ad) + '</span></label>' +
+                  '<span class="cell-sub">' + esc(DB.empName(a.sorumlu)) + '</span></li>';
+              }).join('') + '</ul></div>',
+            onMount:function(el){
+              if(!canDuz) return;
+              el.addEventListener('change', function(ev){
+                var i = ev.target.getAttribute && ev.target.getAttribute('data-adim');
+                if(i == null) return;
+                o.adimlar[+i].tamam = ev.target.checked;
+                /* Durum adımlardan TÜRETİLİR — ayrı bir "tamamla" düğmesi yok */
+                o.durum = kalanAdim(o).length ? 'Devam ediyor' : 'Tamamlandı';
+                DB.activities.unshift({ kayit:o.kod, tarih:DB.today + 'T09:00', kisi:GV.session.emp,
+                  metin:'Süreç adımı güncellendi — ' + o.adimlar[+i].ad,
+                  eski:ev.target.checked ? 'Bekliyor' : 'Tamam',
+                  yeni:ev.target.checked ? 'Tamam' : 'Bekliyor', tone:'info', icon:'i-clipboard-check' });
+                refresh();
+              });
+            },
+            actions:[{ label:'Kapat', cls:'btn-line' }] });
+        } },
+      { key:'personel', icon:'i-user', label:'Personel kartı',
+        href:function(o){ return 'app-personel-detay.html?id=' + o.personel; } }
+    ],
+    bulk:[
+      { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }
+    ],
+    export:['xlsx','csv','pdf','print'],
+    emptyState:{ icon:'i-user-plus', title:'İşe giriş ya da çıkış süreci yok',
+      desc:'Yeni personel kaydı açıldığında giriş süreci burada listelenir; ayrılan personelin çıkış adımları da aynı ekrandan izlenir.',
+      action:'<a class="btn btn-acc" href="app-personel.html">Personel listesine git</a>' },
+    urlSync:true
+  });
+});
+</script>
+</body>
+</html>

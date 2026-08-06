@@ -94,7 +94,8 @@
       { ic:'i-chart-bar',    lbl:'Kapasite',         href:'app-kapasite.html',           screen:'kapasite' },
       { seclbl:'Gelişim' },
       { ic:'i-award',        lbl:'Performans',       href:'app-performans.html',         screen:'performans' },
-      { ic:'i-graduation',   lbl:'Eğitim ve Yetkinlik', href:'app-egitim.html',          screen:'egitim' }
+      { ic:'i-graduation',   lbl:'Eğitim ve Yetkinlik', href:'app-egitim.html',          screen:'egitim' },
+      { ic:'i-user-plus',    lbl:'İşe Giriş / Çıkış', href:'app-personel-giris.html',    screen:'isegiris' }
     ]},
 
     varlik:{ ic:'i-package', eyebrow:'Envanter', title:'Demirbaş ve Filo', menu:[
@@ -624,6 +625,7 @@
     'app-zaman.html',
     'app-zaman-onay.html',
     'app-egitim.html',
+    'app-personel-giris.html',
     'app-satinalma-teklif.html',
     'app-odemeplani.html',
     'app-kapasite.html',
