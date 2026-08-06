@@ -334,7 +334,10 @@
     var focusEl = scrim.querySelector('.btn-acc, .btn-danger, input, select, textarea, button');
     if(focusEl) focusEl.focus();
     /* GV.refresh() açık overlay'i kapatabilsin diye kapatıcıyı düğüme asıyoruz. */
+    /* L-18 — overlay üreten bileşen kapatıcısını DÜĞÜME asar; `GV.refresh()`
+       dışarıdan kapatabilsin diye. Scrim'e asılıydı, modal kutusuna değildi. */
     scrim.__gvClose = close;
+    var kutu = scrim.querySelector('.gv-modal'); if(kutu) kutu.__gvClose = close;
     return { close:close, el:scrim };
   };
 
