@@ -23,9 +23,10 @@
 <script src="assets/js/ui.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
-  var F = GV.fmt, esc = GV.esc, me = GV.session.emp;
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, me = GV.session.emp;
   GV.pageHead({ eyebrow:'İnsan Kaynakları', title:'Zaman Kayıtları',
     actions:[{ label:'Timesheet Onayı', icon:'i-clipboard-check', href:'app-zaman-onay.html' },
+             { label:'Zamanlayıcı', icon:'i-timer', cls:'btn-line', id:'btnTimer' },
              { label:'Süre Ekle', icon:'i-plus', cls:'btn-acc', id:'btnEkle' }] });
   var list = GV.list({
     /* UID-05 — SATIR KAPSAMI: `GV.perm.scope('gor')` kısıtlıysa bileşen kaynağı
@@ -96,6 +97,91 @@ document.addEventListener('gv:ready', function(){
     emptyState:{ icon:'i-timer', title:'Bu görünümde zaman kaydı yok',
       desc:'Görev bazlı süre girişi proje maliyetini ve faturalandırmayı besler.' }
   });
+
+  /* =====================================================================
+     ZAMAN KAYDI ZAMANLAYICISI (start / stop) — PROMPT.md §14
+     Durum `localStorage`'da tutulur (`gv.timer`) ki sayfa değişince kaybolmasın;
+     mock veri bellekte olduğu için SAYAÇ da veriye yazılmaz, yalnız DURDURUNCA
+     gerçek bir `DB.timelogs` kaydı doğar. Çalışan sayaç ekranda görünür kalır ve
+     geçen süre `Date.now()` farkından türetilir — saklanan sayaç yoktur (L-08).
+     Süre en yakın 0,25 saate yuvarlanır: `DB.timelogs[].sure` ekseni budur.
+     ===================================================================== */
+  var TKEY = 'gv.timer';
+  function timerOku(){
+    try{ var v = JSON.parse(localStorage.getItem(TKEY) || 'null'); return (v && v.bas) ? v : null; }catch(err){ return null; }
+  }
+  function timerYaz(v){
+    try{ v ? localStorage.setItem(TKEY, JSON.stringify(v)) : localStorage.removeItem(TKEY); }catch(err){}
+  }
+  function gecen(bas){ return Math.max(0, (Date.now() - bas) / 3600000); }
+  function saatBicim(h){
+    var t = Math.floor(h), d = Math.round((h - t) * 60);
+    return (t < 10 ? '0' : '') + t + ':' + (d < 10 ? '0' : '') + d;
+  }
+  var timerTik = null;
+  function timerCiz(){
+    var btn = document.getElementById('btnTimer');
+    if(!btn) return;
+    var t = timerOku();
+    if(timerTik){ clearInterval(timerTik); timerTik = null; }
+    if(!t){
+      btn.classList.remove('btn-acc'); btn.classList.add('btn-line');
+      btn.innerHTML = ico('i-timer') + ' Zamanlayıcı';
+      return;
+    }
+    btn.classList.remove('btn-line'); btn.classList.add('btn-acc');
+    var yaz = function(){ btn.innerHTML = ico('i-pause') + ' ' + saatBicim(gecen(t.bas)) + ' — Durdur'; };
+    yaz();
+    timerTik = setInterval(yaz, 1000);
+  }
+
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('#btnTimer')) return;
+    var t = timerOku();
+    if(!t){
+      /* BAŞLAT — hangi görev için sayıldığı sorulur; görev dışı çalışma da geçerli */
+      GV.modal({ title:'Zamanlayıcıyı Başlat', icon:'i-play', size:'sm',
+        body:'<div class="gv-fields">' +
+          '<div class="field f-col-12"><label for="tGorev">Görev</label><select id="tGorev">' +
+          '<option value="">Görev dışı çalışma</option>' +
+          DB.tasks.slice(0,20).map(function(x){ return '<option value="' + x.kod + '">' + esc(x.kod + ' — ' + x.baslik) + '</option>'; }).join('') +
+          '</select></div>' +
+          '<div class="field f-col-12"><label for="tAcik">Ne üzerinde çalışılıyor?</label>' +
+          '<input type="text" class="inp" id="tAcik" placeholder="Kısa açıklama"></div></div>',
+        actions:[{ label:'Vazgeç', cls:'btn-line' },
+          { label:'Başlat', cls:'btn-acc', onClick:function(close, el){
+              var acik = el.querySelector('#tAcik').value.trim();
+              if(!acik){ GV.toast('Açıklama zorunludur — kayıt durdurulunca bu metinle yazılır', 'danger'); return false; }
+              timerYaz({ bas:Date.now(), gorev:el.querySelector('#tGorev').value || null, aciklama:acik });
+              timerCiz();
+              GV.toast('Zamanlayıcı başladı', 'ok');
+            } }] });
+      return;
+    }
+    /* DURDUR — gerçek kayıt yazılır; 0,25 saatin altındaysa yazılmaz ve SÖYLENİR */
+    var h = gecen(t.bas), yuvarlak = Math.round(h * 4) / 4;
+    GV.confirm({ title:'Zamanlayıcıyı durdur',
+      text:'Geçen süre ' + saatBicim(h) + '. Kayda ' + F.hours(yuvarlak) +
+           ' olarak yazılacak (en yakın çeyrek saat).' +
+           (yuvarlak < 0.25 ? ' Çeyrek saatin altındaki süre kayıt doğurmaz.' : ''),
+      tone:'warn' }).then(function(ok){
+      if(!ok) return;
+      if(yuvarlak < 0.25){
+        timerYaz(null); timerCiz();
+        GV.toast('Süre çeyrek saatin altında — kayıt yazılmadı', 'info');
+        return;
+      }
+      var g = DB.tasks.filter(function(x){ return x.kod === t.gorev; })[0];
+      DB.timelogs.unshift({ kod:'ZMN-' + (9100 + DB.timelogs.length), personel:me, tarih:DB.today,
+        gorev:t.gorev || null, proje:g ? g.proje : null, musteri:g ? g.musteri : null, sure:yuvarlak,
+        faturalanabilir:!!g, aciklama:t.aciklama, onay:'Bekliyor', aktif:true });
+      timerYaz(null); timerCiz();
+      GV.toast(F.hours(yuvarlak) + ' zaman kaydı yazıldı', 'ok');
+      list.refresh();
+    });
+  });
+
+  timerCiz();
 
   document.addEventListener('click', function(e){
     if(!e.target.closest('#btnEkle')) return;
