@@ -197,6 +197,13 @@ document.addEventListener('gv:ready', function(){
         .map(function(s){ return { kod:s.kod, baslik:s.baslik, tamam:!!s.tamam, sorumlu:s.sorumlu }; })
     : [];
 
+  /* Kontrol maddeleri ayrı tampon — DB.checklists ile eşitlenir (PROMPT.md §12) */
+  var kontroller = duzenle
+    ? DB.checklists.filter(function(k){ return k.gorev === kayit.kod; })
+        .sort(function(a,b){ return a.sira - b.sira; })
+        .map(function(k){ return { kod:k.kod, madde:k.madde, tamam:!!k.tamam }; })
+    : [];
+
   var hamBagimlilik = duzenle
     ? DB.taskDeps.filter(function(d){ return d.gorev === kayit.kod || d.bagimli === kayit.kod; })
     : [];
@@ -297,7 +304,8 @@ document.addEventListener('gv:ready', function(){
 
     /* ---- İlişkili kayıtlar ---- */
     var iliskiSatir = [];
-    if(altlar.length) iliskiSatir.push(altlar.length + ' alt görev / kontrol maddesi');
+    if(kontroller.length) iliskiSatir.push(kontroller.length + ' kontrol maddesi');
+    if(altlar.length) iliskiSatir.push(altlar.length + ' alt görev');
     if(bagimliliklar.length) iliskiSatir.push(bagimliliklar.length + ' bağımlılık kaydı');
     if(destekTalebi) iliskiSatir.push(destekTalebi.kod + ' destek talebi');
 
@@ -309,9 +317,10 @@ document.addEventListener('gv:ready', function(){
         tone:iliskiSatir.length ? 'warn' : 'info',
         title:iliskiSatir.length ? 'Bu göreve bağlı başka kayıtlar var' : 'Bu göreve bağlı başka kayıt yok',
         text:(iliskiSatir.length
-                ? iliskiSatir.join(' · ') + '. Alt görevler ve bağımlılıklar bu formdan yönetilir; ' +
-                  'kaydettiğinizde alt görev ve bağımlılık kayıtları formdaki liste ile birebir eşitlenir.'
-                : 'Görev şu an alt görev, bağımlılık ve destek bağı taşımıyor. Aşağıdaki listelerden ekleyebilirsiniz.'),
+                ? iliskiSatir.join(' · ') + '. Kontrol listesi, alt görevler ve bağımlılıklar bu formdan ' +
+                  'yönetilir; kaydettiğinizde üç koleksiyon da formdaki liste ile birebir eşitlenir.'
+                : 'Görev şu an kontrol maddesi, alt görev, bağımlılık ve destek bağı taşımıyor. ' +
+                  'Aşağıdaki listelerden ekleyebilirsiniz.'),
         actions:iliskiAksiyon }) +
       (bosBagimlilik
         ? GV.notice({ tone:'danger', title:'Hedefi olmayan bağımlılık kaydı bulundu',
@@ -423,9 +432,19 @@ document.addEventListener('gv:ready', function(){
       '<div class="gc-body" id="formMount"></div>' +
     '</section>' +
 
+    '<section class="gv-card" id="kntKart">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clipboard-check') + 'Kontrol Listesi</h2>' +
+        '<div class="gc-sub">Görevin kabul koşulları. Sorumlusu yoktur ve iş yükü doğurmaz — ' +
+        'kontrol eden onaylamadan önce işaretler. Kaydedince <code>DB.checklists</code> bu liste ile eşitlenir.</div></div>' +
+        '<div class="gc-head-acts"><button type="button" class="btn btn-line btn-sm" data-knt-ekle>' +
+          ico('i-plus','ic-sm') + ' Kontrol maddesi ekle</button></div></div>' +
+      '<div id="kntBody"></div>' +
+    '</section>' +
+
     '<section class="gv-card" id="altKart">' +
-      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-clipboard-check') + 'Alt Görevler ve Kontrol Listesi</h2>' +
-        '<div class="gc-sub">Kaydedince alt görev kayıtları bu liste ile eşitlenir.</div></div>' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-git') + 'Alt Görevler</h2>' +
+        '<div class="gc-sub">Kontrol maddesinden farklı olarak sorumlusu olan ve iş yüküne giren işler. ' +
+        'Kaydedince alt görev kayıtları bu liste ile eşitlenir.</div></div>' +
         '<div class="gc-head-acts"><button type="button" class="btn btn-line btn-sm" data-alt-ekle>' +
           ico('i-plus','ic-sm') + ' Alt görev ekle</button></div></div>' +
       '<div id="altBody"></div>' +
@@ -631,9 +650,11 @@ document.addEventListener('gv:ready', function(){
         { key:'gercekSure', label:'Gerçekleşen süre (saat)', type:'number', min:0, cols:4,
           hint:'Görev kartındaki toplam. Zaman kayıtları ayrı bir eksendir; bu alandan türetilmez.' },
         { key:'ilerleme', label:'İlerleme', type:'percent', min:0, max:100, cols:4,
-          hint:altlar.length
-            ? 'Kontrol listesi ' + altlar.filter(function(a){ return a.tamam; }).length + '/' + altlar.length +
-              ' tamam. İlerleme yüzdesi veride ayrı bir alandır, kontrol listesinden hesaplanmaz.'
+          hint:(kontroller.length + altlar.length)
+            ? 'Kontrol listesi ' + kontroller.filter(function(k){ return k.tamam; }).length + '/' + kontroller.length +
+              ' · alt görev ' + altlar.filter(function(a){ return a.tamam; }).length + '/' + altlar.length +
+              ' tamam. İlerleme yüzdesi veride ayrı bir alandır; görev kartında iki listeden türetilir, ' +
+              'burada elle yazılır.'
             : 'Görevin tamamlanma yüzdesi.',
           validate:function(v, d){
             if(d.durum === 'Tamamlandı' && tam(v) !== 100) return 'Tamamlandı durumundaki görevin ilerlemesi %100 olmalıdır.';
@@ -876,6 +897,86 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
+     KONTROL LİSTESİ — alt görevden AYRI koleksiyon (PROMPT.md §12).
+     Aynı tampon kalıbı: kaydederken DB.checklists ile eşitlenir.
+     Maddede sorumlu YOKTUR; sırayı listedeki yeri belirler.
+     ================================================================= */
+  function kntKod(){
+    var max = 0;
+    DB.checklists.concat(kontroller).forEach(function(k){
+      var m = /^KNT-(\d+)$/.exec(k.kod || '');
+      if(m) max = Math.max(max, +m[1]);
+    });
+    return 'KNT-' + ('00' + (max + 1)).slice(-3);
+  }
+
+  function kntCiz(){
+    var hedef = document.getElementById('kntBody');
+    if(!hedef) return;
+    if(!kontroller.length){
+      hedef.innerHTML = '<div class="gc-body flush">' + GV.empty({
+        icon:'i-clipboard-check', title:'Kontrol maddesi eklenmedi',
+        desc:'Kabul kriterini madde madde yazın; kontrol eden görevi onaylamadan önce bunları işaretler. ' +
+             'Kontrol maddesi eklemeden de kayıt tamamlanabilir.',
+        action:'<button type="button" class="btn btn-acc" data-knt-ekle>' +
+               '<svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg> İlk maddeyi ekle</button>'
+      }) + '</div>';
+      return;
+    }
+    var tamamSayi = kontroller.filter(function(k){ return k.tamam; }).length;
+    hedef.innerHTML =
+      '<div class="gc-body">' +
+        '<ul class="gv-checklist">' + kontroller.map(function(k, i){
+          return '<li><label class="f-check"><input type="checkbox" data-knt-tik="' + i + '"' +
+              (k.tamam ? ' checked' : '') + '><span>' + esc(k.madde) + '</span></label>' +
+            '<span class="cell-acts">' +
+              '<button type="button" class="ia" data-knt-duzenle="' + i + '" title="Maddeyi düzenle" ' +
+                'aria-label="Kontrol maddesini düzenle">' + ico('i-edit','ic-sm') + '</button>' +
+              '<button type="button" class="ia is-danger" data-knt-sil="' + i + '" title="Maddeyi sil" ' +
+                'aria-label="Kontrol maddesini sil">' + ico('i-trash','ic-sm') + '</button>' +
+            '</span></li>';
+        }).join('') + '</ul></div>' +
+      '<div class="gc-foot">' +
+        '<span class="gv-count"><b>' + kontroller.length + '</b> kontrol maddesi · ' + tamamSayi +
+          ' işaretli · ' + (kontroller.length - tamamSayi) + ' bekliyor</span>' +
+        '<button type="button" class="btn btn-line btn-sm" data-knt-ekle>' +
+          ico('i-plus','ic-sm') + ' Kontrol maddesi ekle</button>' +
+      '</div>';
+  }
+
+  function kntModal(idx){
+    var yeni = idx == null;
+    var k = yeni ? { kod:kntKod(), madde:'', tamam:false } : kontroller[idx];
+    var body = '<div class="gv-fields">' +
+      '<div class="field f-col-12"><label for="kMadde">Kontrol maddesi<span class="req" aria-hidden="true">*</span></label>' +
+        '<input type="text" class="inp" id="kMadde" value="' + esc(k.madde) + '" ' +
+        'placeholder="Örn. iOS 18 cihazda PDF indiriliyor">' +
+        '<span class="f-hint">Kabul koşulunu ölçülebilir tek bir cümleyle yazın.</span></div>' +
+      '<div class="field f-col-12"><label class="f-check"><input type="checkbox" id="kTamam"' +
+        (k.tamam ? ' checked' : '') + '><span>Bu koşul sağlandı</span></label></div>' +
+      '</div>';
+
+    GV.modal({
+      title: yeni ? 'Kontrol maddesi ekle' : 'Kontrol maddesini düzenle',
+      text: yeni ? 'Madde kaydedildiğinde kontrol listesi kaydı olarak yazılır.' : k.kod,
+      icon:'i-clipboard-check', size:'lg', body:body,
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label: yeni ? 'Maddeyi ekle' : 'Maddeyi güncelle', cls:'btn-acc', icon:'i-check',
+          onClick:function(close, el){
+            var madde = el.querySelector('#kMadde').value.trim();
+            if(!madde){ GV.toast('Kontrol maddesi metni zorunludur', 'danger'); return false; }
+            var yeniKayit = { kod:k.kod, madde:madde, tamam:el.querySelector('#kTamam').checked };
+            if(yeni) kontroller.push(yeniKayit); else kontroller[idx] = yeniKayit;
+            kntCiz();
+            form.setDirty(true);
+            GV.toast(yeni ? 'Kontrol maddesi eklendi' : 'Kontrol maddesi güncellendi', 'ok');
+          } }
+      ]
+    });
+  }
+
+  /* =================================================================
      BAĞIMLILIKLAR
      ================================================================= */
   function bagMetin(b){
@@ -998,10 +1099,38 @@ document.addEventListener('gv:ready', function(){
     });
   }
 
+  kntCiz();
   altCiz();
   bagCiz();
 
   /* Delege dinleyiciler mount İÇİNDEKİ kartlara bağlanır (ders L-16). */
+  document.getElementById('kntKart').addEventListener('click', function(e){
+    if(e.target.closest('[data-knt-ekle]')){ kntModal(null); return; }
+    var kd = e.target.closest('[data-knt-duzenle]');
+    if(kd){ kntModal(+kd.dataset.kntDuzenle); return; }
+    var ks = e.target.closest('[data-knt-sil]');
+    if(ks){
+      var ki = +ks.dataset.kntSil, kk = kontroller[ki];
+      if(!kk) return;
+      GV.confirm({ title:'Kontrol maddesini sil', tone:'danger', okLabel:'Sil',
+        text:'“' + kk.madde + '” kontrol listesinden çıkarılacak. Kaydettiğinizde madde kaydı silinir.'
+      }).then(function(ok){
+        if(!ok) return;
+        kontroller.splice(ki, 1); kntCiz(); form.setDirty(true);
+        GV.toast('Kontrol maddesi silindi', 'ok');
+      });
+    }
+  });
+
+  document.getElementById('kntKart').addEventListener('change', function(e){
+    var c = e.target.closest('[data-knt-tik]');
+    if(!c) return;
+    var k = kontroller[+c.dataset.kntTik];
+    if(!k) return;
+    k.tamam = c.checked;
+    kntCiz();
+    form.setDirty(true);
+  });
   document.getElementById('altKart').addEventListener('click', function(e){
     if(e.target.closest('[data-alt-ekle]')){ altModal(null); return; }
     var d = e.target.closest('[data-alt-duzenle]');
@@ -1139,6 +1268,18 @@ document.addEventListener('gv:ready', function(){
     return oncekiler !== altlar.length || duzenle;
   }
 
+  /* Kontrol maddeleri — aynı desen. `sira` listedeki yerden türetilir, elle yazılmaz. */
+  function kntYaz(kod){
+    var oncekiler = DB.checklists.filter(function(k){ return k.gorev === kod; }).length;
+    for(var i = DB.checklists.length - 1; i >= 0; i--){
+      if(DB.checklists[i].gorev === kod) DB.checklists.splice(i, 1);
+    }
+    kontroller.forEach(function(k, ix){
+      DB.checklists.push({ kod:k.kod, gorev:kod, sira:ix + 1, madde:k.madde, tamam:!!k.tamam });
+    });
+    return oncekiler !== kontroller.length || duzenle;
+  }
+
   function bagYaz(kod){
     for(var i = DB.taskDeps.length - 1; i >= 0; i--){
       var d = DB.taskDeps[i];
@@ -1172,10 +1313,18 @@ document.addEventListener('gv:ready', function(){
         degisen++;
       });
 
+      var kntOnce = DB.checklists.filter(function(k){ return k.gorev === kayit.kod; }).length;
       var altOnce = DB.subtasks.filter(function(s){ return s.ustGorev === kayit.kod; }).length;
       var bagOnce = DB.taskDeps.filter(function(d){ return d.gorev === kayit.kod || d.bagimli === kayit.kod; }).length;
+      kntYaz(kayit.kod);
       altYaz(kayit.kod);
       bagYaz(kayit.kod);
+      if(kntOnce !== kontroller.length){
+        DB.activities.unshift({ kayit:kayit.kod, tarih:simdi(), kisi:GV.session.emp,
+          metin:'Kontrol listesi güncellendi', eski:kntOnce + ' madde', yeni:kontroller.length + ' madde',
+          tone:'accent', icon:'i-clipboard-check' });
+        degisen++;
+      }
       if(altOnce !== altlar.length){
         DB.activities.unshift({ kayit:kayit.kod, tarih:simdi(), kisi:GV.session.emp,
           metin:'Alt görev listesi güncellendi', eski:altOnce + ' madde', yeni:altlar.length + ' madde',
@@ -1199,6 +1348,7 @@ document.addEventListener('gv:ready', function(){
         metin:'Görev oluşturuldu' + (yeniHata ? ' (' + yeniHata.kod + ' hatasından)' : ''),
         eski:null, yeni:hedefKod, tone:'ok', icon:'i-plus'
       });
+      kntYaz(hedefKod);
       altYaz(hedefKod);
       bagYaz(hedefKod);
 
@@ -1211,6 +1361,7 @@ document.addEventListener('gv:ready', function(){
         });
       }
       GV.toast(hedefKod + ' oluşturuldu' +
+        (kontroller.length ? ' · ' + kontroller.length + ' kontrol maddesi' : '') +
         (altlar.length ? ' · ' + altlar.length + ' alt görev' : '') +
         (bagimliliklar.length ? ' · ' + bagimliliklar.length + ' bağımlılık' : ''), 'ok');
     }

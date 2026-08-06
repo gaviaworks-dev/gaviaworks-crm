@@ -548,6 +548,61 @@ DB.subtasks = [
   { kod:'ALT-009', ustGorev:'GRV-2026-105', baslik:'Test hesabı bekleniyor', tamam:false, sorumlu:'EMP-005' }
 ];
 
+/* ---- Kontrol listesi maddeleri (PROMPT.md §12 — "Kontrol listesi") ------
+   §12'nin görev kartında **"Kontrol listesi"** ve **"Alt görevler"** AYRI iki
+   alandır; bu yüzden ayrı koleksiyondur, `DB.subtasks`'ın kopyası değildir:
+
+     alt görev (`DB.subtasks`)   → atanabilir İŞ. Sorumlusu vardır, kendi
+                                   kodu vardır, iş yüküne girer.
+     kontrol maddesi (burası)    → görevin KABUL koşulu. Sorumlusu yoktur;
+                                   `kontrolEden` görevi onaylamadan önce tek
+                                   tek işaretler. İş yükü doğurmaz.
+
+   `madde` metni görevin kendi `kabulKriteri` alanından türetilmiştir —
+   uydurulmamıştır (L-13). `tamam` değerleri görevin `durum`/`ilerleme`
+   alanıyla çelişmez: Tamamlandı ve kontrol/onay bekleyen görevlerde maddeler
+   işaretli, havuzdaki görevlerde işaretsizdir.
+   İlerleme yüzdesi YAZILMAZ, maddelerden türetilir (L-08). */
+DB.checklists = [
+  /* GRV-2026-101 · Devam ediyor · %70 — kabul: iOS 16/17/18 + temiz log */
+  { kod:'KNT-001', gorev:'GRV-2026-101', sira:1, madde:'iOS 16 cihazda PDF indiriliyor', tamam:true },
+  { kod:'KNT-002', gorev:'GRV-2026-101', sira:2, madde:'iOS 17 cihazda PDF indiriliyor', tamam:true },
+  { kod:'KNT-003', gorev:'GRV-2026-101', sira:3, madde:'iOS 18 cihazda PDF indiriliyor', tamam:false },
+  { kod:'KNT-004', gorev:'GRV-2026-101', sira:4, madde:'Hata log kaydı temiz', tamam:false },
+  /* GRV-2026-102 · Kontrol bekliyor · %100 — kabul: Apple ölçüsünde 8 görsel */
+  { kod:'KNT-005', gorev:'GRV-2026-102', sira:1, madde:'6.7" ekran görüntüleri Apple ölçüsünde', tamam:true },
+  { kod:'KNT-006', gorev:'GRV-2026-102', sira:2, madde:'6.1" ekran görüntüleri Apple ölçüsünde', tamam:true },
+  { kod:'KNT-007', gorev:'GRV-2026-102', sira:3, madde:'TR yayın notu yazıldı', tamam:true },
+  { kod:'KNT-008', gorev:'GRV-2026-102', sira:4, madde:'EN yayın notu yazıldı', tamam:true },
+  /* GRV-2026-103 · Devam ediyor · %55 — kabul: doğruluk ≥ %85, rapor PDF */
+  { kod:'KNT-009', gorev:'GRV-2026-103', sira:1, madde:'Test kümesi ayrıldı ve donduruldu', tamam:true },
+  { kod:'KNT-010', gorev:'GRV-2026-103', sira:2, madde:'Doğruluk ≥ %85 ölçüldü', tamam:true },
+  { kod:'KNT-011', gorev:'GRV-2026-103', sira:3, madde:'Karışıklık matrisi rapora eklendi', tamam:false },
+  { kod:'KNT-012', gorev:'GRV-2026-103', sira:4, madde:'Rapor PDF olarak dışa aktarıldı', tamam:false },
+  /* GRV-2026-104 · Devam ediyor · %40 — kabul: 1000 kayıtta 300 ms altı render */
+  { kod:'KNT-013', gorev:'GRV-2026-104', sira:1, madde:'Filtre ve sayfalama çalışıyor', tamam:true },
+  { kod:'KNT-014', gorev:'GRV-2026-104', sira:2, madde:'Skor bazlı sıralama çalışıyor', tamam:false },
+  { kod:'KNT-015', gorev:'GRV-2026-104', sira:3, madde:'1000 kayıtta render 300 ms altında', tamam:false },
+  { kod:'KNT-016', gorev:'GRV-2026-104', sira:4, madde:'Storybook kaydı yazıldı', tamam:false },
+  /* GRV-2026-113 · Onay bekliyor — kabul: kritik hata sıfır */
+  { kod:'KNT-017', gorev:'GRV-2026-113', sira:1, madde:'Regresyon seti koşuldu', tamam:true },
+  { kod:'KNT-018', gorev:'GRV-2026-113', sira:2, madde:'Kritik hata sıfır', tamam:true },
+  { kod:'KNT-019', gorev:'GRV-2026-113', sira:3, madde:'Sonuçlar test koşumuna işlendi', tamam:true },
+  /* GRV-2026-118 · Tamamlandı — kabul: TR/EN şablonlar test edildi */
+  { kod:'KNT-020', gorev:'GRV-2026-118', sira:1, madde:'TR şablonlar test edildi', tamam:true },
+  { kod:'KNT-021', gorev:'GRV-2026-118', sira:2, madde:'EN şablonlar test edildi', tamam:true },
+  { kod:'KNT-022', gorev:'GRV-2026-118', sira:3, madde:'Bildirim tipleri tercih matrisine eklendi', tamam:true },
+  /* GRV-2026-121 · Tamamlandı — kabul: Axe taramasında kritik bulgu sıfır */
+  { kod:'KNT-023', gorev:'GRV-2026-121', sira:1, madde:'Klavye ile tüm akış gezilebiliyor', tamam:true },
+  { kod:'KNT-024', gorev:'GRV-2026-121', sira:2, madde:'Kontrast AA eşiğini geçiyor', tamam:true },
+  { kod:'KNT-025', gorev:'GRV-2026-121', sira:3, madde:'Axe taramasında kritik bulgu sıfır', tamam:true },
+  /* GRV-2026-126 · Devam ediyor · %30 — kabul: iOS Safari ve Chrome */
+  { kod:'KNT-026', gorev:'GRV-2026-126', sira:1, madde:'Hata iOS Safari üzerinde yeniden üretildi', tamam:true },
+  { kod:'KNT-027', gorev:'GRV-2026-126', sira:2, madde:'iOS Safari üzerinde tarih seçici açılıyor', tamam:false },
+  { kod:'KNT-028', gorev:'GRV-2026-126', sira:3, madde:'Chrome üzerinde tarih seçici açılıyor', tamam:false },
+  { kod:'KNT-029', gorev:'GRV-2026-126', sira:4, madde:'Müşteri doğrulaması alındı', tamam:false }
+];
+
 /* ---- Görev bağımlılıkları ---------------------------------------------- */
 DB.taskDeps = [
   { gorev:'GRV-2026-102', bagimli:'GRV-2026-101', tur:'Engelliyor' },

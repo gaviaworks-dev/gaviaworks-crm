@@ -63,6 +63,9 @@ document.addEventListener('gv:ready', function(){
   var kaynakKanal = kaynakMesaj ? (DB.channels || []).filter(function(k){ return k.kod === kaynakMesaj.kanal; })[0] : null;
   var kaynakVar   = !!(kaynakTalep || kaynakHata || kaynakMesaj);
   var alt = DB.subtasks.filter(function(s){ return s.ustGorev === t.kod; });
+  /* Kontrol maddeleri alt görevlerden AYRI koleksiyondur (PROMPT.md §12) */
+  var knt = DB.checklists.filter(function(k){ return k.gorev === t.kod; })
+                         .sort(function(a,b){ return a.sira - b.sira; });
   var deps = DB.taskDeps.filter(function(d){ return d.gorev === t.kod || d.bagimli === t.kod; });
   var acts = DB.activities.filter(function(a){ return a.kayit === t.kod; });
   var logs = DB.timelogs.filter(function(l){ return l.gorev === t.kod; });
@@ -92,7 +95,7 @@ document.addEventListener('gv:ready', function(){
   /* ---- Sekmeler ---- */
   var tabs = [
     { key:'genel', lbl:'Genel', ic:'i-info' },
-    { key:'kontrol', lbl:'Kontrol Listesi', ic:'i-clipboard-check', cnt:alt.length },
+    { key:'kontrol', lbl:'Kontrol Listesi', ic:'i-clipboard-check', cnt:knt.length + alt.length },
     { key:'bagimlilik', lbl:'Bağımlılıklar', ic:'i-git', cnt:deps.length },
     { key:'sure', lbl:'Zaman Kayıtları', ic:'i-timer', cnt:logs.length },
     { key:'onay', lbl:'Kontrol ve Onay', ic:'i-stamp' },
@@ -179,15 +182,60 @@ document.addEventListener('gv:ready', function(){
         ]) + '</div>' : '') +
     '</div>';
 
-  var pKontrol = '<div class="gc-body">' +
-    (alt.length
-      ? '<div class="u-col">' + alt.map(function(s){
-          return '<label class="f-check"><input type="checkbox" data-sub="' + s.kod + '"' + (s.tamam ? ' checked' : '') + '>' +
-            '<span>' + esc(s.baslik) + ' <span class="u-xs u-faint">· ' + esc(DB.empName(s.sorumlu)) + '</span></span></label>';
-        }).join('') + '</div>' +
-        '<div class="u-mt-4">' + GV.progress(Math.round(alt.filter(function(s){ return s.tamam; }).length / alt.length * 100)) + '</div>'
-      : GV.empty({ icon:'i-clipboard-check', title:'Kontrol listesi yok', desc:'Bu görev için alt görev veya kontrol maddesi tanımlanmamış.' })) +
-    '</div>';
+  /* PROMPT.md §12 görev kartında "Kontrol listesi" ve "Alt görevler" AYRI iki alandır,
+     bu yüzden iki ayrı blok basılır ve ilerleme İKİSİNDEN BİRLİKTE türetilir (L-08):
+       kontrol maddesi (DB.checklists) → kabul koşulu, sorumlusu yok
+       alt görev       (DB.subtasks)   → atanabilir iş, sorumlusu var           */
+  var kntTamam = knt.filter(function(k){ return k.tamam; }).length;
+  var altTamam = alt.filter(function(s){ return s.tamam; }).length;
+  var toplamMadde = knt.length + alt.length;
+  var toplamTamam = kntTamam + altTamam;
+
+  function kntBlok(){
+    if(!knt.length){
+      return GV.notice({ tone:'neutral', icon:'i-info', title:'Kontrol maddesi tanımlanmamış',
+        text:'Bu görevin kabul koşulları madde madde yazılmamış. Kabul kriteri alanı ' +
+             (t.kabulKriteri ? '“' + esc(t.kabulKriteri) + '” diyor; maddelere bölmek için görevi düzenleyin.'
+                             : 'da boş.') });
+    }
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Kontrol listesi</h3>' +
+        '<p>Görevin kabul koşulları. Sorumlusu yoktur, iş yükü doğurmaz; kontrol eden ' +
+        'görevi onaylamadan önce tek tek işaretler. <b>' + kntTamam + '</b> / ' + knt.length +
+        ' madde işaretli.</p></div>' +
+      '<ul class="gv-checklist">' + knt.map(function(k){
+        return '<li><label class="f-check"><input type="checkbox" data-knt="' + k.kod + '"' +
+          (k.tamam ? ' checked' : '') + '><span>' + esc(k.madde) + '</span></label>' +
+          '<span class="cell-sub">' + (k.tamam ? 'işaretlendi' : 'bekliyor') + '</span></li>';
+      }).join('') + '</ul>' +
+      (t.kontrolEden ? '<p class="u-xs u-faint u-mt-8">Kontrol eden: ' +
+        esc(DB.empName(t.kontrolEden)) + '</p>' : '') + '</div>';
+  }
+
+  function altBlok(){
+    if(!alt.length){
+      return GV.notice({ tone:'neutral', icon:'i-info', title:'Alt görev yok',
+        text:'Bu görev alt görevlere bölünmemiş. Alt görev, kontrol maddesinden farklı olarak ' +
+             'sorumlusu olan ve iş yüküne giren bir iştir.' });
+    }
+    return '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Alt görevler</h3>' +
+        '<p>Kontrol maddesinden farklı olarak sorumlusu olan ve iş yüküne giren işler. ' +
+        '<b>' + altTamam + '</b> / ' + alt.length + ' alt görev tamamlandı.</p></div>' +
+      '<ul class="gv-checklist">' + alt.map(function(s){
+        return '<li><label class="f-check"><input type="checkbox" data-sub="' + s.kod + '"' +
+          (s.tamam ? ' checked' : '') + '><span>' + esc(s.baslik) + '</span></label>' +
+          '<span class="cell-sub">' + esc(DB.empName(s.sorumlu)) + '</span></li>';
+      }).join('') + '</ul></div>';
+  }
+
+  var pKontrol = '<div class="gc-body">' + kntBlok() + '</div>' +
+    '<div class="gc-body">' + altBlok() + '</div>' +
+    (toplamMadde
+      ? '<div class="gc-body"><div class="u-row-between u-mb-4">' +
+        '<span class="u-sm">İlerleme <span class="u-faint">· ' + knt.length + ' kontrol maddesi + ' +
+          alt.length + ' alt görev üzerinden türetildi</span></span>' +
+        '<span class="u-sm u-num"><b>' + toplamTamam + '</b> / ' + toplamMadde + '</span></div>' +
+        GV.progress(Math.round(toplamTamam / toplamMadde * 100)) + '</div>'
+      : '');
 
   var pBagimlilik = '<div class="gc-body">' +
     (deps.length ? '<div class="gv-tablewrap"><table class="gtable"><thead><tr><th>Görev</th><th>İlişki</th><th>Durum</th></tr></thead><tbody>' +
@@ -381,20 +429,30 @@ document.addEventListener('gv:ready', function(){
     }
   }, 'durum');
 
-  /* Kontrol listesi — canlı ilerleme */
+  /* Kontrol listesi ve alt görevler — canlı ilerleme.
+     İlerleme İKİ kümeden birlikte türetilir; hangi kutu işaretlenirse işaretlensin
+     aynı orandan hesaplanır (L-08 — yüzde ayrıca saklanmaz). */
   mount.addEventListener('change', function(e){
-    var c = e.target.closest('[data-sub]');
+    var c = e.target.closest('[data-sub], [data-knt]');
     if(!c) return;
-    var s = alt.filter(function(x){ return x.kod === c.dataset.sub; })[0];
-    if(s) s.tamam = c.checked;
-    var done = alt.filter(function(x){ return x.tamam; }).length;
-    var pct = Math.round(done / alt.length * 100);
+    if(c.dataset.sub){
+      var s = alt.filter(function(x){ return x.kod === c.dataset.sub; })[0];
+      if(s) s.tamam = c.checked;
+    } else {
+      var k = knt.filter(function(x){ return x.kod === c.dataset.knt; })[0];
+      if(k) k.tamam = c.checked;
+    }
+    var done = knt.filter(function(x){ return x.tamam; }).length +
+               alt.filter(function(x){ return x.tamam; }).length;
+    var tum  = knt.length + alt.length;
+    if(!tum) return;
+    var pct = Math.round(done / tum * 100);
     t.ilerleme = pct;
     var bar = mount.querySelector('[data-panel=kontrol] .gv-progress span');
     var val = mount.querySelector('[data-panel=kontrol] .gv-progress-val');
     if(bar) bar.style.width = pct + '%';
     if(val) val.textContent = pct + '%';
-    GV.toast(done + ' / ' + alt.length + ' madde tamamlandı', 'ok', 1600);
+    GV.toast(done + ' / ' + tum + ' madde tamamlandı', 'ok', 1600);
   });
 
   /* Yorum ekleme */
