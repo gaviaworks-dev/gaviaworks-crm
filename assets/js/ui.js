@@ -1753,6 +1753,31 @@
     }).join('') + '</div>';
   };
 
+  /* UID-17 — ALAN LİSTESİ. `.gv-dl` yalnız CSS olarak vardı; JS karşılığı olmadığı
+     için **on iki ekran** kendi `dl(pairs)` üreticisini yazdı ve kararlar ayrıştı:
+     bir kısmı `dt`yi escape ediyordu (para ekseni işareti `<span class="u-faint">
+     (KDV hariç)</span>` ekranda HAM METİN olarak göründü — ders L-14), bir kısmı
+     etmiyordu; `app-ajanda` boş satırı hiç basmıyordu, diğerleri `—` basıyordu.
+
+     SÖZLEŞME: `dt` de `dd` de **çağıranın kurduğu işaretlemedir** — veri tarafını
+     çağıran `esc()` ile kendisi geçirir; bileşen escape ETMEZ, çünkü etiketler
+     bilinçli işaretleme (birim eki, ipucu) taşıyabilir. Boş değer TEK yerde
+     `.is-empty` + `—` alır. `skipEmpty:true` boş satırı hiç basmaz. */
+  GV.dl = function(pairs, opts){
+    opts = opts || {};
+    var list = (pairs || []).filter(function(p){
+      if(!p) return false;
+      if(!opts.skipEmpty) return true;
+      return p[1] != null && p[1] !== '';
+    });
+    if(!list.length) return '';
+    return '<dl class="gv-dl' + (opts.cls ? ' ' + opts.cls : '') + '">' + list.map(function(p){
+      var bos = p[1] == null || p[1] === '';
+      return '<div><dt>' + p[0] + '</dt><dd' + (bos ? ' class="is-empty"' : '') + '>' +
+        (bos ? '—' : p[1]) + '</dd></div>';
+    }).join('') + '</dl>';
+  };
+
   GV.chain = function(steps){
     return '<div class="gv-chain">' + (steps || []).map(function(s){
       var st = s.durum === 'Onaylandı' ? 'ok' : s.durum === 'Reddedildi' ? 'danger' :
