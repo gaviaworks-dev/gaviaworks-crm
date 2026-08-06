@@ -179,18 +179,29 @@ DB.performance = [
     egitimIhtiyaci:[], gelisimPlani:'—', aktif:true }
 ];
 
-/* ---- Eğitim ve yetkinlik ------------------------------------------------ */
+/* ---- Eğitim ve yetkinlik ------------------------------------------------
+   YETKİNLİK EKSENİ: `kazanim` eğitimin KAZANDIRDIĞI yetkinliklerdir ve
+   `DB.employees[].yetkinlik` ile **aynı sözlükten** gelir — eğitim tamamlanınca
+   katılımcının yetkinlik listesine bu değerler eklenir. Ölçüldü: EGT-2026-010
+   (Tamamlandı) `kazanim:['Erişilebilirlik']` ve katılımcıları EMP-004 / EMP-006'nın
+   `yetkinlik` dizisinde 'Erişilebilirlik' zaten yazılı — eksen veriyle tutarlı.
+   Planlanmış eğitimlerin kazanımı henüz katılımcıya İŞLENMEZ; işlenme koşulu
+   `durum === 'Tamamlandı'`tır. -------------------------------------------- */
 DB.trainings = [
   { kod:'EGT-2026-011', ad:'İleri React Performans Optimizasyonu', tur:'Online kurs', saglayici:'Frontend Masters',
+    kazanim:['Performans','React'],
     katilimci:['EMP-006','EMP-016'], baslangic:'2026-08-12', bitis:'2026-09-12', sure:24, maliyet:9800,
     durum:'Planlandı', sertifika:false, aktif:true },
   { kod:'EGT-2026-010', ad:'WCAG 2.2 Erişilebilirlik', tur:'Atölye', saglayici:'A11y TR',
+    kazanim:['Erişilebilirlik'],
     katilimci:['EMP-004','EMP-006'], baslangic:'2026-06-15', bitis:'2026-06-16', sure:16, maliyet:14000,
     durum:'Tamamlandı', sertifika:true, aktif:true },
   { kod:'EGT-2026-009', ad:'AWS Solutions Architect Hazırlık', tur:'Online kurs', saglayici:'A Cloud Guru',
+    kazanim:['AWS','Altyapı'],
     katilimci:['EMP-010'], baslangic:'2026-05-02', bitis:'2026-07-30', sure:48, maliyet:11200,
     durum:'Tamamlandı', sertifika:true, aktif:true },
   { kod:'EGT-2026-012', ad:'LLM Uygulama Güvenliği', tur:'Seminer', saglayici:'OWASP TR',
+    kazanim:['Güvenlik','LLM'],
     katilimci:['EMP-007','EMP-005'], baslangic:'2026-09-08', bitis:'2026-09-08', sure:8, maliyet:0,
     durum:'Planlandı', sertifika:false, aktif:true }
 ];
@@ -213,4 +224,42 @@ DB.capacity = [
   { personel:'EMP-010', kapasite:40, planlanan:28, doluluk:71, izin:0 },
   { personel:'EMP-016', kapasite:20, planlanan:9,  doluluk:44, izin:1 },
   { personel:'EMP-015', kapasite:20, planlanan:7,  doluluk:35, izin:0 }
+];
+
+/* ---- İşe giriş / işten ayrılış (PROMPT.md §14 — "İşe Giriş/Çıkış") ---------
+   Menü haritasında ve plan.md'de yazılıydı ama koleksiyonu da ekranı da yoktu.
+   `tur` iki eksenlidir: **Giriş** (onboarding) ve **Çıkış** (offboarding).
+   `adimlar` süreç kontrol listesidir — her adım `{ad, tamam, sorumlu}`; ilerleme
+   YAZILMAZ, tamamlanan adım oranından türetilir (L-08).
+   Kayıtlar personelin kendi `girisTarihi` alanıyla tutarlıdır: giriş süreci
+   o tarihte başlar. Ayrılış kaydı yalnız `aktif:false` personelde olabilir. */
+DB.onboarding = [
+  { kod:'IGC-2026-001', personel:'EMP-016', tur:'Giriş', tarih:'2026-06-15', durum:'Devam ediyor',
+    sorumlu:'EMP-011', not:'Staj sözleşmesi imzalandı, ekipman bekleniyor.',
+    adimlar:[
+      { ad:'Sözleşme imzası', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Özlük dosyası açıldı', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Hesap ve e-posta tanımı', tamam:true, sorumlu:'EMP-010' },
+      { ad:'Ekipman zimmeti', tamam:false, sorumlu:'EMP-011' },
+      { ad:'Oryantasyon eğitimi', tamam:false, sorumlu:'EMP-006' },
+      { ad:'İlk hafta değerlendirmesi', tamam:false, sorumlu:'EMP-006' }
+    ], aktif:true },
+  { kod:'IGC-2025-002', personel:'EMP-015', tur:'Giriş', tarih:'2025-06-01', durum:'Tamamlandı',
+    sorumlu:'EMP-011', not:'Freelance sözleşme; ekipman kendi cihazı.',
+    adimlar:[
+      { ad:'Sözleşme imzası', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Özlük dosyası açıldı', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Hesap ve e-posta tanımı', tamam:true, sorumlu:'EMP-010' },
+      { ad:'Oryantasyon eğitimi', tamam:true, sorumlu:'EMP-004' }
+    ], aktif:true },
+  { kod:'IGC-2025-003', personel:'EMP-014', tur:'Giriş', tarih:'2025-02-03', durum:'Tamamlandı',
+    sorumlu:'EMP-011', not:'Satış ekibine katıldı.',
+    adimlar:[
+      { ad:'Sözleşme imzası', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Özlük dosyası açıldı', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Hesap ve e-posta tanımı', tamam:true, sorumlu:'EMP-010' },
+      { ad:'Ekipman zimmeti', tamam:true, sorumlu:'EMP-011' },
+      { ad:'Oryantasyon eğitimi', tamam:true, sorumlu:'EMP-002' },
+      { ad:'İlk hafta değerlendirmesi', tamam:true, sorumlu:'EMP-002' }
+    ], aktif:true }
 ];
