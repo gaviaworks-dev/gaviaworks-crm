@@ -540,7 +540,11 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       (`referrers.sonYonlendirme` 3 kayıt · `ZMT-2025-005` zimmeti) düzeltildi.
       Eksenler: `canon.js` **22 · 22b · 23** + yeni `tasks/qa/akt.js`
 - [x] **akt.js kalıcı tarama setinde** — `tasks/qa/akt.js`, her turda koşuluyor
-- [ ] **UID-17** · Dokuz ekran kendi `dl(pairs)` yardımcısını yazıyor → `GV.dl(pairs, opts)`
+- [x] **UID-17** · `GV.dl(pairs, opts)` — **çözüldü** → borç "dokuz ekran" diyordu, ölçülen **60** (L-25).
+      Ayrışan karar `dt` escape'iydi (L-14'ün kaynağı): kimi ekran ediyor, kimi etmiyordu. Sözleşme tek yerde —
+      `dt` ve `dd` çağıranın işaretlemesidir, bileşen escape etmez; boş değer `.is-empty` + `—`; `skipEmpty`
+      seçeneği `app-ajanda`nın davranışını **açıkça** korur. Ölçüm: 62 hedefte **1.878 `dt`**, konsol hatası 0,
+      `esc.js` 141 ekran temiz
 - [x] **UID-18** · `.cell-wrap` — **çözüldü** → sınıfın işi "kırpılmasın" idi ama bunu `min-width` ile yapıyordu:
       kolona ZEMİN genişlik dayatıyordu. `max-width`e çevrildi; zemin gerçekten isteyen tablo `.cell-wrap.is-wide` kullanır
 - [x] **UID-19** · Toplam satırı — **çözüldü** → `.gtable tfoot` **ve** `tr.is-total` tek kuralda; üst kenarlık,
