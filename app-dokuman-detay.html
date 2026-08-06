@@ -98,6 +98,15 @@ document.addEventListener('gv:ready', function(){
 
   var acts = DB.activities.filter(function(a){ return a.kayit === d.kod; });
 
+  /* Sürüm zinciri ve onay zinciri — bağ tek yönlü, kayıt kaynaktan okunur (§9d).
+     Dokümanın `versiyon` ve `onay` alanları bu iki zincirden TÜRETİLEBİLİR olmalıdır;
+     ekran türetilen sonucu kayıtla karşılaştırır ve çelişkiyi söyler (L-08). */
+  var surumler = DB.documentVersions.filter(function(v){ return v.dokuman === d.kod; })
+                                    .sort(function(a,b){ return a.sira - b.sira; });
+  var guncelSurum = surumler.length ? surumler[surumler.length - 1] : null;
+  var adimlar = DB.documentApprovals.filter(function(a){ return a.dokuman === d.kod; })
+                                    .sort(function(a,b){ return a.sira - b.sira; });
+
   /* =================================================================
      SÜRE — referans DB.today; eşikler app-dokuman-sure.html ile aynı
      ================================================================= */
@@ -183,18 +192,33 @@ document.addEventListener('gv:ready', function(){
     GV.toast(d.kod + ' · ' + d.format + ' — statik prototipte gerçek dosya barındırılmıyor, indirme yapılamaz.', 'info', 5200);
   }
 
+  /* Onay TEK BİR ALANI çevirmez: zincirdeki sıradaki bekleyen adımı kapatır ve
+     doküman durumu adımlardan yeniden türetilir. Zincirin ortasındaki bir adımı
+     onaylamak dokümanı 'Onaylandı' yapmaz — arkasında bekleyen adım varsa. */
   function onayAkisi(){
+    var sira = adimlar.filter(function(a){ return a.durum === 'Bekliyor'; })[0];
+    if(!sira){ GV.toast('Bu dokümanda bekleyen onay adımı yok.', 'info'); return; }
+    var kalan = adimlar.filter(function(a){ return a.durum === 'Bekliyor'; }).length - 1;
     GV.confirm({
       title:'Dijital onay',
-      text:adText() + ' dokümanına dijital onay verilecek. Onay durumu “Bekliyor” → “Onaylandı” olarak güncellenir.',
+      text:adText() + ' dokümanının “' + sira.makam + '” adımı onaylanacak' +
+           (kalan ? '. Bu adımdan sonra ' + kalan + ' adım daha bekliyor, doküman onay durumu değişmez.'
+                  : '. Zincirin son adımı — doküman onay durumu “Onaylandı”ya geçer.'),
       okLabel:'Onayla'
     }).then(function(ok){
       if(!ok) return;
-      d.onay = 'Onaylandı';
-      DB.activities.unshift({ kayit:d.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
-        kisi:GV.session.emp, metin:'Dokümana dijital onay verildi',
-        eski:'Bekliyor', yeni:'Onaylandı', tone:'ok', icon:'i-stamp' });
-      GV.toast(d.kod + ' onaylandı', 'ok');
+      var saat = DB.today + 'T' + new Date().toTimeString().slice(0,5);
+      sira.durum = 'Onaylandı';
+      sira.tarih = saat;
+      sira.kisi  = GV.session.emp;
+      sira.not   = 'Ekrandan onaylandı';
+      var eski = d.onay;
+      d.onay = adimlar.every(function(a){ return a.durum === 'Onaylandı'; }) ? 'Onaylandı' : 'Bekliyor';
+      DB.activities.unshift({ kayit:d.kod, tarih:saat, kisi:GV.session.emp,
+        metin:'“' + sira.makam + '” adımı onaylandı' + (kalan ? ' · ' + kalan + ' adım bekliyor' : ''),
+        eski:eski, yeni:d.onay, tone:'ok', icon:'i-stamp' });
+      GV.toast(kalan ? sira.makam + ' adımı onaylandı · ' + kalan + ' adım kaldı'
+                     : d.kod + ' onaylandı', 'ok');
       setTimeout(function(){ GV.refresh(); }, 700);
     });
   }
@@ -226,6 +250,11 @@ document.addEventListener('gv:ready', function(){
             d.versiyon = d.versiyon + 1;
             d.tarih = DB.today;
             if(son){ d.sonKullanma = son; d.kalanGun = F.days(son); }
+            /* Sürüm zincirine GERÇEK kayıt yazılır — yoksa doküman v(n+1) derken
+               zincir v(n)'de kalır ve ekran kendi ölçtüğü çelişkiyi bildirirdi. */
+            DB.documentVersions.push({ dokuman:d.kod, sira:d.versiyon, tarih:DB.today,
+              yukleyen:GV.session.emp, boyut:d.boyut, format:d.format,
+              not:vNot || 'Yeni sürüm yüklendi' });
             DB.activities.unshift({ kayit:d.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
               kisi:GV.session.emp, metin:'Yeni versiyon yüklendi' + (vNot ? ' — ' + vNot : ''),
               eski:'v' + eskiV, yeni:'v' + d.versiyon, tone:'accent', icon:'i-upload' });
@@ -290,11 +319,11 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var tabs = [
     { key:'genel',    lbl:'Genel',              ic:'i-info' },
-    { key:'versiyon', lbl:'Versiyon Geçmişi',   ic:'i-layers', cnt:1 },
+    { key:'versiyon', lbl:'Versiyon Geçmişi',   ic:'i-layers', cnt:surumler.length },
     { key:'sure',     lbl:'Süre ve Yenileme',   ic:'i-hourglass' },
     { key:'erisim',   lbl:'Erişim ve Gizlilik', ic:'i-lock' },
     { key:'bagli',    lbl:'Bağlı Kayıtlar',     ic:'i-link',   cnt:kardes.length },
-    { key:'onay',     lbl:'Onay Akışı',         ic:'i-stamp' },
+    { key:'onay',     lbl:'Onay Akışı',         ic:'i-stamp', cnt:adimlar.length },
     { key:'aktivite', lbl:'Aktivite Geçmişi',   ic:'i-activity', cnt:acts.length }
   ];
 
@@ -372,19 +401,26 @@ document.addEventListener('gv:ready', function(){
     '</div>';
 
   /* =================================================================
-     2. VERSİYON GEÇMİŞİ — veride ayrı versiyon koleksiyonu YOK
+     2. VERSİYON GEÇMİŞİ — DB.documentVersions
+        Dokümanın `versiyon` alanı zincirden TÜREMELİDİR: max(sira) kayıttaki
+        sürüm numarasına eşit olmalı. Eşit değilse ekran bunu söyler, örtmez.
      ================================================================= */
-  var vNot = GV.notice({ tone:'neutral', icon:'i-info',
-    title:'Versiyon geçmişi veride tutulmuyor',
-    text:'Doküman kaydı yalnız güncel sürüm numarasını (v' + d.versiyon + '), bu sürümün yükleme tarihini ve ' +
-         'yükleyenini tutar; sürüm sürüm geçmiş koleksiyonu yoktur. Aşağıdaki tablo bu tek satırdan kurulmuştur — ' +
-         'olmayan ara sürümler üretilmez.' });
+  var eksikSurum = d.versiyon - surumler.length;   /* kaydı olmayan ara sürüm sayısı */
 
-  var vEksik = d.versiyon > 1 ? GV.notice({ tone:'warn', icon:'i-alert',
-    title:'v1 – v' + (d.versiyon - 1) + ' arası sürümlerin kaydı yok',
-    text:'Kayıt v' + d.versiyon + ' olarak işaretli ancak önceki ' + (d.versiyon - 1) +
-         ' sürümün yükleme tarihi, boyutu, yükleyeni ve değişiklik notu veride bulunmuyor. ' +
-         'Bu satırlar uydurulmadığı için tabloda yer almaz.' }) : '';
+  var vNot = surumler.length
+    ? GV.notice({ tone:'ok', icon:'i-layers',
+        title:surumler.length + ' sürüm kaydı var',
+        text:'İlk sürüm ' + F.date(surumler[0].tarih) + ', güncel sürüm v' + d.versiyon + ' · ' +
+             F.date(guncelSurum.tarih) + '. Doküman kaydındaki sürüm numarası bu zincirin en yükseğinden ' +
+             'türer, ayrıca yazılmaz.' })
+    : GV.notice({ tone:'warn', icon:'i-alert', title:'Bu dokümanın sürüm kaydı yok',
+        text:'Kayıt v' + d.versiyon + ' diyor ama sürüm zinciri boş.' });
+
+  var vEksik = eksikSurum > 0 ? GV.notice({ tone:'warn', icon:'i-alert',
+    title:eksikSurum + ' ara sürümün kaydı yok',
+    text:'Kayıt v' + d.versiyon + ' olarak işaretli ve zincirde ' + surumler.length + ' sürüm var; ' +
+         'aradaki ' + eksikSurum + ' sürümün yükleme tarihi, boyutu, yükleyeni ve değişiklik notu ' +
+         'hiçbir yerden türetilemiyor. Bu satırlar uydurulmadığı için tabloda yer almaz.' }) : '';
 
   var vAksiyon = (canDuzenle && !masked)
     ? '<a class="btn btn-line btn-sm" href="app-dokuman-sure.html">' + ico('i-hourglass','ic-sm') + ' Süre takibi</a>' +
@@ -394,17 +430,22 @@ document.addEventListener('gv:ready', function(){
   var pVersiyon = '<div class="gc-body">' + vNot + vEksik + '</div>' +
     '<div class="gc-body flush">' +
     tbl('<th class="num">Sürüm</th><th>Yükleme tarihi</th><th>Yükleyen</th><th>Format</th>' +
-        '<th>Boyut</th><th>Son kullanma</th><th>Dijital onay</th><th>Durum</th>',
-      '<tr><td class="num"><b class="u-num">v' + d.versiyon + '</b></td>' +
-        '<td><span class="cell-date">' + F.date(d.tarih) + '</span>' +
-          '<span class="cell-sub">' + F.rel(d.tarih) + '</span></td>' +
-        '<td>' + GV.user(d.yukleyen, { sm:true }) + '</td>' +
-        '<td><span class="tag">' + esc(d.format) + '</span></td>' +
-        '<td>' + esc(d.boyut) + '</td>' +
-        '<td>' + (sureli ? GV.dateCell(d.sonKullanma) : '<span class="u-faint">Süresiz</span>') + '</td>' +
-        '<td>' + GV.badge(d.onay) + '</td>' +
-        '<td><span class="badge is-ok no-dot">Güncel sürüm</span></td></tr>') +
-    sayac('<b>1</b> sürüm kaydı · kayıtta yazılı güncel sürüm <b>v' + d.versiyon + '</b>', vAksiyon) +
+        '<th>Boyut</th><th>Değişiklik notu</th><th>Durum</th>',
+      surumler.slice().reverse().map(function(v){
+        var guncel = v.sira === d.versiyon;
+        return '<tr>' +
+          '<td class="num"><b class="u-num">v' + v.sira + '</b></td>' +
+          '<td><span class="cell-date">' + F.date(v.tarih) + '</span>' +
+            '<span class="cell-sub">' + F.rel(v.tarih) + '</span></td>' +
+          '<td>' + GV.user(v.yukleyen, { sm:true }) + '</td>' +
+          '<td><span class="tag">' + esc(v.format) + '</span></td>' +
+          '<td>' + esc(v.boyut) + '</td>' +
+          '<td class="cell-wrap">' + (v.not ? esc(v.not) : '<span class="u-faint">Not yazılmadı</span>') + '</td>' +
+          '<td>' + (guncel ? '<span class="badge is-ok no-dot">Güncel sürüm</span>'
+                           : '<span class="badge is-neutral no-dot">Eski sürüm</span>') + '</td></tr>';
+      }).join('')) +
+    sayac('<b>' + surumler.length + '</b> sürüm kaydı · güncel sürüm <b>v' + d.versiyon + '</b>' +
+          (eksikSurum > 0 ? ' · <b>' + eksikSurum + '</b> ara sürümün kaydı yok' : ''), vAksiyon) +
     '</div>';
 
   /* =================================================================
@@ -659,26 +700,53 @@ document.addEventListener('gv:ready', function(){
       ico('i-stamp') + ' Dijital onay ver</button></div>'
     : '';
 
-  var pOnay = '<div class="gc-body">' +
-    GV.notice({ tone:'neutral', icon:'i-info',
-      title:'Dijital onay zinciri veride tutulmuyor',
-      text:'Doküman kaydı yalnız tek bir onay durumu alanı (“' + d.onay + '”) tutuyor; onaylayan kişi, ' +
-           'onay tarihi, adım sırası ve onay notu veride yok. Bu yüzden onay zinciri bileşeni basılmaz — ' +
-           'olmayan adımlar üretilmez.' }) +
+  /* Onay durumu zincirden TÜRETİLİR: her adım onaylıysa 'Onaylandı', biri bile
+     beklerse 'Bekliyor'. Kayıttaki alanla karşılaştırılır — çelişki örtülmez. */
+  var onaylananAdim = adimlar.filter(function(a){ return a.durum === 'Onaylandı'; }).length;
+  var bekleyenAdim  = adimlar.filter(function(a){ return a.durum === 'Bekliyor'; })[0] || null;
+  var turemisOnay   = adimlar.length ? (onaylananAdim === adimlar.length ? 'Onaylandı' : 'Bekliyor') : null;
+
+  var onayNot = !adimlar.length
+    ? GV.notice({ tone:'warn', icon:'i-alert', title:'Bu dokümanın onay adımı kaydı yok',
+        text:'Kayıt “' + d.onay + '” diyor ama zincirde adım bulunmuyor.' })
+    : (turemisOnay !== d.onay
+        ? GV.notice({ tone:'danger', icon:'i-alert', title:'Onay durumu zincirle çelişiyor',
+            text:'Kayıtta “' + d.onay + '” yazılı ama ' + adimlar.length + ' adımdan türeyen sonuç “' +
+                 turemisOnay + '”. Veri düzeltmesi gerekir.' })
+        : (bekleyenAdim
+            ? GV.notice({ tone:'warn', icon:'i-clock', title:'Onay zinciri devam ediyor',
+                text:adimlar.length + ' adımın ' + onaylananAdim + ' tanesi tamamlandı. Sıradaki adım: ' +
+                     bekleyenAdim.makam + ' · ' + DB.empName(bekleyenAdim.kisi) + '.' +
+                     (bekleyenAdim.not ? ' Not: ' + bekleyenAdim.not : '') })
+            : GV.notice({ tone:'ok', icon:'i-check-circle', title:'Onay zinciri tamamlandı',
+                text:adimlar.length + ' adımın ' + adimlar.length + ' tanesi onaylandı; son onay ' +
+                     F.date(String(adimlar[adimlar.length - 1].tarih).slice(0,10)) + ' tarihinde verildi.' })));
+
+  var sonOnay = adimlar.filter(function(a){ return a.durum === 'Onaylandı'; }).slice(-1)[0] || null;
+
+  var pOnay = '<div class="gc-body">' + onayNot +
     GV.dl([
-      ['Dijital onay durumu', GV.badge(d.onay)],
-      ['Onaylayan', null],
-      ['Onay tarihi', null],
-      ['Onay notu', null],
+      ['Dijital onay durumu', GV.badge(d.onay) +
+        (turemisOnay ? '<span class="cell-sub">' + adimlar.length + ' adımlık zincirden türetildi</span>' : '')],
+      ['Tamamlanan adım', adimlar.length
+        ? '<b class="u-num">' + onaylananAdim + '</b> / ' + adimlar.length : null],
+      ['Son onaylayan', sonOnay ? GV.user(sonOnay.kisi, { sm:true }) : null],
+      ['Son onay tarihi', sonOnay ? '<span class="cell-date">' + F.dt(sonOnay.tarih) + '</span>' : null],
+      ['Son onay notu', sonOnay && sonOnay.not ? esc(sonOnay.not) : null],
+      ['Bekleyen adım', bekleyenAdim ? esc(bekleyenAdim.makam) + '<span class="cell-sub">' +
+        esc(DB.empName(bekleyenAdim.kisi)) + '</span>' : null],
       ['Onay talebini açan <span class="u-faint">(dokümanı yükleyen)</span>', GV.user(d.yukleyen, { sm:true })],
       ['Kayıt yükleme tarihi', '<span class="cell-date">' + F.date(d.tarih) + '</span>']
     ]) + onayAksiyon + '</div>' +
-    '<div class="gc-body flush">' +
-    GV.empty({ icon:'i-stamp', title:'Onay adımı kaydı yok',
-      desc:'Çok adımlı dijital onay akışı (talep → kontrol → onay) bu doküman için veride tanımlı değil. ' +
-           'Onay adımlarının izlendiği ekran onay merkezidir.',
-      action:'<a class="btn btn-acc" href="app-panel-onaylar.html">Onay merkezine git</a>' }) +
-    '</div>';
+    (adimlar.length
+      ? '<div class="gc-body">' + GV.chain(adimlar.map(function(a){
+          return { rol:a.makam, kisi:DB.empName(a.kisi), durum:a.durum, tarih:a.tarih, not:a.not };
+        })) + '</div>'
+      : '<div class="gc-body flush">' +
+        GV.empty({ icon:'i-stamp', title:'Onay adımı kaydı yok',
+          desc:'Çok adımlı dijital onay akışı bu doküman için veride tanımlı değil.',
+          action:'<a class="btn btn-acc" href="app-panel-onaylar.html">Onay merkezine git</a>' }) +
+        '</div>');
 
   /* =================================================================
      7. AKTİVİTE GEÇMİŞİ

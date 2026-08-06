@@ -293,6 +293,92 @@ DB.documents = [
     onay:'Bekliyor', aktif:true }
 ];
 
+/* ---- Doküman versiyon geçmişi (PROMPT.md §19) ---------------------------
+   Bağ tek yönlüdür: sürüm kaydı dokümanı gösterir, dokümanda ayna alan yoktur (§9d).
+   Dokümanın `versiyon` alanı bu koleksiyondan **türetilebilir olmalıdır**:
+     max(sira) === document.versiyon    ve   en yüksek sürümün tarihi/yükleyeni
+     doküman kaydının `tarih`/`yukleyen` alanıyla birebir aynıdır.
+
+   KAPSAM DÜRÜSTLÜĞÜ (L-13): on bir dokümanın **onunda** zincir baştan sona
+   yazılıdır (v1 … vN). Tek istisna `DOK-2026-206`'dır — kayıt v18 der, ama
+   önceki **17 regresyon koşumunun** tarihi, boyutu ve notu hiçbir yerden
+   türetilemez; uydurmak yerine yalnız güncel sürüm yazıldı ve ekran bunu
+   dokümanın kendi satırında söyler. --------------------------------------- */
+DB.documentVersions = [
+  { dokuman:'DOK-2026-201', sira:1, tarih:'2026-06-20', yukleyen:'EMP-001', boyut:'2,4 MB', format:'PDF',
+    not:'Karşılıklı imzalı nüsha tarandı' },
+  { dokuman:'DOK-2026-202', sira:1, tarih:'2026-07-14', yukleyen:'EMP-002', boyut:'840 KB', format:'PDF',
+    not:'İlk teklif — müşteriye iletildi' },
+  { dokuman:'DOK-2026-202', sira:2, tarih:'2026-07-22', yukleyen:'EMP-002', boyut:'860 KB', format:'PDF',
+    not:'Müvekkil portalı kapsamı ve ödeme planı revize edildi' },
+  { dokuman:'DOK-2026-203', sira:1, tarih:'2026-07-20', yukleyen:'EMP-003', boyut:'1,8 MB', format:'PDF',
+    not:'ANL-2026-001 ön analizinden çıkarıldı' },
+  { dokuman:'DOK-2026-204', sira:1, tarih:'2025-09-01', yukleyen:'EMP-012', boyut:'240 KB', format:'PDF',
+    not:'Tedarikçi faturası arşivlendi' },
+  { dokuman:'DOK-2026-205', sira:1, tarih:'2025-09-05', yukleyen:'EMP-011', boyut:'420 KB', format:'PDF',
+    not:'Poliçe sigorta şirketinden alındı' },
+  { dokuman:'DOK-2026-206', sira:18, tarih:'2026-07-31', yukleyen:'EMP-009', boyut:'1,1 MB', format:'PDF',
+    not:'18. regresyon koşumu — önceki 17 koşumun sürüm kaydı yok' },
+  { dokuman:'DOK-2026-207', sira:1, tarih:'2024-01-22', yukleyen:'EMP-011', boyut:'180 KB', format:'PDF',
+    not:'ZMT-2024-001 zimmet tutanağı imzalandı' },
+  { dokuman:'DOK-2026-208', sira:1, tarih:'2025-06-01', yukleyen:'EMP-011', boyut:'320 KB', format:'PDF',
+    not:'Freelance sözleşme ekinde imzalandı' },
+  { dokuman:'DOK-2026-209', sira:1, tarih:'2026-03-16', yukleyen:'EMP-005', boyut:'2,6 MB', format:'PDF',
+    not:'İlk teknik doküman — mimari ve veri modeli' },
+  { dokuman:'DOK-2026-209', sira:2, tarih:'2026-04-27', yukleyen:'EMP-005', boyut:'3,1 MB', format:'PDF',
+    not:'Entegrasyon bölümü eklendi' },
+  { dokuman:'DOK-2026-209', sira:3, tarih:'2026-05-29', yukleyen:'EMP-005', boyut:'3,5 MB', format:'PDF',
+    not:'Yetki matrisi bölümü eklendi' },
+  { dokuman:'DOK-2026-209', sira:4, tarih:'2026-06-24', yukleyen:'EMP-010', boyut:'3,9 MB', format:'PDF',
+    not:'Sunucu ve dağıtım mimarisi güncellendi' },
+  { dokuman:'DOK-2026-209', sira:5, tarih:'2026-07-12', yukleyen:'EMP-005', boyut:'4,2 MB', format:'PDF',
+    not:'Logo ERP servis sözleşmesi bölümü yazıldı' },
+  { dokuman:'DOK-2025-210', sira:1, tarih:'2024-12-18', yukleyen:'EMP-002', boyut:'1,1 MB', format:'PDF',
+    not:'Yıllık bakım sözleşmesi imzalandı' },
+  { dokuman:'DOK-2026-211', sira:1, tarih:'2025-07-10', yukleyen:'EMP-015', boyut:'420 KB', format:'PDF',
+    not:'Ruhsat fotokopisi tarandı' }
+];
+
+/* ---- Doküman dijital onay zinciri (PROMPT.md §19) -----------------------
+   `DB.purchaseApprovals` ile **aynı desen**: adım sırası · makam · kişi · durum ·
+   tarih · not. Dokümanın `onay` alanı zincirden türer:
+     her adım 'Onaylandı' → doküman 'Onaylandı' · bir adım bile bekliyorsa 'Bekliyor'.
+   Adım sayısı belgenin niteliğine göre değişir: gizli/kişisel veri taşıyan ve
+   müşteriye giden belgeler iki adımdan (kontrol + onay), iç arşiv belgeleri tek
+   adımdan geçer. Onay **tarihi** her zaman sürümün yükleme tarihinden sonradır. */
+DB.documentApprovals = [
+  { dokuman:'DOK-2026-201', sira:1, makam:'Hukuki kontrol', kisi:'EMP-002', durum:'Onaylandı',
+    tarih:'2026-06-20T14:10', not:'Sözleşme metni teklifle örtüşüyor' },
+  { dokuman:'DOK-2026-201', sira:2, makam:'Şirket sahibi onayı', kisi:'EMP-001', durum:'Onaylandı',
+    tarih:'2026-06-20T16:35', not:'İmzalı nüsha arşive alındı' },
+  { dokuman:'DOK-2026-202', sira:1, makam:'Satış yöneticisi onayı', kisi:'EMP-002', durum:'Onaylandı',
+    tarih:'2026-07-22T11:20', not:'Revize teklif müşteriye iletilebilir' },
+  { dokuman:'DOK-2026-203', sira:1, makam:'Proje yöneticisi kontrolü', kisi:'EMP-003', durum:'Onaylandı',
+    tarih:'2026-07-21T09:40', not:'Kapsam ve efor tahmini yerinde' },
+  { dokuman:'DOK-2026-203', sira:2, makam:'Şirket sahibi onayı', kisi:'EMP-001', durum:'Bekliyor',
+    tarih:null, not:null },
+  { dokuman:'DOK-2026-204', sira:1, makam:'Muhasebe onayı', kisi:'EMP-012', durum:'Onaylandı',
+    tarih:'2025-09-01T17:05', not:'Gider kaydı açıldı' },
+  { dokuman:'DOK-2026-205', sira:1, makam:'İdari işler onayı', kisi:'EMP-011', durum:'Onaylandı',
+    tarih:'2025-09-05T10:15', not:'Poliçe filo dosyasına işlendi' },
+  { dokuman:'DOK-2026-206', sira:1, makam:'Test ve kalite onayı', kisi:'EMP-009', durum:'Onaylandı',
+    tarih:'2026-07-31T18:20', not:'Koşum sonuçları doğrulandı' },
+  { dokuman:'DOK-2026-206', sira:2, makam:'Proje yöneticisi onayı', kisi:'EMP-003', durum:'Bekliyor',
+    tarih:null, not:null },
+  { dokuman:'DOK-2026-207', sira:1, makam:'İnsan kaynakları onayı', kisi:'EMP-011', durum:'Onaylandı',
+    tarih:'2024-01-22T15:30', not:'Personel imzası alındı' },
+  { dokuman:'DOK-2026-208', sira:1, makam:'İnsan kaynakları kontrolü', kisi:'EMP-011', durum:'Onaylandı',
+    tarih:'2025-06-01T11:00', not:'Gizlilik maddeleri standart metinle aynı' },
+  { dokuman:'DOK-2026-208', sira:2, makam:'Şirket sahibi onayı', kisi:'EMP-001', durum:'Onaylandı',
+    tarih:'2025-06-02T09:25', not:'İmzalandı' },
+  { dokuman:'DOK-2026-209', sira:1, makam:'Teknik kontrol', kisi:'EMP-010', durum:'Onaylandı',
+    tarih:'2026-07-12T16:40', not:'Sunucu mimarisi bölümü doğrulandı' },
+  { dokuman:'DOK-2025-210', sira:1, makam:'Satış yöneticisi onayı', kisi:'EMP-002', durum:'Onaylandı',
+    tarih:'2024-12-18T13:50', not:'Bakım kapsamı sözleşmeye uygun' },
+  { dokuman:'DOK-2026-211', sira:1, makam:'İdari işler onayı', kisi:'EMP-011', durum:'Bekliyor',
+    tarih:null, not:'Ruhsat süresi doldu, yenilenmiş nüsha bekleniyor' }
+];
+
 /* ---- Sohbet kanalları (PROMPT.md §13) ----------------------------------- */
 DB.channels = [
   { kod:'KNL-001', ad:'#genel', tur:'Şirket duyuruları', uyeler:16, okunmamis:2, sonMesaj:'2026-08-03T09:12',
