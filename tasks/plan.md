@@ -567,8 +567,12 @@ liste onun plan karşılığıdır. Çözüm ekranda değil **ortak katmanda** y
       girdi soran modalı kendi onaylıyordu · görünmeyen toplu işlem butonunu "ölü" sayıyordu)
 - [x] **xport.js kalıcı tarama setinde** — `tasks/qa/xport.js`, her turda koşuluyor
 - [x] **ctl.js kalıcı tarama setinde** — `tasks/qa/ctl.js`, her turda koşuluyor
-- [ ] **UID-26** · Kolon/filtre/çıktı/toplu/kanban `GV.list` içine kilitli → `GV.*` yüzeyine alınacak
-      (UID-06 · UID-07 · UID-17'nin ortak kökü)
+- [~] **UID-26** · `GV.list` kilidi — **kısmen çözüldü** → `openCols` · `openFilters` · `openExport` · `setView`
+      liste örneğinin **dönüş yüzeyine** alındı ve dışarıdan çağrılabilir olduğu ölçüldü (panel/modal açılıyor).
+      **Yapılmayan:** listeden bağımsız `GV.cols(cfg)` bileşenlerine ayrıştırma — dördü de liste `state`i
+      üzerinde çalışıyor, bağımsızlık durumu dışarı taşıyan ayrı bir sözleşme ister. Borcun gerekçe
+      gösterdiği üç belirti (UID-06 · UID-07 · UID-17) **başka yollarla kapandı**, kalan değer mimari
+      saflık; dondurulmuş kapsama bırakıldı (ui-debt.md V2)
 - [x] **UID-28** · Maskeleme ayrışması — **çözüldü 10. oturum** → `columns[].perm` / `mask(row)`;
       `app-dokuman` gizli belge adı · filo birim fiyat/kasko/kira eksenleri hizalandı
 - [x] **UID-25** · Rapor çıktısı yetki kapısı — **çözüldü 10. oturum** → `disaAktar` kapısı bileşende,

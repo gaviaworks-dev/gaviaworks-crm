@@ -92,7 +92,15 @@ mobil kart görünümü **aynı veri kaynağından** üretilir (ikinci markup ya
   kuralına aykırı olurdu (UID-07).
 
 ### `GV.list` dönüş yüzeyi
-`{ state, refresh, setTab(k), setFilter(k,v), exportRows(kayıtlarYaDaIdler, biçim?) }`
+`{ state, refresh, setTab(k), setFilter(k,v), exportRows(rows, biçim?),
+   openCols(), openFilters(), openExport(rows?), setView(v) }`
+- **UID-26** — kolon yöneticisi, gelişmiş filtre, çıktı modalı ve görünüm anahtarı artık
+  dışarıdan çağrılabilir; sözlük bunları beş oturum boyunca `GV.cols()` / `GV.filters()` /
+  `GV.export()` / `GV.kanban()` diye **var olmayan bileşenler** olarak listelemişti.
+  `openExport()` kayıt kümesi verilmezse ekrandaki süzülmüş kümeyi kullanır.
+  Listeden **bağımsız** bileşenlere ayrıştırma bilinçli olarak yapılmadı — gerekçe
+  `ui-debt.md` V2 (dördü de liste `state`i üzerinde çalışıyor; borcun gerekçe gösterdiği
+  üç belirti UID-06 · UID-07 · UID-17 başka yollarla kapandı).
 - **`exportRows`** (UID-07) — dizideki her öğe kayıt nesnesi **ya da** kayıt anahtarı olabilir;
   bulunamayan atılır, hiç kalmazsa `warn` tonlu uyarı basılır (asla sessiz "başarı" demez).
   `biçim` verilmezse (`xlsx|csv|pdf|print`) kullanıcıya sorulur.
@@ -292,6 +300,7 @@ GV.report({
 | Sonuç | `GV.result({tone,title,text,actions})` | işlem sonrası |
 | Toast | `GV.toast(text, tone)` | kısa geri bildirim |
 | Dosya yükleme | `GV.upload({mount,accept,multiple,maxMB,hint,files,onChange})` → `{files(),clear(),el}` | sürükle-bırak, boyut kontrolü, dosya listesi; `GV.form` içindeki `type:'file'` alanı da aynı görünümü kullanır |
+| Alan listesi | **`GV.dl(pairs, opts)`** (UID-17) | `.gv-dl` üretir. `dt` ve `dd` **çağıranın işaretlemesidir**, bileşen escape ETMEZ (etiket birim eki taşıyabilir — L-14); boş değer tek yerde `.is-empty` + `—`. `skipEmpty:true` boş satırı hiç basmaz. 60 ekranın yerel `dl()` kopyası silindi |
 | Aktivite timeline | `GV.activity(items)` | kim · ne zaman · eski → yeni değer |
 | Onay akışı | `GV.chain(steps)` | çok aşamalı onay zinciri görselleştirmesi |
 | Boş durum | `GV.empty({icon,title,desc,action})` | her listede zorunlu |
@@ -302,8 +311,8 @@ GV.report({
 | Anahtar | `.f-switch > input + span.sw` | matris hücresi ve ayar ekranları |
 | Görünüm anahtarı | `.viewswitch` (**`.gv-` öneki yok**) | tablo / kart / kanban / takvim; `button[data-view]` |
 | Chip şeridi | `GV.chipbar(el)` | taşınca oklu kaydırma |
-| Kolon yöneticisi | **`GV.list` içi** — `openCols()` (ui.js) | göster/gizle · sırala · genişlik · kayıtlı görünüm (`localStorage` `gv.cols.<id>`). ⚠️ `GV.cols()` **yoktur**, dışarıdan çağrılamaz |
-| Filtre drawer | **`GV.list` içi** — `openFilters()` (ui.js) | `cfg.filters[]`'ten kurulur, aktif filtre çipleri. ⚠️ `GV.filters()` **yoktur** |
+| Kolon yöneticisi | `GV.list` dönüşü → **`api.openCols()`** (UID-26) | göster/gizle · sırala · genişlik · kayıtlı görünüm (`localStorage` `gv.cols.<id>`). ⚠️ Bağımsız `GV.cols()` **yoktur**; liste örneğinin dönüş yüzeyinden çağrılır |
+| Filtre drawer | `GV.list` dönüşü → **`api.openFilters()`** (UID-26) | `cfg.filters[]`'ten kurulur, aktif filtre çipleri. ⚠️ Bağımsız `GV.filters()` **yoktur**; dönüş yüzeyinden çağrılır |
 | Çıktı | **`GV.list` içi** — `doExport(rows, fmt)` · dışarıya `api.exportRows(rows, fmt)` | `cfg.export[]` formatları. ⚠️ `GV.export()` **yoktur** (bağımsız bileşen değil), ama seçili kapsam artık dışa aktarılabiliyor: dönüş yüzeyindeki `exportRows` + `bulk[].export` (UID-07 kapandı). Kolonun çıktıya ne taşıdığı `exportValue`'dan, yoksa `r[key]`'den gelir — `xport.js` her turda ölçer |
 | Tarih aralığı | **hiç yok** | ⚠️ `GV.dateRange()` kodda **hiçbir yerde tanımlı değil**. Tarih aralığı bugün `filters[].type:'daterange'` ile `GV.list` içinde kurulur |
 | Toplu işlem barı | **`GV.list` içi** — `renderBulk()` (ui.js) | `cfg.bulk[]`'ten kurulur. ⚠️ `GV.bulk()` **yoktur**; `bulk[]`'te `show`/yetki kapısı da yok (UID-13) |

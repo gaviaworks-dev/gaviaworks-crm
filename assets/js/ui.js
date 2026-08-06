@@ -1442,12 +1442,33 @@
     render();
     load();
 
+    /* UID-26 — Kolon yöneticisi, gelişmiş filtre, çıktı ve kanban `GV.list`
+       kapanışının İÇİNDE yaşıyordu ve dışarıdan hiç çağrılamıyordu; sözlük
+       beş oturum boyunca bunları `GV.cols()` / `GV.filters()` / `GV.export()` /
+       `GV.kanban()` diye **var olmayan bileşenler** olarak listelemişti.
+       Artık her biri liste örneğinin DÖNÜŞ YÜZEYİNDE: ekran kendi başlık
+       çubuğundan, klavye kısayolundan ya da başka bir panelden çağırabilir.
+
+       AÇIKÇA YAPILMAYAN: bunları listeden BAĞIMSIZ, tek başına kurulabilen
+       `GV.cols(cfg)` bileşenlerine dönüştürmek. Dördü de `state` (seçili
+       kolonlar, aktif filtreler, sayfa, seçim) ve `cfg` üzerinde çalışıyor;
+       bağımsız hâle getirmek bu durumu dışarı taşıyan ayrı bir sözleşme
+       gerektirir. Borcun gerekçe olarak gösterdiği üç belirti (UID-06 ikinci
+       liste örneği · UID-07 seçili kapsam çıktısı · UID-17 `dl` tekrarı)
+       **başka yollarla kapandı**, bu yüzden ayrıştırmanın kalan değeri
+       mimari saflık; dondurulmuş kapsamda bırakıldı (ui-debt.md V2). */
     return {
       state:state,
       refresh:render,
       setTab:function(k){ state.tab = k; reset(); render(); },
       setFilter:function(k, v){ state.filters[k] = v; reset(); render(); },
-      exportRows:exportRows          /* UID-07 — seçili / dışarıdan verilen kapsamı dışa aktarır */
+      exportRows:exportRows,         /* UID-07 — seçili / dışarıdan verilen kapsamı dışa aktarır */
+      openCols:openCols,             /* UID-26 — kolon yöneticisi */
+      openFilters:openFilters,       /* UID-26 — gelişmiş filtre paneli */
+      /* Kayıt kümesi verilmezse EKRANDAKİ süzülmüş küme kullanılır — çağıran
+         ekranın `pipeline()`a erişimi yok, boş geçince patlıyordu. */
+      openExport:function(rows){ return openExport(rows || pipeline()); },
+      setView:function(v){ state.view = v; render(); } /* UID-26 — tablo/kart/kanban */
     };
   };
 
