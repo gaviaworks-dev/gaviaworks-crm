@@ -500,7 +500,9 @@
       q:'', page:1, size:cfg.pageSize || 10,
       sort:cfg.defaultSort || null, dir:cfg.defaultDir || 'asc',
       filters:{}, archive:false, view:(cfg.views && cfg.views[0]) || 'table',
-      selected:[], cols:null, loading:true, error:false
+      selected:[], cols:null, loading:true, error:false,
+      /* Takvim görünümünün gezilen ayı — referans DB.today, `new Date()` DEĞİL */
+      calAy:String((typeof DB !== 'undefined' && DB.today) || '2026-01-01').slice(0,7)
     };
 
     /* ---- kolon durumu ---- */
@@ -765,10 +767,11 @@
                 ico('i-download','ic-sm') + '<span class="u-desktop">Çıktı Al</span></button>';
       }
       if(cfg.views && cfg.views.length > 1){
-        var vi = { table:'i-table', card:'i-grid', kanban:'i-kanban' };
+        var vi = { table:'i-table', card:'i-grid', kanban:'i-kanban', calendar:'i-calendar' };
+        var vl = { table:'Tablo', card:'Kart', kanban:'Kanban', calendar:'Takvim' };
         acts += '<span class="viewswitch">' + cfg.views.map(function(v){
           return '<button type="button" data-view="' + v + '" aria-pressed="' + (state.view === v ? 'true' : 'false') +
-                 '" aria-label="' + (v === 'table' ? 'Tablo' : v === 'card' ? 'Kart' : 'Kanban') + ' görünümü">' +
+                 '" aria-label="' + (vl[v] || v) + ' görünümü">' +
                  ico(vi[v] || 'i-table','ic-sm') + '</button>';
         }).join('') + '</span>';
       }
@@ -894,6 +897,71 @@
       }).join('') + '</div>';
     }
 
+    /* TAKVİM GÖRÜNÜMÜ — dördüncü görünüm (PROMPT.md §12: tablo/kart/kanban/takvim).
+       Sözleşme: cfg.calendar = { dateField, title(row), tone(row)?, href(row)? }
+       · Ay `state.calAy` ile gezilir, referans **DB.today**'dir (new Date() ile
+         bugün alınmaz — ders L-08 ile aynı disiplin).
+       · Kanban gibi SAYFALAMAYA girmez: ayın tamamı gösterilir, alt gövde
+         gösterilen ayın kayıt sayısını söyler.
+       · Tarihi olmayan kayıt uydurma bir güne konmaz; sayısı ayrıca yazılır. */
+    function ayBasligi(ym){
+      var A = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran',
+               'Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+      return A[+ym.slice(5,7) - 1] + ' ' + ym.slice(0,4);
+    }
+    function ayKaydir(ym, delta){
+      var y = +ym.slice(0,4), m = +ym.slice(5,7) - 1 + delta;
+      y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+      return y + '-' + ('0' + (m + 1)).slice(-2);
+    }
+    function renderCalendar(rows){
+      if(!cfg.calendar || !cfg.calendar.dateField) return renderTable(rows);
+      var alan = cfg.calendar.dateField;
+      var ym   = state.calAy;
+      var gunSayisi = new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+      /* Pazartesi = 0 olacak şekilde ilk günün sütunu */
+      var ilkGun = (new Date(ym + '-01T00:00:00').getDay() + 6) % 7;
+
+      var tarihli = rows.filter(function(r){ return !!r[alan]; });
+      var tarihsiz = rows.length - tarihli.length;
+      var ayKayit = tarihli.filter(function(r){ return String(r[alan]).slice(0,7) === ym; });
+
+      var hucreler = '';
+      for(var b = 0; b < ilkGun; b++) hucreler += '<div class="gv-cal-cell is-pad" aria-hidden="true"></div>';
+      for(var g = 1; g <= gunSayisi; g++){
+        var iso = ym + '-' + ('0' + g).slice(-2);
+        var gun = ayKayit.filter(function(r){ return String(r[alan]).slice(0,10) === iso; });
+        hucreler += '<div class="gv-cal-cell' + (iso === DB.today ? ' is-today' : '') + '">' +
+          '<div class="gv-cal-day"><span class="gv-cal-num">' + g + '</span>' +
+            (gun.length ? '<span class="gv-cal-cnt">' + gun.length + '</span>' : '') + '</div>' +
+          gun.map(function(r){
+            var t = cfg.calendar.tone ? cfg.calendar.tone(r) : 'neutral';
+            var etiket = cfg.calendar.title(r);
+            var href = cfg.calendar.href ? cfg.calendar.href(r) : null;
+            var ic = '<span class="gv-cal-ev is-' + esc(t) + '" data-id="' + esc(r[cfg.key]) + '" title="' +
+                     esc(etiket) + '">' + esc(etiket) + '</span>';
+            return href ? '<a class="gv-cal-link" href="' + esc(href) + '">' + ic + '</a>' : ic;
+          }).join('') +
+        '</div>';
+      }
+
+      var basliklar = ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz']
+        .map(function(g){ return '<div class="gv-cal-head">' + g + '</div>'; }).join('');
+
+      return '<div class="gv-cal">' +
+        '<div class="gv-cal-bar">' +
+          '<button type="button" class="ia" data-cal="prev" aria-label="Önceki ay">' + ico('i-chev-left','ic-sm') + '</button>' +
+          '<b class="gv-cal-title">' + ayBasligi(ym) + '</b>' +
+          '<button type="button" class="ia" data-cal="next" aria-label="Sonraki ay">' + ico('i-chev-right','ic-sm') + '</button>' +
+          '<button type="button" class="btn btn-line btn-sm" data-cal="today">Bugüne dön</button>' +
+          '<span class="gv-cal-meta"><b>' + ayKayit.length + '</b> kayıt bu ayda' +
+            (tarihsiz ? ' · <b>' + tarihsiz + '</b> kaydın ' + esc(alan) + ' alanı boş, takvimde gösterilemez' : '') +
+          '</span>' +
+        '</div>' +
+        '<div class="gv-cal-grid">' + basliklar + hucreler + '</div>' +
+      '</div>';
+    }
+
     function renderPager(total){
       var pages = Math.max(1, Math.ceil(total / state.size));
       if(state.page > pages) state.page = pages;
@@ -977,6 +1045,8 @@
         bodyHtml = GV.empty(cfg.emptyState || {});
       }else if(state.view === 'kanban'){
         bodyHtml = renderKanban(all);
+      }else if(state.view === 'calendar'){
+        bodyHtml = renderCalendar(all);
       }else if(state.view === 'card'){
         bodyHtml = renderCards(pageRows);
       }else{
@@ -994,7 +1064,8 @@
           renderHead() +
           '<div class="gc-body flush">' + bodyHtml + '</div>' +
           renderBulk() +
-          (total && state.view !== 'kanban' ? renderPager(total) : '') +
+          /* Kanban ve takvim kayıtların TAMAMINI gösterir, sayfalayıcı basılmaz */
+          (total && state.view !== 'kanban' && state.view !== 'calendar' ? renderPager(total) : '') +
         '</div>';
 
       wire();
@@ -1063,6 +1134,16 @@
       var arc = q('[data-archive]');
       if(arc) arc.addEventListener('change', function(){ state.archive = arc.checked; reset(); render(); });
 
+      /* Takvim ay gezinmesi — ay değişince sayfa 1'e döner (filtre kuralıyla aynı) */
+      qa('[data-cal]').forEach(function(b){
+        b.addEventListener('click', function(){
+          var d = b.dataset.cal;
+          state.calAy = d === 'today'
+            ? String(DB.today).slice(0,7)
+            : ayKaydir(state.calAy, d === 'prev' ? -1 : 1);
+          state.page = 1; render();
+        });
+      });
       qa('[data-view]').forEach(function(b){
         b.addEventListener('click', function(){ state.view = b.dataset.view; state.page = 1; render(); });
       });
