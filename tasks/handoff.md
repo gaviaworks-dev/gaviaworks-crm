@@ -1,175 +1,118 @@
 # Handoff — GaviaWorks CRM
 
 > Sıfırdan gelen bir Claude'un **hiçbir şey sormadan** devam etmesi için yazıldı.
-> Sırayla oku: bu dosya → `tasks/ui-debt.md` → `tasks/lessons.md` → `tasks/plan.md` → `tasks/components.md`.
+> Sırayla oku: bu dosya → `tasks/plan.md` → `tasks/ui-debt.md` → `tasks/lessons.md` → `tasks/components.md`.
 > **PROMPT.md'yi baştan sona OKUMA** — yalnız ihtiyaç duyduğun bölümü aç.
->
-> **İLK İŞ:** QA kurulumu (bölüm 3). Script'ler `tasks/qa/` altında **repoda izleniyor** — yeniden
-> yazma, kopyala. Kurulumdan sonra **`node rec.js`** koş: tarama hedeflerini o üretir (ders **L-19**).
-> **`tasks/form-brief.md`** = form ekranı sözleşmesi · **`tasks/detay-brief.md`** = detay ekranı sözleşmesi.
 
-**Güncelleme:** 2026-08-06, **11. oturum** · **142 ekran** · 26 detay · 36 form
-**plan.md:** **276 / 297 madde (%92)** · 21 kısmen · **0 açık**
-## 0. DURUM — KAPSAM TAMAM
-
-`plan.md`'de **açık madde kalmadı** (0). Kalan 21 madde `[~]` **kısmen**dir ve
-her birinin yanında neyin yapıldığı, neyin neden yapılmadığı **ölçüsüyle** yazılıdır.
-
-**KAPSAM DONDURULDU (11. oturum).** Sebep: her yeni ölçüm ekseni yeni borç buluyor,
-borç deftere giriyor, payda büyüyordu — dört oturumdur yüzde %81'de sabit kalmasının
-sebebi buydu. Bugünden itibaren:
-- **Yeni tarama ekseni yazılmaz.** Kalıcı set **19 script** (`tasks/qa/`).
-- **`plan.md`'ye yeni madde eklenmez.** Payda **297**'de dondu.
-- Yeni bulgu `ui-debt.md` sonundaki **“V2 — DONDURULMUŞ KAPSAM DIŞI”** başlığına yazılır;
-  yüzdeye katılmaz. Şu an orada **5 kayıt** var (V2-01..V2-05).
-
-### 11. oturumda kapananlar
-
-| Kod | Ne çözüldü | Ölçüm |
-|---|---|---|
-| **VB-28** | §22 bağ kapsamı — üç "eksik" bağın **ikisi zaten vardı**, ters yönde | `canon.js` eksen **21**: 14 bağın 14'ü ≥1 kayıtta dolu · `bag.js` 12 vaka |
-| **UID-16** | Aktivite kapsamı — defter 5 önek diyordu, ölçülen **22** | `DB.activities` **8 → 192**, aktivitesi olan detay ekranı **4/26 → 26/26** |
-| **VB-12 · VB-13** | Kişi kimliği — defter 2 alan sayıyordu, ölçülen **3** | 192+7+7 değer koda çevrildi · `GV.session.ad`→`.emp` **154 yazım / 62 dosya** · ad kaskadı silindi |
-| **VB-04 · VB-16** | Alan adı rename — envanter **145 kullanım / 9 dosya** (defterde 111) | `hakedis`→`komisyonToplam` · `hakedisTarihi`→`kazanimTarihi` · `maliyet`→`tahminiBedel`; yasak terim taraması **0** |
-| **UID-02·03·04·05·06·10·13·14·15·17·19·29** | Bileşen katmanı kümesi | aşağıdaki tabloda |
-| **UID-26** | `GV.list` kilidi | **kısmen** — dönüş yüzeyine alındı, bağımsız bileşen V2-01 |
-| **Kapsam B (10 madde)** | Sistem geneli denetimler | 142 ekran ölçümü, aşağıda |
-| **3 özellik boşluğu** | Zamanlayıcı · yetkinlik ekseni · işe giriş/çıkış | üçü de üretildi ve ölçüldü |
-
-### Bu oturumun dersi — **borç kaydının KENDİSİ yanlış yere bakabilir**
-
-L-26 ölçüm aracının yanılabileceğini söylüyordu. Bu oturum bir adım ötesini gösterdi:
-**dört borç kaydı da kendi kapsamını yanlış ölçmüştü** ve hepsi aynı yönde —
-gerçek her seferinde defterdekinden **büyük** çıktı:
-
-| Borç | Defterde | Ölçülen |
-|---|---|---|
-| UID-16 aktivite öneki | 5 | **22** |
-| UID-17 yerel `dl()` | 9 ekran | **60 ekran** |
-| VB-04 rename kullanımı | 111 | **145** |
-| VB-12 kişi alanı | 2 | **3** (biri 192 kayıtlık) |
-| VB-28 eksik bağ | 3 | **1** (ikisi ters yönde zaten vardı) |
-
-> **Kural:** bir borç kapatılmadan önce kapsamı **yeniden ölçülür**; defterdeki sayı
-> tahmindir. VB-28 tersini de gösterdi: bağ "yok" denmeden önce **iki yönde de** aranır.
-
-### Ölçüm aracı üç kez kendi hatasını gösterdi
-
-1. `pers.js` ilk sürümü `innerText` okuyordu → sekme tıklamasından sonra yalnız son panel
-   görünür kaldığı için **ekranda var olan adı "yok"** gösterdi.
-2. Aynı script "kod sayfada geçmesin" derken fazla katıydı — bu projede her kayıt kendi
-   kodunu `.cell-sub`/`.cell-code` ile gösterir. Kural **birincil ad konumuna** daraltıldı.
-3. Kapsam B denetimi **8.188 odaksız öğe** raporladı; programatik `.focus()`
-   `:focus-visible`'ı tetiklemiyor — ihlallerin tamamı sahteydi. Odak halkası
-   `shell.css`'te global tanımlı.
-
-> Üçü de L-26'nın tekrarı: **araç sınanmadan güvenilmez.** Bu oturumda açılan her eksen
-> koşturulmadan önce en az bir olumlu ve bir olumsuz vakayla denendi.
+**Güncelleme:** 2026-08-06, **11. oturum sonu** · **142 ekran** · 26 detay · 36 form · dal `main`
+**plan.md:** **276 / 297 madde tamam (%92)** · **21 kısmen** · **0 açık**
+**Çalışma ağacı temiz, her şey push edilmiş.**
 
 ---
 
-## 0b. 10. OTURUMDA NE OLDU
+## 1. TEK KALAN İŞ — 21 `[~]` maddenin üç kovaya ayrılması
 
-### Kapanan borçlar (18 kayıt)
+`plan.md`'de **açık madde yok**. Kalan 21 madde `[~]` (kısmen) işaretli ve hepsinin
+yanında ne yapıldığı yazılı. Sıradaki oturumun **tek işi** bunları üç kovaya ayırmak:
 
-| Kod | Ne çözüldü | Ölçüm |
+| Kova | Ne demek | Ne yapılır |
 |---|---|---|
-| **UID-07** | Seçili kapsamı dışa aktarma — `exportRows` + `bulk[].export` | 53 ekran devre dışıdan çalışır oldu · 51 çıktı aksiyonu dosya üretiyor |
-| **UID-30** | Ekranın kendi `run` gövdesi yalan söylüyordu | **10 yalan → 0** (defterdeki 28 sayısı aracın kendi hatasıydı) |
-| **UID-08 + UID-09** | Kontrol–etiket boşluğu + native kontroller | 2.422 çiftte bitişik **0** · native select **0/734** · native kutu **0/4.179** |
-| **UID-11 + UID-25 + UID-28** | KPI maskeleme · çıktı yetki kapısı · kardeş ekran ayrışması | 28 `canFinans ? x : 0` ve 9 elle kapı silindi |
-| **UID-12 + UID-21** | Dış bağlantılar sessizce yanlış küme döndürüyordu | `app-gorev`'e "Tümü" sekmesi · `referans` süzgeci · 3 hiç okunmayan parametre |
-| **UID-24 · UID-29** | Üç değerin ikiye düşmesi · sabit ay | — |
-| **VB-06 + VB-23 + VB-25** | Aynı işlem ekrandan ekrana ayrışıyordu | yeni `assets/js/domain.js` · bekleyen tahsilat 285.000 → 0 ölçüldü |
-| **VB-27 · VB-29** | Yetim anket kodları · hatırlatma veri ekseni | 6 geçmiş proje yazıldı · `DB.reminders` + duyuru `okuyanlar` açıldı |
-| **VB-09** | Yasak inşaat terimi "saha" | defterde 1 kayıt vardı, **5 yerde** bulundu → tam metin taraması 0 |
-| **VB-14 · VB-17 · VB-22** | Sekiz eksenin sözlüğü yoktu | form seçenekleri 1–2 → 4–5 |
+| **(A) Prototipte kapanabilir** | Eksik olan küçük bir şey | KAPAT, ölç, `[x]` işaretle |
+| **(B) Backend gerektirir** | Gerçek e-posta, dosya yükleme, oturum, ödeme, entegrasyon | `plan.md` **paydasından çıkar**, dosya sonunda **"V2 — BACKEND GEREKTİRİR"** başlığına taşı; her biri için neyin gerektiğini tek cümleyle yaz |
+| **(C) Bilinçle kapsam dışı** | Karar zaten verilmiş (ayna alan yasağı gibi) | **"KAPSAM DIŞI — karar kaydı"** olarak işaretle, gerekçenin nerede yazılı olduğunu göster |
 
-### Bu oturumun EN ÖNEMLİ dersi — **L-26 ve L-27**
+> **Kova kararını TAHMİNLE VERME** — her madde için ilgili ekrana ya da veriye bak.
+> **Şüphedeysen (A) değil (B) seç**; yalan kapatmaktansa dürüst ertelemek iyidir.
+> Sonra `plan.md`'yi yeniden hesapla: payda yalnız bu projede kapanabilir maddelerden
+> oluşsun, başlık satırı gerçek sonucu göstersin.
 
-`act.js` UID-30'u **28 aksiyon / 21 ekran** diye ölçmüştü. Aracın kendisi **beş** yerde
-yanılıyordu; düzeltilince gerçek sayı **10 yalan / 5 ekran**, ölü **0** çıktı:
+### 21 maddenin tam listesi — sonraki oturum aramasın
 
-1. Çıktı modalını **onay modalı** sandı (ikisi de `is-sm` + iki aksiyon; ama çıktı modalı
-   **girdi sorar**) → 51 sağlıklı çıktı aksiyonunu "yalan" gösteriyordu.
-2. **Girdi soran** modalı kendi onaylıyordu → ekran haklı olarak reddediyor, araç suçu
-   aksiyona yazıyordu (19 aksiyon).
-3. **Görünmeyen** toplu işlem butonuna tıklıyordu (bar gizliyken tıklama sessizce düşer).
-4. Satır aksiyonunu **yalnız ilk satırda** deniyordu; ön koşul tutmayınca "ölü" sayıyordu.
-   Ayrıca `'info'` tonlu dürüst reddi red saymıyordu (13 aksiyon).
-5. Çok satır denemesi eklenince **yalan maskelenmeye** başladı → kural: *bir satırda
-   yalan söyleyen aksiyon, başka satırda dürüst davransa bile ihlaldir.*
+`plan.md` satır numaralarıyla. Dosya değiştikçe kayar; tazelemek için:
+`grep -n '^- \[~\]' tasks/plan.md`
 
-> **L-25 borcun EKSİK sayılabileceğini söylüyordu; L-26 FAZLA da sayılabileceğini gösterdi.**
-> Ortak kural: sayının **nasıl ölçüldüğü** deftere yazılır, araç sınanmadan koşturulmaz.
+| # | Satır | Bölüm | Madde | İlk bakış |
+|---|---|---|---|---|
+| 1 | 57 | B. ROLLER | Erişim seviyeleri — `scope('gor')` satır kapsamı | (A/C) UID-05 kapandı; `kendi`+`departman` çalışıyor, `musteri` kapsamı → V2-03 |
+| 2 | 129 | Wave 2 | Ön analiz **10 çıktı** bekliyor (§10) | (?) çıktı `GV.list export` şeridinden geliyor; "10 ayrı rapor" ayrı iş |
+| 3 | 161 | Wave 5 | Görev listesi **takvim görünümü yok** (3/4) | (A) `views:['calendar']` yok; takvim ekseni `app-ajanda`'da var |
+| 4 | 166 | Wave 5 | Görev formu — **kontrol listesi koleksiyonu yok** | (A) `DB.subtasks` var, ayrı `checklist_item` yok |
+| 5 | 200 | Wave 7 | Zimmet — **tutanak · dijital onay · fotoğraf · hasar** adımları yok | (B) dijital onay ve fotoğraf yükleme backend ister |
+| 6 | 214 | Wave 8 | Sipariş — **eksik/kısmi teslim ve iade alanı yok** | (A) veri alanı işi |
+| 7 | 243 | Wave 10 | Doküman **versiyon geçmişi + onay zinciri koleksiyonu yok** | (B) versiyonlama gerçek dosya deposu ister |
+| 8 | 394 | E. VERİ MODELİ | `checklist_item` koleksiyonu yok | 4 ile aynı |
+| 9 | 395 | E. VERİ MODELİ | `trainings` yetkinlik · işe giriş/çıkış koleksiyonu | **METİN ESKİMİŞ** — ikisi de 11. oturumda yapıldı |
+| 10 | 398 | E. VERİ MODELİ | siparişte eksik/kısmi teslim ve iade alanı yok | 6 ile aynı |
+| 11 | 401 | E. VERİ MODELİ | doküman versiyon geçmişi + onay zinciri | 7 ile aynı |
+| 12 | 416 | F. İŞ AKIŞLARI | **Proje açılış formu yok** | (A) form ekranı işi |
+| 13 | 424 | F. İŞ AKIŞLARI | "İzin talep formu bekliyor" | **METİN ESKİMİŞ?** `app-izin-form.html` var, doğrula |
+| 14 | 427 | F. İŞ AKIŞLARI | Demirbaş zimmeti — tutanak/dijital onay/fotoğraf | 5 ile aynı (B) |
+| 15 | 428 | F. İŞ AKIŞLARI | Araç zimmeti — aynı eksik adımlar | 5 ile aynı (B) |
+| 16 | 464 | H. KABUL | Görsel uyum — "kalan hizalama/boşluk/kontrast" | **METİN ESKİMİŞ** — kontrast ve boşluk 11. oturumda ölçülüp kapandı |
+| 17 | 476 | H. KABUL | "satır kapsamı uygulanmıyor" | **METİN ESKİMİŞ** — UID-05 kapandı |
+| 18 | 481 | H. KABUL | "mobilde satır aksiyonu yok · detay tablosu gizli" | **METİN ESKİMİŞ** — UID-02 ve UID-14 kapandı |
+| 19 | 484 | H. KABUL | "formlar üretilmeden ölçülemez" | **METİN ESKİMİŞ** — 36 form üretildi |
+| 20 | 582 | FAZ Kapsam A | **UID-26** `GV.list` kilidi | (C) gerekçe V2-01'de yazılı |
+| 21 | 635 | FAZ Kapsam B | **Hizalama ve optik denge** | (C) göz kararı → V2-02 |
 
-**L-27 — araç kendi düzeneğini kuramazsa DURUR.** Kapanış taramasında `xport.js`
-"TEMİZ — **0 kolonun** tamamı temiz" dedi: UID-07 çözümü `ui.js` dönüş bloğuna
-`exportRows` ekleyince yamanın çapası kaymıştı, script hiçbir liste bulamadan 141 ekran
-gezdi ve **hata vermedi**. Artık çapa kaybolursa `throw`, sıfır ölçüm `GEÇERSİZ` +
-`exit 2`. Yakalayan şey raporun içindeki **sayının kendisiydi** — bu yüzden her tarama
-raporunda ekran/kayıt/birim sayısı ayrı ayrı yazılır (L-19).
-
-### Yeni ortak katman parçaları
-
-| Dosya / API | Ne için |
-|---|---|
-| `assets/js/domain.js` — `GV.fin` · `GV.delivery` | İş kuralı yordamları; `ui.js` alana kördür (components.md §6b) |
-| `ui.js` → `exportRows` · `bulk[].export` | UID-07 |
-| `ui.js` → `kpis[].perm/mask` · `columns[].perm/mask(row)` · `disaAktar` kapısı | UID-11 / 25 / 28 |
-| `ui.css` → kontrol–etiket taban kuralı + native kontrol standardı | UID-08 / 09 |
-| `DB.reminders` · `DB.announcements[].okuyanlar` | VB-29 · UID-30 |
-
-### Yeni tarama eksenleri (kalıcı sette)
-
-| Script | Sorduğu soru |
-|---|---|
-| `xport.js` | "Çıktı ekrandaki bilgiyi taşıyor mu?" — `ui.js`'i bellekte yamalayıp her `GV.list` kolonunun EKRAN ve ÇIKTI değerini karşılaştırır |
-| `ctl.js` | "Kontrol ile etiketi arasında boşluk var mı, kontroller tasarım sisteminde mi?" — filtre paneli · kolon yöneticisi · çıktı modalını da **açar** |
-| `canon.js` eksen **19 · 20** | Hatırlatma/duyuru okuma bağları · anket `ilgili` kaydı ve teslim-anket tarih sırası |
+> ### ⚠️ ÖNCE METNİ GERÇEĞE HİZALA
+> **Altı maddenin metni eskimiş (9 · 13 · 16 · 17 · 18 · 19).** 11. oturumda kapatılan
+> işler bu satırlara işlenmedi. Kova ayırmadan önce metni düzelt, sonra karar ver —
+> yoksa kapanmış işi yeniden yapmaya kalkarsın. Aynı şey 9. oturumda da olmuştu:
+> defter 12 madde boyunca ekranların gerisinde kalmıştı.
 
 ---
 
-## 1. KALAN İŞ — KAPSAM DIŞI
+## 2. SON DOĞRULAMA — tarama seti, tek turda (11. oturum sonu)
 
-`plan.md`'de **açık madde yok**. Sıradaki oturumun işi, kapsam açılırsa,
-`ui-debt.md` sonundaki **V2** başlığındaki beş kayıttır:
+19 script koşuldu. Her satırda taranan ekran ve gerçekten yüklenen kayıt ayrı
+yazılıdır (ders **L-19**).
 
-| Kayıt | Ne | Neden bu oturumda yapılmadı |
-|---|---|---|
-| **V2-01** | `GV.list` yordamlarının bağımsız bileşene ayrıştırılması | Dördü de liste `state`i üzerinde çalışıyor; belirtileri başka yollarla kapandı, kalan değer mimari saflık |
-| **V2-02** | "Hizalama ve optik denge" | Göz kararı; otomatik eksene bağlanamadı — sahte yeşile yazılmadı |
-| **V2-03** | `musteri` satır kapsamı | `GV.session` personelden kuruluyor, müşteri kimliği oturumda yok |
-| **V2-04** | Yetkinlik kuralının tarama ekseni | Kapsam donduğu için eksen yazılmadı; kural V2'de yazılı |
-| **V2-05** | İşe çıkış (offboarding) kaydı | Veride ayrılmış personel yok; uydurmak olmayan bir ayrılışı göstermek olurdu (L-13) |
+| Eksen | Ne sorar | Taranan ekran | Ölçülen birim | Sonuç |
+|---|---|---|---|---|
+| `rec.js` | Tarama hedefi gerçek bir kayıt açıyor mu | 62 | 62/62 hedef doğrulandı | ✅ TEMİZ |
+| `canon.js` | 24 canonical eksen tutarlı mı | — (veri) | **2.588 kontrol** | ✅ TEMİZ |
+| `dbref.js` | Okunan koleksiyonun dosyası yüklü mü (L-12) | **142** | — | ✅ TEMİZ |
+| `links.js` | Kırık hedef · hayalet BUILT · yetim ekran | **142** | 143 BUILT kaydı | ✅ TEMİZ |
+| `esc.js` | Etikette ham HTML var mı (L-14) | **142** | 62/62 kayıt | ✅ TEMİZ |
+| `tabs.js` | Detay sekmeleri açılıyor mu | 26 | 26/26 kayıt · **223 tıklama** | ✅ TEMİZ |
+| `mut.js` | `GV.refresh` idempotent mi (L-15) | 62 | 62/62 kayıt | ✅ TEMİZ |
+| `listen.js` | Dinleyici birikiyor mu (L-16) | 62 | 62/62 kayıt | ✅ TEMİZ |
+| `akt.js` | Detay ekranının aktivite sekmesi dolu mu | 26 | 26/26 kayıt · **183 hareket** | ✅ TEMİZ |
+| `bag.js` | §22 bağı ekranda görünüyor mu | 3 | 12 vaka · 12/12 kayıt | ✅ TEMİZ |
+| `pers.js` | Kod ekranda adın yerine geçiyor mu | 9 | 18 vaka · 6/6 kayıt | ✅ TEMİZ |
+| `ctl.js` | Kontrol–etiket boşluğu · native kontrol | **142** | panel · çift · select · 203 tarih alanı | ✅ TEMİZ |
+| `grip-qa.js` | Rail tutamağı geometrisi (L-09) | 1 | tüm ölçümler | ✅ TEMİZ |
+| `swtest.js` | Anahtar kontrolü görünür mü | 1 | 40×24 px | ✅ TEMİZ |
+| `act.js` | Bu buton gerçekten bir şey yapıyor mu (L-23) | **142** | **209 aksiyon** | ✅ TEMİZ |
+| `qa.js` | 1440/768/390 konsol · taşma · sahte link | **142** | 3 kırılım | ✅ TEMİZ |
+| `gate.js` | Her ekran × 5 rol (L-07) | **142** | **710 sayfa yüklemesi** | ✅ TEMİZ |
+| `xport.js` | Çıktı ekrandaki bilgiyi taşıyor mu | **142** | **tamamen taşımayan kolon 0** · 17 kısmi / 16 ekran · 54 hücre (%0,8) | ⚠️ aşağıya bak |
+| `denetim.js` | Kapsam B sistem denetimi (**tek seferlik**, scratchpad) | **142** | boşluk 0 · başlıksız boş durum 0 · AA altı kontrast 0 · dokunmatik hedef 0 | ✅ TEMİZ |
 
-**Ayrıca 21 `[~]` madde** var; her birinin yanında ne yapıldığı ve neyin neden
-açık kaldığı ölçüsüyle yazılı. Bunlar "yarım iş" değil, **kapsamı bilinçle
-daraltılmış** maddelerdir.
+**142'nin altında tarayan script ve sebebi (L-24):** `tabs.js` ve `akt.js` yalnız
+**detay** ekranlarını gezer (26) · `mut.js` / `listen.js` yalnız `rec.js`'in doğruladığı
+**62 kayıtlı hedefi** gezer (mutasyon ve dinleyici ancak gerçek kayıtta ölçülür) ·
+`bag.js` (3) ve `pers.js` (9) belirli bir sözleşmeyi ölçen **vaka testleridir** ·
+`grip-qa` / `swtest` tek bileşenlik nokta testleridir.
 
-## 2. YÖNTEM — DEĞİŞMEZ KURALLAR
+### `xport.js` neden "EKSİK" diyor — ve bu neden hata değil
 
-- **Orkestratör ortak katmanın tek sahibi:** `assets/**` · `tasks/**` · `docs/**` · `BUILT` ·
-  QA · commit · push. **Ajan commit atmaz, plan.md yazmaz.**
-- **Dalga tavanı DÖRT ajan** (L-20). Tek bekleme kur, topla; yoklama döngüsü yasak.
-- **Ajan raporundaki her iddia ölçülerek doğrulanır** — ve **kendi ölçüm aracın da
-  sınanmadan güvenilmez** (L-17 · L-24 · **L-26**). Yeni bir hüküm yazarken sor:
-  *"bu hüküm hangi SAĞLIKLI davranışı ihlal gösterir?"*
-- **Tarama koşarken repo dosyası DEĞİŞTİRME.** 10. oturumda `qa.js` tam tarama sırasında
-  `ui.js` düzenlendi ve tarama yarım kalan koda bakıp `kpiMasked is not defined` raporladı;
-  tarama baştan koşuldu.
-- **Ayrı concern = ayrı commit.** Commit öncesi `git diff --cached --name-only` doğrulanır.
-  `git add -A` yasak, `--no-verify` yasak.
-- **Her madde bitince `plan.md` aynı turn içinde işaretlenir**, ilerleme `grep -c '^- \[x\]'`
-  ile yeniden sayılır (elle yazılmaz).
+**Tamamen taşımayan kolon 0.** 17 kolon "kısmi": ekranda dolu, çıktıda boş **54 hücre
+(%0,8)**. 10. oturumda bu sınıfın tamamı tek tek incelenmişti (o zaman 47 hücre) ve
+**hepsi aynı çıkmıştı**: veri alanı boş ya da `'—'` iken ekranın **yer tutucu metin**
+basması (`Zimmetsiz` · `Süresiz` · `Proje dışı` · `Tercih bekliyor` · `Vekil yok`).
+Çıktı bilgi kaybetmiyor, yalnız yer tutucu yerine boş hücre yazıyor — **CSV/Excel için
+doğru olan da budur.** Sayı 47 → 54'e çıktı çünkü 11. oturumda yeni kayıtlar ve bir yeni
+ekran eklendi. Script bu sınıfı ayırt edemediği için "EKSİK" damgası basıyor; karar
+`ui-debt.md` **UID-07 kapanış kaydında** yazılı. Sıradaki oturum ya kabul eder ya
+sınıfı script'e öğretir.
 
----
-
-## 3. QA KOMUTLARI
+### Tarama nasıl koşulur
 
 ```bash
 SP=<scratchpad>
-cd $SP && npm init -y && npm i playwright@1.62.1     # chromium zaten kurulu olabilir
+cd $SP && npm init -y && npm i playwright@1.62.1
 mkdir -p $SP/qa-run && cp <repo>/tasks/qa/*.js $SP/qa-run/
 ln -sfn $SP/node_modules $SP/qa-run/node_modules
 
@@ -178,20 +121,116 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 ThreadingHTTPServer(('127.0.0.1',8791), SimpleHTTPRequestHandler).serve_forever()" &
 
 cd $SP/qa-run
-node rec.js                          # ÖNCE BU — qa-targets.json (62 hedef)
-node canon.js · node dbref.js · node links.js        # playwright GEREKMEZ
-node esc.js · node tabs.js · node mut.js · node listen.js
-node swtest.js · node grip-qa.js · node xport.js · node ctl.js · node act.js
+node rec.js                    # ÖNCE BU — qa-targets.json (62 hedef) · L-19
+node canon.js; node dbref.js; node links.js          # playwright GEREKMEZ
+node esc.js; node tabs.js; node mut.js; node listen.js
+node akt.js; node bag.js; node pers.js
+node swtest.js; node grip-qa.js; node ctl.js; node xport.js; node act.js
 node qa.js "$(ls <repo>/app-*.html | xargs -n1 basename | tr '\n' ',')"
-node gate.js                         # 141 ekran × 5 rol, ~10 dk
+node gate.js
 ```
 
-> **Süre uyarısı:** `act.js` ~25 dk, `gate.js` ~10 dk, `qa.js` ~20 dk, `ctl.js` ~12 dk.
-> Hepsi tek turda koşacaksa **arka planda** başlat, `tail -f` ile izle; 10 dakikalık
-> komut zaman aşımına takılır.
+**Süre:** `act.js` ~25 dk · `qa.js` ~20 dk · `ctl.js` ~12 dk · `gate.js` ~10 dk.
 
-> **L-19:** Her tarama raporunda **taranan ekran** ve **yüklenen kayıt** sayısı ayrı yazılır.
-> 141'in altında tarayan script varsa sebebi yazılır (L-24).
+> **Uzun taramayı `nohup <script> &` ile MÜSTAKİL başlat.** Bu oturumda iki kez
+> `{ ...; } > dosya &` bloğu yarıda öldü ve yalnız ilk başlığı yazdı.
+> **Bekleme kurarken `pgrep -f "node qa.js"` KULLANMA** — bekleyici kabuğun kendi
+> komut satırı desene uyuyor, döngü hiç bitmiyor. `pgrep -x node` kullan.
+> **Tarama koşarken repo dosyası DEĞİŞTİRME**: bu oturumda bir `mut.js` koşumu
+> eşzamanlı düzenlemeye denk geldi ve "2 ekran sorunlu" dedi; düzeltmeden sonraki
+> temiz koşum 62 ekranın 62'sinde temiz çıktı.
+
+---
+
+## 3. 11. OTURUMDA NE YAPILDI
+
+### Kapanan borç kayıtları
+
+| Kod | Ne çözüldü | Ölçüm |
+|---|---|---|
+| **VB-28** | §22 bağ kapsamı | `canon.js` eksen **21**: 14 bağın 14'ü ≥1 kayıtta dolu · `bag.js` 12 vaka |
+| **UID-16** | Detay ekranı aktivite kapsamı | `DB.activities` **8 → 192 kayıt**, 4 → **73 kayıt kodu**; aktivitesi olan detay ekranı **4/26 → 26/26** |
+| **VB-12 · VB-13** | Kişi kimliği ekseni | 3 alan koda çevrildi · `GV.session.ad`→`.emp` **154 yazım / 62 dosya** · ad kaskadı silindi · `referrers.kontak` açıldı |
+| **VB-04 · VB-16** | Alan adı rename | **145 kullanım / 9 dosya**; `hakedis`→`komisyonToplam` · `hakedisTarihi`→`kazanimTarihi` · `maliyet`→`tahminiBedel`; yasak terim taraması **0** |
+| **UID-02** | Mobil satır aksiyonu | 390 px'te 4 ekranda 36 kart · 108 buton · 44 px altı **0** |
+| **UID-03** | `.gv-thumb` kare görsel | logo önizlemesi inline stilden kurtuldu (80×80, cover/center) |
+| **UID-04** | `GV.upload` `onFile` + `preview` | ekrandaki capture fazlı dinleyici silindi |
+| **UID-05** | `GV.list` `scopeField` | `app-gorev` `frontend` **5/25** · `depmudur` **0/25** · `sahip` 25 |
+| **UID-06** | `countTarget` | ikinci liste örneği sayacı ezmiyor |
+| **UID-10** | Yan panel ayrımı + para birimi + filtre sayacı | "Uygula (1)" canlı sayaç ölçüldü |
+| **UID-13** | `bulk[].show` / `perm` | `app-proje-teslim`: `sahip` 4 madde, `qa` **2** |
+| **UID-14** | Detay tablosu ≤760px | 4 ekranda 35 tablonun 35'i görünür; liste ekranlarında hâlâ gizli |
+| **UID-15** | Elle shell iskeleti | **13/13** ekranda `aria-controls="gvMenu"` geri geldi |
+| **UID-17** | `GV.dl` | **60 ekranın** yerel `dl()` kopyası silindi; 62 hedefte 1.878 `dt` |
+| **UID-19** | `.gtable tfoot` / `tr.is-total` | ortak kural yazıldı |
+| **UID-26** | `GV.list` kilidi | **kısmen** — dönüş yüzeyine alındı; bağımsız bileşen V2-01 |
+| **Kapsam B (10 madde)** | Sistem geneli denetimler | AA altı kontrast **279 metinde 0** · dokunmatik **245 hedefte 0** |
+| **3 özellik boşluğu** | Zamanlayıcı · yetkinlik ekseni · işe giriş/çıkış | üçü de üretildi ve ölçüldü |
+
+### Üretilen yeni parçalar
+
+| Dosya / API | Ne için |
+|---|---|
+| `DB.contact` · `DB.contactName` · `DB.referrer` · `DB.interactionContact` (`crm.js`) | Kişi kimliği çözümü tek yerde (VB-12) |
+| `DB.onboarding` (`hr.js`) + `app-personel-giris.html` + menü kaydı | İşe giriş/çıkış — ilerleme ve durum **adımlardan türetilir** |
+| `DB.trainings[].kazanim` | Yetkinlik ekseni; `DB.employees[].yetkinlik` ile aynı sözlük |
+| `GV.dl(pairs, opts)` | Alan listesi (UID-17) |
+| `GV.list` → `scopeField` · `countTarget` · `bulk[].show/perm` · `openCols/openFilters/openExport/setView` | UID-05 · 06 · 13 · 26 |
+| `GV.upload` → `onFile(file, meta)` · `preview` | UID-04 |
+| `GV.drawer` → `onMount(gövde, panel)` | UID-10 filtre sayacı |
+| `.gv-thumb` · `.gtable tfoot`/`tr.is-total` · `.gv-mrow-acts` · `.gv-scopebar` · `.gv-checklist` | UID-03 · 19 · 02 · 05 |
+| `--ok-ink` · `--warn-ink` · `--danger-ink` … · koyulaştırılan `--muted` / `--faint` | WCAG AA |
+| `tasks/qa/akt.js` · `bag.js` · `pers.js` | Yeni kalıcı eksenler (set **19 script** oldu) |
+
+### Yazılan dersler — `tasks/lessons.md`
+
+- **L-28 · Borç kaydının kendi kapsamı da ölçülmeden güvenilmez.** Kapatılan beş borcun
+  **beşinde de** defterdeki kapsam yanlıştı; ilk dördü aynı yönde (eksik) —
+  UID-16 5→**22** · UID-17 9→**60** · VB-04 111→**145** · VB-12 2→**3**. Beşincisi ters
+  yöndeydi: VB-28'in "yok" dediği üç bağın **ikisi vardı**, ama kayıt onları yalnız
+  *hedef* koleksiyonda aramıştı. → *Bir bağ "yok" denmeden önce iki yönde de aranır.*
+- **L-29 · Ölçüm aracı üç ayrı şekilde yanılabilir:** yanlış yerden okuma (`innerText`
+  gizli paneli görmez) · fazla katı hüküm (meşru kod gösterimini ihlal sayma) ·
+  tarayıcı davranışını yanlış modelleme (programatik `.focus()` `:focus-visible`
+  tetiklemez → **8.188 sahte ihlal**).
+
+### Kapsam dondurma kararı
+
+11. oturumda kapsam **donduruldu**: her yeni ölçüm ekseni yeni borç buluyor, borç deftere
+giriyor ve payda büyüyordu — dört oturum boyunca %81'de sabit kalmasının sebebi buydu.
+
+- **Yeni tarama ekseni yazılmaz** (set 19 script'te dondu).
+- **`plan.md`'ye yeni madde eklenmez** (payda 297'de dondu).
+- Yeni bulgu `ui-debt.md`'nin **sonundaki** `# V2 — DONDURULMUŞ KAPSAM DIŞI` başlığına
+  yazılır, yüzdeye katılmaz. **Şu an orada 5 kayıt var: V2-01 … V2-05**
+  (dosyanın **1909. satırından** itibaren).
+
+| V2 | Konu | Neden ertelendi |
+|---|---|---|
+| V2-01 | `GV.list` yordamlarının bağımsız bileşene ayrıştırılması | Dördü de liste `state`i üzerinde çalışıyor; belirtileri başka yollarla kapandı |
+| V2-02 | "Hizalama ve optik denge" | Göz kararı, otomatik eksene bağlanamadı |
+| V2-03 | `musteri` satır kapsamı | `GV.session` personelden kuruluyor, müşteri kimliği oturumda yok |
+| V2-04 | Yetkinlik kuralının tarama ekseni | Kapsam donduğu için eksen yazılmadı; kural V2-04'te yazılı |
+| V2-05 | İşe çıkış (offboarding) kaydı | Veride ayrılmış personel yok; uydurmak olmayan bir ayrılışı göstermek olurdu (L-13) |
+
+---
+
+## 4. YÖNTEM — DEĞİŞMEZ KURALLAR
+
+- **Orkestratör ortak katmanın tek sahibi:** `assets/**` · `tasks/**` · `docs/**` ·
+  QA · commit · push. **Ajan commit atmaz, plan.md yazmaz.**
+- **Dalga tavanı DÖRT ajan** (L-20). Tek bekleme kur, topla; yoklama döngüsü yasak.
+- **Ajan raporundaki her iddia ölçülerek doğrulanır** — bu oturumda dört ajanın ürettiği
+  176 aktivite kaydının 176'sı tek tek denetlendi (kod gerçek mi · kişi gerçek mi ·
+  tarih yaşam döngüsüne uyuyor mu · yasak terim var mı).
+- **Kendi ölçüm aracına da güvenme** (L-17 · L-24 · L-26 · **L-29**). Bu oturumda açılan
+  her eksen, koşturulmadan önce en az bir **olumlu** ve bir **olumsuz** vakayla sınandı;
+  olumsuz vakalar repo'ya değil `scratchpad`'deki kopyaya uygulandı.
+- **Tarama koşarken repo dosyası DEĞİŞTİRME.**
+- **Ayrı concern = ayrı commit.** Commit öncesi `git diff --cached --name-only` doğrulanır.
+  `git add -A` yasak, `--no-verify` yasak.
+- **Her madde bitince `plan.md` aynı turn içinde işaretlenir**, ilerleme
+  `grep -c '^- \[x\]'` ile yeniden **sayılır** (elle yazılmaz).
 
 **Commit sonu:**
 ```
@@ -201,13 +240,19 @@ Claude-Session: https://claude.ai/code/session_011mHnmKsGuQJkAgDtka3LnF
 
 ---
 
-## 4. DERSLER — `tasks/lessons.md` (L-01..L-26)
+## 5. DEFTERLER NEREDE
 
-En sık ihlal edilen: **L-12** (okunan koleksiyonun dosyası yüklü olmalı — 10. oturumda
-`domain.js` yüzünden iki finans ekranına `work.js` eklendi) · **L-13** (bağ yazılır) ·
-**L-15** (`GV.refresh`) · **L-19** (tarama hedefi kayıtla doğrulanır) · **L-22** (alan açmak
-bağ yazmak değildir) · **L-23** (bileşen başarı varsaymaz) · **L-24 / L-26** (araç sınanmadan
-güvenilmez, borç eksik de fazla da sayılabilir).
+| Dosya | İçerik |
+|---|---|
+| `tasks/plan.md` | Kapsam listesi ve ilerleme — **işin bitiş tanımı** |
+| `tasks/ui-debt.md` | Borç defteri · sonunda **V2 — DONDURULMUŞ KAPSAM DIŞI** (satır 1909+) |
+| `tasks/lessons.md` | **29 ders** (L-01 … L-29) |
+| `tasks/components.md` | Ortak bileşen sözlüğü — **tek doğru kaynak** |
+| `tasks/assumptions.md` | 41 varsayım, gerekçeleriyle (V-01 … V-41) |
+| `tasks/qa/` | **19 tarama script'i** — repoda izleniyor, yeniden yazma, kopyala |
+| `tasks/form-brief.md` · `tasks/detay-brief.md` | Form ve detay ekranı sözleşmeleri |
+| `docs/N-kapanis-raporu.md` | Kapanış raporu — **10. oturum verileriyle, GÜNCELLENMEDİ** |
 
-> **Beş ikizin ortak kökü:** *ölçüm ekseni olmayan hata görünmez.*
-> **Altıncı ikiz (10. oturum):** *ölçüm ekseni yanlış kurulmuşsa hata OLMAYAN yerde görünür.*
+> **`docs/N-kapanis-raporu.md` eskimiştir:** 141 ekran / 14 eksen / 672 canon kontrolü
+> yazıyor; bugünkü gerçek **142 ekran / 19 eksen / 2.588 kontrol**. Kova ayrımı bitince
+> bu raporun yenilenmesi gerekiyor — yukarıdaki **bölüm 2** tablosu doğrudan kullanılabilir.
