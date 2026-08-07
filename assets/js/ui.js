@@ -163,7 +163,14 @@
     'Aktif':'ok', 'Pasif':'neutral', 'Riskli':'danger', 'Potansiyel':'info', 'Arşiv':'neutral',
     'Onaylandı':'ok', 'Reddedildi':'danger', 'Bekliyor':'warn', 'Kısmi onay':'warn',
     'Açık':'info', 'Kapandı':'ok', 'Çözüldü':'ok', 'Yeni':'info',
-    'Planlama':'info', 'Geliştirme':'accent', 'Test':'purple', 'Teslim':'ok', 'Askıda':'warn',
+    /* proje DURUM ekseni (REVİZE 05) — `Teslim` çıktı, yerine `Teslim Sürecinde`
+       ve `Tamamlandı` geldi. `Planlama` · `Geliştirme` · `Test` ADI KALIYOR
+       çünkü `DB.projectModules[].durum` onları kullanmayı sürdürüyor: bir tonu
+       silmeden önce o adı kullanan HER koleksiyon aranır (L-33 · R01'de
+       `Revize bekliyor` tam bu yüzden geri konmuştu). `Aktif` · `Tamamlandı` ·
+       `İptal` zaten yukarıda genel eksende tanımlı. */
+    'Planlama':'info', 'Geliştirme':'accent', 'Test':'purple', 'Askıda':'warn',
+    'Kontrol / Test':'purple', 'Teslim Sürecinde':'info', 'İptal Edildi':'neutral',
     'Gecikti':'danger', 'Yaklaşıyor':'warn', 'Zamanında':'ok', 'Tamam':'ok',
     'Ödendi':'ok', 'Kısmi':'warn', 'Ödenmedi':'danger', 'İletildi':'purple',
     'Serviste':'warn', 'Tahsisli':'info', 'Ortak kullanım':'accent', 'Kiralık':'info',

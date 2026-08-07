@@ -530,6 +530,65 @@
         kayit:ls.length,
         kapsam:ls.length > 0
       };
+    },
+
+    /* ---- REVİZE 05 — proje DURUM ekseni, tek yerde -------------------
+       "Bu proje devam ediyor mu?" sorusunun cevabı YEDİ ekranda ayrı ayrı
+       yazılıydı ve yedisi de aynı cümleyi kuruyordu:
+       `p.durum !== 'Teslim' && !p.arsiv`. Durum sözlüğü değişince yedisinin
+       yedisi birden sessizce yanlışa düşerdi — sekmesi boşalan liste hata
+       vermez, sadece hiçbir şey göstermez. Tanım artık burada.
+
+       `kapali` = KAYIT kapandı (tamamlandı ya da iptal edildi).
+       `bitti`  = İŞ teslim edildi — kapanış kaydı henüz yapılmamış olabilir.
+                  Eski `durum !== 'Teslim'` cümlesinin birebir karşılığı budur;
+                  `Teslim Sürecinde` iş bitmiş ama defter kapanmamış projedir
+                  (R07 kapanış akışının hedefi tam olarak o aralıktır).
+       `arsivli`= kaydın defterden çekilmiş olması — ayrı eksendir; arşivli
+                  olmayan tamamlanmış proje de mümkündür.
+       `acik`   = işi bitmemiş ve arşivlenmemiş. Liste sekmeleri, dashboard
+                  sayaçları ve "aktif proje" KPI'ları bunu çağırır. */
+    kapaliDurumlar:['Tamamlandı','İptal Edildi'],
+    teslimDurumlari:['Teslim Sürecinde','Tamamlandı'],
+
+    kapali:function(p){
+      p = Proje.kayit(p);
+      return !!p && Proje.kapaliDurumlar.indexOf(p.durum) !== -1;
+    },
+
+    bitti:function(p){
+      p = Proje.kayit(p);
+      return !!p && (Proje.teslimDurumlari.indexOf(p.durum) !== -1 ||
+                     !!p.gercekBitis || p.ilerleme === 100);
+    },
+
+    /* `arsiv` TEK arşiv eksenidir (VB-20). `aktif:false` eski ikinci eksendi;
+       `GV.list` hâlâ ikisini de arşiv sayıyor, o yüzden tanım onunla aynı
+       kalıyor — ama proje kayıtlarında `aktif` alanı artık YOK. */
+    arsivli:function(p){
+      p = Proje.kayit(p);
+      return !!p && (p.arsiv === true || p.aktif === false);
+    },
+
+    acik:function(p){
+      p = Proje.kayit(p);
+      return !!p && !Proje.bitti(p) && !Proje.arsivli(p);
+    },
+
+    /* Planlanan bitişi geçmiş ve hâlâ açık olan proje. Beş ekran bu cümleyi
+       ayrı ayrı yazıyordu; `DB.today` sabit gün olduğu için hepsi aynı yanıtı
+       vermek zorundaydı ama tanım kaydıkça ayrışırlardı. */
+    geciken:function(p){
+      p = Proje.kayit(p);
+      return !!p && Proje.acik(p) && !!p.planlananBitis && p.planlananBitis < DB.today;
+    },
+
+    /* Kod da kayıt da kabul edilir — çağıran ekran elindekini verir. */
+    kayit:function(p){
+      if(!p) return null;
+      if(typeof p !== 'string') return p;
+      if(!window.DB || !DB.projects) return null;
+      return DB.projects.filter(function(x){ return x.kod === p; })[0] || null;
     }
   };
 

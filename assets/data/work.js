@@ -39,12 +39,33 @@ DB.impacts = ['Çok yüksek','Yüksek','Orta','Düşük'];
    Sonuç: veride hiç kullanılmayan değer forma girmiyor (proje 'Askıda'),
    tek değerli eksende select tek seçenekli kalıyordu (VB-17 ile aynı sınıf).
    Kümeler ekranlarda zaten yazılı olan değerlerden alındı — uydurulmadı. */
-DB.projectStatuses = ['Planlama','Geliştirme','Test','Teslim','Askıda'];
+/* REVİZE 05 — DURUM ile FAZ iki ayrı eksendir; sözlükler artık karışmıyor.
+   ─────────────────────────────────────────────────────────────────────────
+   DURUM  = proje şu an hangi *iş halinde* (yürüyor mu, askıda mı, bitti mi).
+   FAZ    = projenin *hangi bölümünde* olduğu; müşteriden müşteriye değişir.
+   Eskiden `durum` iki faz kelimesi (`Geliştirme` · `Test`) taşıyordu ve
+   `faz` bir durum kelimesi (`Tamamlandı`) taşıyordu — iki eksen birbirinin
+   içine akıyordu (VB-20). Taşıma haritası:
+     durum 'Geliştirme' (4 kayıt) → 'Aktif'          · faz DEĞİŞMEDİ
+     durum 'Test'       (1 kayıt) → 'Kontrol / Test' · faz DEĞİŞMEDİ
+     durum 'Teslim' + arsiv       → 'Tamamlandı'     · faz null (kanıt yok)
+     durum 'Teslim' + arşivsiz    → 'Teslim Sürecinde'
+   Faz alanına uydurma değer YAZILMADI (L-13): kapanmış 7 projenin ne modülü
+   ne görevi ne sprinti var, yani hangi fazda bittikleri türetilebilir bir
+   bilgi değil. `faz:null` "faz kaydı yok" demektir, ekranlar öyle basar. */
+DB.projectStatuses = ['Planlama','Aktif','Kontrol / Test','Teslim Sürecinde',
+  'Askıda','Tamamlandı','İptal Edildi'];
 DB.healthLevels    = ['İyi','Dikkat','Riskli'];
-/* ⚠️ 'Tamamlandı' bir FAZ DEĞİL, bir durumdur (VB-20). Bugün 9 projede `faz`
-   alanında duruyor; sözlük gerçeği anlatsın diye listelendi ve VB-20 turunda
-   `durum` eksenine taşınacak. Sözlük bugünü yazar, niyeti değil (L-21). */
-DB.projectPhases   = ['Faz 1','Faz 2','Faz 3','Tamamlandı'];
+/* Faz ekseni İKİ AİLEDİR ve ikisi de meşrudur (talimat REVİZE 05): iş
+   kırılımı fazı (`Analiz · Tasarım · Geliştirme · Test`) ya da numaralı faz
+   (`Faz 1/2/3`). Bir projede bir aile kullanılır. 'Tamamlandı' burada
+   **yoktur** — o bir durumdur. */
+DB.projectPhases   = ['Analiz','Tasarım','Geliştirme','Test','Faz 1','Faz 2','Faz 3'];
+/* ⚠️ Modül durumu proje durumundan AYRI bir eksendir ve kelimeleri proje
+   durum sözlüğünden çıkarılınca da yaşamayı sürdürür (L-33: bir durum adını
+   silmeden önce o adı kullanan HER koleksiyon aranır). 15 modülün 15'i bu
+   dört değerden birini taşıyor; sözlüğü yoktu, açıldı. */
+DB.moduleStatuses  = ['Planlama','Geliştirme','Test','Tamamlandı'];
 DB.bugStatuses     = ['Açık','Devam ediyor','Kapandı'];
 DB.reproLevels     = ['Her zaman','Bazen','Nadiren','Tekrarlanamadı'];
 DB.testResults     = ['Başarılı','Kısmi','Başarısız'];
@@ -116,58 +137,58 @@ DB.taskActionLabels = {
    `butce` KALIR: onaylı bütçe bir plan değeridir, sayaç değil. */
 DB.projects = [
   { kod:'PRJ-2026-001', ad:'Vitalis Hasta Randevu Mobil Uygulaması', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu',
-    pm:'EMP-003', ekip:['EMP-004','EMP-008','EMP-005','EMP-009'], durum:'Test', saglik:'Riskli',
+    pm:'EMP-003', ekip:['EMP-004','EMP-008','EMP-005','EMP-009'], durum:'Kontrol / Test', saglik:'Riskli',
     baslangic:'2026-03-02', planlananBitis:'2026-08-14', gercekBitis:null, ilerleme:82,
     sozlesmeTutari:880000, butce:540000, tahminiSure:1240,
-    tur:'Mobil Uygulama', oncelik:'Yüksek', faz:'Faz 1', aktif:true,
+    tur:'Mobil Uygulama', oncelik:'Yüksek', faz:'Faz 1',
     repo:'github.com/gaviaworks/vitalis-mobile', canli:'—', test:'test.vitalis-app.com',
     tasarim:'figma.com/vitalis', sunucu:'AWS eu-central-1', teknoloji:['React Native','NestJS','PostgreSQL'],
     ucuncuTaraf:['Twilio SMS','Firebase Push'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-013',
     riskler:['App Store onay süresi belirsiz','Test ortamı verisi eksik'],
     gecikmeNedeni:'Müşteri içerik onayı 9 gün gecikti', sonGuncelleme:'2026-08-02' },
   { kod:'PRJ-2026-002', ad:'Anka Finans AI Kredi Skorlama Paneli', musteri:'MUS-2026-011', musteriAd:'Anka Finans Teknolojileri',
-    pm:'EMP-003', ekip:['EMP-007','EMP-005','EMP-006'], durum:'Geliştirme', saglik:'İyi',
+    pm:'EMP-003', ekip:['EMP-007','EMP-005','EMP-006'], durum:'Aktif', saglik:'İyi',
     baslangic:'2026-06-24', planlananBitis:'2026-09-04', gercekBitis:null, ilerleme:48,
     sozlesmeTutari:500000, butce:380000, tahminiSure:820,
-    tur:'Yapay Zekâ Çözümü', oncelik:'Yüksek', faz:'Faz 1', aktif:true,
+    tur:'Yapay Zekâ Çözümü', oncelik:'Yüksek', faz:'Faz 1',
     repo:'github.com/gaviaworks/anka-scoring', canli:'—', test:'staging.anka-score.com',
     tasarim:'figma.com/anka', sunucu:'Müşteri VPC', teknoloji:['Python','FastAPI','React','pgvector'],
     ucuncuTaraf:['OpenAI API','Findeks servisi'], teknikSorumlu:'EMP-007', musteriSorumlu:'EMP-002',
     riskler:['Model doğruluğu regülasyon eşiğinin üstünde tutulmalı'],
     gecikmeNedeni:null, sonGuncelleme:'2026-08-02' },
   { kod:'PRJ-2026-003', ad:'Marmara Enerji Mobil Operasyon ERP — Faz 1', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
-    pm:'EMP-003', ekip:['EMP-005','EMP-006','EMP-004','EMP-009','EMP-010'], durum:'Geliştirme', saglik:'Dikkat',
+    pm:'EMP-003', ekip:['EMP-005','EMP-006','EMP-004','EMP-009','EMP-010'], durum:'Aktif', saglik:'Dikkat',
     baslangic:'2025-09-15', planlananBitis:'2026-09-30', gercekBitis:null, ilerleme:64,
     sozlesmeTutari:920000, butce:720000, tahminiSure:2100,
-    tur:'CRM / ERP', oncelik:'Yüksek', faz:'Faz 1', aktif:true,
+    tur:'CRM / ERP', oncelik:'Yüksek', faz:'Faz 1',
     repo:'github.com/gaviaworks/marmara-erp', canli:'erp.marmaraenerji.com', test:'test-erp.marmaraenerji.com',
     tasarim:'figma.com/marmara-erp', sunucu:'Müşteri on-premise', teknoloji:['Node.js','React','PostgreSQL','Redis'],
     ucuncuTaraf:['Logo ERP','e-Fatura'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
     riskler:['Kapsam büyümesi','Logo entegrasyon dokümantasyonu yetersiz'],
     gecikmeNedeni:'Faz 2 kapsam tartışması Faz 1 testini yavaşlattı', sonGuncelleme:'2026-08-01' },
   { kod:'PRJ-2026-004', ad:'Öz Gıda Üretim Takip ve Fire Raporlama', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.',
-    pm:'EMP-003', ekip:['EMP-006','EMP-005'], durum:'Teslim', saglik:'İyi',
+    pm:'EMP-003', ekip:['EMP-006','EMP-005'], durum:'Teslim Sürecinde', saglik:'İyi',
     baslangic:'2026-05-18', planlananBitis:'2026-07-24', gercekBitis:'2026-07-22', ilerleme:100,
     sozlesmeTutari:295000, butce:210000, tahminiSure:460,
-    tur:'Süreç Otomasyonu', oncelik:'Orta', faz:'Faz 1', aktif:true,
+    tur:'Süreç Otomasyonu', oncelik:'Orta', faz:'Faz 1',
     repo:'github.com/gaviaworks/ozgida-uretim', canli:'uretim.ozgida.com.tr', test:'—',
     tasarim:'figma.com/ozgida', sunucu:'Gavia yönetimli VPS', teknoloji:['Node.js','Vue','MySQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
     riskler:[], gecikmeNedeni:null, sonGuncelleme:'2026-07-25' },
   { kod:'PRJ-2026-005', ad:'Nova Turizm Rezervasyon Portalı', musteri:'MUS-2026-007', musteriAd:'Nova Turizm Yatırımları',
-    pm:'EMP-003', ekip:['EMP-004','EMP-006','EMP-016'], durum:'Geliştirme', saglik:'İyi',
+    pm:'EMP-003', ekip:['EMP-004','EMP-006','EMP-016'], durum:'Aktif', saglik:'İyi',
     baslangic:'2026-06-08', planlananBitis:'2026-09-18', gercekBitis:null, ilerleme:37,
     sozlesmeTutari:420000, butce:260000, tahminiSure:600,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1', aktif:true,
+    tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
     repo:'github.com/gaviaworks/nova-rezervasyon', canli:'—', test:'demo.novaturizm.com',
     tasarim:'figma.com/nova', sunucu:'Gavia yönetimli VPS', teknoloji:['Next.js','PostgreSQL'],
     ucuncuTaraf:['iyzico','Google Maps'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-014',
     riskler:['Ödeme sağlayıcı entegrasyon testi bekliyor'], gecikmeNedeni:null, sonGuncelleme:'2026-07-31' },
   { kod:'PRJ-2026-006', ad:'Trakya Otomotiv Servis Randevu Sistemi', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis',
-    pm:'EMP-003', ekip:['EMP-006','EMP-009'], durum:'Geliştirme', saglik:'Riskli',
+    pm:'EMP-003', ekip:['EMP-006','EMP-009'], durum:'Aktif', saglik:'Riskli',
     baslangic:'2026-03-16', planlananBitis:'2026-06-26', gercekBitis:null, ilerleme:71,
     sozlesmeTutari:185000, butce:120000, tahminiSure:280,
-    tur:'Web Uygulaması', oncelik:'Kritik', faz:'Faz 1', aktif:true,
+    tur:'Web Uygulaması', oncelik:'Kritik', faz:'Faz 1',
     repo:'github.com/gaviaworks/trakya-randevu', canli:'—', test:'test.trakyaotomotiv.com',
     tasarim:'figma.com/trakya', sunucu:'Gavia yönetimli VPS', teknoloji:['Laravel','Vue','MySQL'],
     ucuncuTaraf:['Netgsm SMS'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-013',
@@ -177,16 +198,16 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-006','EMP-004'], durum:'Planlama', saglik:'İyi',
     baslangic:'2026-08-18', planlananBitis:'2026-10-16', gercekBitis:null, ilerleme:6,
     sozlesmeTutari:336000, butce:200000, tahminiSure:420,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1', aktif:true,
+    tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
     repo:'—', canli:'—', test:'—', tasarim:'figma.com/ege-veli', sunucu:'Mevcut okul sunucusu',
     teknoloji:['Next.js','PostgreSQL'], ucuncuTaraf:['Netgsm SMS'],
     teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-002',
     riskler:['Mevcut okul yönetim sisteminin API desteği sınırlı'], gecikmeNedeni:null, sonGuncelleme:'2026-08-01' },
   { kod:'PRJ-2025-008', ad:'Deniz Lojistik Sevkiyat Takip Paneli', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.',
-    pm:'EMP-003', ekip:['EMP-005','EMP-006'], durum:'Teslim', saglik:'İyi',
+    pm:'EMP-003', ekip:['EMP-005','EMP-006'], durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2025-02-10', planlananBitis:'2025-07-30', gercekBitis:'2025-07-28', ilerleme:100,
     sozlesmeTutari:960000, butce:600000, tahminiSure:1400,
-    tur:'Web Uygulaması', oncelik:'Yüksek', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Web Uygulaması', oncelik:'Yüksek', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/deniz-sevkiyat', canli:'panel.denizlojistik.com', test:'—',
     tasarim:'figma.com/deniz', sunucu:'Müşteri bulut', teknoloji:['Node.js','React','PostgreSQL'],
     ucuncuTaraf:['Google Maps','e-İrsaliye'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -204,10 +225,10 @@ DB.projects = [
      (sistem öncesi iş), bu yüzden `DB.contracts`'ta karşılığı aranmaz. */
   { kod:'PRJ-2024-011', ad:'Deniz Lojistik Araç Takip Entegrasyonu', musteri:'MUS-2024-001',
     musteriAd:'Deniz Lojistik A.Ş.', pm:'EMP-003', ekip:['EMP-005','EMP-006'],
-    durum:'Teslim', saglik:'İyi',
+    durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2024-08-05', planlananBitis:'2025-10-17', gercekBitis:'2025-10-31', ilerleme:100,
     sozlesmeTutari:620000, butce:400000, tahminiSure:940,
-    tur:'Entegrasyon', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Entegrasyon', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/deniz-arac-takip', canli:'—', test:'—',
     tasarim:'—', sunucu:'Müşteri bulut', teknoloji:['Node.js','PostgreSQL'],
     ucuncuTaraf:['Arvento'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -215,10 +236,10 @@ DB.projects = [
 
   { kod:'PRJ-2025-009', ad:'Vitalis Laboratuvar Sonuç Portalı', musteri:'MUS-2024-002',
     musteriAd:'Vitalis Sağlık Grubu', pm:'EMP-003', ekip:['EMP-004','EMP-009'],
-    durum:'Teslim', saglik:'İyi',
+    durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2025-06-02', planlananBitis:'2026-03-27', gercekBitis:'2026-04-03', ilerleme:100,
     sozlesmeTutari:420000, butce:280000, tahminiSure:720,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Web Uygulaması', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/vitalis-lab', canli:'lab.vitalis.com.tr', test:'—',
     tasarim:'figma.com/vitalis-lab', sunucu:'Müşteri bulut', teknoloji:['React','Node.js'],
     ucuncuTaraf:['HL7 arayüzü'], teknikSorumlu:'EMP-004', musteriSorumlu:'EMP-002',
@@ -226,10 +247,10 @@ DB.projects = [
 
   { kod:'PRJ-2025-010', ad:'Anadolu Perakende Stok Sayım Uygulaması', musteri:'MUS-2025-003',
     musteriAd:'Anadolu Perakende Ticaret Ltd.', pm:'EMP-003', ekip:['EMP-006','EMP-009'],
-    durum:'Teslim', saglik:'Dikkat',
+    durum:'Tamamlandı', saglik:'Dikkat',
     baslangic:'2025-04-14', planlananBitis:'2025-11-14', gercekBitis:'2025-11-28', ilerleme:100,
     sozlesmeTutari:480000, butce:320000, tahminiSure:820,
-    tur:'Mobil Uygulama', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Mobil Uygulama', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/anadolu-stok', canli:'—', test:'—',
     tasarim:'figma.com/anadolu-stok', sunucu:'Şirket bulut', teknoloji:['React Native','Node.js'],
     ucuncuTaraf:['Barkod SDK'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-013',
@@ -238,10 +259,10 @@ DB.projects = [
 
   { kod:'PRJ-2025-012', ad:'Kılıç Tekstil Üretim Takip Paneli', musteri:'MUS-2025-006',
     musteriAd:'Kılıç Tekstil San. Tic.', pm:'EMP-003', ekip:['EMP-005'],
-    durum:'Teslim', saglik:'İyi',
+    durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2025-07-07', planlananBitis:'2026-01-23', gercekBitis:'2026-01-30', ilerleme:100,
     sozlesmeTutari:340000, butce:220000, tahminiSure:610,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Web Uygulaması', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/kilic-uretim', canli:'panel.kilictekstil.com', test:'—',
     tasarim:'—', sunucu:'Müşteri sunucusu', teknoloji:['Vue','Node.js','MySQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -249,10 +270,10 @@ DB.projects = [
 
   { kod:'PRJ-2026-008', ad:'Anka Finans Risk Raporlama Pilotu', musteri:'MUS-2026-011',
     musteriAd:'Anka Finans Teknolojileri', pm:'EMP-003', ekip:['EMP-007'],
-    durum:'Teslim', saglik:'İyi',
+    durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2026-02-16', planlananBitis:'2026-05-22', gercekBitis:'2026-05-29', ilerleme:100,
     sozlesmeTutari:190000, butce:130000, tahminiSure:340,
-    tur:'Veri ve Raporlama', oncelik:'Orta', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Veri ve Raporlama', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/anka-risk-pilot', canli:'—', test:'—',
     tasarim:'—', sunucu:'Müşteri bulut', teknoloji:['Python','PostgreSQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-007', musteriSorumlu:'EMP-014',
@@ -260,10 +281,10 @@ DB.projects = [
 
   { kod:'PRJ-2023-014', ad:'Karadeniz Tarım Ürün Alım Kayıt Sistemi', musteri:'MUS-2023-012',
     musteriAd:'Karadeniz Tarım Kooperatifi', pm:'EMP-003', ekip:['EMP-006'],
-    durum:'Teslim', saglik:'İyi',
+    durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2023-11-06', planlananBitis:'2025-03-31', gercekBitis:'2025-04-18', ilerleme:100,
     sozlesmeTutari:120000, butce:82000, tahminiSure:280,
-    tur:'Web Uygulaması', oncelik:'Düşük', faz:'Tamamlandı', aktif:true, arsiv:true,
+    tur:'Web Uygulaması', oncelik:'Düşük', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/karadeniz-alim', canli:'—', test:'—',
     tasarim:'—', sunucu:'Şirket bulut', teknoloji:['PHP','MySQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-002',
