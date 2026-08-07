@@ -221,6 +221,20 @@ document.addEventListener('gv:ready', function(){
     .map(function(p){ return { value:p.kod, label:p.ad + ' · ' + p.kod + ' · ' + p.durum +
       ' · ' + p.musteriAd }; });
 
+  /* REVİZE 12 — sorumlu adayları. Pasif çalışan yalnız kayıtta yazılıysa kalır. */
+  var CALISANLAR = DB.employees
+    .filter(function(e){ return e.aktif !== false || (duzenle && e.kod === kayit.sorumlu); })
+    .map(function(e){ return { value:e.kod, label:e.ad + ' · ' + e.pozisyon }; });
+
+  /* Sorumlu VARSAYILANI — tek yerde yazılı türetme; hem form açılışı hem
+     müşteri/proje değişimi bunu kullanır, iki türetme yaşamaz. */
+  function sorumluTuret(musteriKod, projeKod){
+    var p = projeKod ? DB.proj(projeKod) : null;
+    if(p && p.musteriSorumlu) return p.musteriSorumlu;
+    var m = musteriKod ? DB.customers.filter(function(c){ return c.kod === musteriKod; })[0] : null;
+    return (m && m.sorumlu) || '';
+  }
+
   /* =================================================================
      FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
      ================================================================= */
@@ -241,6 +255,7 @@ document.addEventListener('gv:ready', function(){
       imzaTarihi:DB.today, baslangic:'', bitis:'',
       yenileme:false, yenilemeTarihi:'',
       odemePlani:'', garanti:'',
+      sorumlu:'',
       durum:'Aktif', aktif:true
     };
   }
@@ -535,7 +550,18 @@ document.addEventListener('gv:ready', function(){
                      'formdan güncellenmediği için proje bağı değiştirilemez.';
           }
           return '';
-        } }
+        } },
+
+      /* REVİZE 12 — SÖZLEŞME SORUMLUSU. Varsayılan UYDURULMAZ, türetilir:
+         proje varsa müşteri ilişkisini yürüten kişi (`projects.musteriSorumlu`),
+         yoksa müşteri kartındaki sorumlu (`customers.sorumlu`, 12/12 dolu).
+         `projects.pm` kaynak olarak kullanılmaz — 14 projenin 14'ü de EMP-003,
+         yani ayrım yapmayan tek değerli bir eksen. Kullanıcı değiştirebilir. */
+      { key:'sorumlu', label:'Sözleşme sorumlusu', type:'select', options:CALISANLAR,
+        required:true, cols:6, placeholder:'Sorumlu seçin',
+        hint:'İmza sürecini, bitişi, yenilemeyi, fiyat revizyonunu ve bakım yenilemesini takip eden ' +
+             'kişi. Müşteri ya da proje seçtiğinizde boşsa kendiliğinden dolar; istediğiniz kişiyle ' +
+             'değiştirebilirsiniz. Yenileme ve bitiş bildirimleri bu kişiye düşer.' }
     ]});
 
   sections.push({ title:'Bedel ve vergi',
@@ -641,6 +667,25 @@ document.addEventListener('gv:ready', function(){
   var form = GV.form({
     mount:'#formMount', id:'sozlesme', record:formRec, sections:sections
   });
+
+  /* REVİZE 12 — sorumlu varsayılanı müşteri/proje seçilince dolar, ama
+     YALNIZ ALAN BOŞKEN: kullanıcının seçtiği kişi türetmeyle ezilmez.
+     Dinleyiciler mount İÇİNDEKİ düğüme bağlıdır (ders L-16). */
+  (function(){
+    var srm = form.el.querySelector('[name="sorumlu"]');
+    if(!srm) return;
+    function doldur(){
+      if(String(srm.value || '').trim()) return;
+      var v = form.read();
+      var aday = sorumluTuret(v.musteri, v.proje);
+      if(aday) srm.value = aday;
+    }
+    ['musteri','proje'].forEach(function(k){
+      var el = form.el.querySelector('[name="' + k + '"]');
+      if(el) el.addEventListener('change', doldur);
+    });
+    doldur();                                       /* açılıştaki ilk türetme */
+  })();
 
   /* =================================================================
      CANLI ÖZETLER — para zinciri ve ödeme planı dengesi
@@ -785,7 +830,7 @@ document.addEventListener('gv:ready', function(){
     toplam:'Genel toplam', doviz:'Para birimi', imzaTarihi:'İmza tarihi',
     baslangic:'Başlangıç tarihi', bitis:'Bitiş tarihi', durum:'Sözleşme durumu',
     odemePlani:'Ödeme planı', garanti:'Garanti süresi', yenileme:'Yenileme koşulu',
-    yenilemeTarihi:'Yenileme tarihi', aktif:'Kayıt durumu'
+    yenilemeTarihi:'Yenileme tarihi', sorumlu:'Sözleşme sorumlusu', aktif:'Kayıt durumu'
   };
 
   /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
@@ -815,6 +860,7 @@ document.addEventListener('gv:ready', function(){
     if(k === 'kdvOran')  return '%' + v;
     if(k === 'musteri'){ var c = musteriBul(v); return c ? c.unvan : String(v); }
     if(k === 'proje')    return DB.projName(v) + ' (' + v + ')';
+    if(k === 'sorumlu')  return DB.empName(v);     /* KOD saklanır, ad gösterilir */
     if(['tutar','kdv','toplam'].indexOf(k) !== -1) return F.money(v);
     if(['imzaTarihi','baslangic','bitis','yenilemeTarihi'].indexOf(k) !== -1) return F.date(v);
     return String(v);
