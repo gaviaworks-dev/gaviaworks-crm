@@ -728,3 +728,26 @@ kilometre taşı uydurmaktan doğrudur (L-13 · R03'ün `kapsam:false` deseni).
 18) dayandığı **ödeme defteridir**; onu ikiye bölmek çalışan bir modülü
 kaldırmak olurdu (talimatın sert sınırı). Bağ ödeme kaydında durur, milestone'da
 ayna alan doğmaz (§9d).
+
+---
+
+## V-51 · Proje detayı `GV.pageHead`'e geçmedi — üstbilgi kalıbı farklı
+
+**Karar:** R07'nin bir alt maddesi `app-proje-detay.html`'i `GV.pageHead`'e
+geçirmeyi istiyordu (UID-15'in elle iskelet borcu). Yapılmadı.
+
+**Gerekçe:** bu ekranın üstbilgisi `.gv-page-head` değil **`.gv-rec-head`**
+kalıbıdır: kayıt kodu, üç rozet, öncelik, tür etiketi, gecikme rozeti ve dört
+alanlık meta satırı taşır. `GV.pageHead` bunların hiçbirini basmaz; çağrılsaydı
+ekranda **ikinci bir başlık şeridi** doğar, mevcut kayıt başlığı yerinde
+kalırdı. Bu bir borç kapatma değil, tasarım değişikliği olurdu ve turun sert
+sınırı "tasarım baştan kurulmaz" diyor.
+
+**Ne yapıldı:** **Projeyi Kapat** aksiyonu var olan `.ph-actions` şeridine, aynı
+buton diliyle eklendi ve tıklama `GV.confirm` → `GV.proje.kapat` → `GV.refresh`
+→ `GV.result` zincirine bağlandı. Kapanmış projede buton **hiç basılmıyor**;
+"kapat" deyip sonra "zaten kapalı" demek sahte aksiyondur.
+
+**Açık kalan:** UID-15 borcu bu ekranda duruyor. Kapatılacaksa `.gv-rec-head`
+kalıbının kendisi ortak bir bileşene çıkarılmalıdır (`GV.recHead`) — 26 detay
+ekranını birden ilgilendirir, R07'nin kapsamı değildir.

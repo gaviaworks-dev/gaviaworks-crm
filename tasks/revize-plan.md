@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **48** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 · R05 7/7 · **R06 7/7** |
-| Kalan | 90 (FAZ 2'nin kalanı · FAZ 3 · 4) |
+| İşaretli | **55** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 · R05 7/7 · R06 7/7 · **R07 7/7** |
+| Kalan | 83 (R08 · R09 · R10 · FAZ 3 · 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -79,7 +79,7 @@ Bu turun kendi çalışma kuralları:
 | R04 | Timesheet + gider → gerçek maliyet | 1 | **✅ TAMAM** | `gerceklesenMaliyet` kaldırıldı; dört kalem `GV.proje.maliyet`'te türetiliyor; canon eksen 28 |
 | R05 | Proje durumu / faz ayrımı | 2 | **✅ TAMAM** | sözlük 5 → 7 · faz sözlüğünden `Tamamlandı` çıktı · 12 kayıt taşındı · canon eksen 29 |
 | R06 | Milestone / ödeme ayrımı | 2 | **✅ TAMAM** | `DB.projectMilestones` (12 kayıt) açıldı · taksitte isteğe bağlı FK (12/19) · canon eksen 30 |
-| R07 | Proje kapanış kontrolü | 2 | ⬜ | kapanış aksiyonu yok; ekran **hiç mutasyon yapmıyor**; 8 kontrolün 5'i ölçülebilir |
+| R07 | Proje kapanış kontrolü | 2 | **✅ TAMAM** | 8 kontrol `GV.proje.kapanisKontrol`ta · kapanış `GV.proje.kapat`ta · canon eksen 31 |
 | R08 | Proje → bakım geçişi | 2 | ⬜ | proje ↔ paket bağı **iki yönde de yok**; hiçbir projenin paketi yok |
 | R09 | Ticket detayları | 2 | 🟡 | 12 alanın **7'si yok**; durum sözlüğü hiçbir `DB.*`'da tanımlı değil, 3 yerde elle yazılı |
 | R10 | Ticket → görev / CR / fırsat | 2 | 🟡 | görev dönüşümü **çalışıyor**; CR bağı var ama aksiyon yok; fırsat hiç yok |
@@ -701,9 +701,42 @@ karşılığı. Bağ **ödeme kaydında** durur, milestone'da ayna alan doğmaz 
 
 ---
 
-## R07 · Proje kapanış akışı ekle
+## R07 · Proje kapanış akışı ekle · ✅ TAMAM
 
-**DURUM: ⬜ yok — kapanış aksiyonu, kontrol listesi, hiçbiri yok**
+**KAPANDI (2026-08-07, 15. oturum)** — sekiz kontrol + kapanış aksiyonu.
+
+Yapılanlar: `GV.proje.kapanisKontrol(kod)` — dokümanın sekiz maddesi tek
+yordamda, her madde `{ anahtar, etiket, gecti, sayi, detay, href, olculdu }`
+döndürüyor · `GV.proje.kapat(kod, gerekce?)` — `durum:'Tamamlandı'` +
+`gercekBitis` + `%100` + `faz:null` + aktivite · `DB.company.zorunluProjeDokuman`
+açıldı (tanım olmadan "eksik doküman" **ölçülemez**) · proje detayına
+**Projeyi Kapat** aksiyonu, modal `GV.confirm` + var olan `.gv-checklist` +
+`GV.result` ile — **yeni bileşen yazılmadı**.
+
+**`olculdu:false` "geçti" DEĞİLDİR.** Kontrol edilecek kayıt yoksa güvence de
+yoktur; madde "Ölçülemedi" rozetiyle basılır. Ölçülemeyeni yeşile yazmak,
+kapanışı olmayan bir güvenceyle onaylatmak olurdu (L-13 · L-25).
+Geçmeyen madde kapanışı **engellemez**, gerekçe ister; gerekçe uydurulmaz,
+kullanıcıdan alınır ve `DB.activities`'e yazılır.
+
+**Tarayıcı ölçümü (tek seferlik `r07.js`, scratchpad):** PRJ-2026-004'te
+**8 checklist maddesi** (Tamam ×4 · kayıt ×2 · Ölçülemedi ×2) · gerekçesiz
+onay **reddedildi** ve durum değişmedi · gerekçeyle kapanışta
+`durum:'Tamamlandı' · gercekBitis:2026-08-03 · ilerleme:100 · faz:null` ve
+aktivite kişisi `EMP-001` kodu (VB-12) · kapanıştan sonra ve zaten kapalı
+projede buton **hiç basılmıyor** (sahte aksiyon yok) · konsol temiz.
+`act.js` bu butonu göremiyor: hedef listesi `?id=` taşımayan ekranı açtığı
+için kayıt yüklenmiyor ve "0 aksiyon" ölçüyor — sıfır ölçüm temiz sayılmaz
+(L-27), bu yüzden ayrı bir vaka yazıldı.
+
+**Kilit:** `canon.js` **eksen 31** (dört kontrol grubu · **3.842 kontrol**) —
+dört olumsuz vakayla sınandı: zorunlu doküman tanımının silinmesi · uydurma
+doküman türü · kapanmış projenin bitiş tarihinin silinmesi · teslim onayının
+sözlük dışına çıkması.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): ⬜ yok — kapanış aksiyonu, kontrol listesi, hiçbiri yok**
 
 Ölçüm:
 
@@ -728,22 +761,32 @@ Sekiz kontrolün veri karşılığı:
 
 **Yapılacaklar**
 
-- [ ] `GV.proje.kapanisKontrol(kod)` → 8 maddelik sonuç dizisi
-      (`{ anahtar, etiket, gecti, sayi, detayHref }`) — `domain.js`'te
-- [ ] Kontrol 6 için **zorunlu doküman tanımı** açılır: `DB.company.zorunluProjeDokuman`
-      (tür listesi). Tanım olmadan "eksik" ölçülemez — bugün eksikliğin kendisi
-      ölçülemiyor
-- [ ] `app-proje-detay.html` `GV.pageHead`'e geçsin (13 ekranın elle iskelet
-      kopyalaması UID-15'te zaten borç); **Projeyi Kapat** aksiyonu `run:` ile eklensin
-- [ ] Kapanış modalı `GV.confirm({ body })` + var olan `.gv-checklist` sınıfıyla
-      kurulsun — **yeni bileşen yazılmaz**
-- [ ] Geçmeyen madde kapanışı **engellemez**, uyarır; kullanıcı gerekçe yazarak
-      kapatabilir (gerekçe `DB.activities`'e girer)
-- [ ] Kapanış `durum:'Tamamlandı'` + `gercekBitis` + aktivite yazar; R05'in yeni
-      durum sözlüğünü kullanır
-- [ ] Demo hedefi: **PRJ-2026-004** (temiz-ish kapanış) ve **PRJ-2026-001**
-      (3 açık görev · 1 kontrolde · 1 bekleyen doküman · 1 ödenmemiş fatura ·
-      2 ödenmemiş taksit) — ikisi de gerçek kayıt, uydurma senaryo değil
+</details>
+
+**Yapılacaklar**
+
+- [x] `GV.proje.kapanisKontrol(kod)` → 8 maddelik sonuç dizisi — `domain.js`'te.
+      Dönüşe **`olculdu`** alanı eklendi: "kontrol edilecek kayıt yok" ile
+      "kontrol geçti" aynı şey değildir
+- [x] Kontrol 6 için **zorunlu doküman tanımı** açıldı:
+      `DB.company.zorunluProjeDokuman = ['Sözleşme','Teknik doküman','Test raporu']`
+      — üç tür de `DB.documents`'te gerçekten geçen türlerden seçildi (canon 31a)
+- [x] **Projeyi Kapat** aksiyonu eklendi — ⚠️ `GV.pageHead`'e **GEÇİLMEDİ**:
+      bu ekranın üstbilgisi `.gv-rec-head` kalıbıdır (rozet + meta satırı),
+      `GV.pageHead` ikinci bir başlık şeridi basar ve **tasarım değişmez**
+      kuralına girerdi. Aksiyon var olan `.ph-actions` şeridine, aynı buton
+      diliyle kondu. UID-15 borcu bu ekranda **açık kalıyor** (→ V-51)
+- [x] Kapanış modalı `GV.confirm({ body })` + var olan `.gv-checklist` sınıfıyla
+      kuruldu — **yeni bileşen yazılmadı**
+- [x] Geçmeyen madde kapanışı **engellemiyor**, gerekçe istiyor; gerekçe
+      `DB.activities`'e giriyor (ortak `log()` ile, kişi KOD olarak — VB-12)
+- [x] Kapanış `durum:'Tamamlandı'` + `gercekBitis` + `%100` + `faz:null` +
+      aktivite yazıyor; R05'in yeni durum sözlüğünü kullanıyor
+- [x] Demo hedefi **PRJ-2026-004** ve **PRJ-2026-001** — ikisi de tarayıcıda
+      ölçüldü, uydurma senaryo yok
+
+**Dokunulan dosyalar:** `assets/js/domain.js` · `assets/data/org.js` ·
+`app-proje-detay.html` · `tasks/qa/canon.js` · `tasks/components.md`
 
 ---
 
