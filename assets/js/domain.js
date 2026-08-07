@@ -601,7 +601,7 @@
      · disKaynak  aynı hesap, hizmet sözleşmeli personel
      · satinAlma  Σ `DB.purchases[proje==kod && durum=='Teslim alındı']`
                   — talep aşamasındaki kayıt henüz maliyet değildir
-     · diger      **KAYNAK YOK.** `DB.projectExpenses` bilerek AÇILMADI
+     · diger      **KAYNAK YOK.** projeye bağlı ayrı bir gider koleksiyonu bilerek AÇILMADI
                   (talimat: "yeni finans modülü oluşturma"); projeye bağlı
                   başka gider koleksiyonu bu depoda yok. Sıfır döner ve
                   ekran bunun bir ölçüm değil KAYNAK boşluğu olduğunu söyler.
