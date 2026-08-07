@@ -67,6 +67,28 @@
   function greeting(s){
     var h = new Date().getHours();
     var sel = h < 6 ? 'İyi geceler' : h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
+
+    /* REVİZE 13 — MÜŞTERİ SELAMLAMASI KENDİ KAPSAMINDA. Ortak selamlama
+       şirketin geciken iş sayısını ve iç onay kuyruğunu basıyor, üstelik
+       "Günlük Özet" ve "Görev Ver" aksiyonlarına bağlıyordu — üçü de müşteriye
+       kapalı. Müşteri kendi bekleyen onayını görür. */
+    if(s.musteri){
+      var mp = DB.projects.filter(function(p){ return p.musteri === s.musteri; }).map(function(p){ return p.kod; });
+      var bek = DB.deliveries.filter(function(d){
+        return mp.indexOf(d.proje) !== -1 && d.musteriOnay === 'Bekliyor'; }).length;
+      var acik = DB.tickets.filter(function(t){
+        return t.musteri === s.musteri && GV.destek.acik(t); }).length;
+      return '<div class="gv-page-head"><div>' +
+        '<div class="ph-eyebrow">' + esc(s.musteriAd || DB.roleName(s.rol)) + '</div>' +
+        '<h1>' + sel + ', ' + esc(String(s.ad).split(' ')[0]) + '</h1>' +
+        '<div class="ph-sub">' + F.dateLong(T()) + ' — ' +
+        (bek ? bek + ' teslim onayınızı bekliyor' : 'onayınızı bekleyen teslim yok') + ', ' +
+        (acik ? acik + ' açık destek talebiniz var' : 'açık destek talebiniz yok') + '.</div></div>' +
+        '<div class="ph-actions">' +
+          '<a class="btn btn-acc" href="app-destek-form.html">' + ico('i-plus') + ' Destek Talebi Aç</a>' +
+        '</div></div>';
+    }
+
     var late = DB.tasks.filter(lateTask).length;
     var onay = DB.approvals.filter(function(a){ return a.durum === 'Bekliyor'; }).length;
     return '<div class="gv-page-head"><div>' +
@@ -689,22 +711,74 @@
   /* ---------------------------------------------------------------
      7. MÜŞTERİ KULLANICISI (kısıtlı)
      --------------------------------------------------------------- */
-  function dashMusteri(){
+  /* REVİZE 13 — MÜŞTERİ PANOSU. Eski hâli üç yerden sızıyordu: sayaçlardan
+     ikisi (`aktif projem` · `bekleyen onayım`) **sabit 1** yazılıydı, doküman
+     sayacı bütün müşterilerin gizli olmayan dosyalarını sayıyordu ve
+     "Destek Kayıtlarım" `DB.tickets.slice(0,5)` ile **beş farklı müşterinin**
+     talebini basıyordu. Beş değerin beşi de artık oturumun müşterisinden
+     türetiliyor; dokümanın istediği kırılım budur (Aktif projeler · Bekleyen
+     onaylar · Son teslimatlar · Açık destek talepleri · Yaklaşan toplantılar). */
+  function dashMusteri(s){
+    var mus = (s && s.musteri) || (GV.session && GV.session.musteri) || null;
+    if(!mus){
+      return GV.errorState({ title:'Müşteri kimliği okunamadı',
+        desc:'Oturumda müşteri bağı yok; kapsamlı bir pano üretilemez. Giriş ekranından ' +
+             'müşteri personasıyla girin.' });
+    }
+    var projeler = DB.projects.filter(function(p){ return p.musteri === mus; });
+    var kodlar   = projeler.map(function(p){ return p.kod; });
+    var acikProje = projeler.filter(function(p){ return GV.proje.acik(p); });
+    var teslimler = DB.deliveries.filter(function(d){ return kodlar.indexOf(d.proje) !== -1; });
+    var bekleyen  = teslimler.filter(function(d){ return d.musteriOnay === 'Bekliyor'; });
+    var talepler  = DB.tickets.filter(function(t){ return t.musteri === mus; });
+    var acikTalep = talepler.filter(GV.destek.acik);
+    var dokumanlar = DB.documents.filter(function(d){
+      return (d.musteri === mus || kodlar.indexOf(d.proje) !== -1) && d.gizlilik !== 'Gizli'; });
+    var toplantilar = (DB.meetings || []).filter(function(m){
+      return (m.musteri === mus || kodlar.indexOf(m.proje) !== -1) && m.tarih >= T(); })
+      .sort(function(a, b){ return a.tarih < b.tarih ? -1 : 1; });
+
+    var sonTeslim = teslimler.slice().sort(function(a, b){ return a.tarih < b.tarih ? 1 : -1; }).slice(0, 5);
+
     return kpiGrid([
-      { label:'Açık destek kaydım', value:DB.tickets.filter(GV.destek.acik).length, icon:'i-support', href:'app-destek.html' },
-      { label:'Aktif projem', value:1, icon:'i-briefcase' },
-      { label:'Bekleyen onayım', value:1, icon:'i-stamp', tone:'warn' },
-      { label:'Paylaşılan doküman', value:DB.documents.filter(function(d){ return d.gizlilik !== 'Gizli'; }).length, icon:'i-folder', href:'app-dokuman.html' }
-    ]) + '<div class="u-mt-8">' + card({
-      title:'Destek Kayıtlarım', icon:'i-support', link:'app-destek.html', flush:true,
-      body:rows(DB.tickets.slice(0, 5).map(function(t){
+      { label:'Aktif projem', value:acikProje.length, icon:'i-briefcase', href:'app-proje.html' },
+      { label:'Onayımı bekleyen teslim', value:bekleyen.length, icon:'i-stamp',
+        tone:bekleyen.length ? 'warn' : null, href:'app-proje-teslim.html' },
+      { label:'Açık destek talebim', value:acikTalep.length, icon:'i-support', href:'app-destek.html' },
+      { label:'Yaklaşan toplantım', value:toplantilar.length, icon:'i-calendar' },
+      { label:'Paylaşılan doküman', value:dokumanlar.length, icon:'i-folder', href:'app-dokuman.html' }
+    ]) +
+    '<div class="u-mt-8">' + card({
+      title:'Destek Taleplerim', icon:'i-support', link:'app-destek.html', flush:true,
+      sub:talepler.length + ' talebin ' + acikTalep.length + ' tanesi açık',
+      body:rows(talepler.slice(0, 5).map(function(t){
         return row([
           { html:link('app-destek-detay.html?id=' + t.kod, t.baslik, t.kod + ' · ' + t.kategori) },
           { html:GV.pri(t.oncelik) },
           { html:GV.badge(t.durum) },
           { html:'<span class="cell-date">' + F.dt(t.acilis) + '</span>' }
         ]);
-      })) }) + '</div>';
+      }), { icon:'i-check-circle', title:'Destek talebiniz yok',
+            desc:'Yeni bir talep açmak için “Destek Talebi Aç” butonunu kullanın.' }) }) + '</div>' +
+    '<div class="gv-grid gv-grid-2 u-mt-8">' +
+      card({ title:'Son Teslimatlar', icon:'i-package', link:'app-proje-teslim.html', flush:true,
+        body:rows(sonTeslim.map(function(d){
+          return row([
+            { html:link('app-proje-teslim.html', d.ad, DB.projName(d.proje)) },
+            { html:GV.dateCell(d.tarih) },
+            { html:GV.badge(d.musteriOnay === 'Bekliyor' ? 'Onay bekliyor' : d.musteriOnay) }
+          ]);
+        }), { icon:'i-package', title:'Teslim kaydı yok',
+              desc:'Projelerinizde henüz teslim edilmiş bir çıktı bulunmuyor.' }) }) +
+      card({ title:'Projelerim', icon:'i-briefcase', link:'app-proje.html', flush:true,
+        body:rows(projeler.map(function(p){
+          return row([
+            { html:link('app-proje-detay.html?id=' + p.kod, p.ad, p.kod + ' · ' + p.tur) },
+            { html:GV.badge(p.durum) },
+            { html:GV.progress(p.ilerleme) }
+          ]);
+        }), { icon:'i-briefcase', title:'Proje kaydı yok' }) }) +
+    '</div>';
   }
 
   /* ---------------------------------------------------------------
