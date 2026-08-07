@@ -39,7 +39,9 @@ document.addEventListener('gv:ready', function(){
   function zamaninda(t){ return !!(t.tamamlanma && t.termin && t.tamamlanma <= t.termin); }
   function kapandi(t){ return !!t.tamamlanma; }
   function sapma(t){ return (t.gercekSure || 0) - (t.tahminiSure || 0); }
-  function atanmamis(t){ return !t.sorumlu || t.durum === 'Havuzda' || t.durum === 'Atama bekliyor'; }
+  /* 'Atama bekliyor' REVİZE 01 ile sözlükten kalktı — 'Havuzda' ile aynı şeyi
+     anlatıyordu, ikinci koşul artık hiçbir kayda değmiyordu. */
+  function atanmamis(t){ return !t.sorumlu || t.durum === 'Havuzda'; }
   function kalanEfor(t){ return Math.max(0, (t.tahminiSure || 0) - (t.gercekSure || 0)); }
 
   /* Termin sonucu — tamamlananlarda gerçek sonuç, açıklarda termin ihlali */
@@ -325,6 +327,17 @@ document.addEventListener('gv:ready', function(){
     engelNedeni:function(){ return { key:'engelNedeni', label:'Engel nedeni', cellClass:'cell-wrap', width:'24%',
       render:function(t){ return t.engelNedeni ? esc(t.engelNedeni) : '<span class="u-faint">Belirtilmedi</span>'; } }; },
 
+    /* Bekleme nedeni DURUM DEĞİL, ikinci eksendir (REVİZE 01) — bu yüzden
+       durum rozetinin yanında ayrı kolon olarak durur, onun yerine geçmez. */
+    beklemeNedeni:function(){ return { key:'beklemeNedeni', label:'Bekleme nedeni',
+      render:function(t){ return t.beklemeNedeni
+        ? GV.badge(t.beklemeNedeni, 'is-warn')
+        : '<span class="u-faint">Beklemiyor</span>'; },
+      exportValue:function(t){ return t.beklemeNedeni || '—'; } }; },
+
+    beklemeNotu:function(){ return { key:'beklemeNotu', label:'Bekleme notu', cellClass:'cell-wrap', width:'24%',
+      render:function(t){ return t.beklemeNotu ? esc(t.beklemeNotu) : '<span class="u-faint">—</span>'; } }; },
+
     revizeNot:function(){ return { key:'revizeNot', label:'Revize notu', cellClass:'cell-wrap', width:'22%',
       render:function(t){ return t.revizeNot ? esc(t.revizeNot) : '<span class="u-faint">—</span>'; } }; },
 
@@ -518,28 +531,46 @@ document.addEventListener('gv:ready', function(){
           columns:[C.gorev(), C.proje(), C.dep(), C.veren(), C.termin(), C.oncelik(), C.tahmini(), C.durum()],
           emptyState:bos('Atanmamış görev yok', 'Havuzdaki tüm işler bir sorumluya bağlanmış.') }) },
 
-      { key:'kabul', label:'Kabul bekleyen görevler', icon:'i-hourglass', group:'Durum',
-        title:'Kabul Bekleyen Görevler', desc:'Sorumluya atanmış fakat henüz kabul edilmemiş görevler — atama ile başlangıç arasındaki bekleme.',
-        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Kabul bekliyor'; }); },
+      /* Buradaki rapor "Kabul Bekleyen Görevler"di ve `Kabul bekliyor` durumunu
+         okuyordu. O durum REVİZE 01 ile `Atandı` içine kapandı — rapor bir daha
+         tek satır bile döndüremezdi. Yerine, aynı soruyu SORAN ama doğru ekseni
+         okuyan rapor kondu: bir görev beklerken durumu değişmez, `beklemeNedeni`
+         dolar. "İş kimde takılı?" sorusunun cevabı artık burada. Rapor sayısı
+         19'da kaldı, yeni rapor eklenmedi. */
+      { key:'bekleyen', label:'Bekleyen görevler', icon:'i-hourglass', group:'Durum',
+        title:'Bekleyen Görevler', desc:'Bekleme nedeni işaretlenmiş görevler. Bekleme durumdan bağımsız ikinci eksendir — görev “Devam ediyor” ya da “Revizede” kalırken müşteri, departman, bilgi veya onay bekliyor olabilir.',
+        rows:function(f){ return base(f).filter(function(t){ return !!t.beklemeNedeni; }); },
         kpis:[
-          { label:'Kabul bekleyen', icon:'i-hourglass', tone:'warn', calc:function(r){ return r.length; } },
-          { label:'7 gün içinde terminli', icon:'i-calendar', tone:'danger', calc:function(r){
-              return r.filter(function(t){ var d = t.termin ? F.days(t.termin) : null; return d != null && d <= 7; }).length; } },
-          { label:'Bekleyen efor', icon:'i-timer', tone:'info', format:F.hours,
-            calc:function(r){ return r.reduce(function(s, t){ return s + (t.tahminiSure || 0); }, 0); } },
-          { label:'Farklı sorumlu', icon:'i-users', tone:'purple', calc:function(r){
-              var s = {}; r.forEach(function(t){ if(t.sorumlu) s[t.sorumlu] = 1; }); return Object.keys(s).length; } }
+          { label:'Bekleyen görev', icon:'i-hourglass', tone:'warn', calc:function(r){ return r.length; } },
+          { label:'Farklı bekleme nedeni', icon:'i-layers', tone:'purple', calc:function(r){
+              var s = {}; r.forEach(function(t){ s[t.beklemeNedeni] = 1; }); return Object.keys(s).length; } },
+          { label:'Termini geçmiş', icon:'i-alert', tone:'danger', calc:function(r){
+              return r.filter(function(t){ return t.termin && F.days(t.termin) < 0; }).length; } },
+          /* "Kalan efor" değil "etkilenen proje": bekleyen görevlerin ikisi de
+             tahminini aşmış durumda ve kalan efor 0 çıkıyor — bilgi vermeyen
+             bir kutu yerine beklemenin kaç projeyi tuttuğu gösteriliyor. */
+          { label:'Etkilenen proje', icon:'i-briefcase', tone:'warn', calc:function(r){
+              var s = {}; r.forEach(function(t){ if(t.proje) s[t.proje] = 1; }); return Object.keys(s).length; } }
         ],
-        charts:function(r){ return r.length ? [kartSorumlu(r, 'Sorumlu bazlı kabul bekleyen'), kartDurum(r)] : []; },
-        table:tGorev({ exportName:'gorev-rapor-kabul', exportTitle:'Kabul Bekleyen Görevler Raporu',
-          columns:[C.gorev(), C.proje(), C.dep(), C.veren(), C.sorumlu(), C.termin(), C.oncelik(), C.tahmini(), C.durum()],
-          emptyState:bos('Kabul bekleyen görev yok', 'Atanan tüm görevler sorumlular tarafından kabul edilmiş.') }) },
+        charts:function(r){
+          if(!r.length) return [];
+          var n = tally(r, function(t){ return t.beklemeNedeni; });
+          /* Durum dağılımı burada süs değil: beklemenin durumu dondurmadığını,
+             yani iki eksenin ayrı olduğunu gösteren tek grafik odur. */
+          return [{ title:'Bekleme nedeni kırılımı', sub:'görev adedi', wide:true, html:GV.chart.bar(n) },
+                  kartDurum(r)];
+        },
+        table:tGorev({ exportName:'gorev-rapor-bekleyen', exportTitle:'Bekleyen Görevler Raporu',
+          columns:[C.gorev('22%'), C.beklemeNedeni(), C.beklemeNotu(), C.proje(), C.sorumlu(),
+                   C.termin(), C.gecikme(), C.oncelik(), C.durum()],
+          emptyState:bos('Bekleyen görev yok', 'Seçilen kapsamda bekleme nedeni işaretlenmiş görev bulunmuyor.') }) },
 
-      { key:'kontrol', label:'Kontrol bekleyen görevler', icon:'i-clipboard-check', group:'Durum',
-        title:'Kontrol Bekleyen Görevler', desc:'Sorumlusu işi bitirmiş, kontrol edenin incelemesini bekleyen görevler.',
-        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Kontrol bekliyor'; }); },
+      /* `Kontrol bekliyor` → `Kontrolde` (REVİZE 01). Aynı kuyruk, tek isim. */
+      { key:'kontrol', label:'Kontroldeki görevler', icon:'i-clipboard-check', group:'Durum',
+        title:'Kontroldeki Görevler', desc:'Sorumlusu işi bitirmiş, kontrol edenin incelemesini bekleyen görevler.',
+        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Kontrolde'; }); },
         kpis:[
-          { label:'Kontrol bekleyen', icon:'i-clipboard-check', tone:'info', calc:function(r){ return r.length; } },
+          { label:'Kontroldeki görev', icon:'i-clipboard-check', tone:'info', calc:function(r){ return r.length; } },
           { label:'Termini geçmiş', icon:'i-alert', tone:'danger', calc:function(r){
               return r.filter(function(t){ return t.termin && F.days(t.termin) < 0; }).length; } },
           { label:'Onay bekleyen', icon:'i-stamp', tone:'purple', calc:function(r, f){
@@ -552,14 +583,16 @@ document.addEventListener('gv:ready', function(){
           var d = tally(r, function(t){ return DB.empName(t.kontrolEden); });
           return [{ title:'Kontrol eden bazlı kuyruk', sub:'görev adedi', wide:true, html:GV.chart.bar(d) }, kartDurum(r)];
         },
-        table:tGorev({ exportName:'gorev-rapor-kontrol', exportTitle:'Kontrol Bekleyen Görevler Raporu',
+        table:tGorev({ exportName:'gorev-rapor-kontrol', exportTitle:'Kontroldeki Görevler Raporu',
           columns:[C.gorev(), C.proje(), C.sorumlu(), C.kontrolEden(), C.termin(), C.gecikme(),
                    C.ilerleme(), C.cikti(false), C.durum()],
-          emptyState:bos('Kontrol kuyruğu boş', 'Seçilen kapsamda kontrol bekleyen görev yok.') }) },
+          emptyState:bos('Kontrol kuyruğu boş', 'Seçilen kapsamda kontroldeki görev yok.') }) },
 
       { key:'revize', label:'Revizedeki görevler', icon:'i-refresh', group:'Durum',
-        title:'Revizedeki Görevler', desc:'Kontrolden dönmüş, revize bekleyen ya da revizede olan görevler; revizyon turu ve ek efor.',
-        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Revizede' || t.durum === 'Revize bekliyor'; }); },
+        title:'Revizedeki Görevler', desc:'Kontrolden dönmüş, revizede olan görevler; revizyon turu ve ek efor.',
+        /* `Revize bekliyor` ve `Revizede` tek durumda birleşti (REVİZE 01) —
+           ikinci koşul artık gereksiz. */
+        rows:function(f){ return base(f).filter(function(t){ return t.durum === 'Revizede'; }); },
         kpis:[
           { label:'Revizedeki görev', icon:'i-refresh', tone:'warn', calc:function(r){ return r.length; } },
           { label:'Toplam revizyon turu', icon:'i-edit', tone:'danger',
@@ -833,9 +866,11 @@ document.addEventListener('gv:ready', function(){
 
       { key:'kalite', label:'Görev kalite sonuçları', icon:'i-award', group:'Verimlilik',
         title:'Görev Kalite Sonuçları', desc:'Kontrol sürecine girmiş görevlerin kalite puanı. Puan 100’den başlar; revizyon (−10), yeniden açılma (−15), termin aşımı (−15) ve %20 üzeri efor sapması (−10) düşülür.',
+        /* Kontrol sürecine girmiş sayılan durumlar — REVİZE 01 sonrası üç değer:
+           `Kontrol bekliyor`→`Kontrolde`, `Revize bekliyor`+`Revizede`→`Revizede`. */
         rows:function(f){
           return base(f).filter(function(t){
-            return kapandi(t) || ['Kontrol bekliyor','Onay bekliyor','Revize bekliyor','Revizede'].indexOf(t.durum) !== -1;
+            return kapandi(t) || ['Kontrolde','Onay bekliyor','Revizede'].indexOf(t.durum) !== -1;
           });
         },
         kpis:[
