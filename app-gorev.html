@@ -49,11 +49,37 @@
 <script src="assets/data/work.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<!-- REVİZE 02 — durum mutasyonu ARTIK EKRANDA YAZILMIYOR. "Üzerime al" ve toplu
+     arşivleme `GV.task.transition` üzerinden geçer; geçiş tablosunu, yetkiyi ve
+     zorunlu alanları tek yer bilir. domain.js olmadan bu ekran kendi kuralını
+     yazmak zorunda kalırdı — beş oturum boyunca olan tam olarak buydu. -->
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, me = GV.session.emp, myDep = GV.session.dep;
   var acik = function(t){ return ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; };
   var geciken = function(t){ return acik(t) && t.termin && F.days(t.termin) < 0; };
+
+  /* REVİZE 02 — `GV.task.transition` reddini KULLANICI DİLİNE çevirir.
+     Yordam `{ok:false, why:…}` döner; ekranın işi bunu yutmak değil söylemektir.
+     Eskiden bu ekran kendi kapısını yazıyor ("havuzda değil") ve gerçek redde —
+     yetki yok, zorunlu alan boş — hiçbir şey söylemeden geçiyordu. */
+  /* `yetki` listesi ROL anahtarı da İLİŞKİ anahtarı da taşır (domain.js). Kullanıcıya
+     ham anahtar gösterilmez: rol anahtarı sözlükteki adına, ilişki anahtarı ise
+     “bu görevin sorumlusu” gibi bir cümleye çevrilir. `pm` ile `sorumlu` aynı
+     listede yan yana durur ama aynı şey değildir. */
+  var ILISKI_AD = { sorumlu:'görevin sorumlusu', kontrolEden:'kontrol eden',
+                    onaylayan:'onaylayan', veren:'görevi veren' };
+  function yetkiAdi(k){ return ILISKI_AD[k] || DB.roleName(k); }
+
+  function gecisRed(r){
+    if(!r) return 'Geçiş yürütülemedi.';
+    if(r.why === 'yetki')
+      return 'Bu geçişi yalnız şunlar yapabilir: ' + (r.roller || []).map(yetkiAdi).join(' · ') + '.';
+    if(r.why === 'zorunlu')
+      return 'Geçiş öncesi dolması gereken alan: ' + (r.eksik || []).join(' · ') + '.';
+    return r.why ? r.why + '.' : 'Geçiş yürütülemedi.';
+  }
 
   GV.list({
     /* UID-05 — SATIR KAPSAMI: `GV.perm.scope('gor')` kısıtlıysa bileşen kaynağı
@@ -89,10 +115,20 @@ document.addEventListener('gv:ready', function(){
       { key:'verdigim',  label:'Verdiğim İşler',   icon:'i-send',            filter:function(t){ return t.veren === me || t.olusturan === me; } },
       { key:'departman', label:'Departman İşleri', icon:'i-users',           filter:function(t){ return t.dep === myDep; } },
       { key:'proje',     label:'Proje İşleri',     icon:'i-briefcase',       filter:function(t){ return !!t.proje && acik(t); } },
-      { key:'atama',     label:'Atama Bekleyenler',icon:'i-user-plus',       filter:function(t){ return t.durum === 'Atama bekliyor' || (t.durum === 'Havuzda' && !t.sorumlu); } },
-      { key:'kabul',     label:'Kabul Bekleyenler',icon:'i-hourglass',       filter:function(t){ return t.durum === 'Kabul bekliyor'; } },
+      /* REVİZE 01 — ÇİPBAR TASARIMI DEĞİŞMEDİ, SÖZLÜĞÜ DEĞİŞTİ. İki çip kalktı:
+         · `atama` (`Atama bekliyor`) `havuz` çipinin birebir ikiziydi — sözlükte
+           `Atama bekliyor` ≈ `Havuzda` olduğu için aynı küme iki kez basılıyordu.
+         · `kabul` (`Kabul bekliyor`) `Atandı`ya taşındı; tek kaydı da öyle.
+         `kontrol` çipi duruyor ama artık `Kontrolde` süzüyor: eski değer sözlükten
+         çıktı ve çip sessizce 0 kayıt döndürüyordu (UID-12'nin sınıfı — ölü buton
+         değil, SESSİZ EKSİK SONUÇ).
+         Yerine BEKLEME çipi geldi: bekleme artık durum değil, ikinci eksen; "kim
+         neyi bekliyor" sorusu bu listede sorulur. Bekleme nedeni başına ayrı çip
+         AÇILMAZ — yedi neden çipbarı listenin önüne geçirirdi; kırılım gelişmiş
+         filtredeki `beklemeNedeni` alanından alınır. */
       { key:'onay',      label:'Onay Bekleyenler', icon:'i-stamp',           filter:function(t){ return t.durum === 'Onay bekliyor'; } },
-      { key:'kontrol',   label:'Kontrol Bekleyenler', icon:'i-clipboard-check', filter:function(t){ return t.durum === 'Kontrol bekliyor'; } },
+      { key:'kontrol',   label:'Kontroldekiler',   icon:'i-clipboard-check', filter:function(t){ return t.durum === 'Kontrolde'; } },
+      { key:'bekleme',   label:'Beklemede',        icon:'i-hourglass',       filter:function(t){ return t.beklemeNedeni != null; } },
       { key:'geciken',   label:'Gecikenler',       icon:'i-alert',           filter:geciken },
       { key:'engel',     label:'Engellenenler',    icon:'i-lock',            filter:function(t){ return t.durum === 'Engellendi'; } },
       { key:'tamam',     label:'Tamamlananlar',    icon:'i-check-circle',    filter:function(t){ return t.durum === 'Tamamlandı'; } },
@@ -131,11 +167,36 @@ document.addEventListener('gv:ready', function(){
           return '<span class="u-num">' + F.hours(t.tahminiSure) + ' / <b>' + F.hours(t.gercekSure) + '</b></span>'; },
         exportValue:function(t){ return t.tahminiSure + ' / ' + t.gercekSure; } },
       { key:'revizyon', label:'Revizyon', visible:false, cellClass:'num' },
-      { key:'durum', label:'Durum', render:function(t){ return GV.badge(t.durum); } }
+      /* REVİZE 01 — bekleme nedeni VARSAYILAN KOLON DEĞİLDİR. Kolon yöneticisinden
+         açılır; her süzgeci her listeye kolon olarak yığmak listeyi okunmaz yapar.
+         Beklemenin görünür yeri durum rozetinin yanındaki ikincil çiptir (aşağıda) —
+         yeni satır ya da yeni alan açılmaz. */
+      { key:'beklemeNedeni', label:'Bekleme nedeni', visible:false, cellClass:'cell-wrap',
+        render:function(t){
+          if(!t.beklemeNedeni) return '<span class="u-faint">Beklemiyor</span>';
+          return '<span class="tag">' + GV.esc(t.beklemeNedeni) + '</span>' +
+                 (t.beklemeNotu ? '<span class="cell-sub">' + GV.esc(t.beklemeNotu) + '</span>' : '');
+        },
+        exportValue:function(t){ return t.beklemeNedeni || ''; } },
+      /* Durum rozeti + bekleme çipi TEK hücrede. Bekleme durumun yerine geçmez,
+         yanına yazılır: görev "Devam ediyor" olmayı sürdürür, yalnız neyi
+         beklediğini söyler. Eski sözlükte bunu anlatmanın tek yolu görevi
+         "Müşteri bekleniyor" durumuna almaktı; görev ilerlemeyi bırakmış görünüyordu. */
+      { key:'durum', label:'Durum', render:function(t){
+          /* Çip metni “Bekliyor: X” kalıbındadır — “Müşteri bekleniyor” gibi bir
+             cümle kurulmaz, çünkü o SÖZLÜKTEN ÇIKMIŞ bir durumun birebir adıdır;
+             ekranda yeniden belirmesi kaldırılmadığı izlenimi verirdi. */
+          return GV.badge(t.durum) +
+            (t.beklemeNedeni ? ' <span class="tag">Bekliyor: ' + GV.esc(t.beklemeNedeni) + '</span>' : ''); },
+        exportValue:function(t){ return t.durum + (t.beklemeNedeni ? ' (bekliyor: ' + t.beklemeNedeni + ')' : ''); } }
     ],
 
     filters:[
       { key:'durum', label:'Durum', type:'multi', options:DB.taskStatuses },
+      /* REVİZE 01 — bekleme ekseninin kırılımı BURADA sorulur, çipbarda değil.
+         `beklemeNedeni` taşımayan kayıtta alan hiç yok; süzgeç `undefined` ile
+         eşleşmediği için "Müşteri" seçildiğinde yalnız gerçekten bekleyenler kalır. */
+      { key:'beklemeNedeni', label:'Bekleme nedeni', type:'multi', options:DB.taskWaitReasons },
       { key:'tur', label:'Görev türü', type:'multi', options:DB.taskTypes },
       { key:'oncelik', label:'Öncelik', type:'multi', options:DB.priorities },
       { key:'sorumlu', label:'Sorumlu', type:'select',
@@ -156,7 +217,13 @@ document.addEventListener('gv:ready', function(){
     rowClass:function(t){ return geciken(t) ? 'is-late' : ''; },
 
     kanban:{ groupBy:'durum',
-      columns:['Havuzda','Atandı','Devam ediyor','Engellendi','Kontrol bekliyor','Onay bekliyor','Tamamlandı'],
+      /* REVİZE 01 — KOLONLAR SÖZLÜKTEN TÜRETİLİR. Burada elle yazılmış ikinci bir
+         durum listesi vardı ve sözlükle ayrışmıştı: `Kontrol bekliyor` kolonu artık
+         var olmayan bir değeri grupluyor (hep boş), `Revizede` kolonu ise hiç yok —
+         revizedeki görev panoda görünmüyordu. Tek sözlük, tek gerçek.
+         Panodan yalnız KAPANMIŞ iki uç düşer: pano canlı işin yeridir, iptal ve
+         arşiv kayıtları oraya kolon açmaz (ikisi de çipbarda ve süzgeçte duruyor). */
+      columns:DB.taskStatuses.filter(function(d){ return ['İptal edildi','Arşivlendi'].indexOf(d) === -1; }),
       card:function(t){
         return '<a class="gv-kcard-title" href="app-gorev-detay.html?id=' + t.kod + '">' + GV.esc(t.baslik) + '</a>' +
           '<div class="gv-kcard-meta"><span>' + t.kod + '</span>' + GV.pri(t.oncelik) + '</div>' +
@@ -198,17 +265,63 @@ document.addEventListener('gv:ready', function(){
     rowActions:[
       { key:'ac', icon:'i-external', label:'Detayı aç', href:function(t){ return 'app-gorev-detay.html?id=' + t.kod; } },
       { key:'duzenle', icon:'i-edit', label:'Düzenle', href:function(t){ return 'app-gorev-form.html?id=' + t.kod; } },
-      { key:'uzerime', icon:'i-user-check', label:'Üzerime al', run:function(t, refresh){
-          if(t.durum !== 'Havuzda'){ GV.toast('Bu görev havuzda değil, üzerinize alamazsınız.', 'warn'); return; }
-          GV.confirm({ title:'Görevi üzerinize alın', text:t.baslik + ' görevi size atanacak ve durumu "Atandı" olacak.', okLabel:'Üzerime al' })
-            .then(function(ok){ if(ok){ t.sorumlu = me; t.durum = 'Atandı'; GV.toast(t.kod + ' üzerinize alındı', 'ok'); refresh(); } }); } }
+      /* REVİZE 02 — "Üzerime al" ARTIK KENDİ KURALINI YAZMIYOR.
+         Eskiden burada iki ihlal vardı: (a) `if(t.durum !== 'Havuzda')` geçiş
+         tablosuna PARALEL, elle yazılmış bir kapıydı — tablo değişince ekran
+         ayrışırdı; (b) onaydan sonra `t.sorumlu` ve `t.durum` doğrudan yazılıyordu,
+         yani yetki ve zorunlu alan hiç sorulmadan, aktivite kaydı hiç düşmeden.
+         Şimdi tek mutasyon noktası `GV.task.transition`; ekran yalnız çağırır ve
+         reddi olduğu gibi söyler (VB-06 / VB-23 ile aynı ders).
+         `show()` de tabloya sorar: `Atandı` bu kayıttan erişilebilir bir hedef
+         değilse aksiyon hiç basılmaz — ikinci bir "havuzda mı" kontrolü değil. */
+      { key:'uzerime', icon:'i-user-check', label:'Üzerime al',
+        show:function(t){
+          return GV.task.nextSteps(t.kod).some(function(a){ return a.hedef === 'Atandı'; });
+        },
+        run:function(t, refresh){
+          GV.confirm({ title:'Görevi üzerinize alın',
+            text:t.baslik + ' görevi size atanacak ve durumu “Atandı” olacak.', okLabel:'Üzerime al' })
+            .then(function(ok){
+              if(!ok) return;
+              var r = GV.task.transition(t.kod, 'Atandı', { sorumlu:me }, 'görevi üzerine aldı');
+              if(r && r.ok){ GV.toast(t.kod + ' üzerinize alındı', 'ok'); refresh(); return; }
+              GV.toast(t.kod + ' üzerinize alınamadı — ' + gecisRed(r), 'warn');
+            }); } }
     ],
 
+    /* UID-27 — `run`ı olmayan toplu işlem SAHTE BAŞARI basıyordu; bileşen artık
+       böyle bir maddeyi devre dışı + “bu sürümde yok” etiketiyle basıyor, yeşil
+       mesaj uydurmuyor. `ata` ve `oncelik` bilerek o durumdadır: ikisi de toplu
+       mutasyon ister ve `ata` sorumlu yazmak demektir — havuzdaki görevde bu bir
+       DURUM GEÇİŞİDİR (`Havuzda → Atandı`), diğerlerinde düz alan yazımı. İkisini
+       tek düğmeye sıkıştırmak REVİZE 02'nin kaçındığı ikinci mutasyon yolunu açardı;
+       düğme yalan söylemek yerine yazılmadığını söylüyor.
+       `arsiv` ise yazıldı: hedefi tek ve geçiş tablosunda tanımlı. */
     bulk:[
       { key:'ata', label:'Sorumlu ata', icon:'i-user-check' },
       { key:'oncelik', label:'Öncelik değiştir', icon:'i-flag' },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true },
-      { key:'arsiv', label:'Arşivle', icon:'i-archive', tone:'danger', confirm:'{n} görev arşivlenecek. Onaylıyor musunuz?' }
+      { key:'arsiv', label:'Arşivle', icon:'i-archive', tone:'danger',
+        confirm:'{n} görev arşivlenecek. Arşivleme bir durum geçişidir: yalnız ' +
+                'tamamlanmış ya da iptal edilmiş görevler arşivlenebilir, ' +
+                'yetkisi olmayan geçişler uygulanmaz. Onaylıyor musunuz?',
+        run:function(kodlar){
+          var olan = [], olmayan = [];
+          kodlar.forEach(function(k){
+            var r = GV.task.transition(k, 'Arşivlendi', null, 'toplu arşivleme');
+            if(r && r.ok) olan.push(k); else olmayan.push(k + ' — ' + gecisRed(r));
+          });
+          /* Kaç kaydın gerçekten değiştiği SAYILARAK yazılır; “N kayıt işlendi”
+             gibi seçim sayısını tekrarlayan bir cümle kurulmaz (UID-27). */
+          if(!olan.length){
+            GV.toast('Hiçbir görev arşivlenemedi · ' + olmayan[0], 'danger');
+          }else if(olmayan.length){
+            GV.toast(olan.length + ' görev arşivlendi · ' + olmayan.length +
+                     ' görev arşivlenemedi (' + olmayan[0] + ')', 'warn');
+          }else{
+            GV.toast(olan.length + ' görev arşivlendi', 'ok');
+          }
+        } }
     ],
 
     emptyState:{ icon:'i-tasks', title:'Bu görünümde görev yok',

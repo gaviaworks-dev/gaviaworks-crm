@@ -24,6 +24,10 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<!-- Görev onay adımının GEREKİP GEREKMEDİĞİ `GV.task.onayGerekli` ile
+     türetilir (REVİZE 02); bu ekran o yordamı çağırdığı için domain katmanı
+     yüklenir. Yükleme sırası: veri → shell → ui → domain. -->
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   /* =====================================================================
@@ -68,11 +72,18 @@ document.addEventListener('gv:ready', function(){
     projetutar: { ad:'Projeye bağlı + tutar eşiği',  esik:true,  para:true },
     sure:       { ad:'Süre eşiği',                   esik:true,  para:false },
     proje:      { ad:'Projeye bağlı kayıt',          esik:false },
-    kategori:   { ad:'Kategori listesi',             esik:false, liste:true }
+    kategori:   { ad:'Kategori listesi',             esik:false, liste:true },
+    /* REVİZE 02 — onay adımı artık HER görevde yok. Kontrol eden ile onaylayan
+       aynı kişiyse kontrol zaten onaydır ve görev `Kontrolde`den doğrudan
+       `Tamamlandı`ya gider; ayrı onay makamı yalnız ikisi farklıysa doğar
+       (`GV.task.onayGerekli`). Bu koşul olmadan ekran, hiç gelmeyecek bir
+       onay adımını her görev için varmış gibi gösteriyordu. */
+    ayrionay:   { ad:'Ayrı onay makamı olan kayıt',  esik:false }
   };
 
   function kosulGecer(st, it){
     if(st.kosul === 'hep') return true;
+    if(st.kosul === 'ayrionay') return !!it.ayriOnay;
     if(st.kosul === 'tutar') return it.tutar != null && it.tutar >= (st.esik || 0);
     if(st.kosul === 'projetutar') return !!it.proje && it.tutar != null && it.tutar >= (st.esik || 0);
     if(st.kosul === 'sure')  return it.sure  != null && it.sure  >= (st.esik || 0);
@@ -83,6 +94,7 @@ document.addEventListener('gv:ready', function(){
 
   function kosulMetin(st, ak){
     if(st.kosul === 'hep') return 'Her ' + ak.birimTek;
+    if(st.kosul === 'ayrionay') return 'Kontrol eden ile onaylayan farklıysa';
     if(st.kosul === 'tutar') return st.esik ? F.money(st.esik) + ' ve üzeri' : 'Tutar farkı gözetmeksizin';
     if(st.kosul === 'projetutar') return 'Projeye bağlı ve ' + F.money(st.esik || 0) + ' ve üzeri';
     if(st.kosul === 'sure') return (st.esik || 0) + ' ' + ak.sureBirim + ' ve üzeri';
@@ -291,26 +303,40 @@ document.addEventListener('gv:ready', function(){
     { kod:'gorevkontrol', ad:'Görev Kontrolü', icon:'i-clipboard-check', grup:'Teslimat',
       birimTek:'teslim edilen görev', sureBirim:'saat', kaynak:'DB.tasks (kontrolEden · onaylayan)',
       tarihLbl:'Termin', tutarLbl:'Tahmini süre',
-      aciklama:'Görev tamamlandı işaretlendiğinde kontrol süreci otomatik başlar. Kontrol ' +
-               'reddedilirse görev "Revize bekliyor" durumuna döner ve zincir baştan işler.',
+      aciklama:'Görev kontrole gönderildiğinde kontrol süreci başlar. Kontrol reddedilirse görev ' +
+               '"Revizede" durumuna döner ve zincir baştan işler. Ayrı onay makamı yalnız kontrol ' +
+               'eden ile onaylayanın FARKLI olduğu görevlerde doğar (REVİZE 02); aynı kişiyse kontrol ' +
+               'zaten onaydır ve görev doğrudan "Tamamlandı"ya gider.',
       href:'app-gorev.html',
-      kosullar:['hep','sure','proje','kategori'],
+      kosullar:['hep','ayrionay','sure','proje','kategori'],
       kategoriler:function(){ return DB.taskTypes.slice(); },
       adimlar:[
-        { rol:'takimlideri', kosul:'hep',   esik:null, sla:1, atlanabilir:false,
+        /* 1. adım = KONTROL (görevin `kontrolEden` alanı), 2. adım = ONAY
+           (`onaylayan`). İkinci adım "hep" koşuluyla duruyordu; oysa yeni
+           modelde onay adımı türetilir — bu yüzden koşulu `ayrionay`. */
+        { rol:'takimlideri', kosul:'hep',      esik:null, sla:1, atlanabilir:false,
           vekil:'Takım lideri yoksa Proje Yöneticisi' },
-        { rol:'pm',          kosul:'hep',   esik:null, sla:1, atlanabilir:false,
+        { rol:'pm',          kosul:'ayrionay', esik:null, sla:1, atlanabilir:false,
           vekil:'Proje yöneticisi yoksa Operasyon Yöneticisi' },
-        { rol:'musteri',     kosul:'proje', esik:null, sla:3, atlanabilir:true,
+        { rol:'musteri',     kosul:'proje',    esik:null, sla:3, atlanabilir:true,
           vekil:'Müşteri yanıt vermezse Müşteri Temsilcisi eskalasyonu' }
       ],
       bekleyen:function(){
-        var D = ['Kontrol bekliyor','Revize bekliyor','Onay bekliyor'];
+        /* REVİZE 01 — görev sözlüğü 19'dan 10'a indi: "Kontrol bekliyor" →
+           `Kontrolde`, "Revize bekliyor" → `Revizede`. `Onay bekliyor` adını
+           korudu. Buradaki üç değer GÖREV durumudur; aynı adı taşıyan teklif /
+           satın alma / destek durumlarıyla karıştırılmaz. */
+        var D = ['Kontrolde','Revizede','Onay bekliyor'];
         return DB.tasks.filter(function(x){ return x.aktif && D.indexOf(x.durum) !== -1; })
           .map(function(x){
+            /* Ayrı onay makamı SAKLANMAZ, türetilir — tek kaynak GV.task */
+            var ayri = GV.task.onayGerekli(x);
             return { kod:x.kod, baslik:x.baslik, kisi:x.sorumlu, tarih:x.termin,
                      tutar:null, sure:x.tahminiSure, kategori:x.tur, proje:x.proje,
-                     adim:x.durum === 'Onay bekliyor' ? 1 : 0, ref:x };
+                     ayriOnay:ayri,
+                     /* Onay adımı yoksa kayıt hâlâ kontrol adımında takılıdır;
+                        olmayan bir adıma işaret etmek zinciri yalan söyletirdi. */
+                     adim:(ayri && x.durum === 'Onay bekliyor') ? 1 : 0, ref:x };
           });
       } },
 
@@ -510,6 +536,17 @@ document.addEventListener('gv:ready', function(){
     return { toplam:toplam, sapan:sapan, sayac:sayac };
   }
 
+  /* ---- Veri uyumu — görev kontrolü ------------------------------------
+     `Onay bekliyor` durumundaki bir görevde kontrol eden ile onaylayan AYNI
+     kişiyse o görev bu duruma hiç gelmemeliydi: yeni modelde onay adımı
+     `GV.task.onayGerekli` ile türetilir (REVİZE 02) ve aynı kişide onay adımı
+     doğmaz. Ekran veriyi düzeltmez, çelişkiyi görünür kılar (L-08). */
+  function onaysizOnayKuyrugu(){
+    return DB.tasks.filter(function(x){
+      return x.aktif && x.durum === 'Onay bekliyor' && !GV.task.onayGerekli(x);
+    });
+  }
+
   /* =====================================================================
      6. MAKAM AÇIKLAMALARI
      ===================================================================== */
@@ -587,6 +624,20 @@ document.addEventListener('gv:ready', function(){
         text:u.toplam + ' talebin ' + u.sapan.length + ' tanesinde hesaplanan zincir, kayıtta yazılı ' +
              'onay adımından farklı: ' + u.sapan.map(function(s){ return s.kod + ' — ' + s.fark; }).join(' · ') +
              '. Eşikleri eski değerine döndürün ya da bu farkın bilinçli olduğunu kabul edin.'
+      }) + '</div>';
+    }
+    var oc = onaysizOnayKuyrugu();
+    if(oc.length){
+      out += '<div class="u-mb-4">' + GV.notice({
+        tone:'warn', title:'Ayrı onay makamı olmayan görev onay kuyruğunda duruyor',
+        text:oc.map(function(t){
+               return t.kod + ' (kontrol eden ve onaylayan: ' + DB.empName(t.kontrolEden) + ')';
+             }).join(' · ') + ' — bu ' + oc.length + ' görevde kontrol eden ile onaylayan aynı kişi, ' +
+             'yani yeni modelde ayrı onay adımı doğmaz ve görev "Kontrolde" durumundan doğrudan ' +
+             '"Tamamlandı"ya gitmeliydi. Kayıt yine de "Onay bekliyor" durumunda duruyor; zincirde ' +
+             'kontrol adımında takılı gösterilir. Düzeltme görev verisinde yapılmalıdır — bu ekran ' +
+             'durum yazmaz.',
+        actions:[{ label:'Onay bekleyen görevler', href:'app-gorev.html?t=onay' }]
       }) + '</div>';
     }
     document.getElementById('uyari').innerHTML = out;

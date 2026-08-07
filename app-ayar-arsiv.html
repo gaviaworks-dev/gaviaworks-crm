@@ -181,15 +181,65 @@ document.addEventListener('gv:ready', function(){
 
   /* =================================================================
      GERİ ALMA — hangi alanların değişeceği tek yerden türetilir
+
+     ARŞİVDEN GERİ ALMA BİR DURUM GEÇİŞİ DEĞİLDİR (REVİZE 02).
+     `DB.taskTransitions['Arşivlendi']` hem `next` hem `yetki` bakımından
+     BOŞTUR: arşiv akışın son durağıdır, ileri giden kenarı yoktur. Bu
+     ekranın yaptığı iş ileri bir adım atmak değil, kaydı arşive girmeden
+     ÖNCEKİ haline döndürmektir. `GV.task.transition` burada yanlış alet olurdu:
+       (a) tablo geçişi zaten reddederdi — düğme hiç çalışmazdı,
+       (b) 'Tamamlandı' hedefinin yan etkisi `tamamlanma`yı DB.today ile
+           EZER; arşivlenmiş görevin gerçek kapanış tarihi silinirdi,
+       (c) arşiv dokuz koleksiyona bakar, `transition` yalnız görevi bilir.
+     Bu yüzden önceki durum HESAPLANMAZ, aktivite kaydından OKUNUR. Kayıt
+     yoksa ekran bir durum uydurmaz; geri almayı reddeder (ders UID-27:
+     yapılmayan işlem için başarı mesajı basılmaz).
      ================================================================= */
+  function arsivOncesiDurum(kod){
+    var a = DB.activities.filter(function(r){
+      return r.kayit === kod && r.yeni === 'Arşivlendi' && r.eski; })[0];
+    return a ? a.eski : null;
+  }
+  /* Aktivite kaydı yoksa hangi durumdan gelinmiş olabileceği geçiş tablosundan
+     TÜRETİLİR — sabit liste yazılmaz. Tek aday varsa o yazılır; birden çok
+     adaydan birini seçmek uydurmak olurdu. */
+  function arsivKaynakDurumlar(){
+    if(!window.DB || !DB.taskTransitions) return [];
+    return Object.keys(DB.taskTransitions).filter(function(k){
+      return (DB.taskTransitions[k].next || []).indexOf('Arşivlendi') !== -1; });
+  }
+
   function degisiklikler(x){
     var r = x.ref, d = [];
     if(r.arsiv === true)      d.push({ alan:'arsiv',  ad:'Arşiv işareti', eski:'Arşivde',    yeni:'Arşivde değil', uygula:function(){ r.arsiv = false; } });
     if(r.aktif === false)     d.push({ alan:'aktif',  ad:'Aktiflik',      eski:'Pasif',      yeni:'Aktif',         uygula:function(){ r.aktif = true; } });
     if(r.durum === 'Pasif')      d.push({ alan:'durum', ad:'Durum', eski:'Pasif',      yeni:'Aktif',       uygula:function(){ r.durum = 'Aktif'; } });
-    if(r.durum === 'Arşivlendi') d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:'Tamamlandı',  uygula:function(){ r.durum = 'Tamamlandı'; } });
+    if(r.durum === 'Arşivlendi'){
+      /* 'Arşivlendi' bir DURUM olarak bugün yalnız DB.tasks'ta geçer; diğer
+         sekiz koleksiyon arşivi `arsiv` / `aktif` bayrağıyla tutar. Başka bir
+         koleksiyonda çıkarsa o koleksiyonun sözlüğünü bu ekran bilmez. */
+      if(x.koleksiyon !== 'DB.tasks'){
+        d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:'—',
+          engel:'“Arşivlendi” durumundan geri dönüşün karşılığı yalnız görevler için tanımlı; ' +
+                x.koleksiyon + ' koleksiyonunda arşiv öncesi durum bilinmiyor.' });
+      } else {
+        var onceki = arsivOncesiDurum(r.kod);
+        var aday = arsivKaynakDurumlar();
+        if(!onceki && aday.length === 1) onceki = aday[0];
+        if(onceki){
+          d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:onceki,
+            uygula:function(){ r.durum = onceki; } });
+        } else {
+          d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:'—',
+            engel:'Bu görevin arşive girmeden önceki durumu aktivite geçmişinde yok. Geçiş ' +
+                  'tablosuna göre ' + (aday.join(' ya da ') || 'bilinmeyen bir durum') +
+                  ' olabilir; ekran ikisinden birini seçemez, seçseydi kaydı uydurmuş olurdu.' });
+        }
+      }
+    }
     return d;
   }
+  function engeller(d){ return d.filter(function(c){ return c.engel; }); }
 
   function degisiklikTablosu(d){
     return '<dl class="gv-dl">' + d.map(function(c){
@@ -213,6 +263,27 @@ document.addEventListener('gv:ready', function(){
     if(!canEdit){ GV.toast('Arşivden geri alma yetkiniz yok', 'danger'); return; }
     var d = degisiklikler(x);
     if(!d.length){ GV.toast('Bu kayıtta geri alınacak arşiv işareti yok', 'info'); return; }
+
+    /* Bir alan yazılamıyorsa işlemin TAMAMI durdurulur. Yalnız `arsiv`
+       bayrağını temizleyip `durum`u 'Arşivlendi' bırakmak kaydı arşiv
+       listesinde tutar; kullanıcı "geri alındı" mesajı görüp satırın
+       durduğuna bakardı — UID-27'nin tarif ettiği yalan mesaj. */
+    var eng = engeller(d);
+    if(eng.length){
+      var g = kayitHref(x);
+      GV.result({
+        tone:'warn', title:'Bu kayıt arşivden geri alınamıyor', text:x.kod + ' · ' + x.baslik,
+        body:GV.notice({ tone:'warn', icon:'i-alert', title:'Durum alanı geri yazılamıyor',
+               text:eng.map(function(c){ return c.engel; }).join(' ') }) +
+             '<p class="u-sm u-muted u-mt-4">Hiçbir alan değiştirilmedi; kayıt arşivde kaldı. ' +
+             'Görevin durumu, görev detayındaki aksiyon düğmeleriyle belirlenmelidir.</p>',
+        actions:[{ label:'Kapat', cls:'btn-line' }].concat(g
+          ? [{ label:'Kaydı aç', cls:'btn-acc', icon:'i-external',
+               onClick:function(){ location.href = g; } }]
+          : [])
+      });
+      return;
+    }
 
     var suresiDolmus = x.geri !== 'Geri alınabilir';
     GV.confirm({
@@ -600,15 +671,25 @@ document.addEventListener('gv:ready', function(){
       { key:'geri', label:'Arşivden geri al', icon:'i-refresh',
         run:function(ids){
           var secili = arsivSatirlari().filter(function(r){ return ids.indexOf(r.id) !== -1; });
-          var n = 0;
+          var n = 0, yapilan = 0, atlanan = [];
           secili.forEach(function(x){
-            degisiklikler(x).forEach(function(c){
+            var d = degisiklikler(x);
+            /* Tekil geri almadaki kural toplu işlemde de geçerli: bir alan
+               yazılamıyorsa o KAYIT hiç ellenmez, yarım uygulanmaz. */
+            if(engeller(d).length){ atlanan.push(x.kod); return; }
+            d.forEach(function(c){
               c.uygula();
               logKaydi('Arşivden geri aldı · ' + c.ad + ' alanını değiştirdi (toplu işlem)', x.kod, c.eski, c.yeni);
               n++;
             });
+            yapilan++;
           });
-          GV.toast(secili.length + ' kayıt arşivden geri alındı · ' + n + ' alan güncellendi', 'ok');
+          /* Sayı GERÇEKTEN işlenen kayıttan gelir; seçilen kayıt sayısından değil */
+          if(yapilan) GV.toast(yapilan + ' kayıt arşivden geri alındı · ' + n + ' alan güncellendi', 'ok');
+          if(atlanan.length){
+            GV.toast(atlanan.length + ' kayıt geri alınamadı (arşiv öncesi durumu bilinmiyor): ' +
+                     atlanan.join(', '), 'warn', 5000);
+          }
           if(L) L.refresh();
         },
         confirm:'{n} kayıt arşivden çıkarılacak ve kendi modül listelerinde yeniden görünecek. Devam edilsin mi?' }

@@ -19,8 +19,8 @@
      org.js  → DB.employees, DB.departments, DB.emp, DB.empName, DB.depName, DB.today
      crm.js  → DB.customers
      ops.js  → DB.tickets            (destek → görev bağı, components.md §9d)
-     work.js → DB.tasks, DB.subtasks, DB.taskDeps, DB.taskStatuses, DB.taskTypes,
-               DB.priorities, DB.impacts, DB.taskTransitions, DB.projects,
+     work.js → DB.tasks, DB.subtasks, DB.taskDeps, DB.taskStatuses, DB.taskWaitReasons,
+               DB.taskTypes, DB.priorities, DB.impacts, DB.taskTransitions, DB.projects,
                DB.projectModules, DB.sprints, DB.bugs, DB.activities -->
 <script src="assets/data/org.js"></script>
 <script src="assets/data/crm.js"></script>
@@ -28,6 +28,10 @@
 <script src="assets/data/work.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<!-- REVİZE 02 — durum alanının geçiş denetimi `GV.task`ten okunur. Form geçiş
+     tablosunu KENDİ yorumlamaz; yorumlarsa görev kartıyla ayrışır ve kullanıcı
+     aynı geçişi bir ekranda yapıp diğerinde yapamaz (VB-23'ün sınıfı). -->
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
@@ -132,7 +136,11 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      SEÇENEK KÜMELERİ — durum/tür/öncelik/etki SÖZLÜKTEN gelir
      ================================================================= */
-  var DURUMLAR = DB.taskStatuses;      /* 19 */
+  /* REVİZE 01 — durum sözlüğü 19'dan 10'a indi; buradaki “19” yorumu sözlükle
+     birlikte güncellenmemişti ve formu okuyan herkese yanlış sayı söylüyordu.
+     Sayı elle yazılmaz, `DURUMLAR.length` alanın ipucunda basılır. */
+  var DURUMLAR = DB.taskStatuses;      /* 10 */
+  var BEKLEME  = DB.taskWaitReasons;   /* 7 — durumdan BAĞIMSIZ ikinci eksen */
   var TURLER   = DB.taskTypes;         /* 18 */
   var ONCELIK  = DB.priorities;        /* 4  */
   var ETKILER  = DB.impacts;           /* 4  */
@@ -264,6 +272,8 @@ document.addEventListener('gv:ready', function(){
       revizyon:0, yenidenAcilma:0,
       kabulKriteri:'', beklenenCikti:'', teslimEdilenCikti:'',
       engelNedeni:'', gecikmeNedeni:'', revizeNot:'', tekrar:'',
+      /* REVİZE 01 — yeni görev beklemiyor doğar; bekleme sonradan işaretlenir. */
+      beklemeNedeni:'', beklemeNotu:'',
       durum:'Havuzda', aktif:true
     };
     EKIP.forEach(function(e){ formRec['yrd_' + e.kod] = false; formRec['izl_' + e.kod] = false; });
@@ -473,10 +483,17 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      ALANLAR — PROMPT.md §12 görev kartı
      ================================================================= */
+  /* REVİZE 01 — aşağıdaki kümeler sözlükten ÇIKAN değerlerle yazılmıştı ve kimse
+     fark etmeden ölmüştü: `Taslak` · `Atama bekliyor` · `Kontrol bekliyor` ·
+     `Revize bekliyor` artık hiçbir kayıtta ve sözlükte yok, dolayısıyla
+     `indexOf(d.durum)` bu değerler için hiç eşleşmiyor ve alan doğrulamaları
+     sessizce devre dışı kalıyordu. Kümeler yeni 10 değerli sözlüğe göre yazıldı:
+     `Kontrol bekliyor` → `Kontrolde`, `Revize bekliyor` → `Revizede`, atama/kabul
+     eksenleri `Havuzda`/`Atandı`ya taşındı. */
   var ACIK_DEGIL = ['Tamamlandı','İptal edildi','Arşivlendi'];
-  var SORUMLU_GEREKMEZ = ['Taslak','Havuzda','Atama bekliyor'];
-  var BASLADI = ['Devam ediyor','Kontrol bekliyor','Revize bekliyor','Revizede','Onay bekliyor','Tamamlandı'];
-  var KONTROL_GEREKIR = ['Kontrol bekliyor','Revize bekliyor','Revizede','Onay bekliyor','Tamamlandı'];
+  var SORUMLU_GEREKMEZ = ['Havuzda'];
+  var BASLADI = ['Devam ediyor','Kontrolde','Revizede','Onay bekliyor','Tamamlandı'];
+  var KONTROL_GEREKIR = ['Kontrolde','Revizede','Onay bekliyor','Tamamlandı'];
   var ONAY_GEREKIR = ['Onay bekliyor','Tamamlandı'];
 
   var yrdAlanlar = EKIP.map(function(e){
@@ -568,7 +585,9 @@ document.addEventListener('gv:ready', function(){
           placeholder:'Kişi seçin' },
         { key:'sorumlu', label:'Ana sorumlu', type:'select', options:KISILER, cols:6,
           placeholder:'Kişi seçin (havuz görevinde boş bırakılabilir)',
-          hint:'Havuzda / taslak / atama bekleyen görevde boş kalabilir; diğer tüm durumlarda zorunludur.',
+          /* REVİZE 01 — “taslak / atama bekleyen” diye bir durum kalmadı; ikisi de
+             `Havuzda`ya indi. Havuz zaten “sorumlusu belli olmayan iş” demektir. */
+          hint:'Yalnız “Havuzda” durumundaki görevde boş kalabilir; diğer tüm durumlarda zorunludur.',
           validate:function(v, d){
             if(!v && SORUMLU_GEREKMEZ.indexOf(d.durum) === -1)
               return '“' + d.durum + '” durumundaki görevin ana sorumlusu boş bırakılamaz.';
@@ -682,8 +701,10 @@ document.addEventListener('gv:ready', function(){
           } }
       ]},
 
-    { title:'Engel, gecikme ve tekrar',
-      desc:'Görevin ilerlemesini durduran nedenler. Durum geçiş kuralları (DB.taskTransitions) bu alanları zorunlu kılar.',
+    { title:'Engel, bekleme, gecikme ve tekrar',
+      desc:'Görevin ilerlemesini durduran nedenler. Durum geçiş kuralları (DB.taskTransitions) bu alanları ' +
+           'zorunlu kılar. Bekleme nedeni ise durumu değiştirmez: görev “Devam ediyor” kalıp bir şey bekleyebilir ' +
+           '(REVİZE 01).',
       fields:[
         { key:'engelNedeni', label:'Engel nedeni', type:'textarea', rows:2, cols:6,
           placeholder:'Örn. Müşteri Logo API test hesabını hâlâ açmadı',
@@ -696,9 +717,36 @@ document.addEventListener('gv:ready', function(){
           hint:'Termini geçmiş açık görevlerde doldurulması beklenir.' },
         { key:'revizeNot', label:'Revizyon notu', type:'textarea', rows:2, cols:6,
           placeholder:'Neyin düzeltilmesi gerekiyor?',
+          /* REVİZE 01 — kural “Revize bekliyor” durumuna bakıyordu; o değer sözlükten
+             çıktı, yerine `Revizede` geldi. Yani kural yazılıydı ama HİÇ ÇALIŞMIYORDU:
+             revizedeki görev notsuz kaydedilebiliyordu. */
           validate:function(v, d){
-            return (d.durum === 'Revize bekliyor' && !String(v || '').trim())
-              ? 'Revize bekliyor durumu için revizyon notu zorunludur (durum geçiş kuralı).' : '';
+            return (d.durum === 'Revizede' && !String(v || '').trim())
+              ? 'Revizede durumu için revizyon notu zorunludur (durum geçiş kuralı).' : '';
+          } },
+        /* REVİZE 01 — BEKLEME EKSENİ. Durumun yerine geçmez, yanında durur:
+           eskiden bunu anlatmanın tek yolu görevi `Bilgi bekliyor` /
+           `Müşteri bekleniyor` / `Departman bekleniyor` durumuna almaktı; görev
+           o an ilerlemeyi bırakmış görünüyor, kullanıcı görevin NEREDE olduğu ile
+           NEYİ beklediği arasında seçim yapmak zorunda kalıyordu. Üç değer de
+           sözlükten çıktı, bu iki alan onların yerini aldı.
+           Koşulluluk deseni `engelNedeni` / `revizeNot` ile aynıdır: alan gizlenip
+           gösterilmez, kuralı `validate` söyler. */
+        { key:'beklemeNedeni', label:'Bekleme nedeni', type:'select', options:BEKLEME, cols:6,
+          placeholder:'Beklemiyor',
+          hint:'Durumdan bağımsız ikinci eksen: sözlükteki ' + BEKLEME.length +
+               ' nedenden biri (' + BEKLEME.join(' · ') + ') ya da boş.',
+          validate:function(v){
+            return (v && BEKLEME.indexOf(v) === -1)
+              ? 'Bekleme nedeni sözlükteki değerlerden biri olmalıdır.' : '';
+          } },
+        { key:'beklemeNotu', label:'Bekleme notu', type:'textarea', rows:2, cols:6,
+          placeholder:'Örn. Logo API test hesabı talebi 22 Temmuz’da iletildi',
+          hint:'Neyin, kimden, ne zamandır beklendiği. Yalnız bekleme nedeni seçiliyken yazılır.',
+          validate:function(v, d){
+            return (String(v || '').trim() && !d.beklemeNedeni)
+              ? 'Bekleme notu yalnız bir bekleme nedeni seçiliyken yazılır; önce nedeni seçin ' +
+                'ya da notu boşaltın.' : '';
           } },
         { key:'tekrar', label:'Tekrar sıklığı', type:'select', options:TEKRARLAR, cols:6,
           placeholder:'Tekrarlamıyor',
@@ -724,22 +772,75 @@ document.addEventListener('gv:ready', function(){
       } });
   }
 
+  /* =================================================================
+     REVİZE 02 — GEÇİŞ DENETİMİ BU FORMDA YENİDEN TÜRETİLMEZ.
+     `GV.task.nextSteps` o kayıt + o oturum için YAPILABİLİR adımları verir;
+     görev kartı da aynı yordamı çağırır, böylece iki ekran aynı geçişte
+     anlaşmazlığa düşemez (VB-23'ün dersi). Adım listesi form kurulurken bir
+     kez okunur — ipucu metni ondan yazılır; doğrulama ise gönderim anında
+     yeniden sorar, çünkü zorunlu alanlar formda o an doldurulmuş olabilir.
+     ================================================================= */
+  /* `yetki` listesi ROL anahtarı da İLİŞKİ anahtarı da taşır (domain.js): `pm` bir
+     roldür, `sorumlu` bu görevin sorumlusudur. Kullanıcıya ham anahtar yazılmaz —
+     “sorumlu” diye bir rol yok, olduğunu sanan kullanıcı yetkiyi yanlış arar. */
+  var ILISKI_AD = { sorumlu:'görevin sorumlusu', kontrolEden:'kontrol eden',
+                    onaylayan:'onaylayan', veren:'görevi veren' };
+  function yetkiAdi(k){ return ILISKI_AD[k] || DB.roleName(k); }
+
+  var gecisKurali = duzenle ? DB.taskTransitions[kayit.durum] : null;
+  var yapilabilir = (duzenle && GV.task && GV.task.nextSteps) ? GV.task.nextSteps(kayit.kod) : [];
+  var izinliAdim  = yapilabilir.filter(function(a){ return a.izin; }).map(function(a){ return a.hedef; });
+
   sections.push({
     title:'Kayıt durumu',
     desc:'Görevin süreçteki durumu ve kaydın listelerde görünüp görünmeyeceği.',
     fields:[
       { key:'durum', label:'Görev durumu', type:'select', options:DURUMLAR, required:true, cols:6,
         placeholder:'Durum seçin',
-        hint: duzenle && DB.taskTransitions[kayit.durum]
-          ? 'Şu anki durum “' + kayit.durum + '” · izin verilen geçişler: ' +
-            DB.taskTransitions[kayit.durum].next.join(', ') + '.'
-          : 'Sözlükteki ' + DURUMLAR.length + ' durumdan biri.',
-        validate:function(v){
+        hint: !duzenle
+          ? 'Sözlükteki ' + DURUMLAR.length + ' durumdan biri.'
+          : !gecisKurali
+            ? 'Şu anki durum “' + kayit.durum + '” için geçiş kuralı tanımlı değil; durum bu formdan ' +
+              'değiştirilemez.'
+            : 'Şu anki durum “' + kayit.durum + '” · geçiş tablosundaki çıkışlar: ' +
+              (gecisKurali.next.length ? gecisKurali.next.join(', ') : 'yok') + '. ' +
+              (izinliAdim.length
+                ? 'Bu oturumda yürütebilecekleriniz: ' + izinliAdim.join(', ') + '.'
+                : 'Bu geçişlerin hiçbirini yürütemezsiniz: geçişi yalnız ' +
+                  (gecisKurali.yetki || []).map(yetkiAdi).join(', ') + ' yapabilir.'),
+        validate:function(v, d){
           if(!duzenle || v === kayit.durum) return '';
+          /* SAVUNMA — kural ya da yordam yoksa GEÇİLMEZ, REDDEDİLİR.
+             Eski hâli `if(rule && rule.next…)` idi: `rule` tanımsız olduğunda
+             koşul sessizce doğru sayılıyor ve HER hedefe izin veriliyordu.
+             Sözlük 19 değerken sekiz durumun kuralı yoktu; kural beş oturum
+             boyunca “var” göründü, hiç uygulanmadı. Sessizce geçmek, kuralın
+             olmadığını değil olmadığını fark etmediğimizi gizler. */
+          if(!GV.task || !GV.task.nextSteps || !GV.task.eksikAlanlar)
+            return 'Durum geçiş denetimi (GV.task) yüklenmedi; denetimsiz durum değişikliği yazılmaz.';
           var rule = DB.taskTransitions[kayit.durum];
-          if(rule && rule.next.indexOf(v) === -1)
+          if(!rule)
+            return '“' + kayit.durum + '” durumu için geçiş kuralı tanımlı değil. Kuralı olmayan ' +
+                   'durumdan çıkış yazılmaz; önce sözlüğe kural girilmelidir.';
+          var adimlar = GV.task.nextSteps(kayit.kod);
+          var adim = adimlar.filter(function(a){ return a.hedef === v; })[0];
+          if(!adim){
+            var acik = adimlar.map(function(a){ return a.hedef; });
             return '“' + kayit.durum + '” durumundan “' + v + '” durumuna geçiş tanımlı değil. ' +
-                   'İzin verilen geçişler: ' + rule.next.join(', ') + '.';
+                   (acik.length ? 'Yapılabilir geçişler: ' + acik.join(', ') + '.' : 'Bu durumdan çıkış yok.');
+          }
+          /* Yetki geçiş tablosunun kendi ekseni — form yetkisi (duzenle) onun
+             yerine geçmez. Kartta yapamadığı geçişi kullanıcı burada da yapamaz. */
+          if(!adim.izin)
+            return '“' + v + '” geçişini yalnız şunlar yürütebilir: ' +
+                   (rule.yetki || []).map(yetkiAdi).join(', ') + '. Rolünüz (' + GV.session.rolAd +
+                   ') ve bu görevdeki ilişkiniz bu geçişi kapsamıyor.';
+          /* Zorunlu alanlar FORMDAKİ değerlerle sorulur: kullanıcı aynı gönderimde
+             hem alanı doldurup hem durumu değiştirebilmelidir. */
+          var eksik = GV.task.eksikAlanlar(kayit, rule, d);
+          if(eksik.length)
+            return '“' + v + '” geçişi öncesi şu alanlar dolu olmalı: ' +
+                   eksik.map(function(k){ return ALAN_ADI[k] || k; }).join(', ') + '.';
           return '';
         } },
       { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
@@ -1182,14 +1283,20 @@ document.addEventListener('gv:ready', function(){
     kabulKriteri:'Kabul kriterleri', beklenenCikti:'Beklenen çıktı',
     teslimEdilenCikti:'Teslim edilen çıktı', engelNedeni:'Engel nedeni',
     gecikmeNedeni:'Gecikme nedeni', revizeNot:'Revizyon notu', tekrar:'Tekrar sıklığı',
+    /* REVİZE 01 — bekleme ekseni de aktivite geçmişinde ADIYLA görünür; alan
+       adı ham anahtarla (`beklemeNedeni`) yazılırsa kayıt okunmaz olur. */
+    beklemeNedeni:'Bekleme nedeni', beklemeNotu:'Bekleme notu',
     durum:'Görev durumu', aktif:'Kayıt durumu'
   };
 
   var KISI_ALAN = ['veren','sorumlu','kontrolEden','onaylayan'];
   var SAYI_ALAN = ['tahminiSure','gercekSure','faturalanabilir'];
   var TAM_ALAN  = ['ilerleme','revizyon','yenidenAcilma'];
+  /* `beklemeNedeni` NULL'LANABİLİR bir alandır (REVİZE 01): boş seçim “beklemiyor”
+     demektir, boş metin değil. Notu da nedenle birlikte düşer — nedensiz not,
+     kimsenin okuyamayacağı bir kalıntıdır. */
   var BOS_NULL  = ['proje','musteri','modul','sprint','destek','sorumlu','kontrolEden','onaylayan',
-                   'baslangic','tamamlanma','tekrar'];
+                   'baslangic','tamamlanma','tekrar','beklemeNedeni','beklemeNotu'];
 
   /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
   function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
@@ -1242,9 +1349,13 @@ document.addEventListener('gv:ready', function(){
     SAYI_ALAN.forEach(function(k){ if(k in v) v[k] = sayi(v[k]); });
     TAM_ALAN.forEach(function(k){ v[k] = tam(v[k]); });
     ['baslik','aciklama','amac','kabulKriteri','beklenenCikti','teslimEdilenCikti',
-     'engelNedeni','gecikmeNedeni','revizeNot'].forEach(function(k){
+     'engelNedeni','gecikmeNedeni','revizeNot','beklemeNotu'].forEach(function(k){
       v[k] = String(v[k] == null ? '' : v[k]).trim();
     });
+    /* Neden kaldırılınca not da kalkar — ikisi tek olgunun parçasıdır (REVİZE 01).
+       Doğrulama zaten “nedensiz not” yazılmasını engelliyor; bu, nedeni sonradan
+       boşaltan kullanıcıda notun sessizce ortada kalmasına karşı ikinci hattır. */
+    if(!v.beklemeNedeni) v.beklemeNotu = '';
     BOS_NULL.forEach(function(k){ if(v[k] === '' || v[k] == null) v[k] = null; });
     v.aktif = !!v.aktif;
 

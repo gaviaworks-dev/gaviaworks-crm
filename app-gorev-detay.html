@@ -30,6 +30,12 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<!-- domain.js: `GV.task` (REVİZE 02) buradan gelir. Bu ekran durum geçişini beş
+     oturumdur KENDİ İÇİNDE yazıyordu — hedefi doğrudan `t.durum`a atıyor, geçiş
+     tablosunun `yetki` ve `zorunlu` alanlarını yalnız ipucu metni olarak basıyordu.
+     Mutasyon ortak katmana taşındı; ekran artık yalnız çağırıp sonucu raporlar.
+     Yükleme sırası zorunlu: veri → shell → ui → domain. -->
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
@@ -69,13 +75,77 @@ document.addEventListener('gv:ready', function(){
   var deps = DB.taskDeps.filter(function(d){ return d.gorev === t.kod || d.bagimli === t.kod; });
   var acts = DB.activities.filter(function(a){ return a.kayit === t.kod; });
   var logs = DB.timelogs.filter(function(l){ return l.gorev === t.kod; });
+  /* HARCANAN SÜRE TÜRETİLİR, SAKLANMAZ (REVİZE 02 · ders L-08).
+     Zaman kaydı modalı hem `DB.timelogs`e satır yazıyor hem `t.gercekSure`'ü
+     artırıyordu — çift defter. İki defter, ikisinden biri (kayıt silme, kayıt
+     düzeltme, başka ekrandan giriş) değiştiği anda ayrışır ve ekran kendi
+     içinde çelişir. Tek doğru kaynak zaman kayıtlarıdır; ekran onları toplar.
+     `t.gercekSure` alanı veride DURUYOR (veri dosyaları başka bir sahibin) —
+     bu ekran ona artık YAZMAZ ve okumaz. */
+  var harcanan = logs.reduce(function(a, l){ return a + l.sure; }, 0);
   var gecikti = t.termin && F.days(t.termin) < 0 && ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1;
+
+  /* ---- REVİZE 02 · geçiş katmanı --------------------------------------
+     Ekranda üç ayrı mutasyon yolu vardı (başlıktaki dropdown · "Onayla" ·
+     "Revize İste") ve üçü de birbirinden habersiz `t.durum`'a yazıyordu.
+     Hepsi tek yordama, `GV.task.transition`'a bağlandı. Butonlar da elle
+     sayılmıyor; `GV.task.nextSteps` o kayıt + o oturum için yapılabilir
+     geçişleri veriyor, ekran onu butona çeviriyor. */
+  var kural   = DB.taskTransitions[t.durum] || null;
+  var adimlar = GV.task ? GV.task.nextSteps(t.kod) : [];
+
+  /* `yetki` listesi iki cins anahtar taşır: ROL ("pm") ve İLİŞKİ ("sorumlu").
+     Kullanıcıya "bunu kim yapabilir" derken ikisi de okunur yazılmalı; ham
+     anahtar basmak ekranda "sorumlu, pm" gibi anlamsız bir dizi bırakırdı. */
+  var ILISKI_AD = { sorumlu:'görevin sorumlusu', kontrolEden:'kontrol eden',
+                    onaylayan:'onaylayan', veren:'görevi veren', izleyiciler:'izleyiciler' };
+  function yetkiAd(k){ return ILISKI_AD[k] || DB.roleName(k); }
+  function yetkiMetin(roller){ return (roller || []).map(yetkiAd).join(', '); }
+
+  /* Zorunlu alan anahtarı → kullanıcının formda gördüğü etiket */
+  var ALAN_AD = { teslimEdilenCikti:'Teslim edilen çıktı', engelNedeni:'Engel nedeni',
+                  sorumlu:'Sorumlu', revizeNot:'Revizyon notu', gecikmeNedeni:'Gecikme nedeni' };
+  function alanAd(k){ return ALAN_AD[k] || k; }
+
+  /* Hedef durum başına ikon — buton yazısı `DB.taskActionLabels`ten gelir */
+  var ADIM_IKON = { 'Atandı':'i-user-plus', 'Devam ediyor':'i-play', 'Kontrolde':'i-send',
+                    'Revizede':'i-refresh', 'Onay bekliyor':'i-stamp', 'Tamamlandı':'i-check',
+                    'Engellendi':'i-alert', 'İptal edildi':'i-x', 'Arşivlendi':'i-archive' };
+
+  /* Onay sekmesindeki iki kısayol da AYNI adım listesinden okunur — ayrı bir
+     "hangi duruma gideyim" mantığı yazmak üçüncü bir doğruluk kaynağı olurdu. */
+  var adimOnay   = adimlar.filter(function(a){ return a.hedef === 'Tamamlandı' || a.hedef === 'Onay bekliyor'; })[0];
+  var adimRevize = adimlar.filter(function(a){ return a.hedef === 'Revizede'; })[0];
 
 
   /* ---- Başlık ---- */
+  /* BEKLEME ÇİPİ (REVİZE 01). Bekleme bir DURUM DEĞİL, durumdan bağımsız ikinci
+     eksendir: görev "Devam ediyor" olmayı sürdürür, yalnız bir şeyi bekler.
+     Eskiden bunun için üç ayrı durum vardı (`Bilgi bekliyor` · `Müşteri
+     bekleniyor` · `Departman bekleniyor`) ve görev ilerlemeyi bırakmış
+     görünüyordu. Rozet DURUMU söyler, çip NEYİ BEKLEDİĞİNİ — yeni satır,
+     yeni kart ya da yeni sekme açılmaz. */
+  var beklemeCip = t.beklemeNedeni
+    ? '<span class="tag" title="Bekleme nedeni' + (t.beklemeNotu ? ' — ' + esc(t.beklemeNotu) : '') + '">' +
+      ico('i-clock','ic-sm') + esc(t.beklemeNedeni) + ' bekleniyor</span>'
+    : '';
+
+  /* Aksiyon butonları — eski "Durum Değiştir" dropdown'ının yerine.
+     Dropdown 10 değerli sözlüğün tamamını gösteriyor, `yetki` ve `zorunlu`
+     kurallarını yalnız ipucu metni olarak basıp hedefi kontrolsüz yazıyordu.
+     Talimat açıkça diyor: "Kullanıcıya uzun statü dropdownları göstererek
+     süreci karmaşıklaştırma." Artık yalnız yapılabilir işlem butondur.
+     `izin:false` olan adım SESSİZCE ÖLÜ bırakılmaz (L-23 · UID-27 · UID-30):
+     devre dışı basılır ve `title` kimin yapabileceğini söyler. */
+  var adimBtn = adimlar.map(function(a, i){
+    return '<button type="button" class="btn ' + a.tone + '" data-adim="' + i + '"' +
+      (a.izin ? '' : ' disabled title="Bu işlemi yalnız şunlar yapabilir: ' + esc(yetkiMetin(kural && kural.yetki)) + '"') +
+      '>' + ico(ADIM_IKON[a.hedef] || 'i-refresh') + ' ' + esc(a.etiket) + '</button>';
+  }).join('');
+
   var head =
     '<div class="gv-rec-head"><div>' +
-      '<div class="gv-rec-id"><span class="gv-rec-code">' + t.kod + '</span>' + GV.badge(t.durum) + GV.pri(t.oncelik) +
+      '<div class="gv-rec-id"><span class="gv-rec-code">' + t.kod + '</span>' + GV.badge(t.durum) + beklemeCip + GV.pri(t.oncelik) +
         '<span class="tag">' + esc(t.tur) + '</span>' +
         (gecikti ? '<span class="badge is-danger">' + Math.abs(F.days(t.termin)) + ' gün gecikti</span>' : '') + '</div>' +
       '<h1>' + esc(t.baslik) + '</h1>' +
@@ -87,7 +157,7 @@ document.addEventListener('gv:ready', function(){
       '</div>' +
     '</div>' +
     '<div class="ph-actions">' +
-      '<button type="button" class="btn btn-line" id="btnDurum">' + ico('i-refresh') + ' Durum Değiştir</button>' +
+      adimBtn +
       '<a class="btn btn-line" href="app-gorev-form.html?id=' + t.kod + '">' + ico('i-edit') + ' Düzenle</a>' +
       '<button type="button" class="btn btn-acc" id="btnSure">' + ico('i-timer') + ' Süre Ekle</button>' +
     '</div></div>';
@@ -114,7 +184,14 @@ document.addEventListener('gv:ready', function(){
     '<div class="gc-body">' +
       '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Görev Tanımı</h3></div>' +
         '<p class="u-muted" style="line-height:var(--lh-loose)">' + esc(t.aciklama) + '</p>' +
+        /* Bekleme nedeni denetimi DURUM SATIRININ YANINDA durur (REVİZE 01):
+           ayrı sekme, ayrı kart ya da ayrı bölüm açılmaz — bekleme kendi başına
+           bir süreç değil, mevcut durumun bir niteliğidir. */
         GV.dl([
+          ['Durum', GV.badge(t.durum) + (beklemeCip ? ' ' + beklemeCip : '') +
+            ' <button type="button" class="btn btn-line btn-sm" id="btnBekleme">' + ico('i-clock','ic-sm') + ' ' +
+            (t.beklemeNedeni ? 'Beklemeyi düzenle' : 'Bekleme nedeni ekle') + '</button>'],
+          (t.beklemeNedeni ? ['Bekleme notu', t.beklemeNotu ? esc(t.beklemeNotu) : null] : null),
           ['Görev amacı', esc(t.amac)],
           ['Kabul kriterleri', esc(t.kabulKriteri)],
           ['Beklenen çıktı', esc(t.beklenenCikti)],
@@ -168,7 +245,9 @@ document.addEventListener('gv:ready', function(){
           ['Termin tarihi', GV.dateCell(t.termin, { done:t.durum === 'Tamamlandı' })],
           ['Tamamlanma tarihi', t.tamamlanma ? F.date(t.tamamlanma) : null],
           ['Tahmini süre', F.hours(t.tahminiSure)],
-          ['Gerçekleşen süre', '<b>' + F.hours(t.gercekSure) + '</b>'],
+          /* Saklanan `gercekSure` değil, zaman kayıtlarının toplamı (L-08) */
+          ['Gerçekleşen süre', '<b>' + F.hours(harcanan) + '</b>' +
+            '<span class="cell-sub">' + logs.length + ' zaman kaydından türetildi</span>'],
           ['Faturalandırılabilir süre', F.hours(t.faturalanabilir)],
           ['İlerleme', GV.progress(t.ilerleme)]
         ]) +
@@ -251,7 +330,6 @@ document.addEventListener('gv:ready', function(){
       : GV.empty({ icon:'i-git', title:'Bağımlılık yok', desc:'Bu görev başka bir göreve bağlı değil ve hiçbir görevi engellemiyor.' })) +
     '</div>';
 
-  var toplamSure = logs.reduce(function(a,l){ return a + l.sure; }, 0);
   var pSure = '<div class="gc-body flush">' +
     (logs.length ? '<div class="gv-tablewrap"><table class="gtable"><thead><tr><th>Tarih</th><th>Personel</th><th>Açıklama</th><th class="num">Süre</th><th>Faturalanabilir</th><th>Onay</th></tr></thead><tbody>' +
       logs.map(function(l){
@@ -262,31 +340,68 @@ document.addEventListener('gv:ready', function(){
           '<td>' + (l.faturalanabilir ? '<span class="badge is-ok">Evet</span>' : '<span class="tag">Hayır</span>') + '</td>' +
           '<td>' + GV.badge(l.onay === 'Onaylandı' ? 'Onaylandı' : 'Bekliyor') + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
-      '<div class="gc-foot"><span class="gv-count">Toplam <b>' + F.hours(toplamSure) + '</b> · Tahmini ' + F.hours(t.tahminiSure) + '</span>' +
+      '<div class="gc-foot"><span class="gv-count">Toplam <b>' + F.hours(harcanan) + '</b> · Tahmini ' + F.hours(t.tahminiSure) + '</span>' +
       '<button type="button" class="btn btn-line btn-sm" id="btnSure2">' + ico('i-plus','ic-sm') + ' Süre ekle</button></div>'
       : GV.empty({ icon:'i-timer', title:'Zaman kaydı yok', desc:'Bu göreve henüz süre girilmemiş.',
           action:'<button type="button" class="btn btn-acc" id="btnSure2">Süre ekle</button>' })) +
     '</div>';
 
+  /* ---- Kontrol ve Onay (REVİZE 02) ----
+     Zincir eskiden kalkmış durum adlarına göre kuruluyordu (`Kontrol bekliyor`
+     artık `Kontrolde`) ve ÜÇÜNCÜ adımı her görevde basıyordu. Oysa onay adımının
+     gerekip gerekmediği saklanmaz, TÜRETİLİR (L-08): kontrol eden ile onaylayan
+     aynı kişiyse kontrol zaten onaydır ve görev doğrudan `Tamamlandı`ya gider.
+     O görevlerde "Onaylayan" adımı hiçbir zaman tamamlanamayacak ölü bir kutu
+     olarak duruyordu — veride 26 görevin 17'sinde durum buydu. Artık basılmıyor,
+     yerine tek satırlık gerekçe yazılıyor. */
+  var onayGerekli  = GV.task ? GV.task.onayGerekli(t) : (t.onaylayan !== t.kontrolEden);
+  var kapandi      = ['Tamamlandı','Arşivlendi'].indexOf(t.durum) !== -1;
+  var teslimEdildi = ['Kontrolde','Onay bekliyor','Tamamlandı','Arşivlendi'].indexOf(t.durum) !== -1;
+  var calisiyor    = ['Atandı','Devam ediyor','Revizede','Engellendi'].indexOf(t.durum) !== -1;
+
+  var zincir = [
+    { rol:'Sorumlu', kisi:DB.empName(t.sorumlu),
+      durum:teslimEdildi ? 'Onaylandı' : (calisiyor ? 'Bekliyor' : '—'),
+      tarih:kapandi ? t.tamamlanma : null, not:'Teslim ve çıktı yükleme' },
+    /* Revizede = kontrol edenin işi geri çevirdiği tek durumdur; zincirde
+       "—" göstermek bunu gizlerdi, oysa gerçekleşmiş bir karardır. */
+    { rol:'Kontrol eden', kisi:DB.empName(t.kontrolEden),
+      durum:t.durum === 'Kontrolde' ? 'Bekliyor'
+          : t.durum === 'Revizede' ? 'Reddedildi'
+          : (['Onay bekliyor','Tamamlandı','Arşivlendi'].indexOf(t.durum) !== -1 ? 'Onaylandı' : '—'),
+      tarih:null, not:onayGerekli ? 'Kalite kontrolü' : 'Kalite kontrolü ve nihai onay' }
+  ];
+  if(onayGerekli){
+    zincir.push({ rol:'Onaylayan', kisi:DB.empName(t.onaylayan),
+      durum:t.durum === 'Onay bekliyor' ? 'Bekliyor' : (kapandi ? 'Onaylandı' : '—'),
+      tarih:kapandi ? t.tamamlanma : null, not:'Nihai onay' });
+  }
+
+  /* İki kısayol da `GV.task.transition`a bağlı; hedef `nextSteps`ten okunur.
+     Uygulanamayacak adım ÖLÜ BUTON olarak bırakılmaz — devre dışı basılır ve
+     `title` nedenini söyler (L-23 · UID-27 · UID-30). */
+  function onayBtn(id, adim, cls, ikon, etiket, yokMetin){
+    var kapali = !adim ? yokMetin : (!adim.izin ? 'Bu işlemi yalnız şunlar yapabilir: ' + yetkiMetin(kural && kural.yetki) : null);
+    return '<button type="button" class="btn ' + cls + '" id="' + id + '"' +
+      (kapali ? ' disabled title="' + esc(kapali) + '"' : '') + '>' + ico(ikon) + ' ' + etiket + '</button>';
+  }
+
   var pOnay = '<div class="gc-body">' +
-    GV.chain([
-      { rol:'Sorumlu', kisi:DB.empName(t.sorumlu), durum:t.ilerleme === 100 ? 'Onaylandı' : 'Bekliyor',
-        tarih:t.ilerleme === 100 ? t.tamamlanma : null, not:'Teslim ve çıktı yükleme' },
-      { rol:'Kontrol eden', kisi:DB.empName(t.kontrolEden),
-        durum:t.durum === 'Kontrol bekliyor' ? 'Bekliyor' : (['Onay bekliyor','Tamamlandı'].indexOf(t.durum) !== -1 ? 'Onaylandı' : '—'),
-        tarih:null, not:'Kalite kontrolü' },
-      { rol:'Onaylayan', kisi:DB.empName(t.onaylayan),
-        durum:t.durum === 'Onay bekliyor' ? 'Bekliyor' : (t.durum === 'Tamamlandı' ? 'Onaylandı' : '—'),
-        tarih:t.tamamlanma, not:'Nihai onay' }
-    ]) +
+    GV.chain(zincir) +
+    (onayGerekli ? '' : '<p class="u-xs u-faint u-mt-8">Bu görevde kontrol eden ile onaylayan aynı kişi (' +
+      esc(DB.empName(t.kontrolEden)) + '); ayrı bir onay adımı yoktur, kontrol doğrudan tamamlar.</p>') +
     GV.dl([
-      ['Kalite kontrol sonucu', t.durum === 'Tamamlandı' ? 'Başarılı' : null],
+      ['Kalite kontrol sonucu', kapandi ? 'Başarılı' : (t.durum === 'Revizede' ? 'Revizyon istendi' : null)],
       ['Revizyon sayısı', '<b>' + t.revizyon + '</b>'],
       ['Yeniden açılma sayısı', '<b>' + t.yenidenAcilma + '</b>'],
       ['Tamamlanma kanıtı', t.teslimEdilenCikti ? esc(t.teslimEdilenCikti) : null]
     ]) +
-    '<div class="u-row u-mt-8"><button type="button" class="btn btn-ok" id="btnOnayla">' + ico('i-check') + ' Onayla</button>' +
-    '<button type="button" class="btn btn-danger-line" id="btnRevize">' + ico('i-refresh') + ' Revize İste</button></div>' +
+    '<div class="u-row u-mt-8">' +
+      onayBtn('btnOnayla', adimOnay, 'btn-ok', 'i-check', 'Onayla',
+        'Görev “' + t.durum + '” durumunda; onaylanacak bir teslim yok.') +
+      onayBtn('btnRevize', adimRevize, 'btn-danger-line', 'i-refresh', 'Revize İste',
+        'Görev “' + t.durum + '” durumundan revizeye gönderilemez.') +
+    '</div>' +
     '</div>';
 
   var pDosya = '<div class="gc-body">' +
@@ -325,7 +440,7 @@ document.addEventListener('gv:ready', function(){
        ['Sorumlu', GV.user(t.sorumlu, { sm:true })],
        ['Termin', GV.dateCell(t.termin, { done:t.durum === 'Tamamlandı' })],
        ['İlerleme', '<b>%' + t.ilerleme + '</b>'],
-       ['Tahmini / gerçek', F.hours(t.tahminiSure) + ' / <b>' + F.hours(t.gercekSure) + '</b>'],
+       ['Tahmini / gerçek', F.hours(t.tahminiSure) + ' / <b>' + F.hours(harcanan) + '</b>'],
        ['Revizyon', '<b>' + t.revizyon + '</b>'],
        ['Yeniden açılma', '<b>' + t.yenidenAcilma + '</b>']
       ].map(function(p){
@@ -354,27 +469,124 @@ document.addEventListener('gv:ready', function(){
   GV.tabs('#recTabs');
 
   /* ---- Aksiyonlar — hepsi gerçekten çalışır ---- */
-  document.getElementById('btnDurum').addEventListener('click', function(){
-    var rule = DB.taskTransitions[t.durum];
-    var next = rule ? rule.next : DB.taskStatuses;
+
+  /* Tek mutasyon noktası. Ekran hedefi kendisi YAZMAZ; `GV.task.transition`
+     geçiş tablosunu uygular (hedef geçerli mi · yetki · zorunlu alan) ve
+     aktivite kaydını da o yazar. Başarısızlık DÜRÜSTÇE bildirilir — eskiden
+     hiçbir kapı yoktu, her geçiş "başarılı" görünüyordu. */
+  function hataMetni(res){
+    if(!res) return 'Geçiş yapılamadı';
+    if(res.why === 'yetki')   return 'Bu geçişi yalnız şunlar yapabilir: ' + yetkiMetin(res.roller);
+    if(res.why === 'zorunlu') return 'Şu alanlar dolu olmadan geçilemez: ' + res.eksik.map(alanAd).join(', ');
+    return res.why;
+  }
+
+  function uygula(hedef, ek, not){
+    var res = GV.task.transition(t.kod, hedef, ek, not);
+    if(!res || !res.ok){ GV.toast(hataMetni(res), 'danger'); return false; }
+    /* `bildirim` geçiş tablosunda yazılı — kime haber gittiğini söylemek,
+       kullanıcıya "sessizce bir şey oldu" hissi bırakmamak için. */
+    var kimler = (res.bildirim || []).map(yetkiAd);
+    GV.toast(t.kod + ' “' + res.gorev.durum + '” oldu' +
+      (kimler.length ? ' · bildirim: ' + kimler.join(', ') : ''), 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+    return true;
+  }
+
+  /* Eksik zorunlu alanı SORAN küçük modal. Geçiş tablosu bir alanı şart
+     koşuyorsa kullanıcıyı "önce görevi düzenle" diye başka ekrana yollamak
+     yerine tam o alanı burada isteriz; değerler `ek` argümanı olarak geçer. */
+  var KISILER = DB.employees.filter(function(e){ return e.aktif; });
+  function alanGirdi(alan){
+    var id = 'ek_' + alan, lbl = alanAd(alan);
+    if(alan === 'sorumlu'){
+      return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label><select id="' + id + '">' +
+        '<option value="">Seçin</option>' +
+        KISILER.map(function(e){ return '<option value="' + esc(e.kod) + '">' + esc(e.ad + ' · ' + e.pozisyon) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+    if(alan === 'engelNedeni'){
+      return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label>' +
+        '<textarea id="' + id + '" rows="2" placeholder="Görev neyle engellendi?">' + esc(t[alan] || '') + '</textarea></div>';
+    }
+    return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label>' +
+      '<input type="text" class="inp" id="' + id + '" value="' + esc(t[alan] || '') + '"></div>';
+  }
+
+  function eksikModal(a){
     GV.modal({
-      title:'Durum Değiştir', text:t.kod + ' · şu an “' + t.durum + '”', icon:'i-refresh', size:'sm',
-      body:'<div class="field"><label for="yeniDurum">Yeni durum</label><select id="yeniDurum">' +
-        next.map(function(d){ return '<option value="' + esc(d) + '">' + esc(d) + '</option>'; }).join('') + '</select>' +
-        (rule && rule.zorunlu.length ? '<div class="f-hint">Zorunlu alanlar: ' + rule.zorunlu.join(', ') + '</div>' : '') +
-        (rule && rule.yetki ? '<div class="f-hint">Bu geçişi yapabilecek roller: ' + rule.yetki.join(', ') + '</div>' : '') +
-        '</div>' +
-        '<div class="field u-mt-4"><label for="durumNot">Açıklama</label><textarea id="durumNot" rows="2" placeholder="Geçiş gerekçesi"></textarea></div>',
+      title:a.etiket, text:t.kod + ' · “' + t.durum + '” → “' + a.hedef + '”', icon:ADIM_IKON[a.hedef] || 'i-refresh', size:'sm',
+      body:'<div class="gv-fields">' + a.eksik.map(alanGirdi).join('') + '</div>' +
+        '<div class="field u-mt-4"><label for="adimNot">Açıklama</label>' +
+        '<textarea id="adimNot" rows="2" placeholder="Geçiş gerekçesi (isteğe bağlı)"></textarea></div>',
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
-        { label:'Durumu güncelle', cls:'btn-acc', onClick:function(close, el){
-            var yeni = el.querySelector('#yeniDurum').value;
-            var eski = t.durum;
-            t.durum = yeni;
-            DB.activities.unshift({ kayit:t.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
-              kisi:GV.session.emp, metin:'Durum değiştirildi' + (el.querySelector('#durumNot').value ? ' — ' + el.querySelector('#durumNot').value : ''),
-              eski:eski, yeni:yeni, tone:'info', icon:'i-refresh' });
-            GV.toast(t.kod + ' durumu “' + yeni + '” olarak güncellendi', 'ok');
+        { label:a.etiket, cls:a.tone === 'btn-line' ? 'btn-acc' : a.tone, onClick:function(close, el){
+            var ek = {}, bos = [];
+            a.eksik.forEach(function(alan){
+              var v = (el.querySelector('#ek_' + alan).value || '').trim();
+              if(!v) bos.push(alanAd(alan)); else ek[alan] = v;
+            });
+            if(bos.length){ GV.toast(bos.join(', ') + ' zorunludur', 'danger'); return false; }
+            return uygula(a.hedef, ek, el.querySelector('#adimNot').value.trim() || null) ? undefined : false;
+          } }
+      ]
+    });
+  }
+
+  function adimCalistir(a){
+    if(!a) return;
+    if(a.eksik && a.eksik.length){ eksikModal(a); return; }
+    /* "Engellendi" hedefinde `eksik` BOŞ gelir: zorunluluk kaynak durumun
+       kuralında yazılıdır ve `engelNedeni`yi ancak engelden ÇIKARKEN ister.
+       Nedeni yazılmadan engellenen görev çıkışta takılır — kullanıcı önce
+       düzenleme formuna gitmek zorunda kalır. Nedeni girildiği anda soruyoruz. */
+    if(a.hedef === 'Engellendi'){
+      eksikModal({ hedef:a.hedef, etiket:a.etiket, tone:a.tone, eksik:['engelNedeni'] });
+      return;
+    }
+    /* Geri dönüşü olmayan / yıkıcı hedeflerde onay sorulur; ileri akışın
+       normal adımı (Çalışmaya Başla · Kontrole Gönder) tek tıkla ilerler —
+       her adıma modal koymak REVİZE 02'nin sadeleştirme amacına aykırı. */
+    if(['İptal edildi','Arşivlendi','Engellendi'].indexOf(a.hedef) === -1){ uygula(a.hedef, null, null); return; }
+    GV.confirm({
+      title:a.etiket, tone:a.hedef === 'Arşivlendi' ? 'warn' : 'danger', okLabel:a.etiket,
+      text:t.kod + ' görevi “' + t.durum + '” durumundan “' + a.hedef + '” durumuna geçecek.'
+    }).then(function(ok){ if(ok) uygula(a.hedef, null, null); });
+  }
+
+  Array.prototype.forEach.call(mount.querySelectorAll('[data-adim]'), function(b){
+    b.addEventListener('click', function(){ adimCalistir(adimlar[+b.dataset.adim]); });
+  });
+
+  /* BEKLEME NEDENİ (REVİZE 01) — durum DEĞİŞMEZ, yalnız neyi beklediği yazılır.
+     Tek denetim hem kurar hem kaldırır; boş seçenek "beklemiyor" demektir. */
+  document.getElementById('btnBekleme').addEventListener('click', function(){
+    GV.modal({
+      title:'Bekleme Nedeni', text:t.kod + ' · durum “' + t.durum + '” olarak kalır', icon:'i-clock', size:'sm',
+      body:'<div class="field"><label for="bkNeden">Bekleme nedeni</label><select id="bkNeden">' +
+        '<option value="">Beklemiyor</option>' +
+        DB.taskWaitReasons.map(function(n){
+          return '<option value="' + esc(n) + '"' + (t.beklemeNedeni === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+        }).join('') + '</select>' +
+        '<div class="f-hint">Bekleme bir durum değildir; görev “' + esc(t.durum) + '” olarak kalır, yalnız neyi beklediğini söyler.</div></div>' +
+        '<div class="field u-mt-4"><label for="bkNot">Bekleme notu</label>' +
+        '<textarea id="bkNot" rows="2" placeholder="Ne bekleniyor?">' + esc(t.beklemeNotu || '') + '</textarea></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Kaydet', cls:'btn-acc', onClick:function(close, el){
+            var neden = el.querySelector('#bkNeden').value || null;
+            var notu  = el.querySelector('#bkNot').value.trim();
+            var res = GV.task.bekleme(t.kod, neden, notu);
+            if(!res || !res.ok){
+              /* Uydurma başarı mesajı yok (L-23): ortak katman değişiklik
+                 görmediyse kullanıcı da bunu okur. */
+              GV.toast(res && res.why === 'zaten bu durumda'
+                ? 'Bekleme nedeni zaten “' + (neden || 'yok') + '” — değişiklik yapılmadı'
+                : (res ? res.why : 'İşlem yapılamadı'), 'danger');
+              return false;
+            }
+            GV.toast(neden ? 'Bekleme nedeni: ' + neden : 'Bekleme kaldırıldı', 'ok');
             setTimeout(function(){ GV.refresh(); }, 700);
           } }
       ]
@@ -400,7 +612,11 @@ document.addEventListener('gv:ready', function(){
             DB.timelogs.unshift({ kod:'ZMN-' + Math.floor(Math.random()*1e4), personel:GV.session.emp,
               tarih:el.querySelector('#sTarih').value, gorev:t.kod, proje:t.proje, musteri:t.musteri,
               sure:sure, faturalanabilir:el.querySelector('#sFatura').checked, aciklama:acik, onay:'Bekliyor', aktif:true });
-            t.gercekSure = (t.gercekSure || 0) + sure;
+            /* `t.gercekSure` BURADA ARTIRILMAZ (REVİZE 02 · L-08). Eskiden hem
+               zaman kaydı yazılıyor hem alan artırılıyordu; iki defter, kayıt
+               silinir ya da düzeltilirse anında ayrışırdı. Harcanan süre artık
+               `DB.timelogs` toplamından türetiliyor — tazelemede kendiliğinden
+               doğru gelir. */
             GV.toast(F.hours(sure) + ' zaman kaydı eklendi', 'ok');
             setTimeout(function(){ GV.refresh(); }, 700);
           } }
@@ -410,21 +626,36 @@ document.addEventListener('gv:ready', function(){
   document.getElementById('btnSure').addEventListener('click', sureModal);
   GV.on(document, 'click', function(e){ if(e.target.closest('#btnSure2')) sureModal(); }, 'sure');
 
+  /* Kontrol ve Onay sekmesinin iki kısayolu (REVİZE 02).
+     Eskiden ikisi de geçiş tablosunu TAMAMEN atlıyordu: "Onayla" doğrudan
+     `t.durum='Tamamlandı'` yazıyor, kontrol eden ile onaylayanın farklı olduğu
+     görevlerde onay adımını sessizce atlıyordu; "Revize İste" ise sözlükten
+     kalkmış `Revize bekliyor` değerini yazıyordu. Üç yol da artık tek yordamdan
+     geçiyor; revizyon sayacını ve aktivite kaydını da o yordam yönetiyor. */
   GV.on(document, 'click', function(e){
-    if(e.target.closest('#btnOnayla')){
-      GV.confirm({ title:'Görevi onayla', text:t.kod + ' görevi tamamlandı olarak işaretlenecek.', okLabel:'Onayla' })
-        .then(function(ok){ if(ok){ t.durum = 'Tamamlandı'; t.ilerleme = 100; GV.toast('Görev onaylandı', 'ok'); setTimeout(function(){ GV.refresh(); }, 700); } });
+    if(e.target.closest('#btnOnayla') && adimOnay){
+      GV.confirm({
+        title:'Görevi onayla', okLabel:adimOnay.etiket,
+        text:t.kod + ' görevi “' + adimOnay.hedef + '” durumuna geçecek.' +
+          (onayGerekli && adimOnay.hedef === 'Onay bekliyor'
+            ? ' Kontrol eden ile onaylayan farklı olduğu için nihai onay ' + DB.empName(t.onaylayan) + ' tarafından verilecek.'
+            : '')
+      }).then(function(ok){
+        if(!ok) return;
+        if(adimOnay.eksik && adimOnay.eksik.length){ eksikModal(adimOnay); return; }
+        uygula(adimOnay.hedef, null, 'Kontrol ve Onay sekmesinden onaylandı');
+      });
     }
-    if(e.target.closest('#btnRevize')){
+    if(e.target.closest('#btnRevize') && adimRevize){
       GV.modal({ title:'Revize İste', text:'Revizyon gerekçesini yazın.', icon:'i-refresh', tone:'warn', size:'sm',
         body:'<div class="field"><label for="revNot">Revizyon notu</label><textarea id="revNot" rows="3" placeholder="Neyin düzeltilmesi gerekiyor?"></textarea></div>',
         actions:[{ label:'Vazgeç', cls:'btn-line' },
           { label:'Revize iste', cls:'btn-danger', onClick:function(close, el){
               var n = el.querySelector('#revNot').value.trim();
               if(!n){ GV.toast('Revizyon notu zorunludur', 'danger'); return false; }
-              t.durum = 'Revize bekliyor'; t.revizeNot = n; t.revizyon = (t.revizyon || 0) + 1;
-              GV.toast('Revizyon talebi gönderildi', 'ok');
-              setTimeout(function(){ GV.refresh(); }, 700);
+              /* Not `ek` olarak geçer: geçişle birlikte yazılır ve zorunlu alan
+                 denetiminde de sayılır — ekran alanı kendisi atamaz. */
+              return uygula('Revizede', { revizeNot:n }, n) ? undefined : false;
             } }] });
     }
   }, 'durum');

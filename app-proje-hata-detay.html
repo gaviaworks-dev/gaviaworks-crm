@@ -21,6 +21,9 @@
 <script src="assets/data/ops.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<!-- Bağlı görevin durumu bu ekrandan ELLE yazılmaz; tek mutasyon noktası
+     `GV.task.transition` (REVİZE 02). Yükleme sırası: veri → shell → ui → domain. -->
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
@@ -195,7 +198,40 @@ document.addEventListener('gv:ready', function(){
      MUTASYONLAR — location.reload() KULLANILMAZ (ders L-15).
      Mock veri bellekte durur; reload script'leri baştan koşar ve
      değişikliği siler. Doğrusu: setTimeout(GV.refresh, 700).
+
+     GÖREV DURUMU BU EKRANDAN YAZILMAZ (REVİZE 02). Hata yeniden açılınca
+     bağlı görev de akışa dönmeli, ama bu bir GEÇİŞTİR: `GV.task.transition`
+     hem geçiş tablosuna hem yetkiye bakar ve reddedebilir. Ret gerekçesi
+     yutulmaz — kullanıcıya söylenir.
      ================================================================= */
+  /* Görev "kapanmış" sayılan durumlar — hem yeniden açma mantığı hem modal
+     metni aynı kümeyi kullansın diye tek yerde. */
+  var KAPALI_GOREV = ['Tamamlandı','Arşivlendi'];
+
+  /* Ret gerekçesini kullanıcı diline çevirir. 'yetki' ve 'zorunlu' kodları
+     yanlarında ek alan taşır; kalanlar zaten hazır cümledir. */
+  function gorevRedNedeni(r){
+    if(!r) return 'bilinmeyen neden';
+    if(r.why === 'yetki') return 'bu geçişi yalnız şu roller yapabilir: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'görevde şu alanlar boş: ' + (r.eksik || []).join(', ');
+    return r.why;
+  }
+  /* Bağlı görev gerçekten revizeye alınabilir mi — tablodan okunur, varsayılmaz */
+  function gorevRevizeAdimi(){
+    if(!gorev || !GV.task) return null;
+    return GV.task.nextSteps(gorev.kod).filter(function(s){ return s.hedef === 'Revizede'; })[0] || null;
+  }
+  /* Modal metni söz VERMEDEN önce tabloya bakar: "Arşivlendi"in hiç çıkışı yok,
+     "Tamamlandı → Revizede" ise yalnız PM ve şirket sahibinde. Üç ayrı cümle. */
+  function gorevRevizeMetni(){
+    if(!gorev || KAPALI_GOREV.indexOf(gorev.durum) === -1) return '';
+    var a = gorevRevizeAdimi();
+    if(!a) return ' Bağlı görev ' + gorev.kod + ' “' + gorev.durum + '” durumunda ve geçiş tablosunda ' +
+                  'buradan “Revizede”ye çıkan yol yok — görev durumu değişmeyecek.';
+    if(!a.izin) return ' Bağlı görev ' + gorev.kod + ' revizeye alınmalı, ancak bu geçişi yapma yetkiniz ' +
+                  'yok — görev durumu değişmeyecek, gerekçesi işlem sonunda bildirilir.';
+    return ' Bağlı görev ' + gorev.kod + ' de “Revizede” durumuna alınır.';
+  }
   function cozulduIsaretle(tarih, not){
     var eskiDurum = b.durum, eskiCozum = b.cozum;
     b.durum = 'Kapandı';
@@ -227,18 +263,26 @@ document.addEventListener('gv:ready', function(){
         kayit:b.kod, tarih:simdi(), kisi:GV.session.emp, metin:'Çözüm tarihi geri alındı',
         eski:F.date(eskiCozum), yeni:'Çözülmedi', tone:'warn', icon:'i-calendar' });
     }
-    /* Bağlı görev kapanmışsa hata yeniden açılınca görev de akışa döner. */
-    if(gorev && ['Tamamlandı','Arşivlendi'].indexOf(gorev.durum) !== -1){
-      var eskiG = gorev.durum;
-      gorev.durum = 'Revize bekliyor';
-      gorev.revizeNot = 'Hata ' + b.kod + ' yeniden açıldı — ' + neden;
-      gorev.yenidenAcilma = (gorev.yenidenAcilma || 0) + 1;
-      DB.activities.unshift({
-        kayit:gorev.kod, tarih:simdi(), kisi:GV.session.emp,
-        metin:'Bağlı hata yeniden açıldığı için görev revizeye alındı (' + b.kod + ')',
-        eski:eskiG, yeni:'Revize bekliyor', tone:'danger', icon:'i-refresh' });
+    /* Bağlı görev kapanmışsa hata yeniden açılınca görev de akışa döner.
+       REVİZE 01 — hedef durumun adı artık "Revizede" ("Revize bekliyor" sözlükten
+       çıktı). REVİZE 02 — durum elle yazılmaz; geçişi tablo onaylar. Sayaç ve
+       revize notu `ek` ile aynı mutasyonda yazılır, ayrı satırda değil. */
+    var gSonuc = null;
+    if(gorev && KAPALI_GOREV.indexOf(gorev.durum) !== -1){
+      gSonuc = GV.task.transition(gorev.kod, 'Revizede', {
+        revizeNot:'Hata ' + b.kod + ' yeniden açıldı — ' + neden,
+        yenidenAcilma:(gorev.yenidenAcilma || 0) + 1
+      }, 'bağlı hata ' + b.kod + ' yeniden açıldı');
+      /* Aktivite satırını `GV.task.transition` kendisi yazar (eski → yeni ile
+         birlikte); burada ikinci bir satır açmak geçmişi çiftlerdi. */
     }
     GV.toast(b.kod + ' yeniden açıldı · durum “' + yeniDurum + '”', 'warn');
+    /* Geçiş reddedildiyse SESSİZ GEÇİLMEZ: kullanıcı görevin de döndüğünü
+       sanmamalı (ders UID-27 — yapılmayan iş başarı gibi bildirilmez). */
+    if(gSonuc && !gSonuc.ok){
+      GV.toast('Bağlı görev ' + gorev.kod + ' revizeye alınamadı — ' + gorevRedNedeni(gSonuc),
+               'danger', 6000);
+    }
     setTimeout(function(){ GV.refresh(); }, 700);
   }
 
@@ -252,6 +296,10 @@ document.addEventListener('gv:ready', function(){
       izleyiciler:[b.bulan].filter(function(k){ return k && k !== opt.sorumlu; }),
       kontrolEden:b.bulan, onaylayan:proje ? proje.pm : null,
       oncelik:opt.oncelik, etki:opt.etki, aciliyet:opt.oncelik,
+      /* REVİZE 01 — açılış durumu on değerlik yeni sözlükten gelir. Modalda
+         sorumlu seçimi boş bırakılamadığı için görev `Havuzda` değil doğrudan
+         `Atandı` doğar; geçiş tablosunun `Havuzda → Atandı` için zorunlu
+         tuttuğu `sorumlu` alanı zaten dolu. */
       durum:'Atandı', baslangic:DB.today, termin:opt.termin, tamamlanma:null,
       tahminiSure:null, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
       aciklama:b.kod + ' hata kaydından oluşturuldu. Ortam: ' + (b.ortam || '—') +
@@ -355,8 +403,7 @@ document.addEventListener('gv:ready', function(){
           '<span class="f-hint">Sorumlu hazırsa doğrudan “Devam ediyor” seçilebilir.</span></div>' +
         GV.notice({ tone:'warn', title:'Çözüm tarihi silinir',
           text:'Yeniden açılan hatanın çözüm tarihi boşaltılır; açık kalma süresi bulunma tarihinden bugüne ' +
-               'yeniden sayılır.' + (gorev && ['Tamamlandı','Arşivlendi'].indexOf(gorev.durum) !== -1
-                 ? ' Bağlı görev ' + gorev.kod + ' de “Revize bekliyor” durumuna alınır.' : '') }),
+               'yeniden sayılır.' + gorevRevizeMetni() }),
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
         { label:'Yeniden aç', cls:'btn-danger', icon:'i-refresh', onClick:function(close, el){
