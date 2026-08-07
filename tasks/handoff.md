@@ -28,10 +28,12 @@ oraya eklenmez, yüzdesi bozulmaz.
 | **FAZ 2 · R06** milestone / ödeme ayrımı | ✅ **TAMAM** (7/7) |
 | **FAZ 2 · R07** proje kapanış kontrolü | ✅ **TAMAM** (7/7) |
 | **FAZ 2 · R08** proje → bakım/destek geçişi | ✅ **TAMAM** (5/5) |
+| **FAZ 2 · R09** ticket detayları | ✅ **TAMAM** (7/7) |
+| **FAZ 2 · R10** ticket → görev / CR / fırsat | ✅ **TAMAM** (6/6) |
+| **FAZ 2** | ✅ **KAPANDI** |
 | **Ölçüm ekseni: `tasks/qa/dep.js`** | ✅ yeni — L-34'ün (yordam ↔ koleksiyon bağımlılığı) tarama karşılığı |
-| İşaretli alt madde | **60 / 138** |
-| **FAZ 2'nin kalanı: R09 · R10** | ⬜ açık — sıradaki iş |
-| FAZ 3 · 4 | ⬜ açık — ölçümleri plana yazılı (78 alt madde) |
+| İşaretli alt madde | **74 / 138** |
+| **Sıradaki: FAZ 3** — R11 · R12 · R13 | ⬜ açık (65 alt madde · FAZ 3 + FAZ 4) |
 
 > **İLERLEME ARTIK MEKANİK ÖLÇÜLÜYOR.** `revize-plan.md`'deki 138 alt maddenin
 > kaçının bittiği damgadan değil kutudan okunur:
@@ -41,11 +43,18 @@ oraya eklenmez, yüzdesi bozulmaz.
 > Kutu **yapılan iş doğrulanarak** işaretlenir ve bir alt madde bitince **aynı
 > turn içinde** işaretlenir. Damga ile kutu çelişirse **kutu doğrudur**.
 
-**Tarama (15. oturum sonu):** `canon.js` **3.864 kontrol · TEMİZ** — **32 eksen**
-(yeni: **29** proje durumu/fazı · **30** milestone ↔ ödeme taksiti · **31** proje
-kapanış kontrolü · **32** proje → bakım paketi). Dördü de bilinçli bozulmuş bir
-kopyayla, olumlu **ve dört-altı ayrı olumsuz** vakayla sınandı (L-24 · L-26),
-scratchpad'de, repo dosyasına dokunmadan.
+**Tarama (15. oturum sonu · FAZ 2 kapanışı):** `canon.js` **4.027 kontrol ·
+TEMİZ** — **34 eksen** (yeni: **29** proje durumu/fazı · **30** milestone ↔ ödeme
+taksiti · **31** proje kapanış kontrolü · **32** proje → bakım paketi ·
+**33** destek talebi şeması · **34** talepten doğan kayıtlar). Altısı da bilinçli
+bozulmuş bir kopyayla, olumlu **ve dört-altı ayrı olumsuz** vakayla sınandı
+(L-24 · L-26), scratchpad'de, repo dosyasına dokunmadan.
+
+**Tam tarama seti (FAZ 2 kapanışında, tek tek koşuldu):** `dep.js` TEMİZ
+(142 ekran · 34 çağıran ekran · 77 çağrı) · `dbref.js` TEMİZ (142 ekran) ·
+`links.js` TEMİZ · `gate.js` TEMİZ (**710 sayfa yüklemesi**, konsol hatası 0) ·
+`tabs.js` TEMİZ (**224 sekme tıklaması** · 26 ekran) · `act.js` TEMİZ
+(**213 aksiyon** · yalan 0 · ölü 0).
 
 R07 ve R08'in akışları ayrıca **tarayıcıda tek seferlik** ölçüldü
 (`r07.js` · `r08.js`, scratchpad): 8 checklist maddesi basılıyor · gerekçesiz
@@ -98,7 +107,7 @@ tamamen türetilebilir olduğu için `GV.hr.icMaliyet()` hesaplıyor, iki girdi
 Dış kaynak kalemi **0 ₺** ve bu dürüst bir sıfırdır (→ **V-47**): hizmet
 sözleşmeli tek personelin projeye bağlı zaman kaydı yok.
 
-### 15. oturumda kapanan altı şey
+### 15. oturumda kapanan sekiz şey
 
 **1. `dep.js` — L-34 artık ölçülüyor.** Üç tekrardan sonra (L-12 · L-32 · L-34)
 el denetimi bırakıldı. Script sözleşmeyi **`components.md` §6b'den okur** (ikinci
@@ -143,15 +152,45 @@ yürütüyor (Hayır · mevcut pakete bağla · yeni paket, **aynı modalda**).
 `DB.supportPackages[].proje` 7/7 kayıtta tanımlı, **hiçbirinde dolu değil** —
 veride yazılı bağ yok ve tarih yakınlığı bağ sayılmadı (V-52).
 
-**6. Ölçüm aracının kendi kusuru bulundu → L-35.** `canon.js` veri kökünü sabit
+**6. R09 — destek talebi sözlüğü ve altı yeni alan.** `DB.ticketStatuses` ·
+`DB.ticketClosedStatuses` · `DB.ticketChannels` açıldı; üç durum yeniden
+adlandırıldı ve **12 tüketicinin 12'si** aynı turda taşındı (defter 9 diyordu —
+L-28 örüntüsü). Altı alan 7/7 kayıtta tanımlı, kanıtı olanda dolu.
+`cozumTarihi` **alan olarak açılmadı**, türetiliyor (L-08) ve eksen 33c alanın
+doğmasını yasaklıyor. Kapalı durum listesi **veri katmanında** çünkü `shell.js`
+`domain.js`'ten önce yükleniyor.
+
+**7. R10 — talepten üç akış.** `İşleme Dönüştür` tek modalda görev · revizyon
+(CR) · satış fırsatı. Mevcut görev akışı korundu. `DB.leads[].destek` 12/12
+tanımlı (0 dolu — bağ akışta doğar), `DB.refTypes`'a `Destek talebi` eklendi.
+Talepte karşılığı olmayan alanlar (CR süre/maliyet etkisi · fırsat bütçe/puan)
+**kullanıcıdan alınıyor**, tahmin üretilmiyor.
+
+**8. Ölçüm aracının kendi kusuru bulundu → L-35.** `canon.js` veri kökünü sabit
 mutlak yolla tutuyordu; "bozulmuş kopyayla sına" protokolü o araçta **hiç
 çalışmamıştı**. Kök `qa-lib.repoRoot()`e bağlandı.
 
 ### Sıradaki oturum ne yapacak
 
-**FAZ 1 ve R05 · R06 · R07 · R08 kapandı.** Sıradaki iş **R09** (ticket
-detayları) → **R10** (ticket → görev / CR / fırsat). Sırayı `revize-plan.md`
+**FAZ 1 ve FAZ 2 KAPANDI.** Sıradaki iş **FAZ 3**: R11 (proje kaynağı) →
+R12 (sözleşme sorumlusu) → R13 (müşteri portalı). Sırayı `revize-plan.md`
 belirler; **her alt madde bitince aynı turn içinde işaretlenir**.
+
+**Paralelleştirme (Beyar, 15. oturum · `revize-plan.md` §0'da tablo):**
+FAZ 3'te **R13 ajana verilebilir** (kendi ekranları var), R11 ve R12 lead'in
+(veri katmanına dokunuyorlar). FAZ 4'te **dörtlü dalga**: R14 · R19 · R20
+aynı anda ajanlara; R15 · R16 · R18 lead'in (veri ve ayar ekranını paylaşıyorlar).
+Ajan tek ekran yazar, ortak katmana dokunmaz, canon eksenine dokunmaz, commit
+atmaz. **Tarayıcı taramaları dalga bitince topluca koşar**, ajan başına değil.
+
+**R11 için hazır not:** `944a594` sözleşmeden proje başlatmayı zaten kurmuş
+(ön dolgu 5 alan, üç bilgilendirme durumu, tek yönlü bağ). Eksik olan `kaynak`
+alanı ve formdaki sözleşme seçici. R05'in `DB.projectStatuses` kalıbı örnek
+alınabilir. `canon.js` ekseni "kaynak = Müşteri Sözleşmesi olan projenin
+`DB.contracts` içinde onu gösteren kaydı vardır" — VB-20'nin "sözleşmesiz
+sözleşme bedeli" ek bulgusunu da kapatır (iki proje: PRJ-2026-007 · PRJ-2025-008).
+
+<details><summary>R09'un kapanmış uyarısı (kayıt olarak kalsın)</summary>
 
 **R09 uyarısı — R05'in ikizi, aynı tuzak.** Ticket durum sözlüğü hiçbir `DB.*`'da
 tanımlı değil: 3 yerde elle yazılı (`app-destek.html:92`, `:101`,
@@ -166,11 +205,15 @@ silinmemeli. Yeni tonlar gerekecek: `Çalışılıyor` · `Kapatıldı` ·
 `Yeniden Açıldı`. `cozumSuresi` SLA matematiğinin girdisidir — yeni alanlar
 ona dokunmaz, `cozumTarihi` ondan **türetilir**, ikisi ayrı yazılmaz (L-08).
 
-**R05 · R06 · R07 · R08'in bıraktığı hazır zemin:** `GV.proje.acik/bitti/kapali/
+</details>
+
+**FAZ 2'nin bıraktığı hazır zemin:** `GV.proje.acik/bitti/kapali/
 arsivli/geciken` (durum ekseni tek yerde) · `GV.proje.kapanisKontrol/kapat` ·
 `GV.proje.bakimPaketleri/bakimBagla/bakimAc` · `DB.projectMilestones` ·
 `DB.milestoneStatuses` · `DB.moduleStatuses` · `DB.supportPackageTypes` ·
-`DB.company.zorunluProjeDokuman`.
+`DB.company.zorunluProjeDokuman` · `GV.destek.acik/kapali/kapaliDurumlar/
+cozumTarihi` · `DB.ticketStatuses` · `DB.ticketClosedStatuses` ·
+`DB.ticketChannels` · `DB.leads[].destek` · `DB.supportPackages[].proje`.
 
 L-33 bu turda ikinci kez işe yaradı: proje durum sözlüğünden çıkan
 `Planlama` · `Geliştirme` · `Test` kelimeleri **`DB.projectModules[].durum`
