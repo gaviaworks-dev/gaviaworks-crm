@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **41** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 · **R05 7/7** |
-| Kalan | 97 (FAZ 2'nin kalanı · FAZ 3 · 4) |
+| İşaretli | **48** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 · R05 7/7 · **R06 7/7** |
+| Kalan | 90 (FAZ 2'nin kalanı · FAZ 3 · 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -78,7 +78,7 @@ Bu turun kendi çalışma kuralları:
 | R03 | Timesheet → gerçekleşen süre | 1 | **✅ TAMAM** | `harcananSure` kaldırıldı; defter 53 → 131 satır (modül ilerlemesinden türetildi); canon eksen 26 + 27 |
 | R04 | Timesheet + gider → gerçek maliyet | 1 | **✅ TAMAM** | `gerceklesenMaliyet` kaldırıldı; dört kalem `GV.proje.maliyet`'te türetiliyor; canon eksen 28 |
 | R05 | Proje durumu / faz ayrımı | 2 | **✅ TAMAM** | sözlük 5 → 7 · faz sözlüğünden `Tamamlandı` çıktı · 12 kayıt taşındı · canon eksen 29 |
-| R06 | Milestone / ödeme ayrımı | 2 | ⬜ | tek koleksiyon (`DB.milestones`), 10 alanın 4'ü ödeme; `sorumlu`/`aciklama`/`teslimat` yok |
+| R06 | Milestone / ödeme ayrımı | 2 | **✅ TAMAM** | `DB.projectMilestones` (12 kayıt) açıldı · taksitte isteğe bağlı FK (12/19) · canon eksen 30 |
 | R07 | Proje kapanış kontrolü | 2 | ⬜ | kapanış aksiyonu yok; ekran **hiç mutasyon yapmıyor**; 8 kontrolün 5'i ölçülebilir |
 | R08 | Proje → bakım geçişi | 2 | ⬜ | proje ↔ paket bağı **iki yönde de yok**; hiçbir projenin paketi yok |
 | R09 | Ticket detayları | 2 | 🟡 | 12 alanın **7'si yok**; durum sözlüğü hiçbir `DB.*`'da tanımlı değil, 3 yerde elle yazılı |
@@ -607,9 +607,40 @@ yanlışlıkla "TEMİZ" dönmüştü. Kök `qa-lib.repoRoot()`e bağlandı → *
 `app-musteri-yetkili-form.html` · `tasks/qa/canon.js` · `tasks/qa/dep.js` ·
 `tasks/components.md` · `tasks/ui-debt.md` (VB-20 kapanışı)
 
-## R06 · Milestone ve ödeme planını ayır
+## R06 · Milestone ve ödeme planını ayır · ✅ TAMAM
 
-**DURUM: ⬜ yok — milestone ile taksit TEK kayıt; iki ekran aynı koleksiyonun iki görünümü**
+**KAPANDI (2026-08-07, 15. oturum)** — iki eksen iki kayda ayrıldı.
+
+Yapılanlar: `DB.projectMilestones` (**12 kayıt · 6 proje**) açıldı — alanlar
+`kod · proje · baslik · tarih · sorumlu · durum · teslimat · aciklama`, **para
+alanı yok** · `DB.milestones` ödeme taksiti olarak yerinde kaldı, üstüne
+**isteğe bağlı** `milestone` FK'sı geldi (**12/19 dolu**) · `DB.milestoneStatuses`
+sözlüğü açıldı · `app-proje-milestone.html` artık proje olaylarını,
+`app-odemeplani.html` taksitleri gösteriyor — **iki ekran artık iki şey** ·
+proje detayında "Milestone" sekmesi gerçek milestone'ları basıyor, ödeme
+kolonları "Bütçe" sekmesindeki plana kaldı, **yeni sekme açılmadı**.
+
+**Kayıt uydurulmadı (L-13):** 5 kayıt `DB.deliveries`ten (gerçek teslim olayı,
+sorumlusu teslim eden), 7 kayıt **tamamlanmış** ödeme taksitinden (adı bir proje
+olayını anlatan; sorumlusu projenin PM'i). Kaynak her kaydın `aciklama`sında
+yazılı ve `canon.js` eksen 30b bunu **zorunlu** kılıyor. `MS-018 'Sözleşme
+peşinatı'` bilerek dışarıda: peşinat bir ödeme olayıdır, proje olayı değil —
+onu almak ayırdığımız iki ekseni ilk kayıtta yeniden karıştırmak olurdu.
+14 projenin **8'inde milestone yok** ve ekran bunu sıfır basmak yerine yazıyla
+söylüyor.
+
+**Kilit:** `canon.js` **eksen 30** (altı kontrol grubu · **3.811 kontrol**) —
+altı olumsuz vakayla sınandı: milestone'a para alanı sızması · taksitin başka
+projenin milestone'una bağlanması · iki taksitin aynı milestone'a bağlanması ·
+kayıt kaynağının silinmesi · teslimatın başka projeden olması · durumun sözlük
+dışına çıkması. Altısı da yakalandı.
+
+**Tarayıcı doğrulaması:** `qa.js` 5 hedef **TEMİZ** · `tabs.js`
+**44 sekme tıklaması TEMİZ** · `act.js` 3 aksiyon **TEMİZ** (yalan 0 · ölü 0).
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): ⬜ yok — milestone ile taksit TEK kayıt; iki ekran aynı koleksiyonun iki görünümü**
 
 Ölçüm (`DB.milestones`, 19 kayıt, 10 alan, hepsi 19/19 dolu):
 
@@ -643,22 +674,30 @@ karşılığı. Bağ **ödeme kaydında** durur, milestone'da ayna alan doğmaz 
 
 **Yapılacaklar**
 
-- [ ] `DB.projectMilestones` — alanlar: `kod · proje · baslik · tarih · sorumlu ·
-      durum · aciklama · teslimat`. Kayıtlar **uydurulmaz**: var olan
-      `DB.deliveries` (5) ve tamamlanmış `DB.milestones` adlarından türetilir,
-      kaynağı `aciklama`'da yazılır
-- [ ] `DB.milestones[].milestone` — opsiyonel FK, ödeme kaydında
-- [ ] `DB.milestones` alan adları ödeme ekseninde netleşsin; `ad` alanı taksit
-      adı olarak kalır
-- [ ] `app-proje-detay.html`: "Milestone" sekmesi **gerçek milestone**'ları
+</details>
+
+**Yapılacaklar**
+
+- [x] `DB.projectMilestones` — alanlar: `kod · proje · baslik · tarih · sorumlu ·
+      durum · aciklama · teslimat`. Kayıtlar **uydurulmadı**: 5'i `DB.deliveries`ten,
+      7'si tamamlanmış taksitten türetildi, kaynağı `aciklama`'da yazılı
+- [x] `DB.milestones[].milestone` — opsiyonel FK, ödeme kaydında (12/19)
+- [x] `DB.milestones` alan adları ödeme ekseninde netleşsin; `ad` alanı taksit
+      adı olarak kalır — ekran etiketleri de "Taksit durumu" oldu
+- [x] `app-proje-detay.html`: "Milestone" sekmesi **gerçek milestone**'ları
       göstersin, ödeme kolonları "Bütçe" sekmesindeki ödeme planına kalsın —
-      **yeni sekme açılmaz**, var olan iki sekmenin içeriği ayrışır
-- [ ] `app-proje-milestone.html` proje milestone'unu, `app-odemeplani.html` taksiti
+      **yeni sekme açılmadı**, var olan iki sekmenin içeriği ayrıştı
+- [x] `app-proje-milestone.html` proje milestone'unu, `app-odemeplani.html` taksiti
       okusun — iki ekran artık iki şey gösterir
-- [ ] `canon.js` **eksen 28**: "ödeme kaydının `milestone` FK'sı çözülür ve aynı
-      projeye aittir" · "milestone'da ayna ödeme alanı doğmamıştır"
-- [ ] Eksen 10 ve 13 **repointe edilmez** — `DB.milestones` ödeme ekseninde kaldığı
-      için ikisi de yerinde çalışmaya devam eder
+- [x] `canon.js` **eksen 30**: "ödeme kaydının `milestone` FK'sı çözülür ve aynı
+      projeye aittir" · "milestone'da ayna ödeme alanı doğmamıştır" — eksen
+      numarası 28/29 dolu olduğu için **30** oldu
+- [x] Eksen 10 ve 13 **repointe edilmedi** — `DB.milestones` ödeme ekseninde kaldığı
+      için ikisi de yerinde çalışıyor (30f taksit sayısının değişmediğini ölçer)
+
+**Dokunulan dosyalar:** `assets/data/work.js` · `app-proje-milestone.html` ·
+`app-odemeplani.html` · `app-proje-detay.html` · `tasks/qa/canon.js` ·
+`tasks/components.md`
 
 ---
 

@@ -444,6 +444,8 @@ Ek: **yetkisiz (403)** durumu — menü gizlemeye ek olarak sayfa seviyesinde.
 | `DB.deliveries[].moduller` · `.test` | `work.js` | `moduller` **dizidir** (bir teslim çok modül kapsar); boş dizi = projenin modül kırılımı yok, kapsam proje ekseninde. `test` = teslimi kabule bağlayan koşum |
 | `DB.tests[].moduller` · `.sprint` | `work.js` | Koşumun kapsadığı modüller (**dizi**) ve düştüğü sprint. `sprint` null = koşum tarihi hiçbir sprint aralığına girmiyor — en yakına yuvarlanmaz |
 | `DB.bugs[].test` · `.sprint` · `.destek` · `.gorev` | `work.js` | Dördü de **tekil** bağ. `sprint` = hatanın **ele alındığı** sprint. `gorev` hata↔görev bağının **tek yönüdür** — `DB.tasks[].hata` ayna alanı **yoktur** ve doğmadığı `canon.js` eksen 15'te kontrol edilir |
+| `DB.projectMilestones` | `work.js` | **REVİZE 06.** Proje OLAYI — `DB.milestones` (ödeme taksiti) ile aynı şey **değildir** ve para alanı **taşımaz**; `canon.js` eksen 30a bunu kilitler. Alanlar: `kod · proje · baslik · tarih · sorumlu · durum · teslimat · aciklama`. 12 kaydın 5'i `DB.deliveries`ten, 7'si tamamlanmış taksitten **türetildi**; kaynağı her kaydın `aciklama`sında yazılı (L-13). Adı bir ÖDEME olayını anlatan taksit (`MS-018 'Sözleşme peşinatı'`) bilerek alınmadı. 14 projenin 6'sında kayıt var, 8'inde **yok** ve ekran bunu yazıyla söyler |
+| `DB.milestones[].milestone` | `work.js` | Taksitin **isteğe bağlı** proje milestone'u — dokümanın *"İstenirse ödeme kaydında İlgili Milestone seçilebilir"* cümlesinin karşılığı. Bağ **ödeme kaydında** durur, milestone'da ayna alan **yoktur** (§9d). 19 taksitin 12'sinde dolu; bir milestone'a en fazla **bir** taksit |
 | `DB.deliveries[].milestone` | `work.js` | Teslimin karşılık geldiği taksit — **veride yazılı tekil bağ**, tarih yakınlığından türetilmez (L-13). Bir milestone'a en fazla bir teslim. `musteriOnay` durum değeridir: `Onaylandı` / `Bekliyor` / `Revizyon istendi`; `'—'` sentinel'i kullanılmaz |
 
 ---
@@ -577,6 +579,8 @@ kalmıştı — kaskad çevrimle birlikte **silindi**.
 | koşum → modül / sprint | `DB.tests[].moduller` (dizi) · `.sprint` | |
 | teslim → modül / kabul koşumu | `DB.deliveries[].moduller` (dizi) · `.test` | |
 | teslim → taksit | `DB.deliveries[].milestone` | tekil |
+| ödeme taksiti → proje milestone'u | `DB.milestones[].milestone` | `DB.milestones.filter(m => m.milestone === kod)` — milestone'da ayna alan **yok**, en fazla bir taksit (canon eksen 30c/30d) |
+| proje milestone'u → teslim | `DB.projectMilestones[].teslimat` | tekil; teslim **aynı projede** olmalı (eksen 30b) |
 | talebi açan yetkili | `DB.tickets[].acan` | **`YTK-*` KODU** (VB-12). Yetkili talebin müşterisine ait olmalı — canon eksen 24 |
 | görüşülen yetkili | `DB.interactions[].kontak` | **`YTK-*` KODU**; ADAY görüşmesinde **null** ve ad `DB.leads[].yetkili`'den okunur. Gösterim: `DB.interactionContact(i)` |
 | aktiviteyi yazan kişi | `DB.activities[].kisi` | **`EMP-*`** (ya da `YTK-*`) KODU. `GV.activity` adı çözer; oturum yoksa **null**, uydurma ad yazılmaz |

@@ -701,3 +701,30 @@ doğmasını yasakladı.
 **Kapsam:** yalnız `DB.projects`. `aktif` alanı 12 personelde, 21 departmanda,
 12 müşteride ve 14 yetkilide **gerçekten kullanılıyor** (pasif kayıtlar var) —
 oralarda eksen anlamlıdır ve dokunulmadı. `GV.list`'in kuralı da değişmedi.
+
+---
+
+## V-50 · Proje milestone'u koleksiyonu 12 kayıtla açıldı — peşinat taksiti alınmadı
+
+**Karar:** REVİZE 06 `DB.projectMilestones`'ı **iki gerçek kaynaktan** türetti:
+5 kayıt `DB.deliveries`ten (teslim olayı; `sorumlu` = teslim eden), 7 kayıt
+**tamamlanmış** ödeme taksitinden (`durum:'Tamamlandı'`, adı bir proje olayını
+anlatan; `sorumlu` = projenin PM'i). Her kaydın `aciklama` alanı kaynağını yazar
+ve `canon.js` eksen 30b bunu **zorunlu** kılar — kaynağı yazılı olmayan kayıt
+uydurulmuş kayıttır.
+
+**`MS-018 'Sözleşme peşinatı'` bilerek dışarıda bırakıldı.** Tamamlanmış bir
+taksit, ama adı bir **ödeme** olayını anlatıyor, proje olayını değil. Onu almak,
+R06'nın ayırdığı iki ekseni koleksiyonun ilk kaydında yeniden karıştırmak olurdu.
+Süzgeç adın kendisine bakıyor (`peşinat|peşin|ödeme|taksit|bakiye`) ve karar
+veride yorumla yazılı.
+
+**8 projede milestone YOK ve bu bir eksiklik değil, ölçümdür.** O projelerin ne
+teslim kaydı ne tamamlanmış taksiti var; sekmeye "kayıt yok" yazmak, olmayan bir
+kilometre taşı uydurmaktan doğrudur (L-13 · R03'ün `kapsam:false` deseni).
+
+**Koleksiyon bölünmedi, ikinci koleksiyon açıldı.** `DB.milestones` 19 kayıtla
+25+ ekranın, `GV.fin.settleInvoice` zincirinin ve üç canon ekseninin (10 · 13 ·
+18) dayandığı **ödeme defteridir**; onu ikiye bölmek çalışan bir modülü
+kaldırmak olurdu (talimatın sert sınırı). Bağ ödeme kaydında durur, milestone'da
+ayna alan doğmaz (§9d).
