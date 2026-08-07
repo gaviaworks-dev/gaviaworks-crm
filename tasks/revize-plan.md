@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **67** — R01…R08 · **R09 7/7** |
-| Kalan | 71 (R10 · FAZ 3 · 4) |
+| İşaretli | **73** — R01…R09 · **R10 6/6** · **FAZ 2 KAPANDI** |
+| Kalan | 65 (FAZ 3 · FAZ 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -99,7 +99,7 @@ belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 | R07 | Proje kapanış kontrolü | 2 | **✅ TAMAM** | 8 kontrol `GV.proje.kapanisKontrol`ta · kapanış `GV.proje.kapat`ta · canon eksen 31 |
 | R08 | Proje → bakım geçişi | 2 | ⬜ | proje ↔ paket bağı **iki yönde de yok**; hiçbir projenin paketi yok |
 | R09 | Ticket detayları | 2 | **✅ TAMAM** | sözlük açıldı · 6 alan eklendi · 12 tüketici taşındı · canon eksen 33 |
-| R10 | Ticket → görev / CR / fırsat | 2 | 🟡 | görev dönüşümü **çalışıyor**; CR bağı var ama aksiyon yok; fırsat hiç yok |
+| R10 | Ticket → görev / CR / fırsat | 2 | **✅ TAMAM** | üç dal tek modalda · `leads[].destek` açıldı · canon eksen 34 |
 | R11 | Proje kaynağı | 3 | 🟡 | `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı ve sözleşme seçici yok |
 | R12 | Sözleşme sorumlusu | 3 | ⬜ | sözleşmede **hiç kişi alanı yok**; ekran bunu bir notice ile itiraf ediyor |
 | R13 | Müşteri portalı | 3 | 🔴 | oturumda müşteri kimliği yok → `EMP-001`'e düşüyor; **6 ölçülmüş sızıntı** |
@@ -541,6 +541,21 @@ tam değil.
 ---
 
 # FAZ 2 — OPERASYON
+
+> **FAZ 2 KAPANDI — R05 ✅ · R06 ✅ · R07 ✅ · R08 ✅ · R09 ✅ · R10 ✅ (2026-08-07).**
+> Kapanışta `canon.js` **4.027 kontrol · TEMİZ** (faz başında 3.469 · 28 eksen →
+> şimdi **34 eksen**). Yeni eksenler: **29** proje durumu/fazı · **30** milestone ↔
+> ödeme taksiti · **31** proje kapanış kontrolü · **32** proje → bakım paketi ·
+> **33** destek talebi şeması · **34** talepten doğan kayıtlar. Altısı da bilinçli
+> bozulmuş bir kopyayla, olumlu **ve dört-altı ayrı olumsuz** vakayla sınandı
+> (L-24 · L-26), scratchpad'de, repo dosyasına dokunmadan.
+>
+> Yeni tarama ekseni: **`tasks/qa/dep.js`** — L-34'ün (ortak yordamın veri
+> bağımlılığı) ölçüm karşılığı. 142 ekran · 34 çağıran ekran · 77 çağrı · TEMİZ.
+>
+> Mutasyon akışları tarayıcıda tek tek ölçüldü (`r07.js` · `r08.js` · `r10.js`,
+> scratchpad): kapanış kontrolü · bakım geçişi · üç dallı dönüşüm. Üçünde de
+> eksik alanda **dürüst red**, dolu geçişte gerçek mutasyon, konsol temiz.
 
 ## R05 · Proje durumu ve proje fazını ayır · ✅ TAMAM
 
@@ -994,9 +1009,41 @@ SLA yapısı korunur: `sla` · `ilkYanit` · `mudahaleSuresi` · `cozumSuresi` �
 
 ---
 
-## R10 · Ticket'tan doğru akışı başlat
+## R10 · Ticket'tan doğru akışı başlat · ✅ TAMAM
 
-**DURUM: 🟡 kısmen — görev dönüşümü VAR ve çalışıyor; CR ve fırsat YOK**
+**KAPANDI (2026-08-07, 15. oturum)** — üç dal tek modalda; FAZ 2 kapandı.
+
+Yapılanlar: `Göreve dönüştür` butonu **İşleme Dönüştür**e dönüştü — tek modal,
+üstte hedef seçici, seçime göre yalnız ilgili alan kümesi görünüyor · mevcut
+**görev akışı aynen korundu**, ikinci bir yol açılmadı · `crOlustur` ve
+`firsatOlustur` eklendi · `DB.leads[].destek` **12/12 kayıtta tanımlı** (hepsi
+`null`; bağ dönüşüm akışında doğar) · `DB.refTypes`'a **`Destek talebi`**
+eklendi (18 değer) · Dönüşümler sekmesi artık dört koleksiyonu tarıyor ve
+fırsatları da sayıyor.
+
+**Ön dolgu yalnız TALEPTE YAZILI olandan.** CR: `proje ← t.proje` · `baslik` ·
+`tarih ← DB.today` · `talep ← 'Müşteri'` · `sorumlu ← t.sorumlu` ·
+`durum ← 'Değerlendiriliyor'`. Fırsat: `firma`/`sektor`/`buyukluk` müşteri
+kartından · `yetkili ← acan` · `kaynak ← 'Destek talebi'` · `asama ← ilk
+pipeline aşaması` · `sorumlu ← musteri.sorumlu`. **`etkiSure`/`etkiMaliyet` ve
+`butce`/`puan`/`sicaklik`/`hizmet` kullanıcıdan alınır** — talepte karşılığı yok,
+tahmin üretmek ölçüm gibi görünen bir sayı olurdu (V-53'ün aynı ilkesi).
+
+**Kilit:** `canon.js` **eksen 34** — ticket'ta ayna alan (`gorev`/`cr`/`firsat`)
+doğmamış · `leads[].destek` her kayıtta tanımlı · dolu bağ çözülüyor ve
+müşterisi talebinkiyle aynı · destekten doğan fırsatın kaynağı `Destek talebi` ·
+sözlük bu değeri taşıyor · var olan iki bağ hâlâ çözülüyor. **Beş olumsuz
+vakayla** sınandı. **4.027 kontrol · TEMİZ.**
+
+**Tarayıcı ölçümü (`r10.js`):** üç dal da koştu — alan kümeleri seçime göre
+görünüyor · CR'de süre/maliyet boşken **yeni kayıt açılmıyor** · dolu geçildiğinde
+`DGS-2026-017` "Değerlendiriliyor" doğuyor · fırsat `LEAD-2026-013` kaynağı
+`Destek talebi`, aşaması `Yeni talep` · Dönüşümler sekmesi sayacı güncelleniyor.
+Konsol temiz.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 kısmen — görev dönüşümü VAR ve çalışıyor; CR ve fırsat YOK**
 
 Ölçüm:
 
@@ -1018,25 +1065,35 @@ SLA yapısı korunur: `sla` · `ilkYanit` · `mudahaleSuresi` · `cozumSuresi` �
 
 **Yapılacaklar**
 
-- [ ] `Göreve dönüştür` butonu **İşleme Dönüştür** menüsüne dönüşsün — üç seçenek
-      tek modalda; mevcut görev akışı **korunur**, ikinci bir yol açılmaz
-- [ ] `Revizyon / CR oluştur` — `DB.changeRequests`'e yazar, `destek` bağını kurar.
+</details>
+
+**Yapılacaklar**
+
+- [x] `Göreve dönüştür` butonu **İşleme Dönüştür** menüsüne dönüştü — üç seçenek
+      tek modalda; mevcut görev akışı **korundu**, ikinci bir yol açılmadı
+- [x] `Revizyon / CR oluştur` — `DB.changeRequests`'e yazar, `destek` bağını kurar.
       Ön dolgu: `proje ← t.proje` (null ise kullanıcı seçer) · `baslik ← t.baslik` ·
       `tarih ← DB.today` · `talep ← 'Müşteri'` · `sorumlu ← t.sorumlu` ·
       `durum ← 'Değerlendiriliyor'`. `etkiSure`/`etkiMaliyet` ticket'ta karşılığı
       olmadığı için **kullanıcıdan alınır** — uydurulmaz
-- [ ] `Satış fırsatı oluştur` — `DB.leads`'e yazar + `DB.leads[].destek` bağı açılır.
+- [x] `Satış fırsatı oluştur` — `DB.leads`'e yazar + `DB.leads[].destek` bağı açıldı.
       Ön dolgu müşteriden: `firma ← musteri.unvan` · `yetkili ← acan (YTK)` ·
       `sektor ← musteri.sektor` · `talepTarihi ← DB.today` ·
       `kaynak ← 'Destek talebi'` (**`DB.refTypes`'a yeni değer**) ·
       `asama ← ilk pipeline aşaması` · `sorumlu ← musteri.sorumlu`.
       `hizmet`/`puan`/`sicaklik`/`butce` kullanıcıdan alınır
-- [ ] `Hataya dönüştür` **eklenmez** — doküman istemiyor ve bağ zaten okunuyor;
+- [x] `Hataya dönüştür` **eklenmedi** — doküman istemiyor ve bağ zaten okunuyor;
       "aynı özelliği iki yerde kurma" kuralı
-- [ ] Dönüşümler sekmesi fırsatı da saysın
-- [ ] `canon.js` eksen 21 `BAGLAR`'a `destek → fırsat` eklensin
-- [ ] Modal `GV.modal` + sonuç `GV.result` ile — `donusturModal`'ın bugünkü kalıbı
-      aynen sürdürülür
+- [x] Dönüşümler sekmesi fırsatı da sayıyor (dört koleksiyon taranıyor)
+- [x] `canon.js` eksen 21 `BAGLAR`'a **EKLENMEDİ** — o eksen bağın en az bir
+      kayıtta dolu olmasını ister (L-22) ve `leads[].destek` bugün 0/12; eklemek
+      taramayı ilk koşumda kırardı. Yerine **eksen 34** kuruldu (R08'deki
+      `supportPackages[].proje` ile aynı karar → V-52)
+- [x] Modal `GV.modal` + sonuç `GV.result` ile — `donusturModal`'ın kalıbı aynen
+      sürdürüldü; `GV.result` aksiyonları `onClick` ile yönlendiriyor (href taşımaz)
+
+**Dokunulan dosyalar:** `assets/data/crm.js` · `app-destek-detay.html` ·
+`tasks/qa/canon.js`
 
 ---
 
