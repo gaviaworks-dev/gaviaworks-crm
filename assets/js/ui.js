@@ -1662,15 +1662,20 @@
     function fieldHtml(f){
       var v = rec[f.key] != null ? rec[f.key] : (f.value != null ? f.value : '');
       var id = 'f_' + f.key;
-      var req = f.required ? '<span class="req" aria-hidden="true">*</span>' : '';
+      /* `required` bir işlev de olabilir: zorunluluğu başka bir alanın değeri
+         belirliyorsa hüküm bileşende durur (bkz. `showIf`). Yıldız o durumda
+         da basılır — alan çoğu halde zorunludur, istisnası `hint`te yazılır.
+         Native `required` özniteliği işlevde basılmaz; form zaten `novalidate`. */
+      var reqSabit = typeof f.required === 'function' ? false : !!f.required;
+      var req = (f.required ? '<span class="req" aria-hidden="true">*</span>' : '');
       var inner = '';
 
       if(f.type === 'textarea'){
         inner = '<textarea id="' + id + '" name="' + f.key + '" rows="' + (f.rows || 4) + '"' +
-                (f.required ? ' required' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
+                (reqSabit ? ' required' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
                 '>' + esc(v) + '</textarea>';
       }else if(f.type === 'select'){
-        inner = '<select id="' + id + '" name="' + f.key + '"' + (f.required ? ' required' : '') + '>' +
+        inner = '<select id="' + id + '" name="' + f.key + '"' + (reqSabit ? ' required' : '') + '>' +
           '<option value="">' + esc(f.placeholder || 'Seçiniz') + '</option>' +
           (f.options || []).map(function(o){
             var ov = typeof o === 'string' ? o : o.value;
@@ -1698,18 +1703,19 @@
                 '<div class="gv-filelist" data-filelist></div>';
       }else if(f.type === 'money'){
         inner = '<div class="f-affix"><input type="number" class="inp" id="' + id + '" name="' + f.key + '" value="' + esc(v) + '"' +
-                (f.required ? ' required' : '') + ' min="0" step="1"><span class="f-suffix">' + esc(f.currency || '₺') + '</span></div>';
+                (reqSabit ? ' required' : '') + ' min="0" step="1"><span class="f-suffix">' + esc(f.currency || '₺') + '</span></div>';
       }else if(f.type === 'percent'){
         inner = '<div class="f-affix"><input type="number" class="inp" id="' + id + '" name="' + f.key + '" value="' + esc(v) + '" min="0" max="100"><span class="f-suffix">%</span></div>';
       }else{
         var t = f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : f.type === 'email' ? 'email' :
                 f.type === 'tel' ? 'tel' : f.type === 'url' ? 'url' : 'text';
         inner = '<input type="' + t + '" class="inp" id="' + id + '" name="' + f.key + '" value="' + esc(v) + '"' +
-                (f.required ? ' required' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
+                (reqSabit ? ' required' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
                 (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') + '>';
       }
 
-      return '<div class="field f-col-' + (f.cols || 6) + '" data-field="' + f.key + '">' +
+      return '<div class="field f-col-' + (f.cols || 6) + '" data-field="' + f.key + '"' +
+        (f.showIf ? ' hidden' : '') + '>' +
         (f.type === 'switch' || f.type === 'checkbox' ? '' : '<label for="' + id + '">' + esc(f.label) + req + '</label>') +
         inner +
         (f.hint && f.type !== 'file' ? '<div class="f-hint">' + esc(f.hint) + '</div>' : '') +
@@ -1732,8 +1738,8 @@
     mount.innerHTML = html;
 
     var form = mount.querySelector('form');
-    form.addEventListener('input', function(){ dirty = true; });
-    form.addEventListener('change', function(){ dirty = true; });
+    form.addEventListener('input', function(){ dirty = true; syncShowIf(); });
+    form.addEventListener('change', function(){ dirty = true; syncShowIf(); });
 
     /* dosya alanı */
     Array.prototype.forEach.call(mount.querySelectorAll('[data-upload]'), function(u){
@@ -1765,11 +1771,34 @@
       return (cfg.sections || []).reduce(function(a, s){ return a.concat(s.fields || []); }, []);
     }
 
+    /* KOŞULLU ALAN (`showIf`) — bir alanın varlığı başka bir alanın değerine
+       bağlıysa bu karar BİLEŞENDE verilir, ekranda değil. Sözleşme:
+         · `showIf(data)` false ise alan `hidden`'dır,
+         · gizli alan DOĞRULANMAZ (`required` tetiklenmez) — yoksa kullanıcının
+           göremediği bir alan formu kilitlerdi,
+         · gizli alan `read()`'te BOŞ döner: görünmeyen alan formun parçası
+           değildir, eski değeri sessizce kayda yazılmaz.
+       Alan `hidden` ile gizlenir (`.field[hidden]` ui.css'te), ekranın kendi
+       `<style>` bloğu ya da `display` yazması gerekmez (§8 yasağı). */
+    var kosullu = allFields().filter(function(f){ return typeof f.showIf === 'function'; });
+    function syncShowIf(){
+      if(!kosullu.length) return;
+      var data = read();
+      kosullu.forEach(function(f){
+        var wrap = mount.querySelector('[data-field="' + f.key + '"]');
+        if(!wrap) return;
+        var goster = !!f.showIf(data);
+        wrap.hidden = !goster;
+        if(!goster) wrap.classList.remove('is-invalid');
+      });
+    }
+
     function validate(){
       var errs = [];
       allFields().forEach(function(f){
         var wrap = mount.querySelector('[data-field="' + f.key + '"]');
         if(!wrap) return;
+        if(wrap.hidden) return;                    /* gizli alan doğrulanmaz */
         var el = wrap.querySelector('input,select,textarea');
         if(!el) return;
         wrap.classList.remove('is-invalid');
@@ -1781,7 +1810,8 @@
                     : el.value;
         var msg = '';
 
-        if(f.required && (val === '' || val == null || val === false)) msg = f.label + ' zorunlu alandır.';
+        var zorunlu = typeof f.required === 'function' ? !!f.required(read()) : !!f.required;
+        if(zorunlu && (val === '' || val == null || val === false)) msg = f.label + ' zorunlu alandır.';
         else if(val && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val)) msg = 'Geçerli bir e-posta adresi girin.';
         else if(val && f.type === 'tel' && String(val).replace(/\D/g,'').length < 10) msg = 'Telefon numarası en az 10 haneli olmalıdır.';
         else if(val && f.type === 'url' && !/^https?:\/\//.test(val)) msg = 'Bağlantı http:// veya https:// ile başlamalıdır.';
@@ -1814,6 +1844,8 @@
       allFields().forEach(function(f){
         var el = mount.querySelector('[name="' + f.key + '"]');
         if(!el) return;
+        var wrap = el.closest('[data-field]');
+        if(wrap && wrap.hidden){ out[f.key] = el.type === 'checkbox' ? false : ''; return; }
         if(el.type === 'checkbox') out[f.key] = el.checked;
         else if(el.type === 'radio') { var c = mount.querySelector('[name="' + f.key + '"]:checked'); out[f.key] = c ? c.value : ''; }
         else out[f.key] = el.value;
@@ -1832,10 +1864,13 @@
       }, dirtyKey);
     }
 
+    syncShowIf();                                  /* açılıştaki ilk hüküm */
+
     return {
       validate:validate,
       read:read,
       el:mount,
+      sync:syncShowIf,                             /* ekran alanı dışarıdan yazdıysa */
       isDirty:function(){ return dirty; },
       submit:function(){
         var errs = validate();

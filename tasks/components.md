@@ -150,10 +150,22 @@ var form = GV.form({
     { key, label, type, required, hint, placeholder, cols,   // cols: 12'lik ızgarada genişlik (varsayılan 6)
       options,                                               // select / radio: ['A','B'] ya da [{value,label}]
       min, max, rows, currency, multiple,
+      showIf:function(data){ return data.kaynak === 'X'; },  // koşullu alan (REVİZE 11)
+      required:function(data){ return data.kaynak !== 'Y'; },// koşullu zorunluluk (REVİZE 11)
       validate:function(value, data){ return 'hata metni' || ''; } }   // çapraz alan doğrulaması
   ]}]
 });
 ```
+
+**Koşullu alan ve koşullu zorunluluk — hüküm BİLEŞENDE durur (REVİZE 11).**
+Bir alanın varlığı ya da zorunluluğu başka bir alanın değerine bağlıysa ekran
+bunu kendi `addEventListener`'ıyla kurmaz; iki anahtar vardır ve sözleşmesi şudur:
+
+| Anahtar | Sözleşme |
+|---|---|
+| `showIf(data)` | `false` → alan `hidden`'dır (`.field[hidden]`, ui.css). **Gizli alan doğrulanmaz** (`required` tetiklenmez — kullanıcının göremediği alan formu kilitleyemez) ve **`read()`'te boş döner**: görünmeyen alan formun parçası değildir, eski değeri sessizce kayda yazılmaz |
+| `required(data)` | Zorunluluk çalışma anında hesaplanır. Yıldız yine basılır (alan çoğu halde zorunludur), istisna `hint`te yazılır. Native `required` özniteliği basılmaz — form zaten `novalidate` |
+| `form.sync()` | Ekran bir alanı **programatik** doldurduysa (ön dolgu) `showIf` hükümlerini yeniden çalıştırır. `input`/`change` olaylarında kendiliğinden çalışır |
 
 **⚠️ `onSubmit` ve `submitLabel` diye seçenek YOKTUR.** Bileşen kaydet butonu **basmaz** —
 butonu sayfa `GV.pageHead` aksiyonlarına ya da form altına kendisi koyar ve dönüş nesnesini çağırır:
@@ -162,7 +174,8 @@ butonu sayfa `GV.pageHead` aksiyonlarına ya da form altına kendisi koyar ve d�
 |---|---|
 | `form.submit()` | Doğrular; hata varsa `null` döner + toast basar + **ilk hatalı alana odaklanır**. Temizse `dirty`'yi düşürür ve **alan değerlerini nesne olarak** döndürür |
 | `form.validate()` | Yalnız doğrular, hata dizisi döner |
-| `form.read()` | Doğrulamadan ham değerleri okur |
+| `form.read()` | Doğrulamadan ham değerleri okur (`showIf` ile gizli alan **boş** döner) |
+| `form.sync()` | `showIf` hükümlerini yeniden hesaplar — alan dışarıdan yazıldığında |
 | `form.isDirty()` | Kaydedilmemiş değişiklik var mı |
 | `form.setDirty(false)` | Kaydettikten sonra uyarıyı kapatmak için |
 | `form.el` | Mount düğümü |
