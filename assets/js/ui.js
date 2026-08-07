@@ -948,7 +948,15 @@
       return '<div class="gv-kanban">' + groups.map(function(g){
         var key = typeof g === 'string' ? g : g.key;
         var label = typeof g === 'string' ? g : g.label;
-        var items = rows.filter(function(r){ return String(r[cfg.kanban.groupBy]) === String(key); });
+        /* REVİZE 14 — kolon eşleşmesi ham alan değerinden ya da bir YORDAMDAN
+           gelir. Kanca opsiyoneldir; verilmezse bugünkü davranış birebir aynı
+           kalır. Gerekçe: 15 aşamalı bir pipeline'ı 15 kolon basmak "ilk
+           bakışta okunabilir" olmuyor, ama aşamaları SİLMEK de yasak — kolon
+           kümesi ile kayıt alanı arasına bir eşleme katmanı gerekiyor. */
+        var items = rows.filter(function(r){
+          var v = cfg.kanban.groupOf ? cfg.kanban.groupOf(r) : r[cfg.kanban.groupBy];
+          return String(v) === String(key);
+        });
         return '<section class="gv-kcol" data-kcol="' + esc(key) + '">' +
           '<div class="gv-kcol-head"><span class="gv-kcol-bar" style="width:var(--sp-8);background:var(--' +
           (tone(key) === 'accent' ? 'acc' : tone(key)) + ')"></span>' +

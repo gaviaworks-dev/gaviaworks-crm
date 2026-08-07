@@ -31,22 +31,30 @@ DB.services = ['Özel Yazılım','Kurumsal Web Sitesi','Web Uygulaması','Mobil 
   'E-ticaret Altyapısı','Dijital Danışmanlık','Bakım ve Destek'];
 
 /* ---- Satış aşamaları (PROMPT.md §8.2 — 15 aşama + kural seti) -------- */
+/* ---- Satış aşamaları ve GRUPLARI (REVİZE 14) --------------------------
+   15 aşamanın hiçbiri silinmedi (talimat: "mevcut detaylı satış aşamalarını
+   sistemden kaldırma"); pano kolonu artık `grup` alanından gelir. Bölüntü
+   `sira` ekseninden, dokümanın altı grubuna birebir:
+     1–3 Yeni / Kalifikasyon · 4–6 Analiz · 7–9 Teklif ·
+     10–11 Pazarlık · 12 Sözleşme · 13–15 Sonuç
+   Tablo sekmelerindeki üçlü bölüntü (`erken`/`analiz`/`kapanis`) de artık bu
+   alandan besleniyor — iki yerde iki bölüntü yaşamaz. */
 DB.pipelineStages = [
-  { key:'Yeni talep',              sira:1,  olasilik:5,   maxGun:2,  sorumlu:'Satış temsilcisi', beklenen:'İlk temas kaydı',         belge:'—',                     onay:false, otoGorev:'İlk aramayı yap' },
-  { key:'İlk iletişim',            sira:2,  olasilik:10,  maxGun:3,  sorumlu:'Satış temsilcisi', beklenen:'İhtiyaç özeti',           belge:'Görüşme notu',          onay:false, otoGorev:'Ön görüşme planla' },
-  { key:'Ön görüşme',              sira:3,  olasilik:20,  maxGun:5,  sorumlu:'Satış temsilcisi', beklenen:'Kapsam taslağı',          belge:'Toplantı notu',         onay:false, otoGorev:'İhtiyaç analizi başlat' },
-  { key:'İhtiyaç analizi',         sira:4,  olasilik:30,  maxGun:7,  sorumlu:'İş analisti',      beklenen:'Gereksinim listesi',      belge:'İhtiyaç formu',         onay:false, otoGorev:'Teknik değerlendirme talebi' },
-  { key:'Teknik değerlendirme',    sira:5,  olasilik:40,  maxGun:5,  sorumlu:'Proje yöneticisi', beklenen:'Fizibilite kararı',       belge:'Teknik not',            onay:false, otoGorev:'Ön analiz görevi aç' },
-  { key:'Ön analiz hazırlanıyor',  sira:6,  olasilik:50,  maxGun:10, sorumlu:'İş analisti',      beklenen:'Ön analiz dokümanı',      belge:'Ön analiz',             onay:true,  otoGorev:'Efor tahmini çıkar' },
-  { key:'Fiyatlandırma',           sira:7,  olasilik:55,  maxGun:4,  sorumlu:'Satış yöneticisi', beklenen:'Maliyet ve fiyat',        belge:'Maliyet tablosu',       onay:true,  otoGorev:'Teklif taslağı hazırla' },
-  { key:'Teklif hazırlanıyor',     sira:8,  olasilik:60,  maxGun:3,  sorumlu:'Satış yöneticisi', beklenen:'Teklif dokümanı',         belge:'Teklif',                onay:true,  otoGorev:'İç onaya gönder' },
-  { key:'Teklif iletildi',         sira:9,  olasilik:65,  maxGun:7,  sorumlu:'Satış temsilcisi', beklenen:'Müşteri geri dönüşü',     belge:'Teklif PDF',            onay:false, otoGorev:'Takip araması planla' },
-  { key:'Müşteri değerlendirmesinde',sira:10,olasilik:70, maxGun:10, sorumlu:'Satış temsilcisi', beklenen:'Karar veya revizyon',     belge:'—',                     onay:false, otoGorev:'Hatırlatma gönder' },
-  { key:'Revize teklif',           sira:11, olasilik:75,  maxGun:5,  sorumlu:'Satış yöneticisi', beklenen:'Revize teklif',           belge:'Teklif v2',             onay:true,  otoGorev:'Revizyonu ilet' },
-  { key:'Sözleşme aşaması',        sira:12, olasilik:90,  maxGun:10, sorumlu:'Şirket sahibi',    beklenen:'İmzalı sözleşme',         belge:'Sözleşme',              onay:true,  otoGorev:'Proje başlatma hazırlığı' },
-  { key:'Kazanıldı',               sira:13, olasilik:100, maxGun:0,  sorumlu:'Proje yöneticisi', beklenen:'Proje açılışı',           belge:'Sözleşme + ödeme planı',onay:false, otoGorev:'Proje kaydı oluştur' },
-  { key:'Kaybedildi',              sira:14, olasilik:0,   maxGun:0,  sorumlu:'Satış yöneticisi', beklenen:'Kayıp nedeni',            belge:'—',                     onay:false, otoGorev:'Kayıp analizi yaz' },
-  { key:'Beklemeye alındı',        sira:15, olasilik:15,  maxGun:60, sorumlu:'Satış temsilcisi', beklenen:'Yeniden aktifleştirme',   belge:'—',                     onay:false, otoGorev:'60 gün sonra hatırlat' }
+  { key:'Yeni talep',              sira:1, grup:'Yeni / Kalifikasyon',  olasilik:5,   maxGun:2,  sorumlu:'Satış temsilcisi', beklenen:'İlk temas kaydı',         belge:'—',                     onay:false, otoGorev:'İlk aramayı yap' },
+  { key:'İlk iletişim',            sira:2, grup:'Yeni / Kalifikasyon',  olasilik:10,  maxGun:3,  sorumlu:'Satış temsilcisi', beklenen:'İhtiyaç özeti',           belge:'Görüşme notu',          onay:false, otoGorev:'Ön görüşme planla' },
+  { key:'Ön görüşme',              sira:3, grup:'Yeni / Kalifikasyon',  olasilik:20,  maxGun:5,  sorumlu:'Satış temsilcisi', beklenen:'Kapsam taslağı',          belge:'Toplantı notu',         onay:false, otoGorev:'İhtiyaç analizi başlat' },
+  { key:'İhtiyaç analizi',         sira:4, grup:'Analiz',  olasilik:30,  maxGun:7,  sorumlu:'İş analisti',      beklenen:'Gereksinim listesi',      belge:'İhtiyaç formu',         onay:false, otoGorev:'Teknik değerlendirme talebi' },
+  { key:'Teknik değerlendirme',    sira:5, grup:'Analiz',  olasilik:40,  maxGun:5,  sorumlu:'Proje yöneticisi', beklenen:'Fizibilite kararı',       belge:'Teknik not',            onay:false, otoGorev:'Ön analiz görevi aç' },
+  { key:'Ön analiz hazırlanıyor',  sira:6, grup:'Analiz',  olasilik:50,  maxGun:10, sorumlu:'İş analisti',      beklenen:'Ön analiz dokümanı',      belge:'Ön analiz',             onay:true,  otoGorev:'Efor tahmini çıkar' },
+  { key:'Fiyatlandırma',           sira:7, grup:'Teklif',  olasilik:55,  maxGun:4,  sorumlu:'Satış yöneticisi', beklenen:'Maliyet ve fiyat',        belge:'Maliyet tablosu',       onay:true,  otoGorev:'Teklif taslağı hazırla' },
+  { key:'Teklif hazırlanıyor',     sira:8, grup:'Teklif',  olasilik:60,  maxGun:3,  sorumlu:'Satış yöneticisi', beklenen:'Teklif dokümanı',         belge:'Teklif',                onay:true,  otoGorev:'İç onaya gönder' },
+  { key:'Teklif iletildi',         sira:9, grup:'Teklif',  olasilik:65,  maxGun:7,  sorumlu:'Satış temsilcisi', beklenen:'Müşteri geri dönüşü',     belge:'Teklif PDF',            onay:false, otoGorev:'Takip araması planla' },
+  { key:'Müşteri değerlendirmesinde',sira:10, grup:'Pazarlık',olasilik:70, maxGun:10, sorumlu:'Satış temsilcisi', beklenen:'Karar veya revizyon',     belge:'—',                     onay:false, otoGorev:'Hatırlatma gönder' },
+  { key:'Revize teklif',           sira:11, grup:'Pazarlık', olasilik:75,  maxGun:5,  sorumlu:'Satış yöneticisi', beklenen:'Revize teklif',           belge:'Teklif v2',             onay:true,  otoGorev:'Revizyonu ilet' },
+  { key:'Sözleşme aşaması',        sira:12, grup:'Sözleşme', olasilik:90,  maxGun:10, sorumlu:'Şirket sahibi',    beklenen:'İmzalı sözleşme',         belge:'Sözleşme',              onay:true,  otoGorev:'Proje başlatma hazırlığı' },
+  { key:'Kazanıldı',               sira:13, grup:'Sonuç', olasilik:100, maxGun:0,  sorumlu:'Proje yöneticisi', beklenen:'Proje açılışı',           belge:'Sözleşme + ödeme planı',onay:false, otoGorev:'Proje kaydı oluştur' },
+  { key:'Kaybedildi',              sira:14, grup:'Sonuç', olasilik:0,   maxGun:0,  sorumlu:'Satış yöneticisi', beklenen:'Kayıp nedeni',            belge:'—',                     onay:false, otoGorev:'Kayıp analizi yaz' },
+  { key:'Beklemeye alındı',        sira:15, grup:'Sonuç', olasilik:15,  maxGun:60, sorumlu:'Satış temsilcisi', beklenen:'Yeniden aktifleştirme',   belge:'—',                     onay:false, otoGorev:'60 gün sonra hatırlat' }
 ];
 
 DB.lostReasons = ['Bütçe yetersiz','Rakip tercih edildi','Proje ertelendi','İhtiyaç değişti',

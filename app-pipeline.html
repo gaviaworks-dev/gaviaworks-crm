@@ -51,6 +51,41 @@ document.addEventListener('gv:ready', function(){
     return acik(l) && st.maxGun && l.sonIletisim && Math.abs(F.days(l.sonIletisim)) > st.maxGun;
   };
 
+  /* REVİZE 14 — AŞAMA GRUPLARI, TEK KAYNAK.
+     15 aşamanın hiçbiri silinmedi; okunabilirlik sorunu aşama sayısında değil
+     KOLON sayısındaydı (13 kolon / 12 aday / 5 kolon bomboş). Bölüntü artık
+     `DB.pipelineStages[].grup` alanından TÜRETİLİR: burada elle yazılı grup
+     listesi ya da `sira` aralığı yok. Sözlüğe yeni bir grup girer ya da bir
+     aşama grup değiştirirse hem kanban kolonu hem tablo sekmesi kendiliğinden
+     doğar — ekran sessizce eskimez. Aynı bölüntü iki yerde ayrı ayrı yaşamaz.
+
+     Kolon anahtarı olarak grup ADI değil, grubun İLK aşamasının anahtarı
+     kullanılır: `GV.tone()` sözlüğü aşama adlarını tanıdığı için kolon başlık
+     çubukları bugünkü rengini korur (grup adları o sözlükte yok, hepsi griye
+     düşerdi). Etiket yine grup adıdır. */
+  var grupAdi = function(s){ return s.grup || s.key; };  /* grubu olmayan aşama tek başına kolon olur, kart kaybolmaz */
+  var GRUPLAR = ST.slice().sort(function(a,b){ return a.sira - b.sira; })
+    .reduce(function(acc, s){
+      if(!acc.filter(function(g){ return g.ad === grupAdi(s); }).length)
+        acc.push({ ad:grupAdi(s), key:s.key });   /* key = gruptaki en küçük `sira`lı aşama */
+      return acc;
+    }, []);
+  /* Bir adayın düştüğü grubun temsilci aşama anahtarı — kanban kolonu ve sekme eşleşmesi bundan gelir */
+  var grupKey = function(l){
+    var g = GRUPLAR.filter(function(x){ return x.ad === grupAdi(stage(l.asama) || {}); })[0];
+    return g ? g.key : l.asama;
+  };
+  /* Sekme anahtarı URL'de taşındığı için ASCII'ye indirgenir (GV.pri'deki dönüşümün aynısı) */
+  var slug = function(t){
+    return String(t).toLowerCase()
+      .replace(/ı/g,'i').replace(/ü/g,'u').replace(/ö/g,'o')
+      .replace(/ş/g,'s').replace(/ç/g,'c').replace(/ğ/g,'g')
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  };
+  /* Simge yalnızca süstür: bölüntü veriden gelir, eşleşmeyen grup ortak simgeye düşer */
+  var GRUP_IKON = { 'Yeni / Kalifikasyon':'i-user-plus', 'Analiz':'i-clipboard', 'Teklif':'i-quote',
+                    'Pazarlık':'i-chat', 'Sözleşme':'i-stamp', 'Sonuç':'i-flag' };
+
   /* Aşama kuralları penceresi — PROMPT.md §8.2'deki 10 kural ekseni */
   document.getElementById('btnKural').addEventListener('click', function(){
     GV.modal({
@@ -90,14 +125,18 @@ document.addEventListener('gv:ready', function(){
         calc:function(a){ return a.filter(tikanan).length; } }
     ],
 
-    tabs:[
-      { key:'acik',   label:'Açık Fırsatlar', icon:'i-funnel',       filter:acik },
-      { key:'erken',  label:'Erken Aşama',    icon:'i-user-plus',    filter:function(l){ return acik(l) && stage(l.asama).sira <= 4; } },
-      { key:'analiz', label:'Analiz ve Fiyat',icon:'i-clipboard',    filter:function(l){ return acik(l) && stage(l.asama).sira >= 5 && stage(l.asama).sira <= 8; } },
-      { key:'kapanis',label:'Kapanışa Yakın', icon:'i-check-circle', filter:function(l){ return acik(l) && stage(l.asama).sira >= 9; } },
-      { key:'tikanan',label:'Kuralı Aşanlar', icon:'i-hourglass',    filter:tikanan },
-      { key:'tumu',   label:'Tümü',           icon:'i-list',         filter:null }
-    ],
+    /* Sekmeler de `grup` alanından beslenir. Eskiden burada elle yazılı üç
+       `sira` aralığı vardı (erken ≤4 · analiz 5–8 · kapanış ≥9); o bölüntü
+       kanban'ın yeni 6'lı grubuyla çelişiyordu. Artık ikisi de aynı kaynaktan. */
+    tabs:[{ key:'acik', label:'Açık Fırsatlar', icon:'i-funnel', filter:acik }]
+      .concat(GRUPLAR.map(function(g){
+        return { key:slug(g.ad), label:g.ad, icon:GRUP_IKON[g.ad] || 'i-funnel',
+                 filter:function(l){ return grupKey(l) === g.key; } };
+      }))
+      .concat([
+        { key:'tikanan', label:'Kuralı Aşanlar', icon:'i-hourglass', filter:tikanan },
+        { key:'tumu',    label:'Tümü',           icon:'i-list',      filter:null }
+      ]),
 
     columns:[
       { key:'firma', label:'Fırsat', width:'26%', cellClass:'cell-wrap', locked:true,
@@ -138,12 +177,17 @@ document.addEventListener('gv:ready', function(){
 
     rowClass:function(l){ return tikanan(l) ? 'is-late' : ''; },
 
+    /* Kanban 13 kolondan 6'ya iner: kolonlar `grup` sözlüğünden türer, eşleşme
+       `groupOf` yordamından gelir. Grup içinde hiç aday yoksa kolon YİNE basılır
+       — "o aşamada hiç fırsat yok" da bilgidir, kolonun kaybolması değil. */
     kanban:{ groupBy:'asama',
-      columns:ST.filter(function(s){ return s.sira <= 13; }).map(function(s){ return { key:s.key, label:s.key }; }),
+      groupOf:grupKey,
+      columns:GRUPLAR.map(function(g){ return { key:g.key, label:g.ad }; }),
       card:function(l){
         var st = stage(l.asama);
+        /* Gerçek alt aşama karttan DÜŞMEZ: kolon grubu gösterir, rozet aşamayı */
         return '<a class="gv-kcard-title" href="app-lead-detay.html?id=' + l.kod + '">' + esc(l.firma) + '</a>' +
-          '<div class="gv-kcard-meta"><span>' + esc(l.hizmet) + '</span></div>' +
+          '<div class="gv-kcard-meta">' + GV.badge(l.asama) + '<span>' + esc(l.hizmet) + '</span></div>' +
           '<div class="gv-kcard-meta"><span class="cell-money">' + F.money(l.butce) + '</span>' +
           '<span class="u-xs u-muted">%' + (st.olasilik || 0) + '</span></div>' +
           '<div class="gv-kcard-meta">' + GV.user(l.sorumlu, { sm:true }) +
