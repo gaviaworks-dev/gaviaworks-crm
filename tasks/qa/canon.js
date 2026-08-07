@@ -1057,6 +1057,55 @@ head('30) Proje milestone\'u ↔ ödeme taksiti (REVİZE 06)');
     DB.milestones.filter(m => m.milestone).length + ' / ' + DB.milestones.length + ' dolu (bağ isteğe bağlıdır)');
 }
 
+/* ---------- 31. PROJE KAPANIŞ KONTROLÜ (REVİZE 07) ----------
+   Sekiz kontrolün VERİ tarafı: kapanış modalının sorduğu her sorunun
+   ölçülebilir bir kaynağı olmalı. Bu eksen yordamı değil, yordamın
+   DAYANDIĞI tanımları kilitler — tanım kayarsa checklist sessizce
+   yanlış cevap verir (madde "geçti" görünür ama hiçbir şey ölçülmemiştir). */
+head('31) Proje kapanış kontrolü (REVİZE 07)');
+{
+  /* 31a. Zorunlu doküman tanımı VAR ve gerçek doküman türlerinden seçilmiş.
+     Uydurma bir tür yazılsaydı kontrol hiçbir zaman geçemezdi. */
+  const zorunlu = (DB.company || {}).zorunluProjeDokuman;
+  say(Array.isArray(zorunlu) && zorunlu.length > 0,
+    'DB.company.zorunluProjeDokuman tanımlı değil — "eksik doküman" ölçülemez');
+  const turler = new Set(DB.documents.map(d => d.tur));
+  (zorunlu || []).forEach(t => say(turler.has(t),
+    'zorunlu doküman türü hiçbir kayıtta geçmiyor: ' + t));
+
+  /* 31b. Kapanmış projenin kapanış izi olmalı: `gercekBitis` + %100.
+     Eksen 29e bunu durum tarafından, bu madde kapanış tarafından ölçer. */
+  DB.projects.filter(p => p.durum === 'Tamamlandı').forEach(p => {
+    say(!!p.gercekBitis, p.kod + ' kapanmış ama gerçekleşen bitiş tarihi yok');
+    say(p.ilerleme === 100, p.kod + ' kapanmış ama ilerleme %' + p.ilerleme);
+  });
+
+  /* 31c. Kontrollerin okuduğu bağ alanları gerçekten var — biri kaybolursa
+     madde sessizce "0 kayıt" der ve kontrol her zaman geçer. */
+  const bag = [['tasks','proje'], ['changeRequests','proje'], ['deliveries','proje'],
+               ['documents','proje'], ['invoices','proje'], ['milestones','proje']];
+  bag.forEach(([kol, alan]) => {
+    const arr = DB[kol] || [];
+    say(arr.length > 0, 'kapanış kontrolünün kaynağı boş: DB.' + kol);
+    say(arr.some(r => alan in r), 'DB.' + kol + '[].' + alan + ' alanı yok — kontrol ölçemez');
+  });
+
+  /* 31d. Teslim onayı sözlüğü kontrolün beklediği değeri taşıyor. */
+  say(DB.deliveries.every(d => ['Onaylandı','Bekliyor','Revizyon istendi'].indexOf(d.musteriOnay) !== -1),
+    'teslim müşteri onayı sözlük dışı değer taşıyor');
+
+  const olcum = DB.projects.map(p => {
+    const t = DB.tasks.filter(x => x.proje === p.kod).length;
+    const d = DB.deliveries.filter(x => x.proje === p.kod).length;
+    const f = DB.invoices.filter(x => x.proje === p.kod).length;
+    return (t ? 1 : 0) + (d ? 2 : 0) + (f ? 1 : 0);
+  });
+  console.log('  · zorunlu doküman türü: ' + (zorunlu || []).join(' · '));
+  console.log('  · kapanış kontrolü ölçülebilen proje: ' +
+    olcum.filter(n => n > 0).length + ' / ' + DB.projects.length +
+    ' · hiçbir kontrolü ölçülemeyen: ' + olcum.filter(n => n === 0).length);
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
