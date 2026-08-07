@@ -208,7 +208,18 @@
     sprint:      ['musteri'],   /* iç planlama */
     test:        ['musteri'],   /* iç kalite kaydı */
     hata:        ['musteri'],   /* iç hata kaydı ve yorumları */
-    degisiklik:  ['musteri']    /* iç kapsam/maliyet değerlendirmesi */
+    degisiklik:  ['musteri'],   /* iç kapsam/maliyet değerlendirmesi */
+
+    /* Form ekranları LİSTESİYLE AYNI `data-screen` anahtarını taşır
+       (`app-proje-form.html` → `proje`), yani anahtarla kapatmak listeyi de
+       kapatırdı. Bu üç kayıt DOSYA ADIYLA yasaklanır: proje açmak, teslim
+       kaydı yazmak ve bakım paketi kurmak şirketin iç işidir ve formların
+       seçim kutuları bütün müşterilerin adını, bütün projeleri listeler
+       (ölçüldü: 106 yabancı iz). Destek talebi formu AÇIK KALIR — müşterinin
+       kendi adına talep açması portalın istediği akıştır. */
+    'app-proje-form.html':        ['musteri'],
+    'app-proje-teslim-form.html': ['musteri'],
+    'app-destek-paket-form.html': ['musteri']
   };
 
   var SEC_BY_ROLE = {
@@ -654,6 +665,9 @@
   function guard(activeSec, activeScreen){
     var screenOk = !SCREEN_PERM[activeScreen] || SCREEN_PERM[activeScreen].indexOf(Perm.role()) !== -1;
     if(SCREEN_DENY[activeScreen] && SCREEN_DENY[activeScreen].indexOf(Perm.role()) !== -1) screenOk = false;
+    /* Dosya adı ekseni — form ekranı listesiyle aynı anahtarı taşıdığında. */
+    var dosya = location.pathname.split('/').pop();
+    if(SCREEN_DENY[dosya] && SCREEN_DENY[dosya].indexOf(Perm.role()) !== -1) screenOk = false;
     if(Perm.sec(activeSec) && screenOk) return true;
     var main = document.querySelector('.gv-page');
     if(!main) return false;

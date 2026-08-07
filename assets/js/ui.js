@@ -455,6 +455,46 @@
       '</div>';
   };
 
+  /* KAYIT SAHİPLİĞİ KAPISI (REVİZE 13) — `GV.list` satır kapsamının DETAY
+     ekranındaki karşılığı. Liste kapsamlıyken detayın adres çubuğundan ham
+     `?id=` okuması, kapsamın açık bıraktığı arka kapıdır: müşteri listede
+     göremediği kaydı adresi yazarak açabiliyordu (ölçüldü: yabancı talebin
+     başlığı, çözüm notu ve TÜM aktivite geçmişi basılıyordu).
+     Kural ekranda değil burada durur ki 26 detay ekranı aynı cümleyi 26 kez
+     yazmasın ve biri unutulduğunda sessizce açık kalmasın.
+       GV.guardRecord({ mount, musteri, kod, eyebrow, title, geriHref, geriLabel })
+         → true  : oturum bu kaydı görebilir (personel oturumu her zaman)
+         → false : ekran yetkisiz durumunu BASTI, çağıran hemen `return` eder
+     Yetkisiz ekran yabancı kayıttan HİÇBİR ŞEY yazmaz — ziyaretçinin kendi
+     yazdığı kod dışında: hata mesajı da bir sızıntı yüzeyidir. */
+  GV.guardRecord = function(c){
+    c = c || {};
+    var me = GV.session || {};
+    if(!me.musteri) return true;                       /* personel oturumu */
+    if(c.musteri && String(c.musteri) === String(me.musteri)) return true;
+    var mount = typeof c.mount === 'string' ? document.querySelector(c.mount) : c.mount;
+    if(GV.pageHead) GV.pageHead({
+      eyebrow:c.eyebrow || '', title:c.title || 'Kayıt', sub:'Bu kayıt size ait değil',
+      actions:c.geriHref ? [{ label:c.geriLabel || 'Listeye dön', icon:'i-arrow-left', href:c.geriHref }] : []
+    });
+    /* Kod YALNIZ ziyaretçinin kendi yazdığı adresten geldiyse yankılanır.
+       Ekranın kendi varsayılanına (`DB.<koleksiyon>[0]`) düşmüş bir kodu
+       basmak, yabancı bir kaydın numarasını sızdırmak olurdu. */
+    var urlId = '';
+    try{ urlId = new URLSearchParams(location.search).get('id') || ''; }catch(e){}
+    var yankila = c.kod && String(c.kod) === String(urlId);
+    if(mount) mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-lock', title:'Bu kaydı görüntüleme yetkiniz yok',
+      desc:(yankila ? '“' + esc(c.kod) + '” kaydı ' : 'Açmaya çalıştığınız kayıt ') +
+           esc(me.musteriAd || 'sizin firmanız') +
+           ' adına açılmış bir kayıt değil. Yalnız kendi firmanıza ait kayıtları görüntüleyebilirsiniz.',
+      action:c.geriHref
+        ? '<a class="btn btn-acc" href="' + c.geriHref + '">' + esc(c.geriLabel || 'Listeye dön') + '</a>' : ''
+    }) + '</div>';
+    document.title = 'Yetkisiz erişim — GaviaWorks CRM';
+    return false;
+  };
+
   /* Satır içi bilgi/uyarı bloğu — salt-okunur uyarısı, eksik entegrasyon, kapsam notu.
      GV.notice({tone,title,text,icon,actions:[{label,href,cls}]}) → HTML */
   GV.notice = function(c){
