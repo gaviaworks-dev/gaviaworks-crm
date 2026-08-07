@@ -67,7 +67,7 @@
       { ic:'i-users',        lbl:'Departman İşleri', href:'app-gorev.html?t=departman',  screen:'departman' },
       { seclbl:'Bekleyenler' },
       { ic:'i-stamp',        lbl:'Onay Bekleyenler', href:'app-gorev.html?t=onay',       screen:'onay' },
-      { ic:'i-clipboard-check', lbl:'Kontrol Bekleyenler', href:'app-gorev.html?t=kontrol', screen:'kontrol' },
+      { ic:'i-clipboard-check', lbl:'Kontroldekiler', href:'app-gorev.html?t=kontrol', screen:'kontrol' },
       { ic:'i-alert',        lbl:'Gecikenler',       href:'app-gorev.html?t=geciken',    screen:'geciken', cnt:'geciken', tone:'danger' },
       { ic:'i-lock',         lbl:'Engellenenler',    href:'app-gorev.html?t=engel',      screen:'engel' },
       { seclbl:'İş Birliği' },
