@@ -1537,7 +1537,7 @@ kayıyor.
 > veri ve ayar ekranını paylaşıyor. Tarayıcı taramaları **dalga bitince
 > topluca** koşar, ajan başına değil (süre uyarısı: `handoff.md` §2).
 
-## R14 · Pipeline görünümünü grupla
+## R14 · Pipeline görünümünü grupla · ✅ TAMAM
 
 **DURUM: 🟡 kısmen — kanban 13 kolon, 5'i boş; ama gruplama fikri AYNI DOSYADA zaten var**
 
@@ -1571,7 +1571,7 @@ kayıyor.
 
 ---
 
-## R15 · Departman ve uzmanlık yapısını sadeleştir
+## R15 · Departman ve uzmanlık yapısını sadeleştir · ✅ TAMAM
 
 **DURUM: ⬜ yok — 16 personel için 21 departman; 6'sı boş, 2'si çalışma tipi**
 
@@ -1633,7 +1633,7 @@ Personelde uzmanlık ekseni yok; en yakını `pozisyon` (serbest metin) ve
 `app-ayar-departman.html` · `app-personel.html` · `app-personel-detay.html` ·
 `app-personel-form.html` · `app-kapasite.html` · `app-rapor-personel.html`
 
-## R16 · Freelancer / dış kaynağı departman olarak kullanma
+## R16 · Freelancer / dış kaynağı departman olarak kullanma · ✅ TAMAM
 
 **DURUM: 🟡 kısmen — `calismaTuru` VAR ama başka ekseni anlatıyor**
 
@@ -1666,7 +1666,7 @@ sıkıştırmak olurdu — VB-20'nin tam olarak düştüğü hata.
 **Dokunulacak dosyalar:** `assets/data/hr.js` · `assets/data/org.js` ·
 `app-personel.html` · `app-personel-detay.html` · `app-personel-form.html`
 
-## R18 · Opsiyonel modül kullanımını oluştur
+## R18 · Opsiyonel modül kullanımını oluştur · ✅ TAMAM
 
 **DURUM: ⬜ yok — modül anahtarı hiçbir yerde yok; ama gizleme mekaniği HAZIR**
 
@@ -1710,7 +1710,7 @@ sıkıştırmak olurdu — VB-20'nin tam olarak düştüğü hata.
 
 ---
 
-## R19 · Araç sayfalarını detay tablarında sadeleştir
+## R19 · Araç sayfalarını detay tablarında sadeleştir · ✅ TAMAM
 
 **DURUM: 🟢 neredeyse hazır — YEDİ alanın YEDİSİ zaten `app-arac-detay.html`'de tab**
 
@@ -1754,7 +1754,7 @@ katlanmışlar. Geri kalanı katlamak için izlenecek örnek bu.
 
 ---
 
-## R20 · Raporları ana kategoriler altında grupla
+## R20 · Raporları ana kategoriler altında grupla · ✅ TAMAM
 
 **DURUM: 🟡 kısmen — kategori sayfalarının İÇİNDE gruplama VAR; ihlal yalnız `app-rapor.html`'de**
 
