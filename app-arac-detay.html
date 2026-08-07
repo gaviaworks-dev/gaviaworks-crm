@@ -18,6 +18,8 @@
 <script src="assets/data/org.js"></script>
 <script src="assets/data/work.js"></script>
 <script src="assets/data/ops.js"></script>
+<!-- REVİZE 19 — Evraklar sekmesi DB.documents'ı okuyor (L-12) -->
+<script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
 <script>
@@ -61,6 +63,20 @@ document.addEventListener('gv:ready', function(){
   var kazalar    = ofArac(DB.accidents).sort(byTarihDesc);
   var cezalar    = ofArac(DB.fines).sort(byTarihDesc);
   var acts       = (DB.activities || []).filter(function(a){ return a.kayit === kod; });
+
+  /* Evraklar — YENİ KOLEKSİYON YOK. Araç belgeleri doküman merkezinin
+     kendi kaydından (`DB.documents[].arac` bağı) okunur; araç kartında
+     ayna alan tutulmaz (§9d). DB.documents yüklü değilse ofArac boş liste
+     döner ve sekme "kayıt yok" durumuna düşer — hata vermez. */
+  var belgeler = ofArac(DB.documents).sort(byTarihDesc);
+
+  /* Aracı veride yazılı OLMAYAN filo belgeleri. Plaka adında geçse bile
+     bağ uydurulmaz (L-13); sayı ölçülür ve boş durumda dürüstçe söylenir. */
+  var FILO_BELGE_TUR = ['Poliçe', 'Ruhsat', 'Muayene raporu', 'Araç belgesi'];
+  var bagsizFilo = (DB.documents || []).filter(function(d){
+    if(d.arac) return false;
+    return /^Filo\s*\//.test(d.klasor || '') || FILO_BELGE_TUR.indexOf(d.tur) !== -1;
+  });
 
   var trafik  = policeler.filter(function(p){ return p.tur === 'Trafik Sigortası'; })[0];
   var kasko   = policeler.filter(function(p){ return p.tur === 'Kasko'; })[0];
@@ -211,6 +227,7 @@ document.addEventListener('gv:ready', function(){
     { key:'yakit',    lbl:'Yakıt',            ic:'i-fuel',       cnt:yakitlar.length },
     { key:'gider',    lbl:'Giderler',         ic:'i-receipt',    cnt:giderler.length },
     { key:'kaza',     lbl:'Kaza ve Ceza',     ic:'i-alert',      cnt:kazalar.length + cezalar.length },
+    { key:'evrak',    lbl:'Evraklar',         ic:'i-paperclip',  cnt:belgeler.length },
     { key:'maliyet',  lbl:'Maliyet Özeti',    ic:'i-chart-bar' },
     { key:'aktivite', lbl:'Aktivite Geçmişi', ic:'i-activity',   cnt:acts.length }
   ];
@@ -561,7 +578,53 @@ document.addEventListener('gv:ready', function(){
       sec('Trafik Cezaları', cezaTablo) + '</div>';
 
   /* =====================================================================
-     9. MALİYET ÖZETİ — tamamı finans yetkisine tabi, veriden türetilir
+     9. EVRAKLAR — DB.documents içindeki `arac` bağından okunur.
+     Bu sekme aracın KENDİ belgelerini gösterir; doküman merkezinin
+     yerine geçmez, tüm belgeler için oraya bağlantı verilir.
+     ===================================================================== */
+  var suresiDolan = belgeler.filter(function(d){
+    return d.sonKullanma && F.days(d.sonKullanma) < 0;
+  }).length;
+
+  /* Bağsız filo belgesi varsa boş durum "kayıt yok" demekle yetinmez,
+     belgelerin neden görünmediğini söyler (V-59). Sayı veriden ölçülür. */
+  var evrakNot = bagsizFilo.length
+    ? '<div class="gc-body">' + GV.notice({
+        tone:'info', icon:'i-folder',
+        title:'Aracı belirtilmemiş ' + bagsizFilo.length + ' filo belgesi var',
+        text:'Doküman merkezindeki ' + bagsizFilo.map(function(d){ return d.kod; }).join(', ') +
+             ' kaydında belgenin hangi araca ait olduğu veride yazılı değil; bu yüzden hiçbir ' +
+             'araç kartında listelenmiyor. Belge adında plaka geçmesi bağ yerine geçmez — ' +
+             'bağ doküman merkezinden kurulur.',
+        actions:[{ label:'Doküman merkezi', href:'app-dokuman.html' }] }) + '</div>'
+    : '';
+
+  var pEvrak = evrakNot + '<div class="gc-body flush">' +
+    (belgeler.length
+      ? tbl('<th>Doküman</th><th>Tür</th><th>Format</th><th>Boyut</th><th>Yükleyen</th><th>Yükleme tarihi</th><th>Son kullanma</th><th>Kalan</th><th>Onay</th>',
+          belgeler.map(function(d){
+            return '<tr><td><a class="cell-main" href="app-dokuman-detay.html?id=' + esc(d.kod) + '">' + esc(d.ad) + '</a>' +
+              '<span class="cell-code">' + esc(d.kod) + ' · v' + esc(d.versiyon) + '</span></td>' +
+              '<td>' + tagOf(d.tur) + '</td>' +
+              '<td>' + tagOf(d.format) + '</td>' +
+              '<td><span class="u-num">' + esc(d.boyut) + '</span></td>' +
+              '<td>' + GV.user(d.yukleyen, { sm:true }) + '</td>' +
+              '<td><span class="cell-date">' + F.date(d.tarih) + '</span></td>' +
+              '<td>' + (d.sonKullanma ? GV.dateCell(d.sonKullanma) : '<span class="u-faint">Süresiz</span>') + '</td>' +
+              '<td>' + (d.sonKullanma ? kalanBadge(d.sonKullanma) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + GV.badge(d.onay) + '</td></tr>';
+          }).join(''),
+          sayac('<b>' + belgeler.length + '</b> belge' +
+            (suresiDolan ? ' · süresi dolan ' + suresiDolan : ''),
+            '<a class="btn btn-line btn-sm" href="app-dokuman.html">' + ico('i-folder','ic-sm') + ' Doküman merkezi</a>'))
+      : GV.empty({ icon:'i-paperclip', title:'Bu araca bağlı belge yok',
+          desc:'Ruhsat, poliçe ve muayene raporu doküman merkezinde tutulur. Belgenin bu kartta ' +
+               'görünmesi için doküman kaydında araç bağının tanımlı olması gerekir.',
+          action:'<a class="btn btn-acc" href="app-dokuman.html">Doküman merkezine git</a>' })) +
+    '</div>';
+
+  /* =====================================================================
+     10. MALİYET ÖZETİ — tamamı finans yetkisine tabi, veriden türetilir
      ===================================================================== */
   function kpi(label, deger, icon, tone, meta){
     return '<div class="kpi' + (tone ? ' is-' + tone : '') + '">' +
@@ -626,7 +689,7 @@ document.addEventListener('gv:ready', function(){
     '</div>';
 
   /* =====================================================================
-     10. AKTİVİTE GEÇMİŞİ
+     11. AKTİVİTE GEÇMİŞİ
      ===================================================================== */
   var pAktivite = '<div class="gc-body">' +
     (acts.length ? GV.activity(acts)
@@ -636,7 +699,7 @@ document.addEventListener('gv:ready', function(){
 
   var panels = {
     genel:pGenel, zimmet:pZimmet, bakim:pBakim, muayene:pMuayene, sigorta:pSigorta,
-    yakit:pYakit, gider:pGider, kaza:pKaza, maliyet:pMaliyet, aktivite:pAktivite
+    yakit:pYakit, gider:pGider, kaza:pKaza, evrak:pEvrak, maliyet:pMaliyet, aktivite:pAktivite
   };
 
   /* =====================================================================
