@@ -780,3 +780,29 @@ taşınabilir.
 **Aylık saat ve bedel kullanıcıdan alınıyor.** Yedi pakette `tutar / aylikSaat`
 oranı tutarlı bir katalog vermiyor (Kurumsal 8sa/180.000 · 6sa/144.000 ·
 10sa/420.000). Bir fiyat formülü türetmek katalog uydurmak olurdu; modal soruyor.
+
+---
+
+## V-53 · Ticket kanalı 7/7 `Müşteri portalı` — çeşitlilik uydurulmadı
+
+**Karar:** `DB.ticketChannels` sözlüğü yedi değerle açıldı, ama yedi talebin
+yedisi de **`Müşteri portalı`** taşıyor.
+
+**Gerekçe — bu bir türetmedir, tekdüzelik değil.** Kayıtta kanalı gösteren tek
+sinyal `acan` alanıdır ve 7/7 kayıtta bir **`YTK-*` müşteri yetkilisi kodu**
+taşır: talep, yetkilinin kimliğiyle sisteme girilmiştir. Telefonla mı arandı,
+e-posta mı geldi — hiçbir alan söylemiyor. `DB.interactions` (Telefon/E-posta)
+var ama ticket'a bağlı değil; tarih yakınlığından eşleştirmek §9d'nin ismen
+yasakladığı şeydir.
+
+**Neden uydurulmadı:** yedi talebe farklı kanallar dağıtmak ekranı "zengin"
+gösterirdi ve **ölçüm gibi görünen bir kurgu** olurdu. Rapor "kanal kırılımı"
+çizerdi, altında hiçbir kayıt olmazdı. Sözlük diğer altı değeri yeni kayıtlar
+için taşıyor; veri gelince dağılım kendiliğinden oluşur.
+
+**Aynı ilke beş alanda daha uygulandı.** `aciklama` 2/7, `cozumAciklama` 1/7,
+`cozenPersonel` 1/7, `musteriOnay` 1/7, `kapanisTarihi` 1/7 dolu — hepsi **var
+olan bir kayıttan** türetildi (bağlı hata kaydı · kapanış hareketi) ve kaynağı
+metnin içinde yazılı; `canon.js` eksen 33d kaynağın yazılı olmasını **zorunlu**
+kılıyor. Kanıtı olmayan kayıtta alan `null` ve ekran "kaydı yok" diyor —
+boş hücre basmıyor.

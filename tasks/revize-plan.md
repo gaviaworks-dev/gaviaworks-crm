@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **60** — R01…R05 · R06 7/7 · R07 7/7 · **R08 5/5** |
-| Kalan | 78 (R09 · R10 · FAZ 3 · 4) |
+| İşaretli | **67** — R01…R08 · **R09 7/7** |
+| Kalan | 71 (R10 · FAZ 3 · 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -98,7 +98,7 @@ belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 | R06 | Milestone / ödeme ayrımı | 2 | **✅ TAMAM** | `DB.projectMilestones` (12 kayıt) açıldı · taksitte isteğe bağlı FK (12/19) · canon eksen 30 |
 | R07 | Proje kapanış kontrolü | 2 | **✅ TAMAM** | 8 kontrol `GV.proje.kapanisKontrol`ta · kapanış `GV.proje.kapat`ta · canon eksen 31 |
 | R08 | Proje → bakım geçişi | 2 | ⬜ | proje ↔ paket bağı **iki yönde de yok**; hiçbir projenin paketi yok |
-| R09 | Ticket detayları | 2 | 🟡 | 12 alanın **7'si yok**; durum sözlüğü hiçbir `DB.*`'da tanımlı değil, 3 yerde elle yazılı |
+| R09 | Ticket detayları | 2 | **✅ TAMAM** | sözlük açıldı · 6 alan eklendi · 12 tüketici taşındı · canon eksen 33 |
 | R10 | Ticket → görev / CR / fırsat | 2 | 🟡 | görev dönüşümü **çalışıyor**; CR bağı var ama aksiyon yok; fırsat hiç yok |
 | R11 | Proje kaynağı | 3 | 🟡 | `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı ve sözleşme seçici yok |
 | R12 | Sözleşme sorumlusu | 3 | ⬜ | sözleşmede **hiç kişi alanı yok**; ekran bunu bir notice ile itiraf ediyor |
@@ -881,9 +881,42 @@ bedel boş bırakıldığında modal **açık kalıyor ve reddediyor**. Konsol t
 
 ---
 
-## R09 · Destek / ticket detayını geliştir
+## R09 · Destek / ticket detayını geliştir · ✅ TAMAM
 
-**DURUM: 🟡 kısmen — 12 alanın 7'si YOK, durum sözlüğü hiçbir `DB.*`'da tanımlı değil**
+**KAPANDI (2026-08-07, 15. oturum)** — sözlük açıldı, altı alan eklendi.
+
+Yapılanlar: `DB.ticketStatuses` (7 değer) · `DB.ticketClosedStatuses` ·
+`DB.ticketChannels` (7 değer) · altı yeni alan **7/7 kayıtta tanımlı**
+(`kanal` · `aciklama` · `cozumAciklama` · `cozenPersonel` · `musteriOnay` ·
+`kapanisTarihi`) · üç durum yeniden adlandırıldı (`Açık → Yeni` ·
+`Devam ediyor → Çalışılıyor` · `Kapandı → Kapatıldı`) ve ticket aktivitelerinin
+`eski`/`yeni` değerleri de taşındı · `GV.destek.acik/kapali/kapaliDurumlar/
+cozumTarihi` açıldı · üç yeni ton (`Çalışılıyor` · `Kapatıldı` ·
+`Yeniden Açıldı`) — **hiçbir eski ton silinmedi** (L-33: `Devam ediyor` görevde/
+sprintte/kararda, `Açık`/`Kapandı` hatada yaşıyor).
+
+**Borç defterden BÜYÜK çıktı (L-28 örüntüsü).** Plan "3 elle yazılı liste +
+6 türetme = 9 tüketici" diyordu; ölçüm **12** buldu — `app-destek-paket.html`,
+`app-destek-paket-form.html` ve `app-destek-sla.html` de kendi "açık talep"
+tanımını yazıyordu. On ikisi de aynı turda taşındı.
+
+**`shell.js` bağımlılık tuzağı.** Bildirim sayacı `domain.js`'ten **önce**
+yükleniyor, yani `GV.destek`e bağlanamaz. Liste `shell.js`'te gömülü bıraksaydım
+tam da kapattığım kusur geri gelirdi. Çözüm: sözlük **veri katmanına** alındı
+(`DB.ticketClosedStatuses`); hem `shell.js` hem `GV.destek.kapaliDurumlar()` onu
+okuyor, liste iki yerde yaşamıyor.
+
+**`cozumTarihi` ALAN OLARAK AÇILMADI** — `acilis + cozumSuresi`den türetiliyor
+(L-08); `canon.js` **eksen 33c** alanın doğmasını yasaklıyor. `cozumSuresi` SLA
+matematiğinin girdisidir, ona dokunulmadı.
+
+**Kilit:** `canon.js` **eksen 33** (altı kontrol grubu · **3.965 kontrol**) —
+altı olumsuz vakayla sınandı. Tarayıcı: `qa.js` 9 hedef **TEMİZ** ·
+`tabs.js` 6 sekme **TEMİZ** · `act.js` 3 aksiyon **TEMİZ**.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 kısmen — 12 alanın 7'si YOK, durum sözlüğü hiçbir `DB.*`'da tanımlı değil**
 
 Ölçüm (`DB.tickets`, **7 kayıt**, 23 alan — şema 7/7 tekdüze):
 
@@ -929,19 +962,35 @@ SLA yapısı korunur: `sla` · `ilkYanit` · `mudahaleSuresi` · `cozumSuresi` �
 
 **Yapılacaklar**
 
-- [ ] `DB.ticketStatuses` sözlüğü (7 değer) — elle yazılı 3 liste + 6 türetme oraya bağlansın
-- [ ] `DB.ticketChannels` sözlüğü (7 değer) + `DB.tickets[].kanal` — 7/7 doldurulur;
-      değer **uydurulmaz**, var olan `acan` (YTK kodu → portal) ve talebin niteliğinden
-      türetilir, kaynağı aktiviteye yazılır
-- [ ] `aciklama` (talep açıklaması) · `cozumAciklama` · `cozumTarihi` · `cozenPersonel` ·
-      `musteriOnay` · `kapanisTarihi` alanları
-- [ ] `cozumTarihi` ile `cozumSuresi` **çelişemez** — biri diğerinden türetilir,
-      ikisi ayrı yazılmaz (L-08)
-- [ ] `GV.badge` ton haritasına `Çalışılıyor` · `Kapatıldı` · `Yeniden Açıldı`
-      eklensin (yoksa gri basar)
-- [ ] Durum yeniden adlandırma **tüm** tüketicilerde aynı turda yapılsın
-- [ ] `canon.js` **eksen 29**: "`cozumTarihi` dolu ⇒ `durum ∈ {Çözüldü, Kapatıldı}`" ·
-      "`kapanisTarihi ≥ cozumTarihi ≥ acilis`" · "`kanal` sözlükten"
+</details>
+
+**Yapılacaklar**
+
+- [x] `DB.ticketStatuses` sözlüğü (7 değer) — elle yazılı 3 liste + **9** türetme
+      oraya bağlandı (defter 6 diyordu, ölçüm 9 buldu)
+- [x] `DB.ticketChannels` sözlüğü (7 değer) + `DB.tickets[].kanal` — 7/7 dolu,
+      **yazılı kuraldan** türetildi: `acan` 7/7 kayıtta `YTK-*` müşteri yetkilisi
+      kodudur ⇒ `Müşteri portalı`. Çeşitlilik **uydurulmadı** (V-53)
+- [x] `aciklama` · `cozumAciklama` · `cozenPersonel` · `musteriOnay` ·
+      `kapanisTarihi` alanları — **7/7 kayıtta tanımlı**, kanıtı olanda dolu
+      (2 · 1 · 1 · 1 · 1), kanıtı olmayanda `null` ve ekran "kaydı yok" diyor
+- [x] `cozumTarihi` ile `cozumSuresi` **çelişemez** — `cozumTarihi` **alan olarak
+      açılmadı**, türetiliyor; eksen 33c alanın doğmasını yasaklıyor
+- [x] `GV.badge` ton haritasına `Çalışılıyor` · `Kapatıldı` · `Yeniden Açıldı`
+      eklendi; **eski adların hiçbiri silinmedi** (L-33)
+- [x] Durum yeniden adlandırma **12 tüketicinin 12'sinde** aynı turda yapıldı,
+      ticket aktivitelerinin `eski`/`yeni` değerleri de taşındı
+- [x] `canon.js` **eksen 33** (numara 29…32 dolu olduğu için 33): sözlük ·
+      şema tekdüzeliği · `cozumTarihi` alanının doğmaması · çözüm/kapanış izinin
+      durumla çelişmemesi · `musteriOnay` ≠ `memnuniyet` · aktivitelerin eski
+      ada takılı kalmaması
+
+**Dokunulan dosyalar:** `assets/data/ops.js` · `assets/data/work.js` ·
+`assets/js/domain.js` · `assets/js/ui.js` · `assets/js/shell.js` ·
+`assets/js/dashboard.js` · `app-destek.html` · `app-destek-detay.html` ·
+`app-destek-form.html` · `app-destek-paket.html` · `app-destek-paket-form.html` ·
+`app-destek-sla.html` · `app-musteri-detay.html` · `app-rapor-musteri.html` ·
+`tasks/qa/canon.js` · `tasks/components.md`
 
 ---
 
