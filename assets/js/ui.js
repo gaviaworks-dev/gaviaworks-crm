@@ -163,6 +163,10 @@
     'Aktif':'ok', 'Pasif':'neutral', 'Riskli':'danger', 'Potansiyel':'info', 'Arşiv':'neutral',
     'Onaylandı':'ok', 'Reddedildi':'danger', 'Bekliyor':'warn', 'Kısmi onay':'warn',
     'Açık':'info', 'Kapandı':'ok', 'Çözüldü':'ok', 'Yeni':'info',
+    /* destek talebi ekseni (REVİZE 09) — üç YENİ ad. `Açık` · `Kapandı` ·
+       `Devam ediyor` SİLİNMEDİ: hata, sprint, karar ve görev eksenlerinde
+       yaşamayı sürdürüyorlar (L-33). `Atandı` görev ekseninden zaten var. */
+    'Çalışılıyor':'accent', 'Kapatıldı':'ok', 'Yeniden Açıldı':'warn',
     /* proje DURUM ekseni (REVİZE 05) — `Teslim` çıktı, yerine `Teslim Sürecinde`
        ve `Tamamlandı` geldi. `Planlama` · `Geliştirme` · `Test` ADI KALIYOR
        çünkü `DB.projectModules[].durum` onları kullanmayı sürdürüyor: bir tonu

@@ -195,7 +195,7 @@
         meta:maintWarn.length + ' bakım · ' + inspWarn.length + ' muayene', metaTone:'flat' },
       { label:'Sigorta / kasko yenilemesi', value:policyWarn.length, icon:'i-shield', tone:'warn', href:'app-arac-sigorta.html',
         meta:'60 gün içinde', metaTone:'flat' },
-      { label:'Açık destek kaydı', value:DB.tickets.filter(function(t){ return ['Açık','Devam ediyor','Müşteri bekleniyor'].indexOf(t.durum) !== -1; }).length,
+      { label:'Açık destek kaydı', value:DB.tickets.filter(GV.destek.acik).length,
         icon:'i-support', tone:'info', href:'app-destek.html',
         meta:DB.tickets.filter(function(t){ return t.slaDurum === 'Risk altında'; }).length + ' SLA riski', metaTone:'down' }
     ]);
@@ -691,7 +691,7 @@
      --------------------------------------------------------------- */
   function dashMusteri(){
     return kpiGrid([
-      { label:'Açık destek kaydım', value:DB.tickets.filter(function(t){ return t.durum !== 'Kapandı'; }).length, icon:'i-support', href:'app-destek.html' },
+      { label:'Açık destek kaydım', value:DB.tickets.filter(GV.destek.acik).length, icon:'i-support', href:'app-destek.html' },
       { label:'Aktif projem', value:1, icon:'i-briefcase' },
       { label:'Bekleyen onayım', value:1, icon:'i-stamp', tone:'warn' },
       { label:'Paylaşılan doküman', value:DB.documents.filter(function(d){ return d.gizlilik !== 'Gizli'; }).length, icon:'i-folder', href:'app-dokuman.html' }

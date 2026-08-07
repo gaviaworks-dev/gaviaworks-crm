@@ -1225,12 +1225,12 @@ DB.activities = [
   { kayit:'DMB-2025-006', tarih:'2025-04-05T10:10', kisi:'EMP-008', metin:'Zimmet teslimi yapıldı (ZMT-2025-004)', eski:'Depoda', yeni:'Zimmetli', tone:'ok', icon:'i-clipboard-check' },
 /* ---- Destek talepleri (DST-*) ---- */
   { kayit:'DST-2026-118', tarih:'2026-08-02T20:15', kisi:'EMP-013', metin:'Destek talebi açıldı', eski:null, yeni:null, tone:'neutral', icon:'i-support' },
-  { kayit:'DST-2026-118', tarih:'2026-08-02T20:51', kisi:'EMP-013', metin:'İlk yanıt verildi', eski:'Açık', yeni:'Devam ediyor', tone:'info', icon:'i-chat' },
+  { kayit:'DST-2026-118', tarih:'2026-08-02T20:51', kisi:'EMP-013', metin:'İlk yanıt verildi', eski:'Yeni', yeni:'Çalışılıyor', tone:'info', icon:'i-chat' },
   { kayit:'DST-2026-118', tarih:'2026-08-02T21:40', kisi:'EMP-013', metin:'Talep hata kaydına dönüştürüldü (HTA-2026-074)', eski:null, yeni:null, tone:'accent', icon:'i-bug' },
   { kayit:'DST-2026-118', tarih:'2026-08-03T08:30', kisi:'EMP-013', metin:'SLA durumu değişti', eski:'Zamanında', yeni:'Risk altında', tone:'warn', icon:'i-timer' },
-  { kayit:'DST-2026-122', tarih:'2026-07-18T09:22', kisi:'EMP-013', metin:'İlk yanıt verildi', eski:'Açık', yeni:'Devam ediyor', tone:'info', icon:'i-chat' },
-  { kayit:'DST-2026-122', tarih:'2026-07-18T14:00', kisi:'EMP-013', metin:'Çözüm doğrulandı, talep kapatıldı', eski:'Çözüldü', yeni:'Kapandı', tone:'ok', icon:'i-check-circle' },
-  { kayit:'DST-2026-120', tarih:'2026-07-30T15:30', kisi:'EMP-013', metin:'İlk yanıt verildi, ek geliştirme teklifi iletildi', eski:'Açık', yeni:'Müşteri bekleniyor', tone:'info', icon:'i-chat' },
+  { kayit:'DST-2026-122', tarih:'2026-07-18T09:22', kisi:'EMP-013', metin:'İlk yanıt verildi', eski:'Yeni', yeni:'Çalışılıyor', tone:'info', icon:'i-chat' },
+  { kayit:'DST-2026-122', tarih:'2026-07-18T14:00', kisi:'EMP-013', metin:'Çözüm doğrulandı, talep kapatıldı', eski:'Çözüldü', yeni:'Kapatıldı', tone:'ok', icon:'i-check-circle' },
+  { kayit:'DST-2026-120', tarih:'2026-07-30T15:30', kisi:'EMP-013', metin:'İlk yanıt verildi, ek geliştirme teklifi iletildi', eski:'Yeni', yeni:'Müşteri bekleniyor', tone:'info', icon:'i-chat' },
   { kayit:'DST-2026-120', tarih:'2026-08-02T09:10', kisi:'EMP-013', metin:'SLA durumu değişti', eski:'Risk altında', yeni:'İhlal edildi', tone:'danger', icon:'i-timer' }
 ];
 

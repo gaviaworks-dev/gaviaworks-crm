@@ -333,7 +333,11 @@
       teklif:    (D.quotes || []).filter(function(x){ return x.durum === 'İletildi' || x.durum === 'Müşteri değerlendirmesinde'; }).length,
       hata:      (D.bugs || []).filter(function(x){ return x.durum !== 'Kapandı'; }).length,
       istalebi:  (D.deptRequests || []).filter(function(x){ return x.durum === 'Bekliyor' || x.durum === 'Devam ediyor'; }).length,
-      destek:    (D.tickets || []).filter(function(x){ return ['Açık','Devam ediyor','Müşteri bekleniyor'].indexOf(x.durum) !== -1; }).length,
+      /* REVİZE 09 — kapalı durum listesi VERİ katmanında (`ops.js`).
+         `shell.js` `domain.js`'ten önce yüklenir, yani `GV.destek`e bağlanamaz;
+         ikisi de aynı sözlüğü okuyor, liste iki yerde yaşamıyor. */
+      destek:    (D.tickets || []).filter(function(x){
+                   return (D.ticketClosedStatuses || []).indexOf(x.durum) === -1; }).length,
       mesaj:     (D.channels || []).reduce(function(a,c){ return a + (c.okunmamis || 0); }, 0),
       izin:      (D.leaves || []).filter(function(x){ return x.durum === 'Onay bekliyor'; }).length,
       bakim:     (D.maintenance || []).filter(function(x){ return x.durum === 'Yaklaşıyor' || x.durum === 'Gecikti'; }).length,

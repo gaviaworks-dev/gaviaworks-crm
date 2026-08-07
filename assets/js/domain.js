@@ -643,6 +643,56 @@
   GV.delivery = Delivery;
   GV.task = Task;
   GV.zaman = Zaman;
+  /* ===================================================================
+     DESTEK TALEBİ (REVİZE 09)
+
+     "Açık talep" tanımı DOKUZ yerde elle yazılıydı: üç ekranda durum listesi
+     (`app-destek.html` ×2 · `app-destek-form.html`), altı yerde de kapalı
+     durumların dışlanması (`shell.js` · `dashboard.js` · `app-musteri-detay`
+     ×2 · `app-rapor-musteri` · `app-destek`). Sözlük yeniden adlandırılınca
+     dokuzunun dokuzu birden sessizce yanlış sayardı — sayaç sıfırlanır,
+     hata çıkmaz (R01'de `shell.js` sayacının başına gelen buydu).
+
+     `cozumTarihi` ALAN DEĞİLDİR, türetilir: `acilis + cozumSuresi` (dakika).
+     İkisini ayrı yazmak, er geç çelişecek iki defter tutmaktır (L-08).
+     `cozumSuresi` SLA matematiğinin girdisidir; ona dokunulmadı.
+     =================================================================== */
+  var Destek = {
+    /* Sözlük VERİDEN okunur (`DB.ticketClosedStatuses`) — `shell.js` de aynı
+       listeyi kullanıyor ve o `domain.js`'ten önce yükleniyor. */
+    kapaliDurumlar:function(){ return (window.DB && DB.ticketClosedStatuses) || []; },
+
+    kayit:function(t){
+      if(!t) return null;
+      if(typeof t !== 'string') return t;
+      if(!window.DB || !DB.tickets) return null;
+      return DB.tickets.filter(function(x){ return x.kod === t; })[0] || null;
+    },
+
+    acik:function(t){
+      t = Destek.kayit(t);
+      return !!t && Destek.kapaliDurumlar().indexOf(t.durum) === -1;
+    },
+
+    kapali:function(t){
+      t = Destek.kayit(t);
+      return !!t && Destek.kapaliDurumlar().indexOf(t.durum) !== -1;
+    },
+
+    /* Çözüm zamanı — `acilis` + `cozumSuresi` dakika. Çözüm süresi yoksa
+       çözüm de yoktur: `null` döner, ekran "çözüm kaydı yok" der. */
+    cozumTarihi:function(t){
+      t = Destek.kayit(t);
+      if(!t || t.cozumSuresi == null || !t.acilis) return null;
+      var d = new Date(t.acilis);
+      d.setMinutes(d.getMinutes() + t.cozumSuresi);
+      var iki = function(n){ return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '-' + iki(d.getMonth() + 1) + '-' + iki(d.getDate()) +
+             'T' + iki(d.getHours()) + ':' + iki(d.getMinutes());
+    }
+  };
+
+  GV.destek = Destek;
   GV.proje = Proje;
   GV.hr = Hr;
 

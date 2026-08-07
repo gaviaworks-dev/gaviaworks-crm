@@ -496,49 +496,91 @@ DB.orderReturns = [
    Yazılı bağlar: DST-2026-118 → HTA-2026-074 · DST-2026-122 → HTA-2026-075.
    Diğer beş talebin dönüşümü yoktur (kullanım sorusu / bilgi talebi ya da henüz
    müşteri onayı bekleyen ek teklif) — bkz. assumptions.md V-38. */
+/* ---- Destek talebi sözlükleri (REVİZE 09) ------------------------------
+   Turun başında ticket durumu HİÇBİR `DB.*`'da tanımlı değildi: liste üç yerde
+   elle yazıyordu, "açık talep" tanımı altı yerde daha elle türetiliyordu.
+   Üç değer yeniden adlandırıldı — `Açık → Yeni` · `Devam ediyor → Çalışılıyor` ·
+   `Kapandı → Kapatıldı`. `Müşteri bekleniyor` ve `Çözüldü` **aynı kaldı**.
+
+   ⚠️ Eski adlar SİLİNMEDİ, yalnız TICKET ekseninden çıktı: `Devam ediyor`
+   görevde/sprintte/kararda, `Açık` ve `Kapandı` hatada, `Müşteri bekleniyor`
+   görevde yaşamayı sürdürüyor (L-33). `GV.badge` ton haritasından hiçbiri
+   kaldırılmadı; yalnız üç yeni ad eklendi. */
+DB.ticketStatuses  = ['Yeni','Atandı','Çalışılıyor','Müşteri bekleniyor',
+  'Çözüldü','Kapatıldı','Yeniden Açıldı'];
+
+/* Talebin geldiği kanal. 7 kaydın 7'sinde `Müşteri portalı` ve bu UYDURMA
+   DEĞİL, yazılı bir kuraldan türetme: `acan` alanı 7/7 kayıtta bir `YTK-*`
+   müşteri yetkilisi kodudur, yani talep yetkilinin kimliğiyle sisteme
+   girilmiştir. Telefon/e-posta gibi bir kanalı kaydın hiçbir alanı
+   göstermiyor; çeşitlilik uydurmak ölçüm gibi görünen bir kurgu olurdu
+   (L-13 · V-53). Sözlük diğer altı değeri yeni kayıtlar için taşır. */
+/* Kapalı durumlar VERİ KATMANINDA: `shell.js` bildirim sayacını `domain.js`
+   yüklenmeden önce kurar ve ona bağımlı olamaz. Liste iki yerde yaşasaydı
+   (biri shell'de, biri domain'de) tam da REVİZE 09'un kapattığı kusur geri
+   gelirdi. Tek kaynak burası; `GV.destek.kapaliDurumlar()` da bunu okur. */
+DB.ticketClosedStatuses = ['Çözüldü','Kapatıldı'];
+
+DB.ticketChannels  = ['Müşteri portalı','E-posta','Telefon','Canlı destek',
+  'Toplantı','Saha ziyareti','Diğer'];
+
 DB.tickets = [
   { kod:'DST-2026-118', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis', proje:'PRJ-2026-006',
     baslik:'Randevu formunda tarih seçici mobilde açılmıyor', kategori:'Hata', oncelik:'Kritik', etki:'Yüksek',
     sla:'4 saat', sorumlu:'EMP-013', acan:'YTK-012', acilis:'2026-08-02T20:15',
-    ilkYanit:'2026-08-02T20:51', mudahaleSuresi:36, cozumSuresi:null, durum:'Devam ediyor',
+    ilkYanit:'2026-08-02T20:51', mudahaleSuresi:36, cozumSuresi:null, durum:'Çalışılıyor',
     harcananSure:3.5, ucretli:false, bakimPaketi:'Standart', kalanDestek:12, memnuniyet:null,
-    slaDurum:'Risk altında', aktif:true },
+    slaDurum:'Risk altında',
+    kanal:'Müşteri portalı', aciklama:'Bağlı hata kaydından türetildi (HTA-2026-074): “Tarih seçici mobilde açılmıyor” · ortam Safari iOS · tekrarlanabilirlik Her zaman',
+    cozumAciklama:null, cozenPersonel:null, musteriOnay:null, kapanisTarihi:null, aktif:true },
   { kod:'DST-2026-119', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu', proje:'PRJ-2026-001',
     baslik:'Test ortamında bildirimler gelmiyor', kategori:'Hata', oncelik:'Yüksek', etki:'Orta',
     sla:'8 saat', sorumlu:'EMP-013', acan:'YTK-004', acilis:'2026-08-02T19:00',
-    ilkYanit:'2026-08-02T19:45', mudahaleSuresi:45, cozumSuresi:null, durum:'Devam ediyor',
+    ilkYanit:'2026-08-02T19:45', mudahaleSuresi:45, cozumSuresi:null, durum:'Çalışılıyor',
     harcananSure:2, ucretli:false, bakimPaketi:'Kurumsal', kalanDestek:38, memnuniyet:null,
-    slaDurum:'Zamanında', aktif:true },
+    slaDurum:'Zamanında',
+    kanal:'Müşteri portalı', aciklama:null,
+    cozumAciklama:null, cozenPersonel:null, musteriOnay:null, kapanisTarihi:null, aktif:true },
   { kod:'DST-2026-120', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.', proje:'PRJ-2025-008',
     baslik:'Sevkiyat raporuna araç filtresi eklenmesi', kategori:'Geliştirme talebi', oncelik:'Orta', etki:'Düşük',
     sla:'3 gün', sorumlu:'EMP-013', acan:'YTK-002', acilis:'2026-07-30T13:00',
     ilkYanit:'2026-07-30T15:30', mudahaleSuresi:150, cozumSuresi:null, durum:'Müşteri bekleniyor',
     harcananSure:1, ucretli:true, bakimPaketi:'Kurumsal', kalanDestek:62, memnuniyet:null,
-    slaDurum:'İhlal edildi', aktif:true },
+    slaDurum:'İhlal edildi',
+    kanal:'Müşteri portalı', aciklama:null,
+    cozumAciklama:null, cozenPersonel:null, musteriOnay:null, kapanisTarihi:null, aktif:true },
   { kod:'DST-2026-121', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.', proje:'PRJ-2026-004',
     baslik:'Fire raporu Excel çıktısı nasıl alınır?', kategori:'Kullanım sorusu', oncelik:'Düşük', etki:'Düşük',
     sla:'2 gün', sorumlu:'EMP-013', acan:'YTK-011', acilis:'2026-07-28T10:15',
     ilkYanit:'2026-07-28T10:40', mudahaleSuresi:25, cozumSuresi:65, durum:'Çözüldü',
     harcananSure:1, ucretli:false, bakimPaketi:'Standart', kalanDestek:18, memnuniyet:5,
-    slaDurum:'Zamanında', aktif:true },
+    slaDurum:'Zamanında',
+    kanal:'Müşteri portalı', aciklama:null,
+    cozumAciklama:null, cozenPersonel:null, musteriOnay:null, kapanisTarihi:null, aktif:true },
   { kod:'DST-2026-122', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', proje:'PRJ-2026-003',
     baslik:'İş emri listesinde tarih filtresi çalışmıyor', kategori:'Hata', oncelik:'Orta', etki:'Orta',
     sla:'8 saat', sorumlu:'EMP-013', acan:'YTK-008', acilis:'2026-07-18T09:00',
-    ilkYanit:'2026-07-18T09:22', mudahaleSuresi:22, cozumSuresi:300, durum:'Kapandı',
+    ilkYanit:'2026-07-18T09:22', mudahaleSuresi:22, cozumSuresi:300, durum:'Kapatıldı',
     harcananSure:6, ucretli:false, bakimPaketi:'Kurumsal', kalanDestek:44, memnuniyet:4,
-    slaDurum:'Zamanında', aktif:true },
+    slaDurum:'Zamanında',
+    kanal:'Müşteri portalı', aciklama:'Bağlı hata kaydından türetildi (HTA-2026-075): “İş emri filtresi tarih aralığını yok sayıyor” · ortam Web · tekrarlanabilirlik Her zaman',
+    cozumAciklama:'Hareket kaydından türetildi: çözüm doğrulandı, talep kapatıldı', cozenPersonel:'EMP-013', musteriOnay:'Onaylandı', kapanisTarihi:'2026-07-18T14:00', aktif:true },
   { kod:'DST-2026-123', musteri:'MUS-2026-007', musteriAd:'Nova Turizm Yatırımları', proje:'PRJ-2026-005',
     baslik:'Demo ortamına erişim talebi', kategori:'Bilgi talebi', oncelik:'Düşük', etki:'Düşük',
     sla:'2 gün', sorumlu:'EMP-013', acan:'YTK-009', acilis:'2026-08-02T21:00',
-    ilkYanit:null, mudahaleSuresi:null, cozumSuresi:null, durum:'Açık',
+    ilkYanit:null, mudahaleSuresi:null, cozumSuresi:null, durum:'Yeni',
     harcananSure:0, ucretli:false, bakimPaketi:'—', kalanDestek:0, memnuniyet:null,
-    slaDurum:'Risk altında', aktif:true },
+    slaDurum:'Risk altında',
+    kanal:'Müşteri portalı', aciklama:null,
+    cozumAciklama:null, cozenPersonel:null, musteriOnay:null, kapanisTarihi:null, aktif:true },
   { kod:'DST-2026-117', musteri:'MUS-2025-003', musteriAd:'Anadolu Perakende Ticaret Ltd.', proje:null,
     baslik:'Fatura kopyası talebi', kategori:'Bilgi talebi', oncelik:'Düşük', etki:'Düşük',
     sla:'2 gün', sorumlu:'EMP-012', acan:'YTK-005', acilis:'2026-06-20T13:00',
-    ilkYanit:'2026-06-20T14:10', mudahaleSuresi:70, cozumSuresi:130, durum:'Kapandı',
+    ilkYanit:'2026-06-20T14:10', mudahaleSuresi:70, cozumSuresi:130, durum:'Kapatıldı',
     harcananSure:0.5, ucretli:false, bakimPaketi:'—', kalanDestek:0, memnuniyet:3,
-    slaDurum:'Zamanında', aktif:true }
+    slaDurum:'Zamanında',
+    kanal:'Müşteri portalı', aciklama:null,
+    cozumAciklama:null, cozenPersonel:null, musteriOnay:null, kapanisTarihi:null, aktif:true }
 ];
 
 /* `sozlesme` varsa DB.contracts kaydına bağlar; `yenileme` yenilemeye işaretli
