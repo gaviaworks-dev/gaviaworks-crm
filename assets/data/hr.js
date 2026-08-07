@@ -131,7 +131,40 @@ DB.timelogs = [
   { kod:'ZMN-9044', personel:'EMP-009', tarih:'2026-07-30', gorev:'GRV-2026-113', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
     sure:7, faturalanabilir:true, aciklama:'Hata doğrulama turu', onay:'Onaylandı', aktif:true },
   { kod:'ZMN-9045', personel:'EMP-009', tarih:'2026-07-30', gorev:null, proje:null, musteri:null,
-    sure:3, faturalanabilir:false, aciklama:'Test kapsamı değerlendirmesi', onay:'Onaylandı', aktif:true }
+    sure:3, faturalanabilir:false, aciklama:'Test kapsamı değerlendirmesi', onay:'Onaylandı', aktif:true },
+
+  /* ---- REVİZE 03 — defterin kapatılmayan sekiz görevi (2026-08-07) --------
+     Sekiz görev `gercekSure` taşıyordu ama zaman defterinde **tek satırı**
+     yoktu; yani görev "şu kadar çalışıldı" diyor, defter "hiç çalışılmadı"
+     diyordu. İkisi de aynı olguyu anlatmaya çalıştığı için biri yanlıştı
+     (L-08). Defter kazanmalıydı — ama boş bir defteri kazandırmak, olmuş bir
+     işi olmamış saymak olurdu.
+
+     Aşağıdaki sekiz kayıt **uydurulmadı**: her biri var olan bir görev
+     kaydından türetildi. Süre görevin `gercekSure` değeri, kişi `sorumlu`su,
+     proje/müşteri görevin kendi bağları, tarih görevin `baslangic`–`termin`
+     aralığı içinde. Kaynağı `aciklama` alanında **kod olarak** yazılıdır ki
+     türetilmiş olduğu sonradan da görülebilsin.
+
+     `onay` ekseni de uydurulmadı: tamamlanmış/arşivlenmiş görevin emeği
+     onaylanmıştır, süren görevinki onay bekler. `faturalanabilir` görevin
+     kendi `faturalanabilir` alanından okundu — projesiz iç işler false. */
+  { kod:'ZMN-9046', personel:'EMP-006', tarih:'2026-07-28', gorev:'GRV-2026-107', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:18, faturalanabilir:false, aciklama:'GRV-2026-107 revizyon zinciri — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9047', personel:'EMP-003', tarih:'2026-08-01', gorev:'GRV-2026-116', proje:null, musteri:null,
+    sure:2, faturalanabilir:false, aciklama:'GRV-2026-116 teknik değerlendirme — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9048', personel:'EMP-005', tarih:'2026-07-24', gorev:'GRV-2026-118', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:9, faturalanabilir:true, aciklama:'GRV-2026-118 push bildirim şablonları — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9049', personel:'EMP-010', tarih:'2026-07-24', gorev:'GRV-2026-119', proje:'PRJ-2026-004', musteri:'MUS-2026-009',
+    sure:5, faturalanabilir:true, aciklama:'GRV-2026-119 — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9050', personel:'EMP-006', tarih:'2026-07-27', gorev:'GRV-2026-121', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:13, faturalanabilir:true, aciklama:'GRV-2026-121 — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9051', personel:'EMP-010', tarih:'2026-02-20', gorev:'GRV-2026-124', proje:null, musteri:null,
+    sure:9, faturalanabilir:false, aciklama:'GRV-2026-124 arşiv temizliği — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9052', personel:'EMP-002', tarih:'2026-07-31', gorev:'GRV-2026-125', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:3, faturalanabilir:false, aciklama:'GRV-2026-125 memnuniyet eskalasyonu — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
+  { kod:'ZMN-9053', personel:'EMP-006', tarih:'2026-08-03', gorev:'GRV-2026-126', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:2, faturalanabilir:true, aciklama:'GRV-2026-126 tarih seçici düzeltmesi — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true }
 ];
 
 /* ---- Haftalık timesheet özeti ------------------------------------------ */
