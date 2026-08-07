@@ -751,3 +751,32 @@ buton diliyle eklendi ve tıklama `GV.confirm` → `GV.proje.kapat` → `GV.refr
 **Açık kalan:** UID-15 borcu bu ekranda duruyor. Kapatılacaksa `.gv-rec-head`
 kalıbının kendisi ortak bir bileşene çıkarılmalıdır (`GV.recHead`) — 26 detay
 ekranını birden ilgilendirir, R07'nin kapsamı değildir.
+
+---
+
+## V-52 · `supportPackages[].proje` 7/7 BOŞ açıldı — bağ uydurulmadı
+
+**Karar:** REVİZE 08 alanı açtı ama **hiçbir kaydı doldurmadı**; bağı kapanış
+akışı yazar.
+
+**Neden boş:** veride proje ile bakım paketi arasında **hiçbir yönde yazılı bağ
+yok**. Tek dolaylı zincir `paket.sozlesme → contract.proje` hiçe çıkıyor
+(BKP-001'in sözleşmesi SZL-2026-022, onun `proje`si `null`). En cazip aday
+BKP-004'tü: PRJ-2026-004'ün tesliminden **iki gün sonra** başlıyor, aynı
+müşterinin **tek** projesi. Yine de yazılmadı — §9d'nin ilk cümlesi *"tarih
+yakınlığı, tedarikçi eşleşmesi, kategori benzerliği ve etiket metni bağ
+değildir"* diyor ve bu tam o vaka.
+
+**Alan yine de HER kayıtta duruyor.** Yalnız yeni kayıtta doğsaydı şema kayıttan
+kayda değişirdi (VB-20 eki: `DB.sprints`'in 6 kaydında `aktif` yoktu, bileşen
+onu bekliyordu). `canon.js` eksen 32a bunu zorunlu kılar.
+
+**Eksen 21'e eklenmedi.** `canon.js` eksen 21 §22 bağlarının **en az bir kayıtta
+dolu** olmasını ister (L-22). `proje → bakım paketi` bugün dolu olmadığı için
+listeye eklemek taramayı ilk koşumda kırardı — eksen 32 bunun yerine "dolduğunda
+tutarlı" sözleşmesini kilitler. Veri bir kez dolduğunda madde eksen 21'e
+taşınabilir.
+
+**Aylık saat ve bedel kullanıcıdan alınıyor.** Yedi pakette `tutar / aylikSaat`
+oranı tutarlı bir katalog vermiyor (Kurumsal 8sa/180.000 · 6sa/144.000 ·
+10sa/420.000). Bir fiyat formülü türetmek katalog uydurmak olurdu; modal soruyor.

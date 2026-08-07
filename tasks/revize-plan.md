@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **55** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 · R05 7/7 · R06 7/7 · **R07 7/7** |
-| Kalan | 83 (R08 · R09 · R10 · FAZ 3 · 4) |
+| İşaretli | **60** — R01…R05 · R06 7/7 · R07 7/7 · **R08 5/5** |
+| Kalan | 78 (R09 · R10 · FAZ 3 · 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -790,9 +790,39 @@ Sekiz kontrolün veri karşılığı:
 
 ---
 
-## R08 · Proje kapanışından destek / bakıma geçiş
+## R08 · Proje kapanışından destek / bakıma geçiş · ✅ TAMAM
 
-**DURUM: ⬜ yok — proje ile bakım paketi arasında HİÇBİR yönde bağ yok**
+**KAPANDI (2026-08-07, 15. oturum)** — kapanışın son adımı üç cevabı da yürütüyor.
+
+Yapılanlar: `DB.supportPackages[].proje` **7/7 kayıtta açıldı** (hepsi `null` —
+aşağıya bak) · `DB.supportPackageTypes` sözlüğü · `GV.proje.bakimPaketleri` ·
+`bakimBagla` · `bakimAc` · kapanış modalının son adımı: **Hayır · Mevcut pakete
+bağla · Yeni paket oluştur** — yeni paket **aynı modalda** açılıyor, yeni ekran
+yok, `GV.result` "Paketi aç" bağlantısı veriyor · paket projenin sözleşmesini
+`contracts.proje` ters yönünden **devralıyor**.
+
+**Alan 7/7 BOŞ ve bu bir eksiklik değil, ölçümdür.** Veride proje ile paket
+arasında yazılı bağ yok; tek dolaylı zincir (`paket.sozlesme → contract.proje`)
+hiçe çıkıyor. BKP-004 ilgili projenin tesliminden **iki gün sonra** başlıyor ve
+aynı müşterinin tek projesi — ama tarih yakınlığı bağ değildir (§9d · L-13), o
+yüzden yazılmadı. Alan yine de **her kayıtta** duruyor: yeni yazılan kayıtta
+doğan alan şemayı kayıttan kayda değiştirir (VB-20 eki).
+
+**`canon.js` eksen 21 `BAGLAR` listesine EKLENMEDİ** — o eksen "bağ en az bir
+kayıtta dolu" diyor (L-22) ve bugün dolu kayıt yok; eklemek taramayı ilk
+koşumda kırardı. Yerine **eksen 32** kuruldu: alan her kayıtta var mı · dolu bağ
+çözülüyor mu · paketin müşterisi projeninkiyle aynı mı · bir projeye en fazla
+bir paket · tip sözlükten · kota aritmetiği (`kullanilan + kalan = aylikSaat × ay`).
+Beş olumsuz vakayla sınandı, beşi de yakalandı.
+
+**Tarayıcı ölçümü (tek seferlik `r08.js`):** üç dal da koştu — *Hayır* hiçbir
+şey yazmıyor · *Bağla* `BKP-004 → PRJ-2026-004` · *Yeni* `BKP-008` açıyor
+(`kalan:48 = 4 × 12 ay`, sözleşme `SZL-2026-020` devralındı, bitiş 2027-08-02) ·
+bedel boş bırakıldığında modal **açık kalıyor ve reddediyor**. Konsol temiz.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): ⬜ yok — proje ile bakım paketi arasında HİÇBİR yönde bağ yok**
 
 Ölçüm (`DB.supportPackages`, 7 kayıt, 14 alan):
 
@@ -811,18 +841,26 @@ Sekiz kontrolün veri karşılığı:
 
 **Yapılacaklar**
 
-- [ ] `DB.supportPackages[].proje` — opsiyonel FK. Bağ **pakette** durur, projede
+</details>
+
+**Yapılacaklar**
+
+- [x] `DB.supportPackages[].proje` — opsiyonel FK, **7/7 kayıtta tanımlı** (hepsi
+      `null`; veride yazılı bağ yok, uydurulmadı). Bağ **pakette** durur, projede
       ayna alan doğmaz (§9d)
-- [ ] Kapanış modalının son adımı: *"Bu proje için bakım veya destek hizmeti
-      başlatılacak mı?"* → `Hayır` · `Mevcut pakete bağla` (müşterinin paketleri
-      listelenir) · `Yeni paket oluştur`
-- [ ] "Yeni paket" seçilirse **yeni ekran açılmaz**: aynı modalda başlangıç tarihi +
-      paket tipi + sözleşme ilişkisi alınır, kayıt `DB.supportPackages`'a yazılır,
-      `GV.result` ile "Paketi aç" bağlantısı verilir
-- [ ] Paket oluşumu projenin sözleşmesini devralsın (`contracts.proje` ters
-      yönünden çözülür)
-- [ ] `canon.js` **eksen 21** `BAGLAR` listesine `proje → bakım paketi` eklensin
-      (L-22: en az bir kayıtta dolu olacak)
+- [x] Kapanış modalının son adımı: *"Bu proje için bakım veya destek hizmeti
+      başlatılacak mı?"* → `Hayır` · `Mevcut pakete bağla` · `Yeni paket oluştur`
+- [x] "Yeni paket"te **yeni ekran açılmadı**: aynı modalda tip + başlangıç + süre +
+      aylık saat + bedel alınıyor, kayıt `DB.supportPackages`'a yazılıyor,
+      `GV.result` "Paketi aç" bağlantısı veriyor. ⚠️ Aylık saat ve bedel
+      **sorulur** — paket fiyat katalogu bu depoda yok, uydurulmaz (L-13)
+- [x] Paket projenin sözleşmesini devralıyor (`contracts.proje` ters yönünden)
+- [x] `canon.js` eksen 21 `BAGLAR`'a **EKLENMEDİ** — o eksen "bağ en az bir kayıtta
+      dolu" ister (L-22), bugün dolu kayıt yok ve eklemek taramayı ilk koşumda
+      kırardı. Yerine **eksen 32** kuruldu (altı kontrol grubu) → gerekçe V-52
+
+**Dokunulan dosyalar:** `assets/js/domain.js` · `assets/data/ops.js` ·
+`app-proje-detay.html` · `tasks/qa/canon.js` · `tasks/components.md`
 
 ---
 
