@@ -642,6 +642,19 @@ DB.referrers.forEach(r => {
   ['ad', 'tel', 'eposta', 'pozisyon'].forEach(f => say(r[f] === c[f],
     r.kod + '.' + f + '="' + r[f] + '" ≠ ' + c.kod + '.' + f + '="' + c[f] + '" — aynı kişi, iki farklı değer (VB-13)'));
 });
+/* 24c. REVİZE 12 — sözleşme sorumlusu. Alan KİŞİ KODU tutar (ad değil, VB-12),
+   7/7 kayıtta dolu ve gösterdiği çalışan gerçekten var. Ayrıca sorumlu bir
+   PERSONELDİR: müşteri yetkilisi (`YTK-*`) sözleşme takip edemez. */
+DB.contracts.forEach(c => {
+  say('sorumlu' in c, c.kod + " 'sorumlu' alanı yok — şema kayıttan kayda değişiyor");
+  say(!!c.sorumlu, c.kod + ' sözleşme sorumlusu boş');
+  if (!c.sorumlu) return;
+  say(/^EMP-/.test(c.sorumlu),
+    c.kod + ' sorumlu="' + c.sorumlu + '" → EMP kodu değil (ad ya da yetkili tutuluyor, VB-12)');
+  say(DB.employees.some(e => e.kod === c.sorumlu),
+    c.kod + ' sorumlu=' + c.sorumlu + ' → DB.employees içinde yok');
+});
+
 /* Bağ yazılmamış yönlendirenlerde AYNI kişi ikinci kez tutulmamalı: telefon ya da
    e-posta bir yetkiliyle birebir aynıysa bağ yazılmamış demektir, sessiz kopya kalır. */
 DB.referrers.filter(r => !r.kontak).forEach(r => {

@@ -14,43 +14,56 @@ window.DB = window.DB || {};
    taksitlerin toplamı sözleşmenin `tutar`ına birebir eşittir.
    Fatura: `tutar` net (= milestone `odeme`) · `vergi` KDV · `toplam` brüt.
    Tahsilat `tutar`ı faturanın **brüt** `toplam`ıdır.
-   `DB.projects[].sozlesmeTutari` ve `DB.customers[].toplamCiro` de **net** eksendedir. */
+   `DB.projects[].sozlesmeTutari` ve `DB.customers[].toplamCiro` de **net** eksendedir.
+
+   ⚠️ `sorumlu` ALANI AÇILDI (REVİZE 12 · 2026-08-07) — 7/7 dolu, KİŞİ KODUDUR
+   (ad değil, VB-12 · canon eksen 24). Sözleşme kaydında bugüne kadar kişi
+   tipinde tek alan yoktu; sözleşme detayı bunu bir notice ile itiraf edip dört
+   kişiyi müşteri ve proje kartından türetip **salt okunur** basıyordu.
+   Değer UYDURULMADI, ekranın zaten türettiği sıra korundu:
+     proje varsa `DB.projects[].musteriSorumlu` (müşteri ilişkisini yürüten kişi)
+     yoksa      `DB.customers[].sorumlu`        (12/12 dolu)
+   `DB.projects[].pm` sorumlu kaynağı olarak KULLANILMADI: 14 projenin 14'ü de
+   EMP-003, yani tek değerli bir eksen — "sorumlu" ayrımı yapmıyor.
+   Sorumlu **operasyonel takipçidir**: imza süreci, bitiş, yenileme, fiyat
+   revizyonu ve bakım yenilemesi ona düşer (`app-ayar-onay.html` yenileme
+   bildirimi artık role değil bu kişiye gidiyor). */
 DB.contracts = [
   { kod:'SZL-2026-021', musteri:'MUS-2026-011', musteriAd:'Anka Finans Teknolojileri', teklif:'TKL-2026-012',
     proje:'PRJ-2026-002', ad:'AI Kredi Skorlama Geliştirme Sözleşmesi',
     tutar:500000, kdvOran:20, kdv:100000, toplam:600000, doviz:'TRY',
     imzaTarihi:'2026-06-20', baslangic:'2026-06-24', bitis:'2026-09-04', durum:'Aktif',
-    odemePlani:'%50 peşin · %50 teslimde', garanti:'12 ay', yenileme:false, aktif:true },
+    odemePlani:'%50 peşin · %50 teslimde', garanti:'12 ay', yenileme:false, sorumlu:'EMP-002', aktif:true },
   { kod:'SZL-2026-020', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.', teklif:'TKL-2026-009',
     proje:'PRJ-2026-004', ad:'Üretim Takip Sistemi Sözleşmesi',
     tutar:295000, kdvOran:20, kdv:59000, toplam:354000, doviz:'TRY',
     imzaTarihi:'2026-05-14', baslangic:'2026-05-18', bitis:'2026-07-24', durum:'Tamamlandı',
-    odemePlani:'%40 · %30 · %30', garanti:'6 ay', yenileme:false, aktif:true },
+    odemePlani:'%40 · %30 · %30', garanti:'6 ay', yenileme:false, sorumlu:'EMP-002', aktif:true },
   { kod:'SZL-2025-018', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', teklif:'TKL-2025-007',
     proje:'PRJ-2026-003', ad:'Mobil Operasyon ERP Faz 1 Sözleşmesi',
     tutar:920000, kdvOran:20, kdv:184000, toplam:1104000, doviz:'TRY',
     imzaTarihi:'2025-09-08', baslangic:'2025-09-15', bitis:'2026-09-30', durum:'Aktif',
-    odemePlani:'6 eşit milestone', garanti:'12 ay', yenileme:true, yenilemeTarihi:'2026-09-30', aktif:true },
+    odemePlani:'6 eşit milestone', garanti:'12 ay', yenileme:true, yenilemeTarihi:'2026-09-30', sorumlu:'EMP-002', aktif:true },
   { kod:'SZL-2026-019', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu', teklif:null,
     proje:'PRJ-2026-001', ad:'Hasta Randevu Mobil Uygulama Sözleşmesi',
     tutar:880000, kdvOran:20, kdv:176000, toplam:1056000, doviz:'TRY',
     imzaTarihi:'2026-02-24', baslangic:'2026-03-02', bitis:'2026-08-14', durum:'Aktif',
-    odemePlani:'%30 · %30 · %40', garanti:'12 ay', yenileme:false, aktif:true },
+    odemePlani:'%30 · %30 · %40', garanti:'12 ay', yenileme:false, sorumlu:'EMP-013', aktif:true },
   { kod:'SZL-2026-022', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.', teklif:null, proje:null,
     ad:'Yıllık Kurumsal Bakım Sözleşmesi',
     tutar:180000, kdvOran:20, kdv:36000, toplam:216000, doviz:'TRY',
     imzaTarihi:'2025-12-20', baslangic:'2026-01-01', bitis:'2026-12-31', durum:'Aktif',
-    odemePlani:'Aylık', garanti:'—', yenileme:true, yenilemeTarihi:'2026-12-31', aktif:true },
+    odemePlani:'Aylık', garanti:'—', yenileme:true, yenilemeTarihi:'2026-12-31', sorumlu:'EMP-002', aktif:true },
   { kod:'SZL-2026-023', musteri:'MUS-2026-007', musteriAd:'Nova Turizm Yatırımları', teklif:null,
     proje:'PRJ-2026-005', ad:'Rezervasyon Portalı Sözleşmesi',
     tutar:420000, kdvOran:20, kdv:84000, toplam:504000, doviz:'TRY',
     imzaTarihi:'2026-06-02', baslangic:'2026-06-08', bitis:'2026-09-18', durum:'Aktif',
-    odemePlani:'%30 · %30 · %40', garanti:'6 ay', yenileme:false, aktif:true },
+    odemePlani:'%30 · %30 · %40', garanti:'6 ay', yenileme:false, sorumlu:'EMP-014', aktif:true },
   { kod:'SZL-2026-024', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis', teklif:null,
     proje:'PRJ-2026-006', ad:'Servis Randevu Sistemi Sözleşmesi',
     tutar:185000, kdvOran:20, kdv:37000, toplam:222000, doviz:'TRY',
     imzaTarihi:'2026-03-10', baslangic:'2026-03-16', bitis:'2026-06-26', durum:'Gecikti',
-    odemePlani:'%50 peşin · %50 teslimde', garanti:'6 ay', yenileme:false, aktif:true }
+    odemePlani:'%50 peşin · %50 teslimde', garanti:'6 ay', yenileme:false, sorumlu:'EMP-013', aktif:true }
 ];
 
 /* ---- Faturalar ----------------------------------------------------------- */
