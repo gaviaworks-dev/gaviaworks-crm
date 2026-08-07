@@ -342,7 +342,11 @@
     var upcoming = DB.milestones.filter(function(m){ return codes.indexOf(m.proje) !== -1 && m.durum !== 'Tamamlandı'; })
       .sort(function(a,b){ return a.tarih.localeCompare(b.tarih); });
     var budgetDev = proj.filter(function(p){ return p.gerceklesenMaliyet > p.butce; });
-    var timeDev = proj.filter(function(p){ return p.harcananSure > p.tahminiSure; });
+    /* REVİZE 03 — süre sapması artık ZAMAN DEFTERİNDEN türetilir; `harcananSure`
+       alanı kaldırıldı. Defteri olmayan proje sapma saymaz: ölçülmemiş bir
+       projeyi "plan dahilinde" göstermek de "aşımda" göstermek de yanlış olurdu. */
+    var pSure = function(p){ return GV.proje.sure(p.kod); };
+    var timeDev = proj.filter(function(p){ var s = pSure(p); return s.kapsam && s.gerceklesen > p.tahminiSure; });
     var risks = proj.reduce(function(a,p){ return a.concat((p.riskler || []).map(function(r){ return { p:p, r:r }; })); }, []);
 
     var html = kpiGrid([
@@ -364,7 +368,7 @@
         meta:budgetDev.length ? F.moneyK(budgetDev.reduce(function(a,p){ return a + (p.gerceklesenMaliyet - p.butce); }, 0)) + ' aşım' : 'Bütçe içinde',
         metaTone:budgetDev.length ? 'down' : 'up' },
       { label:'Süre sapması', value:timeDev.length, icon:'i-timer', tone:timeDev.length ? 'warn' : 'ok',
-        meta:timeDev.length ? timeDev.reduce(function(a,p){ return a + (p.harcananSure - p.tahminiSure); }, 0) + ' saat aşım' : 'Plan dahilinde',
+        meta:timeDev.length ? Math.round(timeDev.reduce(function(a,p){ return a + (pSure(p).gerceklesen - p.tahminiSure); }, 0)) + ' saat aşım' : 'Plan dahilinde',
         metaTone:timeDev.length ? 'down' : 'up' },
       { label:'Proje riski', value:risks.length, icon:'i-alert-circle', tone:'warn' },
       { label:'Riskli proje', value:proj.filter(function(p){ return p.saglik === 'Riskli'; }).length, icon:'i-flag', tone:'danger', href:'app-proje.html' }

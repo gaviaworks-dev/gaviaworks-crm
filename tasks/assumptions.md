@@ -524,16 +524,78 @@ yerine, deponun **kendi sanksiyonlu kalıbı** uygulanır — `DB.sprints[].gore
 (V-27, canon eksen 12): sprint 60 gerçek görev sayar, `DB.tasks` 25 temsili görev
 tutar ve eksen `sayaç ≥ modellenen` der.
 
-Uygulama:
+> ⚠️ **BU KARARIN "beyan olarak kalsın" YARISI GERİ ALINDI — bkz. V-45.**
+> Ölçümün kendisi (8.900 saatin dayanaksız olduğu) doğrulandı ve yerinde
+> duruyor; alanın **beyan olarak saklanması** kararı 2026-08-07'de kaldırıldı.
+> Gerekçe: beyanın kendisi demo verisiydi ve talimat "demo verisini gerçek veri
+> kabul etme" diyor. Aşağıdaki 2. ve 3. maddeler artık geçerli değildir.
 
-1. **Ekranın gösterdiği "Gerçekleşen" DEĞER TÜRETİLİR** — `GV.proje.sure()`
-   onaylı zaman kayıtlarından hesaplar. Dokümanın istediği budur ve olan budur.
-2. `harcananSure` **elle girilen bir alan olmaktan çıkar**; ömür boyu beyan
-   edilen toplam olarak kalır, adı bunu söyler ve **forma girilmez**.
-3. `canon.js` ekseni `harcananSure ≥ Σ onaylı zaman kaydı` der — eşitlik değil.
-4. Modellenen defterin kapsamadığı projede ekran **bunu söyler**; 37 saati
-   "projenin tamamı" gibi sessizce basmaz.
 
-**Dürüst kalan boşluk:** prototipin zaman defteri 45 satırlık bir örneklemdir.
-Gerçek bir kurulumda `harcananSure` tamamen kalkar ve yalnız türetme kalır.
-Bu, veri hacmine bağlı bir sınırdır, tasarım kararı değildir.
+## V-45 · `harcananSure` kaldırıldı; defter modül ilerlemesinden türetildi
+
+V-44 `harcananSure`'ü "ömür boyu beyan" olarak bırakmıştı ve `canon.js`
+`beyan ≥ defter` diyordu. **Bu uzlaşma 2026-08-07'de kaldırıldı.** İki gerekçe:
+
+1. Beyanın kendisi demo verisiydi — 9.125 saatin ~8.900'ü hiçbir kayda
+   dayanmıyordu. Talimat "demo verilerini gerçek veri kabul etme" diyor;
+   dayanaksız bir sayıyı "beyan" adıyla saklamak onu gerçek kabul etmektir.
+2. `beyan ≥ defter` ekseni hiçbir şeyi korumuyordu: beyan defterin **30 katı**
+   olduğu için kural her koşulda geçiyordu — sahte yeşil (L-22'nin sınıfı).
+
+### Ne türetildi
+
+Türetmenin kaynağı **`DB.projectModules`**. Modül var olan bir kayıttır ve
+gerçek alanlar taşır: `efor` · `ilerleme` · `sorumlu`, artı projesinden gerçek
+müşteri ve gerçek tarih penceresi. Tamamlanan emek = `round(efor × ilerleme/100)`.
+
+**Çift sayım `DB.tasks[].modul` bağıyla kesildi:** bir modülün defterde zaten
+yazılı saatleri (görevlerinden gelen kayıtlar) hedeften düşüldü. Sonuç,
+`canon.js` eksen 27d'de kilitli bir eşitlik:
+
+> her modül için — `Σ defter satırı = round(efor × ilerleme / 100)`
+
+| | Öncesi | Sonrası |
+|---|---:|---:|
+| `DB.timelogs` satır | 53 | **131** (78 türetilmiş) |
+| Defterdeki toplam saat | 308 | **2.369** |
+| Onaylı saat | 65 | **2.137** |
+| Defteri olan proje | 7 / 14 | 7 / 14 |
+
+### Ne türetilMEDİ — ve neden
+
+Yedi arşivli projenin ve PRJ-2026-004 / PRJ-2026-007'nin **ne modül kırılımı
+ne de görev kaydı** var. Bu dokuz projenin eski beyanı toplam **~5.600 saat**;
+bu saatler için **tek bir kayıt bile üretilmedi**. Türetmenin kaynağı yok;
+kaynaksız üretim uydurmadır (L-13).
+
+Ekran bunu **söyler**: `GV.proje.sure()` `kapsam:false` döndürür, proje kartı
+ve detayı sayı basmak yerine *"Zaman defterinde bu projeye ait kayıt yok"*
+der. **"0 saat çalışıldı" ile "defterde kayıt yok" aynı şey değildir** ve
+sıfır basmak ikincisini birincisi gibi gösterirdi.
+
+### Türetilmiş kaydın onay ekseni
+
+78 kaydın hiçbirini bir timesheet kapsamıyor (haftalık defter 2026-07-27'de
+başlıyor). Kapanmış döneme ait oldukları için `onay:'Onaylandı'` yazılıdır.
+Bu izin **bugüne taşınamaz**: canon eksen 27c "kapsayan timesheet'i olmayan
+onaylı kayıt haftalık defterin başlangıcından ÖNCE olmalı" der — yani
+timesheet'i atlayan bir onay yolu açılamaz.
+
+### Tarih ve bölüntü
+
+Her modülün kalan emeği proje penceresinin **aylarına eşit bölündü**; gün
+modül sırasından türetilir (4·11·18·25) ki aynı kişinin paralel modülleri tek
+güne yığılmasın. Eşit bölme bir varsayımdır ve `aciklama` alanında açıkça
+yazılıdır (*"2026-05 ayı payı"*); tek satıra yığmak ise işin bir günde
+yapıldığını söylerdi — **bunun yanlış olduğunu biliyoruz**, eşit bölmenin
+yanlış olduğunu bilmiyoruz.
+
+### Dürüst kalan iki boşluk
+
+1. **PRJ-2026-002 yoğun görünüyor:** proje 2026-06-24'te başlıyor ama modülleri
+   328 saatlik tamamlanmış emek taşıyor — ay payı 148 saate çıkıyor. Bu
+   **kaynak verinin kendi yoğunluğudur**, türetmenin değil; düzeltmek modülün
+   `efor`/`ilerleme` değerini değiştirmek olurdu ve ölçüm kaynağına dokunmak
+   sayıyı istediğimiz yere çekmek anlamına gelirdi.
+2. **Dokuz projede gerçekleşen süre gösterilemiyor.** Gerçek bir kurulumda
+   zaman defteri tüm projeleri kapsar; bu, veri hacmine bağlı bir sınırdır.

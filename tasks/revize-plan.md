@@ -382,28 +382,28 @@ sayı **düşer ve öyle kalır**.
 
 **Yapılacaklar**
 
-- [ ] `GV.zaman.onayla(timesheetKod)` — haftalık onay **altındaki zaman kayıtlarını
+- [x] `GV.zaman.onayla(timesheetKod)` — haftalık onay **altındaki zaman kayıtlarını
       da onaylasın**. Tek onay ekseni, `domain.js`'te (VB-06 sınıfı bir ayrışma bu)
-- [ ] `GV.proje.sure(kod)` → `{ planlanan, gerceklesen, faturalanabilir }`
+- [x] `GV.proje.sure(kod)` → `{ planlanan, gerceklesen, faturalanabilir }`
       — `domain.js`'te tek yordam. `gerceklesen` = Σ `timelogs[onay==='Onaylandı']`,
       `faturalanabilir` = Σ onaylı **ve** `faturalanabilir:true`,
       `planlanan` = proje `tahminiSure` (yoksa Σ görev `tahminiSure`)
-- [ ] `DB.timelogs` var olan kayıtlardan türetilerek genişletilsin, her kaydın
+- [x] `DB.timelogs` var olan kayıtlardan türetilerek genişletilsin, her kaydın
       kaynağı `aciklama`'da yazılı olsun
-- [ ] `DB.projects[].harcananSure` **kaldırılsın** (türetilebilir sayaç saklanmaz).
+- [x] `DB.projects[].harcananSure` **kaldırılsın** (türetilebilir sayaç saklanmaz).
       `app-proje-form.html:559-560`'daki iki elle girilen sayı alanı da kalkar;
       `:556-561` hint'i ("zaman kayıtları bu alanları otomatik güncellemez") artık
       doğru olmayacak
-- [ ] Proje kartında **üç değer**: Planlanan · Gerçekleşen · Faturalandırılabilir —
+- [x] Proje kartında **üç değer**: Planlanan · Gerçekleşen · Faturalandırılabilir —
       mevcut `kpis[]` alanında (`app-proje.html:55`), **yeni kart açılmadan**
-- [ ] `app-proje-detay.html:568`'deki `faturalanabilirSaat` **tüm** zaman kayıtlarını
+- [x] `app-proje-detay.html:568`'deki `faturalanabilirSaat` **tüm** zaman kayıtlarını
       topluyor; onaylı eksene çekilsin. `app-rapor-proje.html:702`'nin
       "onaylı/onaysız tüm girişleri toplar" açıklaması da düzelsin
-- [ ] `canon.js` **eksen 25**: "proje gerçekleşen süresi = onaylı zaman kayıtlarının
+- [x] `canon.js` **eksen 25**: "proje gerçekleşen süresi = onaylı zaman kayıtlarının
       toplamı" · "faturalandırılabilir ≤ gerçekleşen ≤ tüm" · "haftalık timesheet
       onaylıysa altındaki zaman kayıtları da onaylı" · "`toplam` = o haftanın
       zaman kayıtlarının toplamı"
-- [ ] `components.md`'ye türetme sözleşmesi
+- [x] `components.md`'ye türetme sözleşmesi
 
 **Dokunulacak dosyalar:** `assets/js/domain.js` · `assets/data/work.js` ·
 `assets/data/hr.js` · `app-proje.html` · `app-proje-detay.html` ·

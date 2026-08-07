@@ -346,6 +346,18 @@ GV.report({
 | `GV.task.bekleme(kod, neden\|null, notu?)` | `beklemeNedeni` eksenini yazar/temizler; `neden ∈ DB.taskWaitReasons` | Bekleme bir DURUM değildir — görev "Devam ediyor" kalır, yalnız neyi beklediğini söyler (REVİZE 01) |
 | `GV.task.onayGerekli(t)` | Ayrı onay adımı gerekli mi — **türetilir** (`onaylayan !== kontrolEden`) | Saklanmaz (L-08). Kontrol eden ile onaylayan aynı kişiyse kontrol zaten onaydır |
 | `GV.task.yetkili(t, kural)` · `GV.task.eksikAlanlar(t, kural, ek?)` | Geçiş ön koşulları — ekran aynı mantığı ikinci kez yazmasın diye dışarı açık | Form ile detay ekranı farklı karar veremesin |
+| `GV.zaman.onayla(kod, tarih?)` | Haftalık timesheet'i onaylar **ve kapsadığı her zaman kaydının `onay` alanını da** onaylar; kaç satırın onaylandığını döndürür (`{ satir, onaylanan, saat }`) | "Onaylı saat" iki farklı şey demekti: haftalık onay `DB.timesheets[].durum`u, satır onayı `DB.timelogs[].onay`ı yazıyordu ve ikisi birbirinden habersizdi. Dört kayıt kendi haftasıyla çelişiyordu (REVİZE 03) |
+| `GV.zaman.iade(kod, gerekce)` | Timesheet'i iade eder **ve kapsadığı satırların onayını geri alır** | İade edilen haftanın satırları onaylı kalsaydı proje "gerçekleşen süre"si iade edilmiş emeği saymayı sürdürürdü |
+| `GV.zaman.onaylaKayit(kod)` | Tek satır onayı. Kapsayan timesheet varsa **ona bağlıdır**: hafta onaylı değilse `{ ok:false, why:'haftalık onaya bağlı', timesheet, hafta }` döner | Yarım yol açık bırakmak iki eksenli hâle geri dönmek olurdu. Haftalık defterin kapsamadığı satır (bu veride 2026-07-27 öncesi) kendi başına onaylanabilir |
+| `GV.zaman.timesheetOf(l)` · `GV.zaman.kayitlar(ts)` | Kapsam tanımı — hangi satır hangi haftaya düşer | Ekranda görünen kırılım ile onaylanan satırlar bir daha ayrışamaz; onay yordamı da aynı tanımı kullanır |
+| `GV.proje.sure(kod)` | `{ planlanan, gerceklesen, faturalanabilir, tum, kayit, kapsam }` — `gerceklesen` = Σ **onaylı** zaman kaydı · `faturalanabilir` = Σ onaylı **ve** billable · `planlanan` = proje `tahminiSure`, yoksa Σ görev tahmini | `DB.projects[].harcananSure` elle yazılı bir sayıydı (14 kayıtta 9.125 saat, ~8.900'ü dayanaksız) ve **kaldırıldı**. Türetilebilen sayaç veriye yazılmaz (L-08) |
+
+> **`GV.proje.sure().kapsam` yok sayılamaz.** `false` ise zaman defteri o
+> projeyi **hiç kapsamıyor** demektir ve ekran **sıfır basmaz** — "0 saat
+> çalışıldı" ile "defterde kayıt yok" aynı şey değildir (L-13). Bu depoda
+> 14 projenin 7'sinde defter yok; hepsinde ekran bunu yazıyla söyler.
+> Türetilmiş defter satırları `modul` alanı taşır ve `canon.js` eksen 27d
+> `Σ satır = round(efor × ilerleme/100)` eşitliğini kilitler.
 
 > **`yetki` listesi iki tür anahtar taşır ve ikisi ayrı çözülür.** `'pm'` bir
 > **roldür** ("proje yöneticisi rolündeki herkes"); `'sorumlu'` · `'kontrolEden'` ·

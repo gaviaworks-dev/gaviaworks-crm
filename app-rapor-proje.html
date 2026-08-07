@@ -22,6 +22,7 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico;
@@ -68,7 +69,11 @@ document.addEventListener('gv:ready', function(){
   function butceSapma(p){ return (p.gerceklesenMaliyet || 0) - (p.butce || 0); }
   function butceSapmaPct(p){ return p.butce ? Math.round(butceSapma(p) * 100 / p.butce) : null; }
   function butceAsti(p){ return butceSapma(p) > 0; }
-  function sureSapma(p){ return (p.harcananSure || 0) - (p.tahminiSure || 0); }
+  /* REVİZE 03 — efor ekseni zaman defterinden türetilir. `harcananSure`
+     alanı kaldırıldı; gerçekleşen = ONAYLI zaman kayıtları toplamı. */
+  function sure(p){ return GV.proje.sure(p.kod); }
+  function gerceklesenSure(p){ return sure(p).gerceklesen; }
+  function sureSapma(p){ return gerceklesenSure(p) - (p.tahminiSure || 0); }
   function sureSapmaPct(p){ return p.tahminiSure ? Math.round(sureSapma(p) * 100 / p.tahminiSure) : null; }
   function kalanGun(p){ return p.gercekBitis ? null : F.days(p.planlananBitis); }
 
@@ -321,11 +326,18 @@ document.addEventListener('gv:ready', function(){
                '<span class="cell-sub">' + F.num(n) + ' fatura</span>'; },
       exportValue:function(p){ return paraExp(faturalanan(p.kod)); } }; },
 
-    tahminiSure:function(){ return { key:'tahminiSure', label:'Tahmini süre', cellClass:'num',
+    tahminiSure:function(){ return { key:'tahminiSure', label:'Planlanan süre', cellClass:'num',
       render:function(p){ return '<span class="u-num">' + F.hours(p.tahminiSure) + '</span>'; } }; },
 
-    harcananSure:function(){ return { key:'harcananSure', label:'Harcanan süre', cellClass:'num',
-      render:function(p){ return '<span class="u-num u-b">' + F.hours(p.harcananSure) + '</span>'; } }; },
+    harcananSure:function(){ return { key:'harcananSure', label:'Gerçekleşen süre', cellClass:'num',
+      sortValue:gerceklesenSure,
+      render:function(p){
+        var v = sure(p);
+        return v.kapsam
+          ? '<span class="u-num u-b">' + F.hours(v.gerceklesen) + '</span>' +
+            (v.tum > v.gerceklesen ? '<span class="cell-sub">+' + F.hours(v.tum - v.gerceklesen) + ' onay bekliyor</span>' : '')
+          : '<span class="u-faint">Defterde kayıt yok</span>'; },
+      exportValue:function(p){ var v = sure(p); return v.kapsam ? v.gerceklesen : ''; } }; },
 
     sureSapma:function(){ return { key:'sureSapma', label:'Süre sapması', cellClass:'num', sortValue:sureSapma,
       render:function(p){
@@ -397,7 +409,7 @@ document.addEventListener('gv:ready', function(){
       GV.progress(p.ilerleme) +
       '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(DB.empName(p.pm)) + '</span>' +
       '<span>' + ico('i-calendar','ic-sm') + F.dateShort(p.planlananBitis) + '</span>' +
-      '<span>' + ico('i-timer','ic-sm') + F.hours(p.harcananSure) + '</span></div>' +
+      '<span>' + ico('i-timer','ic-sm') + F.hours(gerceklesenSure(p)) + '</span></div>' +
       '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(p.durum) + '</span>' +
       (canFinans ? '<span class="cell-money">' + F.moneyK(p.gerceklesenMaliyet) + '</span>' : MASK) + '</div>';
   }
@@ -677,12 +689,12 @@ document.addEventListener('gv:ready', function(){
               { title:'Bütçe kullanım oranı', sub:'% · 100 üzeri aşım', wide:true, html:GV.chart.bar(kullanim) }
             ];
           }
-          var efor = r.map(function(p){ return { label:pKisa(p), value:p.tahminiSure || 0, value2:p.harcananSure || 0 }; });
+          var efor = r.map(function(p){ return { label:pKisa(p), value:p.tahminiSure || 0, value2:gerceklesenSure(p) }; });
           return [
             { title:'Tahmini ve harcanan süre', sub:'saat · tutar yerine efor ekseni (finans yetkisi gerekli)', wide:true,
               html:GV.chart.bar(efor),
-              legend:[{ label:'Tahmini süre (saat)', value:toplam(r, function(p){ return p.tahminiSure; }) },
-                      { label:'Harcanan süre (saat)', value:toplam(r, function(p){ return p.harcananSure; }) }] },
+              legend:[{ label:'Planlanan süre (saat)', value:toplam(r, function(p){ return p.tahminiSure; }) },
+                      { label:'Gerçekleşen süre (saat)', value:toplam(r, gerceklesenSure) }] },
             { title:'Bütçe kullanım oranı', sub:'% · tutar gösterilmez', wide:true, html:GV.chart.bar(kullanim) }
           ];
         },
@@ -699,13 +711,13 @@ document.addEventListener('gv:ready', function(){
 
       { key:'sure', label:'Süre ve termin sapması', icon:'i-timer', group:'Sapma',
         title:'Süre ve Termin Sapması',
-        desc:'Tahmini efor ile harcanan eforun karşılaştırması ve planlanan bitişe göre termin gecikmesi. Zaman kaydı sütunu onaylı/onaysız tüm zaman girişlerini toplar.',
+        desc:'Planlanan efor ile gerçekleşen eforun karşılaştırması ve planlanan bitişe göre termin gecikmesi. Gerçekleşen süre yalnız ONAYLI zaman kayıtlarını toplar; onay bekleyen saatler ayrı gösterilir.',
         rows:function(f){ return baseProjects(f); },
         kpis:[
-          { label:'Tahmini süre', icon:'i-clock', format:F.hours,
+          { label:'Planlanan süre', icon:'i-clock', format:F.hours,
             calc:function(r){ return toplam(r, function(p){ return p.tahminiSure; }); } },
-          { label:'Harcanan süre', icon:'i-timer', tone:'info', format:F.hours,
-            calc:function(r){ return toplam(r, function(p){ return p.harcananSure; }); } },
+          { label:'Gerçekleşen süre', icon:'i-timer', tone:'info', format:F.hours,
+            calc:function(r){ return toplam(r, gerceklesenSure); } },
           { label:'Efor sapması', icon:'i-trend-up', tone:'warn', format:F.hours,
             calc:function(r){ return toplam(r, sureSapma); } },
           { label:'Termini aşan proje', icon:'i-alert', tone:'danger',
@@ -714,7 +726,7 @@ document.addEventListener('gv:ready', function(){
         charts:function(r){
           if(!r.length) return [];
           var efor = r.slice().sort(function(a, b){ return Math.abs(sureSapma(b)) - Math.abs(sureSapma(a)); })
-            .map(function(p){ return { label:pKisa(p), value:p.tahminiSure || 0, value2:p.harcananSure || 0 }; });
+            .map(function(p){ return { label:pKisa(p), value:p.tahminiSure || 0, value2:gerceklesenSure(p) }; });
           var gec = r.filter(gecikiyor)
             .sort(function(a, b){ return terminGecikme(b) - terminGecikme(a); })
             .map(function(p){ return { label:pKisa(p), value:terminGecikme(p), tone:'danger' }; });
@@ -722,7 +734,7 @@ document.addEventListener('gv:ready', function(){
             { title:'Tahmini ve harcanan süre', sub:'saat · sol sütun tahmini, sağ sütun harcanan', wide:true,
               html:GV.chart.bar(efor),
               legend:[{ label:'Tahmini süre (saat)', value:toplam(r, function(p){ return p.tahminiSure; }) },
-                      { label:'Harcanan süre (saat)', value:toplam(r, function(p){ return p.harcananSure; }) }] },
+                      { label:'Gerçekleşen süre (saat)', value:toplam(r, gerceklesenSure) }] },
             gec.length ? { title:'Termin gecikmesi', sub:'gün · planlanan bitişe göre', wide:true, html:GV.chart.bar(gec) } : null
           ];
         },

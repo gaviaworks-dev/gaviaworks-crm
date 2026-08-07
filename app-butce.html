@@ -19,9 +19,11 @@
 <script src="assets/data/org.js"></script>
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
@@ -31,8 +33,18 @@ document.addEventListener('gv:ready', function(){
   function asim(p){ return p.gerceklesenMaliyet > p.butce; }
   function kalan(p){ return p.butce - p.gerceklesenMaliyet; }
   function kullanim(p){ return p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0; }
-  function sureSapma(p){ return p.tahminiSure ? Math.round((p.harcananSure - p.tahminiSure) / p.tahminiSure * 100) : 0; }
-  function saatMaliyet(p){ return p.harcananSure ? Math.round(p.gerceklesenMaliyet / p.harcananSure) : null; }
+  /* REVİZE 03 — süre ekseni artık zaman defterinden gelir. `harcananSure`
+     alanı kaldırıldı; `GV.proje.sure` gerçekleşeni ONAYLI zaman kayıtlarından
+     hesaplar. Defter projeyi kapsamıyorsa sapma da saat maliyeti de
+     HESAPLANMAZ (null döner) — bölen sıfırken sıfır basmak, ölçülmemiş bir
+     şeyi ölçülmüş göstermek olurdu. */
+  function sure(p){ return GV.proje.sure(p.kod); }
+  function sureSapma(p){
+    var s = sure(p);
+    return (s.planlanan && s.kapsam) ? Math.round((s.gerceklesen - s.planlanan) / s.planlanan * 100) : 0; }
+  function saatMaliyet(p){
+    var g = sure(p).gerceklesen;
+    return g ? Math.round(p.gerceklesenMaliyet / g) : null; }
 
   /* Proje bazlı gelir — faturalar ve tahsilatlar üzerinden */
   function projeFaturalari(p){ return DB.invoices.filter(function(i){ return i.proje === p.kod; }); }
@@ -204,8 +216,10 @@ document.addEventListener('gv:ready', function(){
       ['Gerçekleşen maliyet', F.money(p.gerceklesenMaliyet)],
       ['Kalan bütçe', k < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(k)) + '</span>' : F.money(k)],
       ['Bütçe kullanımı', '<span class="u-num' + (kullanim(p) > 100 ? ' u-danger u-b' : '') + '">%' + F.num(kullanim(p)) + '</span>'],
-      ['Tahmini süre', F.hours(p.tahminiSure)],
-      ['Harcanan süre', F.hours(p.harcananSure)],
+      ['Planlanan süre', F.hours(sure(p).planlanan)],
+      ['Gerçekleşen süre <span class="u-faint">(onaylı zaman kaydı)</span>', sure(p).kapsam
+        ? F.hours(sure(p).gerceklesen) : '<span class="u-faint">Defterde kayıt yok</span>'],
+      ['Faturalandırılabilir süre', sure(p).kapsam ? F.hours(sure(p).faturalanabilir) : '<span class="u-faint">—</span>'],
       ['Süre sapması', s > 0 ? '<span class="u-num u-danger u-b">+%' + F.num(s) + '</span>'
                              : s < 0 ? '<span class="u-num u-ok">−%' + F.num(Math.abs(s)) + '</span>' : '%0'],
       ['Ortalama saat maliyeti', sm == null ? '—' : F.money(sm) + ' / saat'],
@@ -298,9 +312,15 @@ document.addEventListener('gv:ready', function(){
           var o = kullanim(p);
           return GV.progress(o, { tone:o > 100 ? 'danger' : o > 85 ? 'warn' : 'ok' }); },
         exportValue:function(p){ return canFinans ? kullanim(p) + '%' : ''; } },
-      { key:'harcananSure', label:'Tahmini / harcanan süre', visible:false, cellClass:'num',
-        render:function(p){ return '<span class="u-num">' + F.hours(p.tahminiSure) + ' / ' + F.hours(p.harcananSure) + '</span>'; },
-        exportValue:function(p){ return p.tahminiSure + ' / ' + p.harcananSure; } },
+      { key:'sure', label:'Planlanan / gerçekleşen süre', visible:false, cellClass:'num',
+        sortValue:function(p){ return sure(p).gerceklesen; },
+        render:function(p){
+          var s = sure(p);
+          return '<span class="u-num">' + F.hours(s.planlanan) + ' / ' +
+            (s.kapsam ? F.hours(s.gerceklesen) : '—') + '</span>'; },
+        exportValue:function(p){
+          var s = sure(p);
+          return s.planlanan + ' / ' + (s.kapsam ? s.gerceklesen : ''); } },
       { key:'sureSapma', label:'Süre sapması', cellClass:'num',
         sortValue:function(p){ return sureSapma(p); },
         render:function(p){

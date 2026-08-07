@@ -175,7 +175,218 @@ DB.timelogs = [
   { kod:'ZMN-9052', personel:'EMP-002', tarih:'2026-07-31', gorev:'GRV-2026-125', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
     sure:3, faturalanabilir:false, aciklama:'GRV-2026-125 memnuniyet eskalasyonu — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9053', personel:'EMP-006', tarih:'2026-08-03', gorev:'GRV-2026-126', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
-    sure:2, faturalanabilir:true, aciklama:'GRV-2026-126 tarih seçici düzeltmesi — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true }
+    sure:2, faturalanabilir:true, aciklama:'GRV-2026-126 tarih seçici düzeltmesi — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
+
+  /* ---- REVİZE 03 — PROJE UCU: modül ilerlemesinden türetilen defter ------
+     Ölçüm (2026-08-07): `DB.projects[].harcananSure` 9.125 saat diyordu,
+     zaman defterinde bunun karşılığı **308 saatti**. Aradaki ~8.900 saat
+     hiçbir kayda dayanmıyordu — talimatın "demo verisini gerçek veri kabul
+     etme" yasağının tam hedefi. Sayı olduğu gibi bırakılmadı; **türetilebilen
+     kısım türetildi, türetilemeyen kısım üretilmedi.**
+
+     KAYNAK: `DB.projectModules`. Modül var olan bir kayıttır ve üç gerçek
+     alan taşır — `efor` (planlanan iş) · `ilerleme` (yüzde) · `sorumlu`
+     (gerçek personel) — artı projesi üzerinden gerçek müşteri ve gerçek
+     tarih penceresi. Tamamlanan emek = round(efor × ilerleme / 100).
+
+     ÇİFT SAYIM KESİLDİ: `DB.tasks[].modul` bağı sayesinde bir modülün
+     defterde ZATEN yazılı saatleri (görevlerinden gelen kayıtlar) hedeften
+     düşüldü. Modül ekseninin toplamı hedefi tam karşılar, aşmaz:
+
+     MOD-001 PRJ-2026-001 EMP-008 · efor 180 × %100 = 180 sa · defterde 0 sa · türetilen 180 sa → 5 ay
+     MOD-002 PRJ-2026-001 EMP-008 · efor 220 × %88 = 194 sa · defterde 78 sa (GRV-2026-101 · GRV-2026-113) · türetilen 116 sa → 5 ay
+     MOD-003 PRJ-2026-001 EMP-005 · efor 140 × %75 = 105 sa · defterde 9 sa (GRV-2026-118) · türetilen 96 sa → 5 ay
+     MOD-004 PRJ-2026-001 EMP-006 · efor 260 × %62 = 161 sa · defterde 0 sa · türetilen 161 sa → 5 ay
+     MOD-005 PRJ-2026-002 EMP-007 · efor 160 × %100 = 160 sa · defterde 0 sa · türetilen 160 sa → 2 ay
+     MOD-006 PRJ-2026-002 EMP-007 · efor 240 × %70 = 168 sa · defterde 33 sa (GRV-2026-103) · türetilen 135 sa → 2 ay
+     MOD-007 PRJ-2026-002 EMP-006 · efor 200 × %35 = 70 sa · defterde 19 sa (GRV-2026-104) · türetilen 51 sa → 2 ay
+     MOD-009 PRJ-2026-003 EMP-005 · efor 340 × %100 = 340 sa · defterde 0 sa · türetilen 340 sa → 11 ay
+     MOD-010 PRJ-2026-003 EMP-006 · efor 420 × %92 = 386 sa · defterde 13 sa (GRV-2026-114 · GRV-2026-121) · türetilen 373 sa → 11 ay
+     MOD-011 PRJ-2026-003 EMP-005 · efor 380 × %44 = 167 sa · defterde 38 sa (GRV-2026-105) · türetilen 129 sa → 11 ay
+     MOD-012 PRJ-2026-003 EMP-006 · efor 300 × %10 = 30 sa · defterde 0 sa (GRV-2026-106) · türetilen 30 sa → 11 ay
+     MOD-013 PRJ-2026-005 EMP-006 · efor 280 × %52 = 146 sa · defterde 17 sa (GRV-2026-108) · türetilen 129 sa → 2 ay
+     MOD-014 PRJ-2026-005 EMP-006 · efor 160 × %12 = 19 sa · defterde 0 sa · türetilen 19 sa → 2 ay
+     MOD-015 PRJ-2026-006 EMP-006 · efor 180 × %90 = 162 sa · defterde 20 sa (GRV-2026-107 · GRV-2026-126) · türetilen 142 sa → 4 ay
+
+     TARİH: her modülün kalan emeği proje penceresinin aylarına **eşit
+     bölündü**; gün modül sırasından türetilir (4·11·18·25) ki aynı kişinin
+     paralel modülleri tek güne yığılmasın. Kayıtlar bilerek haftalık
+     defterin (2026-W31) dışında kalır — içine düşselerdi timesheet
+     bildirimi ile satır kırılımı ayrışırdı.
+
+     ONAY: bu kayıtların hiçbirini bir timesheet kapsamıyor (haftalık defter
+     2026-07-27'de başlıyor). Kapanmış döneme ait oldukları için `Onaylandı`
+     yazılıdır; `canon.js` eksen 27 "kapsayan timesheet'i olmayan onaylı
+     kayıt haftalık defterin başlangıcından ÖNCE olmalı" diyerek bu izni
+     bugüne taşınamaz hâle getirir.
+
+     FATURALANDIRMA: beş projenin beşi de sözleşme bedeli taşıyan müşteri
+     projesi; modül kapsamındaki emek faturalanabilirdir.
+
+     `modul` alanı YALNIZ görevi olmayan kayıtta yazılıdır — görevli kaydın
+     modülü görevinden çözülür ve ikinci kez yazılmaz (L-08).
+
+     TÜRETİLEMEYEN KISIM ÜRETİLMEDİ: yedi arşivli proje ile PRJ-2026-004 /
+     PRJ-2026-007'nin modül kırılımı yok, görevi de yok. O projelerin
+     ~5.600 saati için tek bir kayıt bile uydurulmadı; ekran onlarda sayı
+     basmaz, "zaman defteri bu projeyi kapsamıyor" der (V-45). */
+
+  { kod:'ZMN-9054', personel:'EMP-008', tarih:'2026-03-04', gorev:null, modul:'MOD-001', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:36, faturalanabilir:true, aciklama:'MOD-001 Randevu oluşturma akışı — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9055', personel:'EMP-008', tarih:'2026-04-04', gorev:null, modul:'MOD-001', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:36, faturalanabilir:true, aciklama:'MOD-001 Randevu oluşturma akışı — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9056', personel:'EMP-008', tarih:'2026-05-04', gorev:null, modul:'MOD-001', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:36, faturalanabilir:true, aciklama:'MOD-001 Randevu oluşturma akışı — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9057', personel:'EMP-008', tarih:'2026-06-04', gorev:null, modul:'MOD-001', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:36, faturalanabilir:true, aciklama:'MOD-001 Randevu oluşturma akışı — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9058', personel:'EMP-008', tarih:'2026-07-04', gorev:null, modul:'MOD-001', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:36, faturalanabilir:true, aciklama:'MOD-001 Randevu oluşturma akışı — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9059', personel:'EMP-008', tarih:'2026-03-11', gorev:null, modul:'MOD-002', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:23.2, faturalanabilir:true, aciklama:'MOD-002 Tahlil sonuç görüntüleme — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9060', personel:'EMP-008', tarih:'2026-04-11', gorev:null, modul:'MOD-002', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:23.2, faturalanabilir:true, aciklama:'MOD-002 Tahlil sonuç görüntüleme — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9061', personel:'EMP-008', tarih:'2026-05-11', gorev:null, modul:'MOD-002', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:23.2, faturalanabilir:true, aciklama:'MOD-002 Tahlil sonuç görüntüleme — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9062', personel:'EMP-008', tarih:'2026-06-11', gorev:null, modul:'MOD-002', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:23.2, faturalanabilir:true, aciklama:'MOD-002 Tahlil sonuç görüntüleme — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9063', personel:'EMP-008', tarih:'2026-07-11', gorev:null, modul:'MOD-002', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:23.2, faturalanabilir:true, aciklama:'MOD-002 Tahlil sonuç görüntüleme — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9064', personel:'EMP-005', tarih:'2026-03-18', gorev:null, modul:'MOD-003', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:19.2, faturalanabilir:true, aciklama:'MOD-003 Bildirim ve hatırlatma — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9065', personel:'EMP-005', tarih:'2026-04-18', gorev:null, modul:'MOD-003', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:19.2, faturalanabilir:true, aciklama:'MOD-003 Bildirim ve hatırlatma — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9066', personel:'EMP-005', tarih:'2026-05-18', gorev:null, modul:'MOD-003', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:19.2, faturalanabilir:true, aciklama:'MOD-003 Bildirim ve hatırlatma — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9067', personel:'EMP-005', tarih:'2026-06-18', gorev:null, modul:'MOD-003', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:19.2, faturalanabilir:true, aciklama:'MOD-003 Bildirim ve hatırlatma — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9068', personel:'EMP-005', tarih:'2026-07-18', gorev:null, modul:'MOD-003', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:19.2, faturalanabilir:true, aciklama:'MOD-003 Bildirim ve hatırlatma — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9069', personel:'EMP-006', tarih:'2026-03-25', gorev:null, modul:'MOD-004', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:32.2, faturalanabilir:true, aciklama:'MOD-004 Yönetim paneli — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9070', personel:'EMP-006', tarih:'2026-04-25', gorev:null, modul:'MOD-004', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:32.2, faturalanabilir:true, aciklama:'MOD-004 Yönetim paneli — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9071', personel:'EMP-006', tarih:'2026-05-25', gorev:null, modul:'MOD-004', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:32.2, faturalanabilir:true, aciklama:'MOD-004 Yönetim paneli — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9072', personel:'EMP-006', tarih:'2026-06-25', gorev:null, modul:'MOD-004', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:32.2, faturalanabilir:true, aciklama:'MOD-004 Yönetim paneli — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9073', personel:'EMP-006', tarih:'2026-07-16', gorev:null, modul:'MOD-004', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
+    sure:32.2, faturalanabilir:true, aciklama:'MOD-004 Yönetim paneli — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9074', personel:'EMP-007', tarih:'2026-06-24', gorev:null, modul:'MOD-005', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:80, faturalanabilir:true, aciklama:'MOD-005 Veri hazırlama hattı — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9075', personel:'EMP-007', tarih:'2026-07-04', gorev:null, modul:'MOD-005', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:80, faturalanabilir:true, aciklama:'MOD-005 Veri hazırlama hattı — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9076', personel:'EMP-007', tarih:'2026-06-25', gorev:null, modul:'MOD-006', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:67.5, faturalanabilir:true, aciklama:'MOD-006 Skorlama modeli — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9077', personel:'EMP-007', tarih:'2026-07-11', gorev:null, modul:'MOD-006', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:67.5, faturalanabilir:true, aciklama:'MOD-006 Skorlama modeli — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9078', personel:'EMP-006', tarih:'2026-06-26', gorev:null, modul:'MOD-007', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:25.5, faturalanabilir:true, aciklama:'MOD-007 Başvuru inceleme paneli — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9079', personel:'EMP-006', tarih:'2026-07-18', gorev:null, modul:'MOD-007', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
+    sure:25.5, faturalanabilir:true, aciklama:'MOD-007 Başvuru inceleme paneli — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9080', personel:'EMP-005', tarih:'2025-09-15', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2025-09 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9081', personel:'EMP-005', tarih:'2025-10-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2025-10 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9082', personel:'EMP-005', tarih:'2025-11-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2025-11 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9083', personel:'EMP-005', tarih:'2025-12-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2025-12 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9084', personel:'EMP-005', tarih:'2026-01-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-01 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9085', personel:'EMP-005', tarih:'2026-02-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-02 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9086', personel:'EMP-005', tarih:'2026-03-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9087', personel:'EMP-005', tarih:'2026-04-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9088', personel:'EMP-005', tarih:'2026-05-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9089', personel:'EMP-005', tarih:'2026-06-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:30.9, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9090', personel:'EMP-005', tarih:'2026-07-04', gorev:null, modul:'MOD-009', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:31, faturalanabilir:true, aciklama:'MOD-009 Mobil ekip yönetimi — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9091', personel:'EMP-006', tarih:'2025-09-16', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2025-09 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9092', personel:'EMP-006', tarih:'2025-10-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2025-10 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9093', personel:'EMP-006', tarih:'2025-11-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2025-11 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9094', personel:'EMP-006', tarih:'2025-12-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2025-12 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9095', personel:'EMP-006', tarih:'2026-01-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-01 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9096', personel:'EMP-006', tarih:'2026-02-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-02 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9097', personel:'EMP-006', tarih:'2026-03-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9098', personel:'EMP-006', tarih:'2026-04-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9099', personel:'EMP-006', tarih:'2026-05-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9100', personel:'EMP-006', tarih:'2026-06-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:33.9, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9101', personel:'EMP-006', tarih:'2026-07-11', gorev:null, modul:'MOD-010', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:34, faturalanabilir:true, aciklama:'MOD-010 İş emri takibi — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9102', personel:'EMP-005', tarih:'2025-09-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2025-09 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9103', personel:'EMP-005', tarih:'2025-10-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2025-10 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9104', personel:'EMP-005', tarih:'2025-11-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2025-11 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9105', personel:'EMP-005', tarih:'2025-12-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2025-12 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9106', personel:'EMP-005', tarih:'2026-01-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-01 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9107', personel:'EMP-005', tarih:'2026-02-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-02 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9108', personel:'EMP-005', tarih:'2026-03-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9109', personel:'EMP-005', tarih:'2026-04-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9110', personel:'EMP-005', tarih:'2026-05-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9111', personel:'EMP-005', tarih:'2026-06-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.72, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9112', personel:'EMP-005', tarih:'2026-07-18', gorev:null, modul:'MOD-011', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:11.8, faturalanabilir:true, aciklama:'MOD-011 Logo ERP entegrasyonu — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9113', personel:'EMP-006', tarih:'2025-09-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2025-09 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9114', personel:'EMP-006', tarih:'2025-10-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2025-10 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9115', personel:'EMP-006', tarih:'2025-11-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2025-11 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9116', personel:'EMP-006', tarih:'2025-12-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2025-12 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9117', personel:'EMP-006', tarih:'2026-01-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-01 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9118', personel:'EMP-006', tarih:'2026-02-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-02 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9119', personel:'EMP-006', tarih:'2026-03-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9120', personel:'EMP-006', tarih:'2026-04-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9121', personel:'EMP-006', tarih:'2026-05-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9122', personel:'EMP-006', tarih:'2026-06-25', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.72, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9123', personel:'EMP-006', tarih:'2026-07-16', gorev:null, modul:'MOD-012', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+    sure:2.8, faturalanabilir:true, aciklama:'MOD-012 Rapor merkezi — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9124', personel:'EMP-006', tarih:'2026-06-08', gorev:null, modul:'MOD-013', proje:'PRJ-2026-005', musteri:'MUS-2026-007',
+    sure:64.5, faturalanabilir:true, aciklama:'MOD-013 Rezervasyon motoru — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9125', personel:'EMP-006', tarih:'2026-07-04', gorev:null, modul:'MOD-013', proje:'PRJ-2026-005', musteri:'MUS-2026-007',
+    sure:64.5, faturalanabilir:true, aciklama:'MOD-013 Rezervasyon motoru — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9126', personel:'EMP-006', tarih:'2026-06-11', gorev:null, modul:'MOD-014', proje:'PRJ-2026-005', musteri:'MUS-2026-007',
+    sure:9.5, faturalanabilir:true, aciklama:'MOD-014 Ödeme entegrasyonu — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9127', personel:'EMP-006', tarih:'2026-07-11', gorev:null, modul:'MOD-014', proje:'PRJ-2026-005', musteri:'MUS-2026-007',
+    sure:9.5, faturalanabilir:true, aciklama:'MOD-014 Ödeme entegrasyonu — 2026-07 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9128', personel:'EMP-006', tarih:'2026-03-18', gorev:null, modul:'MOD-015', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:35.5, faturalanabilir:true, aciklama:'MOD-015 Servis randevu takvimi — 2026-03 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9129', personel:'EMP-006', tarih:'2026-04-18', gorev:null, modul:'MOD-015', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:35.5, faturalanabilir:true, aciklama:'MOD-015 Servis randevu takvimi — 2026-04 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9130', personel:'EMP-006', tarih:'2026-05-18', gorev:null, modul:'MOD-015', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:35.5, faturalanabilir:true, aciklama:'MOD-015 Servis randevu takvimi — 2026-05 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true },
+  { kod:'ZMN-9131', personel:'EMP-006', tarih:'2026-06-18', gorev:null, modul:'MOD-015', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+    sure:35.5, faturalanabilir:true, aciklama:'MOD-015 Servis randevu takvimi — 2026-06 ayı payı · modül ilerlemesinden türetildi', onay:'Onaylandı', aktif:true }
 ];
 
 /* ---- Haftalık timesheet özeti ------------------------------------------ */

@@ -37,11 +37,24 @@
 <script src="assets/data/org.js"></script>
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/work.js"></script>
+<script src="assets/data/hr.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, canFinans = GV.perm.can('finans');
+
+  /* REVİZE 03 — üç süre değeri artık ZAMAN DEFTERİNDEN türetilir.
+     `DB.projects[].harcananSure` elle yazılı bir sayıydı ve kaldırıldı;
+     `GV.proje.sure` planlananı proje tahmininden, gerçekleşeni ONAYLI zaman
+     kayıtlarından, faturalandırılabiliri onaylı + billable kayıtlardan
+     hesaplar. Yeni kart açılmadı: değerler mevcut `kpis[]` şeridine ve
+     mevcut kolon kümesine girdi. */
+  function sure(p){ return GV.proje.sure(p.kod); }
+  function sureTopla(a, alan){
+    return a.reduce(function(s, p){ return s + sure(p)[alan]; }, 0);
+  }
   var aktif = function(p){ return p.durum !== 'Teslim' && !p.arsiv; };
   var geciken = function(p){ return aktif(p) && p.planlananBitis && F.days(p.planlananBitis) < 0; };
 
@@ -58,7 +71,13 @@ document.addEventListener('gv:ready', function(){
       { label:'Riskli proje', icon:'i-alert-circle', tone:'warn',
         calc:function(a){ return a.filter(function(p){ return p.saglik === 'Riskli'; }).length; } },
       { label:'Toplam sözleşme', icon:'i-wallet', tone:'ok', format:F.moneyK,
-        perm:'finans', calc:function(a){ return a.filter(aktif).reduce(function(s,p){ return s + p.sozlesmeTutari; }, 0); } }
+        perm:'finans', calc:function(a){ return a.filter(aktif).reduce(function(s,p){ return s + p.sozlesmeTutari; }, 0); } },
+      { label:'Planlanan süre', icon:'i-clock', format:F.hours,
+        calc:function(a){ return sureTopla(a, 'planlanan'); } },
+      { label:'Gerçekleşen süre', icon:'i-timer', tone:'info', format:F.hours,
+        calc:function(a){ return sureTopla(a, 'gerceklesen'); } },
+      { label:'Faturalandırılabilir', icon:'i-receipt', tone:'ok', format:F.hours,
+        calc:function(a){ return sureTopla(a, 'faturalanabilir'); } }
     ],
 
     tabs:[
@@ -97,8 +116,20 @@ document.addEventListener('gv:ready', function(){
           var o = Math.round(p.gerceklesenMaliyet / p.butce * 100);
           return GV.progress(o, { tone:o > 100 ? 'danger' : o > 85 ? 'warn' : 'ok' }); },
         exportValue:function(p){ return canFinans ? Math.round(p.gerceklesenMaliyet / p.butce * 100) + '%' : ''; } },
-      { key:'harcananSure', label:'Süre kullanımı', visible:false, cellClass:'num', render:function(p){
-          return '<span class="u-num">' + F.hours(p.harcananSure) + ' / ' + F.hours(p.tahminiSure) + '</span>'; } },
+      { key:'sure', label:'Planlanan / gerçekleşen', visible:false, cellClass:'num',
+        sortValue:function(p){ return sure(p).gerceklesen; },
+        render:function(p){
+          var s = sure(p);
+          /* Defter projeyi kapsamıyorsa SIFIR BASILMAZ: "0 saat çalışıldı" ile
+             "defterde kayıt yok" aynı şey değildir (L-13). */
+          if(!s.kapsam) return '<span class="u-num">' + F.hours(s.planlanan) + '</span>' +
+            '<span class="cell-sub">defterde kayıt yok</span>';
+          return '<span class="u-num">' + F.hours(s.planlanan) + ' / ' + F.hours(s.gerceklesen) + '</span>' +
+            '<span class="cell-sub">fat. ' + F.hours(s.faturalanabilir) +
+            (s.tum > s.gerceklesen ? ' · ' + F.hours(s.tum - s.gerceklesen) + ' onay bekliyor' : '') + '</span>'; },
+        exportValue:function(p){
+          var s = sure(p);
+          return s.kapsam ? s.planlanan + ' / ' + s.gerceklesen : s.planlanan + ' / '; } },
       { key:'saglik', label:'Sağlık', render:function(p){
           var t = p.saglik === 'İyi' ? 'is-ok' : p.saglik === 'Riskli' ? 'is-danger' : 'is-warn';
           return '<span class="badge ' + t + '">' + GV.esc(p.saglik) + '</span>'; } },

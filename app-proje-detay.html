@@ -26,6 +26,7 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
@@ -81,7 +82,11 @@ document.addEventListener('gv:ready', function(){
   var gecikti   = kalanGun < 0 && !bitti;
   var kalanButce = p.butce - p.gerceklesenMaliyet;
   var butceKullanim = p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0;
-  var saatMaliyet = p.harcananSure ? Math.round(p.gerceklesenMaliyet / p.harcananSure) : null;
+  /* REVİZE 03 — süre üçlüsü zaman defterinden türetilir; `harcananSure`
+     alanı kaldırıldı. `sure.kapsam` false ise defter bu projeyi hiç
+     kapsamıyor demektir ve ekran sayı basmaz, bunu SÖYLER. */
+  var sure        = GV.proje.sure(p.kod);
+  var saatMaliyet = sure.gerceklesen ? Math.round(p.gerceklesenMaliyet / sure.gerceklesen) : null;
 
   /* ---- Küçük yardımcılar ---- */
   /* Sekme içi tablolar mobilde kart listesine dönmez, yatay kaydırır —
@@ -156,12 +161,21 @@ document.addEventListener('gv:ready', function(){
         ['Gerçekleşen bitiş', p.gercekBitis ? F.date(p.gercekBitis) : null],
         ['Kalan süre', bitti ? 'Tamamlandı' : F.rel(p.planlananBitis)],
         ['İlerleme oranı', GV.progress(p.ilerleme)],
-        ['Tahmini süre', F.hours(p.tahminiSure)],
-        ['Harcanan süre', '<b>' + F.hours(p.harcananSure) + '</b>'],
+        ['Planlanan süre', F.hours(sure.planlanan)],
+        ['Gerçekleşen süre <span class="u-faint">(onaylı zaman kaydı)</span>', sure.kapsam
+          ? '<b>' + F.hours(sure.gerceklesen) + '</b>' +
+            (sure.tum > sure.gerceklesen
+              ? ' <span class="cell-sub">+ ' + F.hours(sure.tum - sure.gerceklesen) + ' onay bekliyor</span>' : '')
+          : '<span class="u-faint">Zaman defterinde bu projeye ait kayıt yok</span>'],
+        ['Faturalandırılabilir süre', sure.kapsam
+          ? '<b>' + F.hours(sure.faturalanabilir) + '</b>' +
+            (sure.gerceklesen ? ' <span class="cell-sub">gerçekleşenin %' +
+              Math.round(sure.faturalanabilir / sure.gerceklesen * 100) + '\u2019i</span>' : '')
+          : null],
         ['Süre sapması', (function(){
-          var d = p.harcananSure - p.tahminiSure;
-          if(!p.tahminiSure) return null;
-          var y = Math.round(d / p.tahminiSure * 100);
+          if(!sure.planlanan || !sure.kapsam) return null;
+          var d = sure.gerceklesen - sure.planlanan;
+          var y = Math.round(d / sure.planlanan * 100);
           return d > 0 ? '<span class="u-num u-danger u-b">+' + F.hours(d) + ' (%' + y + ')</span>'
                        : '<span class="u-num u-ok u-b">' + F.hours(d) + ' (%' + y + ')</span>';
         })()],
@@ -363,7 +377,7 @@ document.addEventListener('gv:ready', function(){
     GV.notice({ tone:'info', icon:'i-info',
       title:'Bu sekmedeki saatler yalnız bu projeye girilmiş zaman kayıtlarıdır',
       text:'Kişinin genel doluluğu tüm projelerini kapsar; proje bazlı emek ' + F.hours(toplamSaat) +
-           ', projenin toplam harcanan süresi ' + F.hours(p.harcananSure) + ' olarak raporlanır.' }) +
+           ', projenin defterdeki toplam emeği ' + F.hours(sure.tum) + ' olarak raporlanır.' }) +
     '<div class="u-mt-4">' +
     tablo('<th>Kişi</th><th class="num">Atanmış görev</th><th class="num">Açık görev</th><th class="num">Geciken</th>' +
           '<th class="num">Açık iş tahmini</th><th class="num">Harcanan saat</th><th>Projedeki payı</th>',
@@ -561,7 +575,10 @@ document.addEventListener('gv:ready', function(){
   /* ===================================================================
      11. ZAMAN KAYITLARI
      =================================================================== */
-  var faturalanabilirSaat = loglar.filter(function(l){ return l.faturalanabilir; }).reduce(function(a,l){ return a + l.sure; }, 0);
+  /* REVİZE 03 — bu toplam ONAYLI eksene çekildi. Eskiden onaylı/onaysız tüm
+     satırları topluyordu ve proje kartındaki faturalandırılabilir süreyle
+     ayrışıyordu; aynı sayı iki ekranda iki farklı değerdi. */
+  var faturalanabilirSaat = sure.faturalanabilir;
 
   var pZaman = '<div class="gc-body flush">' +
     (loglar.length
@@ -577,7 +594,8 @@ document.addEventListener('gv:ready', function(){
               '<td>' + GV.badge(l.onay) + '</td></tr>';
           }).join('')) +
         '<div class="gc-foot"><span class="gv-count">Kayıtlı emek <b>' + F.hours(toplamSaat) + '</b> · faturalanabilir ' +
-          F.hours(faturalanabilirSaat) + ' · projenin toplam harcanan süresi ' + F.hours(p.harcananSure) + '</span>' +
+          F.hours(faturalanabilirSaat) + ' <span class="u-faint">(onaylı)</span> · defterdeki toplam ' +
+          F.hours(sure.tum) + '</span>' +
           '<a class="btn btn-line btn-sm" href="app-zaman.html">' + ico('i-timer','ic-sm') + ' Zaman ekranı</a></div>'
       : bos('i-timer','Zaman kaydı yok','Bu projeye henüz süre girilmemiş.',
           '<a class="btn btn-acc" href="app-zaman.html">Zaman kaydı ekranı</a>')) +
@@ -869,9 +887,11 @@ document.addEventListener('gv:ready', function(){
               : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
           : '<span class="cell-mask">••••••</span>'],
         ['Bütçe kullanımı', GV.progress(butceKullanim, { tone:butceKullanim > 100 ? 'danger' : (butceKullanim > 85 ? 'warn' : null) })],
-        ['Tahmini süre', F.hours(p.tahminiSure)],
-        ['Harcanan süre', '<b>' + F.hours(p.harcananSure) + '</b>'],
-        ['Süre kullanımı', GV.progress(p.tahminiSure ? Math.round(p.harcananSure / p.tahminiSure * 100) : 0)],
+        ['Planlanan süre', F.hours(sure.planlanan)],
+        ['Gerçekleşen süre', sure.kapsam ? '<b>' + F.hours(sure.gerceklesen) + '</b>'
+          : '<span class="u-faint">Defterde kayıt yok</span>'],
+        ['Süre kullanımı', sure.kapsam
+          ? GV.progress(sure.planlanan ? Math.round(sure.gerceklesen / sure.planlanan * 100) : 0) : null],
         ['Ortalama saat maliyeti', saatMaliyet == null ? null : (canFinans
           ? '<span class="cell-money">' + F.money(saatMaliyet) + '</span> / saat'
           : '<span class="cell-mask">••••••</span>')],
@@ -944,9 +964,10 @@ document.addEventListener('gv:ready', function(){
         '<div class="kpi-body"><div class="kpi-num">%' + butceKullanim + '</div><div class="kpi-lbl">Bütçe kullanımı</div>' +
         '<div class="kpi-meta is-flat">' + paraK(p.gerceklesenMaliyet) + ' / ' + paraK(p.butce) + '</div></div></div>' +
       '<div class="kpi is-info"><div class="kpi-ico">' + ico('i-timer','ic-lg') + '</div>' +
-        '<div class="kpi-body"><div class="kpi-num">' + F.num(p.harcananSure) + '<small>sa</small></div>' +
-        '<div class="kpi-lbl">Harcanan süre</div>' +
-        '<div class="kpi-meta is-flat">Tahmini ' + F.hours(p.tahminiSure) + '</div></div></div>' +
+        '<div class="kpi-body"><div class="kpi-num">' + (sure.kapsam ? F.num(sure.gerceklesen) + '<small>sa</small>' : '<small>defter yok</small>') + '</div>' +
+        '<div class="kpi-lbl">Gerçekleşen süre</div>' +
+        '<div class="kpi-meta is-flat">Planlanan ' + F.hours(sure.planlanan) +
+          (sure.kapsam ? ' · fat. ' + F.hours(sure.faturalanabilir) : '') + '</div></div></div>' +
       '<div class="kpi ' + (acikHata.length ? 'is-warn' : 'is-ok') + '"><div class="kpi-ico">' + ico('i-bug','ic-lg') + '</div>' +
         '<div class="kpi-body"><div class="kpi-num">' + acikHata.length + '</div><div class="kpi-lbl">Açık hata</div>' +
         '<div class="kpi-meta is-flat">' + testler.reduce(function(a,t){ return a + t.senaryo; }, 0) + ' test senaryosu</div></div></div>' +
@@ -1037,7 +1058,8 @@ document.addEventListener('gv:ready', function(){
        ['Gecikme', gecikti
           ? '<span class="badge is-danger">' + Math.abs(kalanGun) + ' gün</span>'
           : (bitti ? '<span class="badge is-ok">Yok</span>' : '<span class="u-faint">Yok</span>')],
-       ['Tahmini / harcanan', F.hours(p.tahminiSure) + ' / <b>' + F.hours(p.harcananSure) + '</b>']
+       ['Planlanan / gerçekleşen', F.hours(sure.planlanan) + ' / ' +
+          (sure.kapsam ? '<b>' + F.hours(sure.gerceklesen) + '</b>' : '<span class="u-faint">defter yok</span>')]
       ].map(function(x){
         return '<div class="gv-summary-row"><span class="gv-summary-lbl">' + x[0] + '</span><span class="gv-summary-val">' + x[1] + '</span></div>';
       }).join('') +

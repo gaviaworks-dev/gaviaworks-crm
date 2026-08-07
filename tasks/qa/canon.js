@@ -757,16 +757,105 @@ head('26) Zaman defteri ↔ görev emeği (REVİZE 03)');
   const fat  = sum(DB.timelogs.filter(l => l.onay === 'Onaylandı' && l.faturalanabilir).map(l => l.sure));
   say(fat <= onay, 'faturalandırılabilir (' + fat + ') > onaylı (' + onay + ')');
   say(onay <= tum, 'onaylı (' + onay + ') > tüm kayıtlar (' + tum + ')');
-  console.log('  · defter: tüm ' + tum + ' sa · onaylı ' + onay + ' sa · onaylı+faturalanabilir ' + fat + ' sa');
+  const r2 = n => Math.round(n * 100) / 100;
+  console.log('  · defter: tüm ' + r2(tum) + ' sa · onaylı ' + r2(onay) + ' sa · onaylı+faturalanabilir ' + r2(fat) + ' sa');
 
-  /* 26c. Proje beyanı defteri KAPSAR — eşitlik değil, `beyan ≥ defter` (V-44).
-     Bugün beyan çok yüksek; kural yön koyar: defter beyanı aşarsa beyan yanlıştır. */
+  /* 26c. `harcananSure` alanı KALDIRILDI (REVİZE 03 proje ucu). Eski eksen
+     `beyan >= defter` diyordu; beyanın kendisi elle yazılmış bir sayıydı ve
+     9.125 saatin ~8.900'ünü hiçbir kayıt desteklemiyordu. Alan geri gelirse
+     türetme sessizce ikinci bir deftere döner — eksen bunu engeller. */
   DB.projects.forEach(p => {
-    const d = sum(DB.timelogs.filter(l => l.proje === p.kod && l.onay === 'Onaylandı').map(l => l.sure));
-    say(p.harcananSure >= d,
-      p.kod + ' harcananSure=' + p.harcananSure + ' < onaylı defter toplamı=' + d +
-      ' — beyan defteri kapsamalı (V-44)');
+    say(!('harcananSure' in p),
+      p.kod + ' harcananSure alanı geri gelmiş — gerçekleşen süre türetilir, saklanmaz (L-08 · V-45)');
   });
+}
+
+/* ---------- 27. Proje süre zinciri · tek onay ekseni (REVİZE 03 proje ucu) ----------
+   Üç ayrı kırılganlık burada kilitleniyor:
+   a) "onaylı saat" iki farklı şeydi — haftalık timesheet ile satır onayı
+      birbirinden habersizdi (`GV.zaman` tek eksene indirdi).
+   b) Proje "gerçekleşen süresi" elle yazılıydı; artık ONAYLI zaman
+      kayıtlarından türetiliyor.
+   c) Türetilmiş defter satırları modül ilerlemesinden geliyor; toplamları
+      kaynağını TAM karşılamalı — aşarsa çift sayım, kalırsa eksik türetme. */
+head('27) Proje süre zinciri · tek onay ekseni (REVİZE 03)');
+{
+  const sum = a => a.reduce((s, x) => s + x, 0);
+  const yuvarla = n => Math.round(n * 100) / 100;
+
+  /* 27a. Proje bazında üç değer iç içe: faturalanabilir ⊆ onaylı ⊆ tüm */
+  DB.projects.forEach(p => {
+    const ls = DB.timelogs.filter(l => l.proje === p.kod);
+    const on = ls.filter(l => l.onay === 'Onaylandı');
+    const tum = yuvarla(sum(ls.map(l => l.sure)));
+    const ger = yuvarla(sum(on.map(l => l.sure)));
+    const fat = yuvarla(sum(on.filter(l => l.faturalanabilir).map(l => l.sure)));
+    say(fat <= ger, p.kod + ' faturalandırılabilir (' + fat + ') > gerçekleşen (' + ger + ')');
+    say(ger <= tum, p.kod + ' gerçekleşen (' + ger + ') > defterdeki tüm saat (' + tum + ')');
+  });
+
+  /* 27b. Haftalık timesheet ↔ kapsadığı satırlar — bildirim ve kırılım aynı
+     şeyi söylemeli, ONAY da tek eksende olmalı */
+  const kapsanan = new Set();
+  DB.timesheets.forEach(ts => {
+    const ls = DB.timelogs.filter(l =>
+      l.personel === ts.personel && l.tarih >= ts.baslangic && l.tarih <= ts.bitis);
+    ls.forEach(l => kapsanan.add(l.kod));
+    const tum = yuvarla(sum(ls.map(l => l.sure)));
+    const fat = yuvarla(sum(ls.filter(l => l.faturalanabilir).map(l => l.sure)));
+    say(tum === ts.toplam,
+      ts.kod + ' toplam=' + ts.toplam + ' ≠ haftaya düşen satır toplamı=' + tum);
+    say(fat === ts.faturalanabilir,
+      ts.kod + ' faturalanabilir=' + ts.faturalanabilir + ' ≠ satır toplamı=' + fat);
+    ls.forEach(l => {
+      if (ts.durum === 'Onaylandı')
+        say(l.onay === 'Onaylandı',
+          l.kod + ' haftası (' + ts.kod + ') onaylı ama satır onayı "' + l.onay + '" — tek onay ekseni (REVİZE 03)');
+      else
+        say(l.onay !== 'Onaylandı',
+          l.kod + ' satırı onaylı ama haftası (' + ts.kod + ') "' + ts.durum + '" — tek onay ekseni (REVİZE 03)');
+    });
+  });
+
+  /* 27c. Haftalık defterin KAPSAMADIĞI onaylı satır, defterin başlangıcından
+     ÖNCE olmalı. Türetilmiş toplu aktarımlara verilen onay izni budur; izin
+     bugüne taşınamaz, yoksa timesheet'i atlayan bir onay yolu açılır. */
+  const defterBas = DB.timesheets.map(t => t.baslangic).sort()[0];
+  DB.timelogs.filter(l => l.onay === 'Onaylandı' && !kapsanan.has(l.kod)).forEach(l => {
+    say(l.tarih < defterBas,
+      l.kod + ' (' + l.tarih + ') kapsayan timesheet olmadan onaylı ve haftalık defterin ' +
+      'başlangıcından (' + defterBas + ') sonra — onay haftalık defterden geçmeli');
+  });
+
+  /* 27d. Modül ekseni: modülün defterdeki toplam emeği = round(efor × ilerleme%).
+     Satır ya doğrudan `modul` taşır ya da görevi üzerinden modüle bağlanır. */
+  DB.projectModules.forEach(m => {
+    const hedef = Math.round(m.efor * m.ilerleme / 100);
+    const gorevler = DB.tasks.filter(t => t.modul === m.kod).map(t => t.kod);
+    const top = yuvarla(sum(DB.timelogs
+      .filter(l => l.modul === m.kod || gorevler.indexOf(l.gorev) !== -1)
+      .map(l => l.sure)));
+    say(top === hedef,
+      m.kod + ' defter toplamı=' + top + ' ≠ efor×ilerleme=' + hedef +
+      ' (' + m.efor + ' sa × %' + m.ilerleme + ') — çift sayım ya da eksik türetme');
+  });
+
+  /* 27e. `modul` YALNIZ görevsiz satırda yazılır; görevlinin modülü görevinden
+     çözülür ve ikinci kez yazılmaz (L-08). Yazılıysa gerçek ve aynı projede. */
+  DB.timelogs.filter(l => l.modul).forEach(l => {
+    say(!l.gorev, l.kod + ' hem gorev hem modul taşıyor — modül görevden çözülür, ikinci kez yazılmaz (L-08)');
+    const m = DB.projectModules.filter(x => x.kod === l.modul)[0];
+    say(!!m, l.kod + ' modul=' + l.modul + ' → DB.projectModules içinde yok');
+    if (m) {
+      say(m.proje === l.proje, l.kod + ' proje=' + l.proje + ' ama modülün projesi ' + m.proje);
+      say(m.sorumlu === l.personel,
+        l.kod + ' personel=' + l.personel + ' ama modülün sorumlusu ' + m.sorumlu);
+    }
+  });
+
+  const turetilen = DB.timelogs.filter(l => l.modul).length;
+  console.log('  · defter ' + DB.timelogs.length + ' satır · ' + turetilen +
+    ' tanesi modül ilerlemesinden türetilmiş · haftalık defter ' + defterBas + "'de başlıyor");
 }
 
 console.log('\n' + (bad === 0
