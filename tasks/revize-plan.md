@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **81** — FAZ 1 · FAZ 2 kapandı · **R11 7/7** |
-| Kalan | 57 (FAZ 3'ün kalanı · FAZ 4) |
+| İşaretli | **87** — FAZ 1 · FAZ 2 kapandı · **R11 7/7** · **R12 6/6** |
+| Kalan | 51 (R13 · R17 · FAZ 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -101,7 +101,7 @@ belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 | R09 | Ticket detayları | 2 | **✅ TAMAM** | sözlük açıldı · 6 alan eklendi · 12 tüketici taşındı · canon eksen 33 |
 | R10 | Ticket → görev / CR / fırsat | 2 | **✅ TAMAM** | üç dal tek modalda · `leads[].destek` açıldı · canon eksen 34 |
 | R11 | Proje kaynağı | 3 | **✅ TAMAM** | `DB.projectSources` açıldı · `kaynak` 14/14 · koşullu sözleşme seçici (`GV.form` `showIf`) · canon eksen 35 |
-| R12 | Sözleşme sorumlusu | 3 | ⬜ | sözleşmede **hiç kişi alanı yok**; ekran bunu bir notice ile itiraf ediyor |
+| R12 | Sözleşme sorumlusu | 3 | **✅ TAMAM** | `contracts[].sorumlu` 7/7 · türetme tek yordamda · yenileme bildirimi kişiye · canon eksen 24c |
 | R13 | Müşteri portalı | 3 | 🔴 | oturumda müşteri kimliği yok → `EMP-001`'e düşüyor; **6 ölçülmüş sızıntı** |
 | R14 | Pipeline gruplama | 4 | 🟡 | 13 kanban kolonunun **5'i boş**; `sira` bölüntüsü kalıbı aynı dosyada zaten var |
 | R15 | Departman ve uzmanlık | 4 | ⬜ | 16 personel için **21 departman**; 7'si boş, 5'i uzmanlık, 2'si çalışma tipi |
@@ -1197,9 +1197,34 @@ liste kaynak süzgeci 5 + 1 satır döndürüyor.
 
 ---
 
-## R12 · Sözleşme sorumlusu ekle
+## R12 · Sözleşme sorumlusu ekle · ✅ TAMAM
 
-**DURUM: ⬜ yok — sözleşmede hiçbir kişi alanı yok; ekran bunu zaten yazıyor**
+**KAPANDI (2026-08-07, 16. oturum)** — 6/6 alt madde. `DB.contracts[].sorumlu`
+**7/7 dolu**, kişi KODU (VB-12). Kilit: `canon.js` **eksen 24c**, beş olumsuz
+vakayla sınandı (alan silme · ad yazma · olmayan kod · müşteri yetkilisi
+yazma · boşaltma).
+
+**Değer uydurulmadı:** ekranın zaten türettiği sıra korundu — proje varsa
+`projects.musteriSorumlu`, yoksa `customers.sorumlu` (12/12 dolu). Sonuç
+EMP-002 ×4 · EMP-013 ×2 · EMP-014 ×1. `projects.pm` **kaynak olarak
+kullanılmadı**: 14 projenin 14'ü de EMP-003, yani ayrım yapmayan tek değerli
+bir eksen. Türetme `sorumluTuret()` olarak **tek yerde** yazılı; form açılışı
+ve müşteri/proje değişimi aynı yordamı çağırıyor.
+
+**Ekran itirafı kalktı:** `app-sozlesme-detay.html`'in *"Sözleşme kartında
+sorumlu alanı yok"* notice'ı silindi; türetilen dört kişi **"İlgili Kişiler"**
+olarak kaldı — onlar sorumluluk değil bağlam anlatıyor. Sorumlu üstbilgi meta
+satırında da yazılı, **yeni kart açılmadı**.
+
+**Tarayıcı doğrulaması** (`r12.js`, scratchpad · 13 ölçüm, konsol hatası 0):
+detayda ve meta satırında sorumlu adı çözülüyor · liste kolonu ve süzgeci
+çalışıyor (EMP-002 → Aktif sekmesinde 3, Tümü'nde 4 satır) · yeni kayıtta
+müşteri seçilince sorumlu **kendiliğinden doluyor**, kullanıcının seçtiği kişi
+sonraki müşteri değişiminde **ezilmiyor** · düzenlemede kayıttan geliyor.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): ⬜ yok — sözleşmede hiçbir kişi alanı yok; ekran bunu zaten yazıyor**
 
 Ölçüm (`DB.contracts`, 7 kayıt, 19 alan + 2 kayıtta `yenilemeTarihi`):
 
@@ -1212,20 +1237,29 @@ liste kaynak süzgeci 5 + 1 satır döndürüyor.
 - Sözleşme detayı `GV.pageHead` kullanıyor (`:218`), aksiyon listesi `:197-216`.
   Yenileme akışı (`yenilemeAkisi` `:177-195`) çalışan bir mutasyon örneği.
 
+</details>
+
 **Yapılacaklar**
 
-- [ ] `DB.contracts[].sorumlu` — 7/7 doldurulur. Değer **uydurulmaz**: bugün
-      ekranın türettiği sıra korunur — `customers.sorumlu` (her zaman var),
-      proje varsa `projects.musteriSorumlu` tercih edilir
-- [ ] Sözleşme formuna alan (varsayılan otomatik seçili, kullanıcı değiştirebilir)
-- [ ] Detay üstbilgisinde meta satırına sorumlu eklensin (**yeni kart açılmaz**);
-      `:320-332`'deki "sorumlu alanı yok" notice'ı **kalkar**, türetilen dört kişi
-      "ilgili kişiler" olarak kalır
-- [ ] Liste ekranına `sorumlu` kolonu + süzgeci (talimat: her listeye her süzgeci
-      ekleme — burada sorumlu **anlamlı**, teknik departman süzgeci **eklenmez**)
-- [ ] Yenileme/bitiş bildirimleri bu kişiye düşsün (`app-ayar-onay.html:345`
-      bugün `satismudur` rolüne atıyor — sorumlu varken ona gitsin)
-- [ ] `canon.js` eksen 24 (kişi kimliği KOD ile) yeni alanı da kapsasın
+- [x] `DB.contracts[].sorumlu` — 7/7 doldurulur. Değer **uydurulmadı**: ekranın
+      türettiği sıra korundu — proje varsa `projects.musteriSorumlu`, yoksa
+      `customers.sorumlu`
+- [x] Sözleşme formuna alan (müşteri/proje seçilince **boşsa** kendiliğinden
+      dolar, kullanıcının seçimi ezilmez)
+- [x] Detay üstbilgisinde meta satırına sorumlu eklendi (**yeni kart açılmadı**);
+      "sorumlu alanı yok" notice'ı **kalktı**, türetilen dört kişi
+      "İlgili Kişiler" olarak kaldı
+- [x] Liste ekranına `sorumlu` kolonu + süzgeci (teknik departman süzgeci gibi
+      gereksiz bir eksen eklenmedi)
+- [x] Yenileme bildirimi bu kişiye düşüyor (`app-ayar-onay.html` artık
+      `satismudur` **rolüne** değil sözleşmenin sorumlusuna atıyor; sorumlu
+      yoksa eski davranış korunuyor). Ajandadaki yenileme kaydı da sorumluyu yazıyor
+- [x] `canon.js` **eksen 24c**: alan her kayıtta tanımlı ve dolu · değer `EMP-`
+      kodudur (ad ya da `YTK-*` müşteri yetkilisi değil) · gösterdiği çalışan var
+
+**Dokunulan dosyalar:** `assets/data/misc.js` · `app-sozlesme-form.html` ·
+`app-sozlesme-detay.html` · `app-sozlesme.html` · `app-ayar-onay.html` ·
+`app-ajanda.html` · `tasks/qa/canon.js`
 
 ---
 
