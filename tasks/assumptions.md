@@ -806,3 +806,72 @@ olan bir kayıttan** türetildi (bağlı hata kaydı · kapanış hareketi) ve k
 metnin içinde yazılı; `canon.js` eksen 33d kaynağın yazılı olmasını **zorunlu**
 kılıyor. Kanıtı olmayan kayıtta alan `null` ve ekran "kaydı yok" diyor —
 boş hücre basmıyor.
+
+---
+
+## V-54 · Sözleşme kaydı olmayan 6 arşivli projeye SÖZLEŞME UYDURULMADI
+
+**Karar:** REVİZE 11'in `kaynak` alanı 14/14 kayıtta dolduruldu; sözleşme kaydı
+onları gösteren 6 projenin kaynağı doğrudan kanıttan (`DB.contracts[].proje`)
+geldi, kalan 8'i türetildi. Kaynağı `Müşteri Sözleşmesi` yazılan **6 arşivli
+projeye sözleşme kaydı YAZILMADI**.
+
+**Ölçüm:** 14 projenin 8'inde onu gösteren sözleşme kaydı yok. VB-20'nin ek
+bulgusu bunu **2 kayıt** diye sayıyordu (`PRJ-2026-007` · `PRJ-2025-008`);
+yeniden ölçümde **8** çıktı — L-28'in örüntüsü ("defterdeki sayı tahmindir")
+altıncı kez doğrulandı. Sekizin dağılımı: 2'si satış öncesi iş (V-55),
+6'sı teslim edilip kapanmış müşteri işi.
+
+**Neden uydurulmadı:** `DB.contracts` defteri 2025-06'da başlıyor; daha eski
+işlerin sözleşmesi bu depoya hiç girilmemiş. Altı kayıt üretmek altı sahte
+SZL numarası, imza tarihi, KDV oranı ve ödeme planı doğururdu (L-13) — ve
+`canon.js` eksen 30 taksit toplamını sözleşme netiyle eşitlediği için taksit
+kayıtları da uydurmak gerekirdi. Zincir uzadıkça kurgu büyür.
+
+**Onun yerine ne yapıldı:** kaynak alanı gerçek kanıttan (müşteri + bedel +
+teslim + memnuniyet anketi) türetildi, gerekçesi her kaydın aktivite geçmişine
+yazıldı ve `canon.js` **eksen 35d** sözleşme zorunluluğunu **arşivsiz** projede
+arıyor. Yani boşluk tarihe kilitlendi: yeni bir kayıt sözleşmesiz "Müşteri
+Sözleşmesi" kaynağı taşıyamaz. Proje detayı da sessiz kalmıyor —
+*"sözleşme kaydı bu depoda yok"* yazıyor.
+
+---
+
+## V-55 · İki projenin kaynağı `Satış Öncesi / PoC` — ada ve teklife dayanıyor
+
+**Karar:** `PRJ-2026-007` ve `PRJ-2026-008` kaynağı `Satış Öncesi / PoC`.
+
+**Kanıt (uydurma değil, ölçüm):**
+- `PRJ-2026-007` — sözleşmesi, faturası, taksiti yok; durumu `Planlama`;
+  336.000 ₺ bedeli **TKL-2026-008** teklifinin toplamıyla **birebir aynı** ve
+  teklif aynı müşteriye (MUS-2025-004) hâlâ `Teklif hazırlanıyor` durumunda.
+  Yani kayıttaki `sozlesmeTutari` **sözleşme değil teklif bedelidir** —
+  VB-20'nin "sözleşmesiz sözleşme bedeli" bulgusunun bu kayıttaki karşılığı
+  budur ve bedel silinmedi, **açıklandı**.
+- `PRJ-2026-008` — kaydın kendi adı pilot çalışma diyor ("Risk Raporlama
+  **Pilotu**"), sözleşmesi/teklifi/faturası yok, aynı müşteri (MUS-2026-011)
+  sonradan TKL-2026-012 → SZL-2026-021 zinciriyle asıl projeyi (PRJ-2026-002)
+  imzalamış. Pilot → sözleşme sırası veride yazılı.
+
+**Sınır:** üçüncü bir kayda PoC yazılmadı. `canon.js` eksen 35e bu kaynağın
+sözleşme kaydı taşımasını yasaklıyor — iki eksen tek alanda karışmasın.
+
+---
+
+## V-56 · Sözleşmeden proje türü ÖN DOLDURULMUYOR — eşleme kurulamadı
+
+**Karar:** REVİZE 11'in "sözleşme seçilince ön dolgu genişlesin" maddesinde
+`ad` · `musteri` · `baslangic` · `planlananBitis` · `sozlesmeTutari` dolduruldu,
+**`tur` (proje türü) doldurulmadı.**
+
+**Ölçüm:** `DB.contracts` kaydında hizmet/kategori alanı **yok**; tek ipucu
+`ad` alanı. 7 sözleşme adının **7'si** hizmet kataloğundaki (`DB.services`,
+12 değer) hiçbir değeri birebir taşımıyor — eşleşme **0/7**. Bağlı teklifin
+kalemleri de yardımcı olmuyor: `DB.quoteItems[].tur` `Modül`/`Hizmet` diyor,
+hizmet adı değil.
+
+**Neden anahtar kelimeyle tahmin edilmedi:** `tur` **zorunlu** bir alandır ve
+tahmin yanlış olduğunda kullanıcı yanlış değeri onaylamış olur.
+"Mobil Operasyon ERP Faz 1 Sözleşmesi" hem `Mobil Uygulama` hem `CRM / ERP`
+anahtarına uyuyor; doğrusu ikincisi. Zorunlu alana sessizce yanlış değer
+yazmak, boş bırakmaktan kötüdür (L-13 · L-31).

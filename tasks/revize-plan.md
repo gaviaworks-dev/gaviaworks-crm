@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **73** — R01…R09 · **R10 6/6** · **FAZ 2 KAPANDI** |
-| Kalan | 65 (FAZ 3 · FAZ 4) |
+| İşaretli | **81** — FAZ 1 · FAZ 2 kapandı · **R11 7/7** |
+| Kalan | 57 (FAZ 3'ün kalanı · FAZ 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -100,7 +100,7 @@ belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 | R08 | Proje → bakım geçişi | 2 | ⬜ | proje ↔ paket bağı **iki yönde de yok**; hiçbir projenin paketi yok |
 | R09 | Ticket detayları | 2 | **✅ TAMAM** | sözlük açıldı · 6 alan eklendi · 12 tüketici taşındı · canon eksen 33 |
 | R10 | Ticket → görev / CR / fırsat | 2 | **✅ TAMAM** | üç dal tek modalda · `leads[].destek` açıldı · canon eksen 34 |
-| R11 | Proje kaynağı | 3 | 🟡 | `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı ve sözleşme seçici yok |
+| R11 | Proje kaynağı | 3 | **✅ TAMAM** | `DB.projectSources` açıldı · `kaynak` 14/14 · koşullu sözleşme seçici (`GV.form` `showIf`) · canon eksen 35 |
 | R12 | Sözleşme sorumlusu | 3 | ⬜ | sözleşmede **hiç kişi alanı yok**; ekran bunu bir notice ile itiraf ediyor |
 | R13 | Müşteri portalı | 3 | 🔴 | oturumda müşteri kimliği yok → `EMP-001`'e düşüyor; **6 ölçülmüş sızıntı** |
 | R14 | Pipeline gruplama | 4 | 🟡 | 13 kanban kolonunun **5'i boş**; `sira` bölüntüsü kalıbı aynı dosyada zaten var |
@@ -1105,9 +1105,46 @@ Konsol temiz.
 > `buildSession` düzeltmeleri **ortak katmandadır ve lead'e aittir**.
 > Yeni canon ekseni **35**'ten devam eder (29…34 dolu).
 
-## R11 · Proje kaynağını ekle
+## R11 · Proje kaynağını ekle · ✅ TAMAM
 
-**DURUM: 🟡 yarısı hazır — `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı YOK**
+**KAPANDI (2026-08-07, 16. oturum)** — 7/7 alt madde. `DB.projectSources` (5 değer)
+açıldı, `kaynak` **14/14 kayıtta dolu**, forma kaynak alanı **ilk sıraya** ve ona
+bağlı **koşullu sözleşme seçici** girdi. Kilit: `canon.js` eksen **35**
+(4.193 kontrol · TEMİZ), **sekiz olumsuz vakayla** sınandı.
+
+**Ortak katman kazancı:** koşullu alan mantığı ekrana yazılmadı, `GV.form`'a
+**`showIf(data)`** ve **işlev olabilen `required(data)`** olarak girdi
+(`components.md` §4). Gizli alan doğrulanmaz ve `read()`'te boş döner —
+kullanıcının göremediği bir alan formu kilitleyemez, eski değeri de sessizce
+kayda yazılmaz.
+
+**Kayıt uydurulmadı (L-13).** 14 projenin **8'inde** onu gösteren sözleşme kaydı
+yok — VB-20'nin ek bulgusu bunu **2** diye saymıştı, ölçüm **8** dedi (L-28,
+altıncı tekrar). İkisi satış öncesi işe ayrıldı (**V-55**: biri bedeli teklifle
+birebir eşleşen `PRJ-2026-007`, biri adı pilot diyen `PRJ-2026-008`), altısı
+teslim edilip kapanmış müşteri işi olarak `Müşteri Sözleşmesi` aldı ve
+**sözleşme kaydı yazılmadı** (**V-54**): `DB.contracts` defteri 2025-06'da
+başlıyor. Eksen 35d bu yüzden sözleşme zorunluluğunu **arşivsiz** projede arar —
+boşluk tarihe kilitlendi, yeni kayıt aynı boşluğu açamaz. Proje detayı da
+sessiz kalmıyor: *"sözleşme kaydı bu depoda yok"* yazıyor.
+
+**Proje türü ön doldurulmadı (V-56):** sözleşmede hizmet alanı yok ve 7 sözleşme
+adının 7'si hizmet kataloğunun hiçbir değerini birebir taşımıyor (eşleşme 0/7).
+Zorunlu bir alana anahtar kelimeyle tahmin yazmak ("Mobil Operasyon ERP" →
+`Mobil Uygulama`? `CRM / ERP`?) boş bırakmaktan kötüdür.
+
+**Tarayıcı doğrulaması** (`r11.js`, scratchpad · 25 ölçüm, konsol hatası 0):
+sözleşme alanı açılışta gizli · `Müşteri Sözleşmesi` seçilince görünüyor ve
+boşken kayıt **reddediliyor** · seçilebilir sözleşme yalnız **projesi olmayan**
+1 kayıt · seçim müşteriyi/bedeli/tarihleri dolduruyor ama **kullanıcının yazdığı
+adı ezmiyor** · `İç Proje` seçilince alan gizleniyor ve müşteri zorunlu
+sayılmıyor · `?sozlesme=` yolunda kaynak ve sözleşme **seçili ve kilitli** ·
+düzenlemede bağlı sözleşme **salt okunur** (bağ sözleşmede yaşar, §9d) ·
+liste kaynak süzgeci 5 + 1 satır döndürüyor.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 yarısı hazır — `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı YOK**
 
 Ölçüm:
 
@@ -1125,25 +1162,38 @@ Konsol temiz.
 - Projelerde `kaynak` alanı yok. `kaynak` müşteride (12/12) ve adayda (12/12) var
   ama o **satış kaynağı** ekseni (`DB.refTypes`, 17 değer) — proje kaynağı değil.
 
+</details>
+
 **Yapılacaklar**
 
-- [ ] `DB.projectSources` sözlüğü: `Müşteri Sözleşmesi · İç Proje · Satış Öncesi / PoC ·
+- [x] `DB.projectSources` sözlüğü: `Müşteri Sözleşmesi · İç Proje · Satış Öncesi / PoC ·
       Bakım / Destek · Diğer` (`DB.projectStatuses` kalıbıyla)
-- [ ] `DB.projects[].kaynak` — 14/14 doldurulur, **uydurulmadan**: sözleşmesi olan
-      6 proje → `Müşteri Sözleşmesi`; geri kalanı `sozlesmeTutari`/`musteri`
-      ilişkisinden türetilir, kaynağı aktiviteye yazılır
-- [ ] Forma `kaynak` alanı (Proje kimliği bölümüne, **birinci sıraya** — kaynak
+- [x] `DB.projects[].kaynak` — 14/14 doldurulur, **uydurulmadan**: sözleşmesi olan
+      6 proje → `Müşteri Sözleşmesi`; geri kalan 8'in kaynağı teklif/ad/teslim
+      kanıtından türetildi, gerekçesi **aktiviteye yazıldı** (8 satır)
+- [x] Forma `kaynak` alanı (Proje kimliği bölümüne, **birinci sıraya** — kaynak
       diğer alanların davranışını belirliyor)
-- [ ] Forma **sözleşme seçici** alanı: `kaynak === 'Müşteri Sözleşmesi'` iken
-      **zorunlu**, diğer durumlarda gizli. `?sozlesme=` geldiğinde seçili ve kilitli
-- [ ] Sözleşme seçilince ön dolgu **mevcut yordamla** genişlesin: `tur` ←
-      sözleşme adı → `DB.services` eşlemesi · `odemePlani` bilgi olarak gösterilsin
-      (kopyalanmaz — taksitler zaten `DB.milestones`'ta)
-- [ ] Manuel proje oluşturma **kaldırılmaz** — `İç Proje` seçildiğinde sözleşme
-      sorulmaz, akış bugünküyle aynı kalır
-- [ ] `canon.js` eksen: "`kaynak === 'Müşteri Sözleşmesi'` olan projenin
-      `DB.contracts` içinde onu gösteren bir kaydı vardır" — VB-20'nin
-      "sözleşmesiz sözleşme bedeli" bulgusunu da kapatır
+- [x] Forma **sözleşme seçici** alanı: `kaynak === 'Müşteri Sözleşmesi'` iken
+      **zorunlu**, diğer durumlarda gizli (`GV.form` `showIf`). `?sozlesme=`
+      geldiğinde seçili ve kilitli; listede yalnız **projesi olmayan** sözleşmeler
+- [x] Sözleşme seçilince ön dolgu **mevcut yordamla** genişledi: `musteri` · `ad` ·
+      `baslangic` · `planlananBitis` · `sozlesmeTutari` + ödeme planı **bilgi
+      olarak** basılıyor (kopyalanmıyor — taksitler `DB.milestones`'ta).
+      **`tur` ön doldurulmadı** — eşleme kurulamadı, gerekçe **V-56**
+- [x] Manuel proje oluşturma **kaldırılmadı** — `İç Proje`/`Diğer` seçildiğinde
+      sözleşme sorulmuyor, akış bugünküyle birebir aynı. İç projede müşteri de
+      zorunlu değil (`required(data)` işlevi)
+- [x] `canon.js` **eksen 35** (yedi kontrol grubu): kaynak sözlükten ve 14/14 dolu ·
+      sözleşmeli projenin kaynağı sözleşmedir ve **bedeli sözleşmenin netine
+      eşittir** · bir sözleşme en fazla bir projeyi gösterir · **arşivsiz**
+      sözleşme kaynaklı projenin sözleşme kaydı vardır (VB-20 bulgusu buradan
+      kapandı) · iç proje/PoC sözleşme taşımaz · projede `sozlesme` ayna alanı
+      doğmaz · proje kaynağı sözlüğü satış kaynağı sözlüğüyle kelime paylaşmaz
+
+**Dokunulan dosyalar:** `assets/data/work.js` · `assets/js/ui.js` ·
+`assets/css/ui.css` · `app-proje-form.html` · `app-proje-detay.html` ·
+`app-proje.html` · `tasks/qa/canon.js` · `tasks/components.md` ·
+`tasks/assumptions.md`
 
 ---
 
