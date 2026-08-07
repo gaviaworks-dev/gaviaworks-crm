@@ -37,6 +37,7 @@ document.addEventListener('gv:ready', function(){
   function planTaksit(m){ return DB.milestones.filter(function(x){ return x.sozlesme === m.sozlesme; }).length; }
   function faturaOf(ms){ return DB.invoices.filter(function(i){ return i.milestone === ms; })[0] || null; }
   function tahsilatOf(ftr){ return ftr ? (DB.payments.filter(function(t){ return t.fatura === ftr; })[0] || null) : null; }
+  function pmsOf(kod){ return kod ? (DB.projectMilestones.filter(function(x){ return x.kod === kod; })[0] || null) : null; }
 
   /* Gecikme günü — referans DB.today (new Date() ile "bugün" alınmaz).
      Öncelik sırası: tahsilat kaydı → fatura vadesi → faturasız taksitin planlanan tarihi. */
@@ -64,7 +65,14 @@ document.addEventListener('gv:ready', function(){
         faturaToplam:f ? f.toplam : null, faturaVade:f ? f.vade : null,
         tahsilat:t ? t.kod : null, tahsilatDurum:t ? t.durum : null,
         tahsilatTutar:t ? t.tutar : null,
-        gecikmeGun:gecikme(m, f, t)
+        gecikmeGun:gecikme(m, f, t),
+        /* REVİZE 06 — taksitin isteğe bağlı PROJE MILESTONE'u. Bağ ödeme
+           kaydında durur (`DB.milestones[].milestone`), milestone'da ayna
+           alan yoktur (§9d). Doküman: "İstenirse ödeme kaydında İlgili
+           Milestone seçilebilir." */
+        milestone:m.milestone || null,
+        milestoneAd:pmsOf(m.milestone) ? pmsOf(m.milestone).baslik : null,
+        milestoneDurum:pmsOf(m.milestone) ? pmsOf(m.milestone).durum : null
       };
     });
   }
@@ -108,7 +116,7 @@ document.addEventListener('gv:ready', function(){
   }
 
   GV.pageHead({ eyebrow:'Finans', title:'Ödeme Planları',
-    sub:'Sözleşme taksitlerinin milestone → fatura → tahsilat zinciri; faturası kesilmemiş ve geciken taksitler tek ekranda',
+    sub:'Sözleşme taksitlerinin fatura → tahsilat zinciri; taksit isteğe bağlı olarak bir proje milestone’una bağlanır (REVİZE 06)',
     actions:[{ label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
              { label:'Tahsilatlar', icon:'i-wallet', href:'app-tahsilat.html' },
              { label:'Sözleşmeler', icon:'i-file-check', href:'app-sozlesme.html' }] });
@@ -164,6 +172,15 @@ document.addEventListener('gv:ready', function(){
           return '<a class="cell-main" href="app-proje.html?t=tumu&q=' + x.proje + '">' + esc(x.projeAd) + '</a>' +
                  '<span class="cell-code">' + x.proje + '</span>'; },
         exportValue:function(x){ return x.projeAd; } },
+      /* İlgili milestone — İSTEĞE BAĞLI bağ. Taksit bir proje olayına
+         karşılık gelmiyorsa hücre "Bağlı değil" der; boş bırakmak
+         "bağ kurulmamış" ile "bağ yok" arasındaki farkı siler. */
+      { key:'milestone', label:'İlgili milestone', cellClass:'cell-wrap', render:function(x){
+          return x.milestone
+            ? '<a class="cell-main" href="app-proje-milestone.html?t=tumu&q=' + x.milestone + '">' + esc(x.milestoneAd) + '</a>' +
+              '<span class="cell-code">' + x.milestone + '</span>' + GV.badge(x.milestoneDurum)
+            : '<span class="u-faint">Bağlı değil</span>'; },
+        exportValue:function(x){ return x.milestone || ''; } },
       { key:'musteriAd', label:'Müşteri', cellClass:'cell-wrap', render:function(x){
           return x.musteri
             ? '<a class="cell-main" href="app-musteri.html?q=' + x.musteri + '">' + esc(x.musteriAd) + '</a>' +
@@ -188,7 +205,7 @@ document.addEventListener('gv:ready', function(){
       { key:'odeme', label:'Taksit tutarı (KDV hariç)', cellClass:'num',
         render:function(x){ return para(x.odeme); },
         exportValue:function(x){ return paraExp(x.odeme); } },
-      { key:'durum', label:'Milestone durumu', render:function(x){ return GV.badge(x.durum); } },
+      { key:'durum', label:'Taksit durumu', render:function(x){ return GV.badge(x.durum); } },
       { key:'ilerleme', label:'İlerleme', cellClass:'num', render:function(x){ return GV.progress(x.ilerleme); },
         exportValue:function(x){ return (x.ilerleme == null ? '' : x.ilerleme + '%'); } },
       { key:'fatura', label:'Fatura', cellClass:'cell-wrap', render:function(x){
@@ -226,7 +243,9 @@ document.addEventListener('gv:ready', function(){
         options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
       { key:'sozlesme', label:'Sözleşme', type:'select',
         options:DB.contracts.map(function(c){ return { value:c.kod, label:c.kod + ' · ' + c.musteriAd }; }) },
-      { key:'durum', label:'Milestone durumu', type:'multi',
+      { key:'milestoneVarmi', label:'Milestone bağı', type:'select', options:['Var','Yok'],
+        test:function(x, v){ return v === 'Var' ? !!x.milestone : !x.milestone; } },
+      { key:'durum', label:'Taksit durumu', type:'multi',
         options:['Tamamlandı','Yaklaşıyor','Gecikti','Planlandı'] },
       { key:'odemeDurum', label:'Ödeme durumu', type:'multi', options:['Ödendi','Bekliyor'] },
       { key:'faturaDurumu', label:'Fatura durumu', type:'select',

@@ -60,6 +60,11 @@ document.addEventListener('gv:ready', function(){
   var musteri     = DB.customers.filter(function(c){ return c.kod === p.musteri; })[0];
   var moduller    = byProje(DB.projectModules);
   var msler       = byProje(DB.milestones).slice().sort(function(a,b){ return (a.taksit || 0) - (b.taksit || 0); });
+  /* REVİZE 06 — MILESTONE sekmesi artık PROJE OLAYLARINI gösterir; taksitler
+     (`msler`) Bütçe sekmesindeki ödeme planında kalır. İki sekme turun başında
+     AYNI diziyi iki başlıkla basıyordu. */
+  var pmsler      = byProje(DB.projectMilestones).slice().sort(function(a,b){
+                      return String(a.tarih).localeCompare(String(b.tarih)); });
   var sprintler   = byProje(DB.sprints).slice().sort(function(a,b){ return a.baslangic < b.baslangic ? -1 : 1; });
   var gorevler    = byProje(DB.tasks);
   var loglar      = byProje(DB.timelogs);
@@ -312,31 +317,35 @@ document.addEventListener('gv:ready', function(){
   '</div>';
 
   /* ===================================================================
-     4. MILESTONE (ödeme planı taksitleri)
+     4. PROJE MILESTONE'U (proje olayları — tutar taşımaz)
      =================================================================== */
+  /* Bütçe sekmesindeki ödeme planı da kullanır — taksitin faturası. */
   function msFatura(kod){ return DB.invoices.filter(function(f){ return f.milestone === kod; })[0]; }
-  function msTeslim(kod){ return DB.deliveries.filter(function(d){ return d.milestone === kod; })[0]; }
+  function pmsTeslim(kod){ return DB.deliveries.filter(function(d){ return d.kod === kod; })[0]; }
+  /* Ters yön: bağ ödeme kaydında durur, milestone'da ayna alan yoktur (§9d). */
+  function pmsTaksit(kod){ return DB.milestones.filter(function(m){ return m.milestone === kod; })[0]; }
 
   var pMilestone = '<div class="gc-body flush">' +
-    (msler.length
-      ? tablo('<th class="num">Taksit</th><th>Milestone</th><th>Tarih</th><th>Durum</th><th>İlerleme</th>' +
-              '<th class="num">Taksit tutarı (KDV hariç)</th><th>Ödeme</th><th>Fatura</th><th>Teslim</th>',
-          msler.map(function(m){
-            var f = msFatura(m.kod), t = msTeslim(m.kod);
-            return '<tr><td class="num"><b class="u-num">' + m.taksit + '</b></td>' +
-              '<td><span class="cell-main">' + esc(m.ad) + '</span><span class="cell-code">' + m.kod + '</span></td>' +
+    (pmsler.length
+      ? tablo('<th>Milestone</th><th>Tarih</th><th>Sorumlu</th><th>Durum</th>' +
+              '<th>İlgili teslimat</th><th>Bağlı ödeme taksiti</th><th>Kayıt kaynağı</th>',
+          pmsler.map(function(m){
+            var t = m.teslimat ? pmsTeslim(m.teslimat) : null, k = pmsTaksit(m.kod);
+            return '<tr><td><span class="cell-main">' + esc(m.baslik) + '</span><span class="cell-code">' + m.kod + '</span></td>' +
               '<td>' + GV.dateCell(m.tarih, { done:m.durum === 'Tamamlandı' }) + '</td>' +
+              '<td>' + (m.sorumlu ? GV.user(m.sorumlu, { sm:true }) : '<span class="u-faint">—</span>') + '</td>' +
               '<td>' + GV.badge(m.durum) + '</td>' +
-              '<td>' + GV.progress(m.ilerleme) + '</td>' +
-              '<td class="num">' + para(m.odeme) + '</td>' +
-              '<td>' + GV.badge(m.odemeDurum) + '</td>' +
-              '<td>' + (f ? link('app-fatura.html', f.kod) : '<span class="u-faint">—</span>') + '</td>' +
-              '<td>' + (t ? '<span class="cell-sub">' + esc(t.ad) + '</span>' : '<span class="u-faint">—</span>') + '</td></tr>';
+              '<td>' + (t ? link('app-proje-teslim-detay.html?id=' + t.kod, esc(t.ad)) : '<span class="u-faint">—</span>') + '</td>' +
+              '<td>' + (k ? '<span class="cell-sub">T' + k.taksit + ' · ' + esc(k.ad) + '</span>' : '<span class="u-faint">Ödeme bağı yok</span>') + '</td>' +
+              '<td><span class="cell-sub">' + esc(m.aciklama) + '</span></td></tr>';
           }).join('')) +
-        '<div class="gc-foot"><span class="gv-count"><b>' + msler.length + '</b> taksit · toplam ' +
-          para(msler.reduce(function(a,m){ return a + m.odeme; }, 0)) + ' (KDV hariç)</span>' +
+        '<div class="gc-foot"><span class="gv-count"><b>' + pmsler.length + '</b> milestone · ' +
+          pmsler.filter(function(m){ return m.durum === 'Tamamlandı'; }).length + ' tamamlandı · ' +
+          'tutarlar Bütçe sekmesindeki ödeme planındadır</span>' +
           '<a class="btn btn-line btn-sm" href="app-proje-milestone.html">' + ico('i-milestone','ic-sm') + ' Milestone ekranı</a></div>'
-      : bos('i-milestone','Milestone tanımlı değil','Bu projeye bağlı bir ödeme planı taksiti bulunmuyor.')) +
+      : bos('i-milestone','Milestone kaydı yok',
+            'Bu projede henüz bir teslim ya da tamamlanmış proje olayı kaydedilmemiş. ' +
+            'Ödeme planı taksitleri Bütçe sekmesindedir — taksit bir milestone değildir.')) +
   '</div>';
 
   /* ===================================================================
@@ -879,15 +888,23 @@ document.addEventListener('gv:ready', function(){
     '</div>' +
     '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Ödeme Planı (taksitler · KDV hariç)</h3></div>' +
       (msler.length
-        ? tablo('<th class="num">Taksit</th><th>Ad</th><th>Tarih</th><th class="num">Tutar (KDV hariç)</th><th>Ödeme durumu</th><th>Fatura</th>',
+        ? tablo('<th class="num">Taksit</th><th>Ad</th><th>Tarih</th><th class="num">Tutar (KDV hariç)</th>' +
+                '<th>Ödeme durumu</th><th>Fatura</th><th>İlgili milestone</th>',
             msler.map(function(m){
               var f = msFatura(m.kod);
+              /* REVİZE 06 — taksit isteğe bağlı olarak bir PROJE MILESTONE'una
+                 bağlanır; bağ ödeme kaydında durur (§9d). 19 taksitin 12'sinde
+                 dolu, kalan 7'si henüz bir proje olayına karşılık gelmiyor. */
+              var pm = m.milestone
+                ? DB.projectMilestones.filter(function(x){ return x.kod === m.milestone; })[0] : null;
               return '<tr><td class="num"><b class="u-num">' + m.taksit + '</b></td>' +
                 '<td><span class="cell-main">' + esc(m.ad) + '</span></td>' +
                 '<td>' + GV.dateCell(m.tarih, { done:m.odemeDurum === 'Ödendi' }) + '</td>' +
                 '<td class="num">' + para(m.odeme) + '</td>' +
                 '<td>' + GV.badge(m.odemeDurum) + '</td>' +
-                '<td>' + (f ? link('app-fatura.html', f.kod) : '<span class="u-faint">—</span>') + '</td></tr>';
+                '<td>' + (f ? link('app-fatura.html', f.kod) : '<span class="u-faint">—</span>') + '</td>' +
+                '<td>' + (pm ? '<span class="cell-sub">' + esc(pm.baslik) + '</span>'
+                             : '<span class="u-faint">—</span>') + '</td></tr>';
             }).join(''))
         : '<p class="u-sm u-faint">Bu proje için taksitli ödeme planı tanımlı değil.</p>') +
     '</div>' +
@@ -1153,7 +1170,7 @@ document.addEventListener('gv:ready', function(){
     { key:'genel',      lbl:'Genel Bakış',          ic:'i-info',            html:pGenel },
     { key:'ekip',       lbl:'Proje Ekibi',          ic:'i-users',           html:pEkip,       cnt:ekipKod.length },
     { key:'modul',      lbl:'Modüller',             ic:'i-layers',          html:pModul,      cnt:moduller.length },
-    { key:'milestone',  lbl:'Milestone',            ic:'i-milestone',       html:pMilestone,  cnt:msler.length },
+    { key:'milestone',  lbl:'Milestone',            ic:'i-milestone',       html:pMilestone,  cnt:pmsler.length },
     { key:'sprint',     lbl:'Sprintler',            ic:'i-sprint',          html:pSprint,     cnt:sprintler.length },
     { key:'gorev',      lbl:'Görevler',             ic:'i-tasks',           html:pGorev,      cnt:gorevler.length },
     { key:'isyuku',     lbl:'İş Yükü',              ic:'i-gauge',           html:pIsYuku,     cnt:ekipKod.length },

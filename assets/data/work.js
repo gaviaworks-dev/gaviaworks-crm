@@ -323,30 +323,30 @@ DB.projectModules = [
    değil, aylık fatura olarak yürür. */
 DB.milestones = [
   /* PRJ-2026-001 · SZL-2026-019 · %30 · %30 · %40 → 264.000 + 264.000 + 352.000 = 880.000 */
-  { kod:'MS-001', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:1, ad:'Beta sürüm teslimi', tarih:'2026-07-10', durum:'Tamamlandı', odeme:264000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-001', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:1, ad:'Beta sürüm teslimi', tarih:'2026-07-10', durum:'Tamamlandı', odeme:264000, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-001' },
   { kod:'MS-002', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:2, ad:'Store yayın onayı', tarih:'2026-08-14', durum:'Yaklaşıyor', odeme:264000, odemeDurum:'Bekliyor', ilerleme:82 },
   { kod:'MS-019', proje:'PRJ-2026-001', sozlesme:'SZL-2026-019', taksit:3, ad:'Yayın sonrası kabul ve devir', tarih:'2026-08-28', durum:'Planlandı', odeme:352000, odemeDurum:'Bekliyor', ilerleme:0 },
   /* PRJ-2026-002 · SZL-2026-021 · %50 peşin · %50 teslimde → 300.000 + 300.000 = 600.000 */
-  { kod:'MS-003', proje:'PRJ-2026-002', sozlesme:'SZL-2026-021', taksit:1, ad:'POC kabul', tarih:'2026-07-25', durum:'Tamamlandı', odeme:250000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-003', proje:'PRJ-2026-002', sozlesme:'SZL-2026-021', taksit:1, ad:'POC kabul', tarih:'2026-07-25', durum:'Tamamlandı', odeme:250000, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-002' },
   { kod:'MS-004', proje:'PRJ-2026-002', sozlesme:'SZL-2026-021', taksit:2, ad:'Canlıya alma', tarih:'2026-09-04', durum:'Planlandı', odeme:250000, odemeDurum:'Bekliyor', ilerleme:48 },
   /* PRJ-2026-003 · SZL-2025-018 · 6 eşit milestone → 184.000 × 6 = 1.104.000 */
-  { kod:'MS-010', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:1, ad:'Analiz ve altyapı kurulumu', tarih:'2025-11-28', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-011', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:2, ad:'Çekirdek modül teslimi', tarih:'2026-01-30', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-012', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:3, ad:'Mobil ekip uygulaması', tarih:'2026-03-27', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-013', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:4, ad:'Logo ERP entegrasyonu', tarih:'2026-05-29', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-005', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:5, ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:153333, odemeDurum:'Bekliyor', ilerleme:64 },
+  { kod:'MS-010', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:1, ad:'Analiz ve altyapı kurulumu', tarih:'2025-11-28', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-003' },
+  { kod:'MS-011', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:2, ad:'Çekirdek modül teslimi', tarih:'2026-01-30', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-004' },
+  { kod:'MS-012', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:3, ad:'Mobil ekip uygulaması', tarih:'2026-03-27', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-005' },
+  { kod:'MS-013', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:4, ad:'Logo ERP entegrasyonu', tarih:'2026-05-29', durum:'Tamamlandı', odeme:153333, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-006' },
+  { kod:'MS-005', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:5, ad:'Faz 1 modül teslimi', tarih:'2026-08-29', durum:'Yaklaşıyor', odeme:153333, odemeDurum:'Bekliyor', ilerleme:64, milestone:'PMS-007' },
   { kod:'MS-006', proje:'PRJ-2026-003', sozlesme:'SZL-2025-018', taksit:6, ad:'Entegrasyon testi ve Faz 1 kapanışı', tarih:'2026-09-30', durum:'Planlandı', odeme:153335, odemeDurum:'Bekliyor', ilerleme:20 },
   /* PRJ-2026-004 · SZL-2026-020 · %40 · %30 · %30 → 141.600 + 106.200 + 106.200 = 354.000 */
-  { kod:'MS-014', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:1, ad:'Analiz ve prototip onayı', tarih:'2026-06-05', durum:'Tamamlandı', odeme:118000, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-015', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:2, ad:'Üretim takip modülü teslimi', tarih:'2026-06-30', durum:'Tamamlandı', odeme:88500, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-009', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:3, ad:'Nihai teslim', tarih:'2026-07-24', durum:'Tamamlandı', odeme:88500, odemeDurum:'Bekliyor', ilerleme:100 },
+  { kod:'MS-014', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:1, ad:'Analiz ve prototip onayı', tarih:'2026-06-05', durum:'Tamamlandı', odeme:118000, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-008' },
+  { kod:'MS-015', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:2, ad:'Üretim takip modülü teslimi', tarih:'2026-06-30', durum:'Tamamlandı', odeme:88500, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-009' },
+  { kod:'MS-009', proje:'PRJ-2026-004', sozlesme:'SZL-2026-020', taksit:3, ad:'Nihai teslim', tarih:'2026-07-24', durum:'Tamamlandı', odeme:88500, odemeDurum:'Bekliyor', ilerleme:100, milestone:'PMS-010' },
   /* PRJ-2026-005 · SZL-2026-023 · %30 · %30 · %40 → 126.000 + 126.000 + 168.000 = 420.000 */
-  { kod:'MS-016', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:1, ad:'Kapsam ve tasarım onayı', tarih:'2026-06-26', durum:'Tamamlandı', odeme:126000, odemeDurum:'Ödendi', ilerleme:100 },
+  { kod:'MS-016', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:1, ad:'Kapsam ve tasarım onayı', tarih:'2026-06-26', durum:'Tamamlandı', odeme:126000, odemeDurum:'Ödendi', ilerleme:100, milestone:'PMS-011' },
   { kod:'MS-007', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:2, ad:'Rezervasyon motoru demo', tarih:'2026-08-22', durum:'Yaklaşıyor', odeme:126000, odemeDurum:'Bekliyor', ilerleme:52 },
   { kod:'MS-017', proje:'PRJ-2026-005', sozlesme:'SZL-2026-023', taksit:3, ad:'Portalın canlıya alınması', tarih:'2026-09-18', durum:'Planlandı', odeme:168000, odemeDurum:'Bekliyor', ilerleme:0 },
   /* PRJ-2026-006 · SZL-2026-024 · %50 peşin · %50 teslimde → 92.500 + 92.500 = 185.000 */
   { kod:'MS-018', proje:'PRJ-2026-006', sozlesme:'SZL-2026-024', taksit:1, ad:'Sözleşme peşinatı', tarih:'2026-03-16', durum:'Tamamlandı', odeme:92500, odemeDurum:'Ödendi', ilerleme:100 },
-  { kod:'MS-008', proje:'PRJ-2026-006', sozlesme:'SZL-2026-024', taksit:2, ad:'Canlıya alma', tarih:'2026-06-26', durum:'Gecikti', odeme:92500, odemeDurum:'Bekliyor', ilerleme:71 }
+  { kod:'MS-008', proje:'PRJ-2026-006', sozlesme:'SZL-2026-024', taksit:2, ad:'Canlıya alma', tarih:'2026-06-26', durum:'Gecikti', odeme:92500, odemeDurum:'Bekliyor', ilerleme:71, milestone:'PMS-012' }
 ];
 
 /* ---- Sprintler --------------------------------------------------------- */
@@ -357,6 +357,79 @@ DB.milestones = [
    (lessons L-08 istisnası, assumptions V-27).
    KURAL: `gorevSayisi` >= o sprinte bağlı `DB.tasks` kaydı sayısı. Ekranlar bu iki sayıyı
    aynı kolonda göstermez; modellenmiş kayıt sayısı "kayıtlı görev" diye ayrı etiketlenir. */
+/* ---- PROJE MILESTONE'U (REVİZE 06) --------------------------------------
+   `DB.milestones` ile bu koleksiyon AYNI ŞEY DEĞİLDİR ve karıştırılmaz:
+
+     DB.milestones        → ÖDEME PLANI TAKSİTİ. Sözleşmeye bağlıdır, tutarı
+                            vardır, faturaya ve tahsilata bağlanır.
+     DB.projectMilestones → PROJE OLAYI. Tutarı YOKTUR; "ne zaman ne teslim
+                            edildi/onaylandı" sorusunun cevabıdır.
+
+   Koleksiyonu bölmek yerine ikinci bir küçük koleksiyon açıldı: `DB.milestones`
+   19 kayıtla 25+ ekranın, `GV.fin.settleInvoice` zincirinin ve üç canon
+   ekseninin (10 · 13 · 18) dayandığı ödeme defteridir; onu ikiye bölmek
+   çalışan bir modülü kaldırmak olurdu. Bağ ÖDEME kaydında durur
+   (`DB.milestones[].milestone`), milestone'da ayna alan doğmaz (§9d).
+
+   KAYITLAR UYDURULMADI (L-13) — ikisi de var olan bir olaydan türetildi:
+     · 5 kayıt `DB.deliveries`ten (gerçek teslim olayı, sorumlusu teslim eden)
+     · 7 kayıt TAMAMLANMIŞ ödeme taksitinden (adı bir proje olayını anlatan;
+       sorumlusu projenin PM'i). Kaynağı her kaydın `aciklama` alanında yazılı.
+   `MS-018 'Sözleşme peşinatı'` bilerek DIŞARIDA bırakıldı: peşinat bir ÖDEME
+   olayıdır, proje olayı değil — onu almak ayırdığımız iki ekseni ilk kayıtta
+   yeniden karıştırmak olurdu.
+   14 projenin 6'sında milestone var; kalan 8'de ne teslim ne tamamlanmış
+   taksit var, o yüzden kayıt da yok — ekran bunu yazıyla söyler.
+
+   `durum` kümesi `DB.milestoneStatuses`tir; ödeme taksiti de aynı kümeyi
+   kullanır (aynı kelime, iki eksen — L-33'ün bilinen kalıbı). */
+DB.milestoneStatuses = ['Planlandı','Yaklaşıyor','Gecikti','Tamamlandı'];
+
+DB.projectMilestones = [
+  /* PRJ-2026-001 */
+  { kod:'PMS-001', proje:'PRJ-2026-001', baslik:'Beta sürüm (v0.9)', tarih:'2026-07-10',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:'TSL-2026-031',
+    aciklama:'Teslim kaydından türetildi (TSL-2026-031): Test cihazlarına dağıtıldı' },
+  /* PRJ-2026-002 */
+  { kod:'PMS-002', proje:'PRJ-2026-002', baslik:'POC sonuç paketi', tarih:'2026-07-25',
+    sorumlu:'EMP-007', durum:'Tamamlandı', teslimat:'TSL-2026-033',
+    aciklama:'Teslim kaydından türetildi (TSL-2026-033): Doğruluk %87' },
+  /* PRJ-2026-003 */
+  { kod:'PMS-003', proje:'PRJ-2026-003', baslik:'Analiz ve altyapı kurulumu', tarih:'2025-11-28',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-010 · %100)' },
+  { kod:'PMS-004', proje:'PRJ-2026-003', baslik:'Çekirdek modül teslimi', tarih:'2026-01-30',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-011 · %100)' },
+  { kod:'PMS-005', proje:'PRJ-2026-003', baslik:'Mobil ekip uygulaması', tarih:'2026-03-27',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-012 · %100)' },
+  { kod:'PMS-006', proje:'PRJ-2026-003', baslik:'Logo ERP entegrasyonu', tarih:'2026-05-29',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-013 · %100)' },
+  { kod:'PMS-007', proje:'PRJ-2026-003', baslik:'Faz 1 modül paketi', tarih:'2026-08-29',
+    sorumlu:'EMP-003', durum:'Planlandı', teslimat:'TSL-2026-034',
+    aciklama:'Teslim kaydından türetildi (TSL-2026-034): Kabul testi sonrası' },
+  /* PRJ-2026-004 */
+  { kod:'PMS-008', proje:'PRJ-2026-004', baslik:'Analiz ve prototip onayı', tarih:'2026-06-05',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-014 · %100)' },
+  { kod:'PMS-009', proje:'PRJ-2026-004', baslik:'Üretim takip modülü teslimi', tarih:'2026-06-30',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-015 · %100)' },
+  { kod:'PMS-010', proje:'PRJ-2026-004', baslik:'Üretim takip v1.0 canlı', tarih:'2026-07-22',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:'TSL-2026-032',
+    aciklama:'Teslim kaydından türetildi (TSL-2026-032): Sorunsuz geçiş' },
+  /* PRJ-2026-005 */
+  { kod:'PMS-011', proje:'PRJ-2026-005', baslik:'Kapsam ve tasarım onayı', tarih:'2026-06-26',
+    sorumlu:'EMP-003', durum:'Tamamlandı', teslimat:null,
+    aciklama:'Tamamlanmış ödeme planı taksitinden türetildi (MS-016 · %100)' },
+  /* PRJ-2026-006 */
+  { kod:'PMS-012', proje:'PRJ-2026-006', baslik:'Randevu sistemi canlı', tarih:'2026-06-26',
+    sorumlu:'EMP-003', durum:'Gecikti', teslimat:'TSL-2026-035',
+    aciklama:'Teslim kaydından türetildi (TSL-2026-035): Revizyon turu devam ediyor' }
+];
+
 DB.sprints = [
   { kod:'SPR-2026-018', proje:'PRJ-2026-001', ad:'Sprint 18 — Test düzeltmeleri', baslangic:'2026-07-27', bitis:'2026-08-09', durum:'Devam ediyor', planlanan:64, tamamlanan:41, gorevSayisi:11 },
   { kod:'SPR-2026-019', proje:'PRJ-2026-002', ad:'Sprint 6 — Skorlama modeli', baslangic:'2026-07-27', bitis:'2026-08-09', durum:'Devam ediyor', planlanan:72, tamamlanan:38, gorevSayisi:9 },
