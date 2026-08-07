@@ -156,6 +156,149 @@
     }
   };
 
+  /* ===================================================================
+     GÖREV — durum geçişleri (REVİZE 02)
+
+     Geçiş tablosu (`DB.taskTransitions`) beş oturumdur veride duruyordu ama
+     **uygulanmıyordu**: dokuz mutasyon yolunun yalnız ikisi ona bakıyordu.
+     `app-gorev-detay.html` izin verilen rolleri ve zorunlu alanları modalda
+     yalnız İPUCU METNİ olarak basıyor, sonra hedefi kontrolsüz yazıyordu;
+     "Onayla" ve "Revize İste" düğmeleri tabloyu tamamen atlıyordu; hata
+     detayı ve arşiv ekranı da kendi durumunu elle yazıyordu.
+
+     VB-06 / VB-23'ün aynı sınıfı: bir olgu birden çok ekrandan yürütülünce
+     sonuçlar ayrışır. Mutasyon buraya alındı; ekran yalnız çağırır.
+
+     İKİ AYRIM ÖNEMLİ:
+     · `yetki` listesi ROL anahtarı da İLİŞKİ anahtarı da taşır. `'pm'` bir
+       roldür ("proje yöneticisi rolündeki herkes"), `'sorumlu'` bir ilişkidir
+       ("BU görevin sorumlusu"). İkisi ayrı çözülür — karıştırmak, her
+       geliştiriciyi her görevin sorumlusu yapardı.
+     · Onay adımının gerekip gerekmediği SAKLANMAZ, türetilir (L-08):
+       kontrol eden ile onaylayan **aynı kişiyse** kontrol zaten onaydır ve
+       görev doğrudan `Tamamlandı`ya gider; **farklıysa** araya `Onay bekliyor`
+       girer. Veride bugün 17 görevde aynı, 9 görevde farklı.
+     =================================================================== */
+  var Task = {
+    /* Onay adımı gerekli mi — türetilir, alan açılmaz */
+    onayGerekli:function(t){ return !!t && t.onaylayan !== t.kontrolEden; },
+
+    /* Oturumdaki kişi bu geçişi yapabilir mi.
+       `iliski` anahtarları görev kaydından, rol anahtarları oturumdan çözülür. */
+    yetkili:function(t, kural){
+      if(!t || !kural || !kural.yetki || !kural.yetki.length) return false;
+      var me  = (GV.session && GV.session.emp) || null;
+      var rol = (GV.perm && GV.perm.role) ? GV.perm.role() : null;
+      return kural.yetki.some(function(k){
+        if(k === 'sorumlu')     return me && t.sorumlu === me;
+        if(k === 'kontrolEden') return me && t.kontrolEden === me;
+        if(k === 'onaylayan')   return me && t.onaylayan === me;
+        if(k === 'veren')       return me && t.veren === me;
+        return rol === k;
+      });
+    },
+
+    /* Hedefe geçmeden önce dolu olması gereken alanlar — EKSİK OLANLARI döndürür */
+    eksikAlanlar:function(t, kural, ek){
+      if(!kural || !kural.zorunlu || !kural.zorunlu.length) return [];
+      ek = ek || {};
+      return kural.zorunlu.filter(function(alan){
+        var v = (alan in ek) ? ek[alan] : t[alan];
+        return v == null || v === '' || (Array.isArray(v) && !v.length);
+      });
+    },
+
+    /* Bu görev + bu oturum için YAPILABİLİR geçişler.
+       Ekran bunu aksiyon butonuna çevirir; uzun statü dropdown'ı basmaz. */
+    nextSteps:function(kod){
+      if(!window.DB) return [];
+      var t = DB.tasks.filter(function(x){ return x.kod === kod; })[0];
+      if(!t) return [];
+      var kural = DB.taskTransitions[t.durum];
+      if(!kural || !kural.next.length) return [];
+      var izin = Task.yetkili(t, kural);
+      var onay = Task.onayGerekli(t);
+      return kural.next.filter(function(hedef){
+        /* Kontrolden çıkışta iki yol da tabloda yazılı; geçerli olan BİRİ basılır */
+        if(t.durum === 'Kontrolde' && hedef === 'Onay bekliyor') return onay;
+        if(t.durum === 'Kontrolde' && hedef === 'Tamamlandı')    return !onay;
+        return true;
+      }).map(function(hedef){
+        return {
+          hedef:hedef,
+          etiket:(DB.taskActionLabels && DB.taskActionLabels[hedef]) || hedef,
+          tone:hedef === 'Tamamlandı' ? 'btn-ok'
+             : hedef === 'İptal edildi' || hedef === 'Engellendi' ? 'btn-danger-line'
+             : hedef === 'Revizede' ? 'btn-line'
+             : hedef === 'Arşivlendi' ? 'btn-line' : 'btn-acc',
+          izin:izin,
+          eksik:Task.eksikAlanlar(t, kural)
+        };
+      });
+    },
+
+    /* Tek mutasyon noktası. `ek` geçişle birlikte yazılacak alanları taşır
+       (ör. `{ revizeNot:'…' }`) ve zorunlu alan denetiminde de sayılır. */
+    transition:function(kod, hedef, ek, not){
+      if(!window.DB) return null;
+      var t = DB.tasks.filter(function(x){ return x.kod === kod; })[0];
+      if(!t) return { ok:false, why:'kayıt yok' };
+      var kural = DB.taskTransitions[t.durum];
+      if(!kural) return { ok:false, why:'"' + t.durum + '" için geçiş kuralı tanımlı değil' };
+      if(kural.next.indexOf(hedef) === -1)
+        return { ok:false, why:'"' + t.durum + '" durumundan "' + hedef + '" durumuna geçilemez' };
+      if(t.durum === 'Kontrolde'){
+        var onay = Task.onayGerekli(t);
+        if(hedef === 'Onay bekliyor' && !onay)
+          return { ok:false, why:'Bu görevde kontrol eden ile onaylayan aynı kişi — ayrı onay adımı yok' };
+        if(hedef === 'Tamamlandı' && onay)
+          return { ok:false, why:'Bu görev onay adımından geçmeli — önce onaya gönderin' };
+      }
+      if(!Task.yetkili(t, kural))
+        return { ok:false, why:'yetki', roller:kural.yetki };
+      var eksik = Task.eksikAlanlar(t, kural, ek);
+      if(eksik.length) return { ok:false, why:'zorunlu', eksik:eksik };
+
+      var eski = t.durum;
+      if(ek) Object.keys(ek).forEach(function(k){ t[k] = ek[k]; });
+      t.durum = hedef;
+
+      /* Durum geçişinin yan etkileri — hepsi TEK yerde, ekranda değil */
+      if(hedef === 'Devam ediyor' && !t.baslangic) t.baslangic = DB.today;
+      if(hedef === 'Revizede'){ t.revizyon = (t.revizyon || 0) + 1; }
+      if(hedef === 'Tamamlandı'){ t.ilerleme = 100; t.tamamlanma = DB.today; }
+      if(hedef !== 'Engellendi' && t.beklemeNedeni && hedef === 'Devam ediyor'){
+        /* Engel kalkıp çalışmaya dönülüyorsa bekleme de biter */
+        Task.bekleme(kod, null, null, true);
+      }
+      log(t.kod, 'Durum değiştirildi' + (not ? ' — ' + not : ''), eski, hedef,
+          hedef === 'Tamamlandı' ? 'ok' : hedef === 'İptal edildi' || hedef === 'Engellendi' ? 'danger' : 'info',
+          hedef === 'Tamamlandı' ? 'i-check-circle' : 'i-refresh');
+      return { ok:true, gorev:t, eski:eski, bildirim:kural.bildirim || [] };
+    },
+
+    /* BEKLEME NEDENİ — durumdan bağımsız ikinci eksen (REVİZE 01).
+       Görev "Devam ediyor" kalır, yalnız neyi beklediğini söyler. Eskiden
+       bunun için üç ayrı DURUM vardı ve görev ilerlemeyi bırakmış görünüyordu. */
+    bekleme:function(kod, neden, notu, sessiz){
+      if(!window.DB) return null;
+      var t = DB.tasks.filter(function(x){ return x.kod === kod; })[0];
+      if(!t) return { ok:false, why:'kayıt yok' };
+      if(neden != null && DB.taskWaitReasons.indexOf(neden) === -1)
+        return { ok:false, why:'geçersiz bekleme nedeni' };
+      var eski = t.beklemeNedeni || null;
+      if(eski === (neden || null)) return { ok:false, why:'zaten bu durumda' };
+      if(neden){ t.beklemeNedeni = neden; if(notu) t.beklemeNotu = notu; }
+      else { delete t.beklemeNedeni; delete t.beklemeNotu; }
+      if(!sessiz){
+        log(t.kod, neden ? 'Bekleme nedeni işaretlendi' : 'Bekleme kaldırıldı',
+            eski, neden || null, neden ? 'warn' : 'ok', neden ? 'i-clock' : 'i-check');
+      }
+      return { ok:true, gorev:t, eski:eski };
+    }
+  };
+
   GV.fin = Fin;
   GV.delivery = Delivery;
+  GV.task = Task;
 })();

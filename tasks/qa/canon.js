@@ -640,6 +640,73 @@ DB.referrers.filter(r => !r.kontak).forEach(r => {
   say(!c, r.kod + ' bağsız ama ' + (c ? c.kod : '') + ' ile aynı iletişim bilgisini taşıyor — kontak yazılmalı (VB-13)');
 });
 
+/* ---------- 25. GÖREV DURUMU VE BEKLEME EKSENİ (REVİZE 01 · REVİZE 02) ----------
+   Sözlük 19 değerliydi, 8'i hiçbir kayıtta geçmiyordu ve üçü aslında bekleme
+   nedeniydi. Sadeleştirme 10 değere indirdi. Bu eksen üç şeyi bir daha
+   bozulamaz hâle getirir:
+   (a) her görev durumu sözlükten çıkar — ekranda elle yazılan bir değer
+       sessizce veriye giremez;
+   (b) geçiş tablosu sözlükle BİREBİR örtüşür — kuralsız durum, hedefi
+       sözlükte olmayan geçiş kalmaz (`Kontrol bekliyor`ın `ciktiLink` zorunlu
+       alanı gibi HİÇ UYGULANAMAYAN kural bir daha yazılamaz: zorunlu alan
+       adı gerçek bir görev alanı olmalı);
+   (c) bekleme nedeni AYRI eksende durur ve sözlükten çıkar — L-22 gereği
+       en az bir kayıtta gerçekten dolu olmalı, yoksa "alan açmak bağ yazmak
+       değildir" hatası tekrarlanır. */
+head('25) Görev durumu · geçiş tablosu · bekleme ekseni (REVİZE 01/02)');
+{
+  const S = DB.taskStatuses, T = DB.taskTransitions, W = DB.taskWaitReasons;
+  say(S.length === 10, 'DB.taskStatuses ' + S.length + ' değer — hedef 10');
+  say(new Set(S).size === S.length, 'DB.taskStatuses tekrar eden değer taşıyor');
+  say(Array.isArray(W) && W.length > 0, 'DB.taskWaitReasons sözlüğü yok');
+
+  /* 25a. Her görevin durumu sözlükten */
+  DB.tasks.forEach(t => say(S.indexOf(t.durum) !== -1,
+    t.kod + ' durum="' + t.durum + '" DB.taskStatuses içinde yok'));
+
+  /* 25b. Geçiş tablosu sözlükle birebir — kuralsız durum ve sözlük dışı hedef yok */
+  S.forEach(d => say(!!T[d], '"' + d + '" durumu için geçiş kuralı yok — o durumdaki görev sıkışır'));
+  Object.keys(T).forEach(d => {
+    say(S.indexOf(d) !== -1, 'taskTransitions["' + d + '"] sözlükte olmayan bir durum');
+    T[d].next.forEach(h => say(S.indexOf(h) !== -1,
+      '"' + d + '" → "' + h + '" hedefi sözlükte yok'));
+  });
+
+  /* 25c. Zorunlu alan adı GERÇEK bir görev alanı olmalı.
+     `ciktiLink` beş oturum boyunca zorunlu yazılıydı ve hiçbir görevde böyle
+     bir alan yoktu — kural hiç uygulanamadı, kimse fark etmedi. */
+  const alanlar = new Set();
+  DB.tasks.forEach(t => Object.keys(t).forEach(k => alanlar.add(k)));
+  Object.keys(T).forEach(d => (T[d].zorunlu || []).forEach(a => say(alanlar.has(a),
+    '"' + d + '" zorunlu alanı "' + a + '" hiçbir görev kaydında yok — kural uygulanamaz')));
+
+  /* 25d. Her durumdan çıkış var (Arşivlendi son duraktır) */
+  S.filter(d => d !== 'Arşivlendi').forEach(d =>
+    say(T[d] && T[d].next.length > 0, '"' + d + '" durumundan çıkış yok — görev orada kilitlenir'));
+
+  /* 25e. Bekleme nedeni ayrı eksende, sözlükten, en az bir kayıtta DOLU (L-22) */
+  const bekleyen = DB.tasks.filter(t => t.beklemeNedeni != null);
+  say(bekleyen.length > 0,
+    'beklemeNedeni 26 kaydın HİÇBİRİNDE dolu değil — alan açmak bağ yazmak değildir (L-22)');
+  bekleyen.forEach(t => say(W.indexOf(t.beklemeNedeni) !== -1,
+    t.kod + ' beklemeNedeni="' + t.beklemeNedeni + '" sözlükte yok'));
+  console.log('  · beklemeNedeni dolu: ' + bekleyen.length + ' / ' + DB.tasks.length +
+              '  (' + bekleyen.map(t => t.kod + ':' + t.beklemeNedeni).join(' · ') + ')');
+
+  /* 25f. Bekleme bir DURUM olarak geri sızmasın — eski üç değer sözlüğe dönemez */
+  ['Bilgi bekliyor', 'Müşteri bekleniyor', 'Departman bekleniyor'].forEach(v =>
+    say(S.indexOf(v) === -1,
+      '"' + v + '" görev durumu olarak geri gelmiş — bu bir BEKLEME NEDENİ, durum değil (REVİZE 01)'));
+
+  /* 25g. Tamamlanmış görev %100, tamamlanmamış görevde tamamlanma tarihi yok */
+  DB.tasks.forEach(t => {
+    if (t.durum === 'Tamamlandı') say(t.ilerleme === 100,
+      t.kod + ' tamamlandı ama ilerleme=' + t.ilerleme);
+    if (t.tamamlanma) say(['Tamamlandı', 'Arşivlendi'].indexOf(t.durum) !== -1,
+      t.kod + ' tamamlanma tarihi var ama durum="' + t.durum + '"');
+  });
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
