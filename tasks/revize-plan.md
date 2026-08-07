@@ -19,6 +19,14 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | İşaretli | **138** — **DÖRT FAZIN DÖRDÜ DE KAPANDI** |
 | Kalan | **0** |
 
+> **TUR KAPANDI — 2026-08-07, 16. oturum.** Kapanış raporu:
+> [`docs/O-revize-turu-kapanis.md`](../docs/O-revize-turu-kapanis.md).
+> Kapanışta tarama setinin tamamı **tek tek** koşuldu: `canon.js` 4.517 kontrol ·
+> 37 eksen · `gate.js` 710 sayfa yüklemesi · `qa.js` 142 ekran × 3 kırılım ·
+> `act.js` 213 aksiyon · `portal.js` iki personayla 3.906 iz×ekran kontrolü —
+> hepsi TEMİZ. `xport.js` bilinen ve bilinçli "kısmi" sınıfında (tamamen
+> taşımayan kolon **0**).
+
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
 > `plan.md`'nin 295/295 defteri bu disiplinle tutulmuştu.

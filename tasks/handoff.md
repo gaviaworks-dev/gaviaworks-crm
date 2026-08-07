@@ -1,6 +1,15 @@
 # Handoff — GaviaWorks CRM
 
-## 🔵 AÇIK TUR — REVİZE TURU (13. oturum, 2026-08-07'de başladı)
+## ✅ KAPANMIŞ TUR — REVİZE TURU (13.–16. oturum, 2026-08-07)
+
+> **REVİZE TURU TAMAM.** 138 / 138 alt madde · dört fazın dördü kapandı.
+> Kapanış raporu: **`docs/O-revize-turu-kapanis.md`**.
+> Kapanışta tarama setinin tamamı tek tek koşuldu ve temiz döndü;
+> `canon.js` **4.517 kontrol · 37 eksen**, `portal.js` (bu turda açıldı)
+> iki müşteri personasıyla **sıfır sızıntı**.
+>
+> Aşağıdaki bölüm turun kendi kaydıdır; sonraki oturum için geçerli kurallar
+> §1–§5'te (o bölümler bu tur boyunca da geçerliydi ve değişmedi).
 
 İlk kapsam (`plan.md`, 295/295) **kapandı ve kapalı kalıyor**. Beyar 2026-08-07'de
 **ayrı bir revize turu** açtı; bu tur kendi defterinde yürür:
@@ -37,8 +46,9 @@ oraya eklenmez, yüzdesi bozulmaz.
 | **FAZ 3 · R17** hizmet paketi / abonelik | ✅ **TAMAM** (7/7 · canon eksen 36) |
 | **FAZ 3** | ✅ **KAPANDI** |
 | **Ölçüm ekseni: `tasks/qa/dep.js`** | ✅ yeni — L-34'ün (yordam ↔ koleksiyon bağımlılığı) tarama karşılığı |
-| İşaretli alt madde | **105 / 138** |
-| **Sıradaki: FAZ 4** — R14 · R15 · R16 · R18 · R19 · R20 | ⬜ açık (33 alt madde) |
+| İşaretli alt madde | **138 / 138** |
+| **FAZ 4 · R14 · R15 · R16 · R18 · R19 · R20** | ✅ **KAPANDI** (33/33) |
+| **TUR** | ✅ **KAPANDI — 138 / 138** |
 
 > **İLERLEME ARTIK MEKANİK ÖLÇÜLÜYOR.** `revize-plan.md`'deki 138 alt maddenin
 > kaçının bittiği damgadan değil kutudan okunur:
