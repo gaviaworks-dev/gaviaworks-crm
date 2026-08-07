@@ -1351,6 +1351,75 @@ head('35) Proje kaynağı (REVİZE 11)');
     ' · sözleşmeli proje ' + DB.contracts.filter(c => c.proje).length + '/' + DB.projects.length);
 }
 
+head('36) Hizmet paketi tipi ve periyodu (REVİZE 17)');
+{
+  /* Gün düzeltmeli ay sayımı — `components.md` §9'daki kota formülünün aynısı;
+     üçüncü bir yerde yeniden yazılmaz, buradan okunur. */
+  const donemAy = p => {
+    const a = new Date(p.baslangic), b = new Date(p.bitis);
+    const m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) +
+              (b.getDate() >= a.getDate() ? 1 : 0);
+    return m > 0 ? m : 12;
+  };
+  const AY_PERIYOT = { 1:'Aylık', 3:'3 Aylık', 6:'6 Aylık', 12:'Yıllık' };
+
+  say(Array.isArray(DB.servicePackageTypes) && DB.servicePackageTypes.length === 10,
+    'DB.servicePackageTypes sözlüğü yok ya da dokümanın 10 tipini taşımıyor');
+  say(Array.isArray(DB.servicePackagePeriods) && DB.servicePackagePeriods.length > 0,
+    'DB.servicePackagePeriods sözlüğü yok');
+
+  DB.supportPackages.forEach(p => {
+    /* 36a. Üç alan HER kayıtta tanımlı (VB-18: şema kayıttan kayda değişmez). */
+    ['tip', 'periyot', 'sorumlu'].forEach(k => say(k in p,
+      p.kod + " '" + k + "' alanı yok — şema kayıttan kayda değişiyor"));
+
+    /* 36b. Tip sözlükten ve dolu. */
+    say(!!p.tip, p.kod + ' paket tipi boş');
+    say(!p.tip || DB.servicePackageTypes.indexOf(p.tip) !== -1,
+      p.kod + ' tip sözlükte yok: ' + p.tip);
+
+    /* 36c. `ad` ile `tip` AYNI eksende değildir: paket adı hizmetin adıdır
+       (`Kurumsal Bakım`), tip sınıflandırmadır. Adın tip sözlüğünden bir
+       kelime OLMASI beklenmez; ama tipin ad sözlüğüne kayması iki ekseni
+       yeniden tek alana sıkıştırmak olurdu (VB-20 sınıfı). */
+    say(DB.supportPackageTypes.indexOf(p.tip) === -1,
+      p.kod + ' tip alanı paket ADI sözlüğünden bir değer taşıyor: ' + p.tip);
+
+    /* 36d. PERİYOT ile dönem ÇELİŞMEZ. Dolu ise ay sayısının karşılığıdır;
+       boş ise dönem sözlükteki hiçbir periyoda eşit DEĞİLDİR — yani "boş
+       bırakmak" ancak türetilemediğinde meşrudur (V-57). */
+    const ay = donemAy(p);
+    if (p.periyot) {
+      say(DB.servicePackagePeriods.indexOf(p.periyot) !== -1,
+        p.kod + ' periyot sözlükte yok: ' + p.periyot);
+      say(AY_PERIYOT[ay] === p.periyot,
+        p.kod + ' periyot dönemle çelişiyor: ' + p.periyot + ' yazılı, dönem ' + ay + ' ay');
+    } else {
+      say(!AY_PERIYOT[ay],
+        p.kod + ' periyot boş ama dönem ' + ay + ' ay — karşılığı sözlükte var (' + AY_PERIYOT[ay] + ')');
+    }
+
+    /* 36e. Sorumlu KİŞİ KODUDUR ve gerçek bir personeldir (VB-12 · eksen 24). */
+    say(!p.sorumlu || /^EMP-/.test(p.sorumlu),
+      p.kod + ' sorumlu="' + p.sorumlu + '" → EMP kodu değil');
+    say(!p.sorumlu || DB.employees.some(e => e.kod === p.sorumlu),
+      p.kod + ' sorumlu=' + p.sorumlu + ' → DB.employees içinde yok');
+
+    /* 36f. Kota sözleşmesi periyot alanı geldikten sonra da geçerli. */
+    say((p.kullanilan || 0) + (p.kalan || 0) === (p.aylikSaat || 0) * ay,
+      p.kod + ' kota bozuldu: ' + p.kullanilan + ' + ' + p.kalan + ' ≠ ' +
+      p.aylikSaat + ' × ' + ay);
+  });
+
+  console.log('  · tip dağılımı: ' + DB.servicePackageTypes
+    .map(t => t + ' ' + DB.supportPackages.filter(p => p.tip === t).length)
+    .filter(x => !/ 0$/.test(x)).join(' · ') +
+    ' · periyot: ' + DB.servicePackagePeriods
+    .map(t => t + ' ' + DB.supportPackages.filter(p => p.periyot === t).length)
+    .filter(x => !/ 0$/.test(x)).join(' · ') +
+    ' · periyodu sözlük dışı dönem: ' + DB.supportPackages.filter(p => !p.periyot).length);
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
