@@ -830,4 +830,89 @@
         eski, 'Tamamlandı', gecmeyen.length ? 'warn' : 'ok', 'i-check-circle');
     return { ok:true, kod:p.kod, tarih:gun, gecmeyen:gecmeyen.length };
   };
+
+  /* ===================================================================
+     KAPANIŞTAN BAKIM / DESTEĞE GEÇİŞ (REVİZE 08)
+
+     Kapanış kontrolünün sekizinci maddesi bir SORUDUR: "bakım veya destek
+     hizmeti başlayacak mı?". Cevabı burada yazılır. Bağ **pakette** durur
+     (`DB.supportPackages[].proje`), projede ayna alan doğmaz (§9d).
+
+     Turun başında proje ile paket arasında **hiçbir yönde bağ yoktu** ve
+     veriden türetilemiyordu: tek dolaylı zincir (`paket.sozlesme →
+     contract.proje`) hiçe çıkıyor. Tarih yakınlığı ve müşteri eşleşmesi
+     bağ sayılmadı (L-13) — bağı kullanıcı kurar, kapanış anında.
+     =================================================================== */
+  Proje.bakimPaketleri = function(kod){
+    var p = Proje.kayit(kod);
+    if(!p || !window.DB || !DB.supportPackages) return [];
+    return DB.supportPackages.filter(function(x){ return x.musteri === p.musteri; });
+  };
+
+  Proje.bakimBagla = function(projeKod, paketKod){
+    var p = Proje.kayit(projeKod);
+    if(!p) return { ok:false, why:'kayıt yok' };
+    if(!can('duzenle')) return { ok:false, why:'yetki' };
+    var pkt = (DB.supportPackages || []).filter(function(x){ return x.kod === paketKod; })[0];
+    if(!pkt) return { ok:false, why:'paket yok' };
+    if(pkt.musteri !== p.musteri)
+      return { ok:false, why:'başka müşterinin paketi', musteri:pkt.musteri };
+    if(pkt.proje === p.kod) return { ok:false, why:'zaten bağlı' };
+    if(pkt.proje) return { ok:false, why:'paket başka projeye bağlı', proje:pkt.proje };
+    pkt.proje = p.kod;
+    log(pkt.kod, 'Bakım paketi projeye bağlandı', '', p.kod, 'ok', 'i-link');
+    log(p.kod, 'Kapanışta bakım paketine bağlandı', '', pkt.kod, 'ok', 'i-link');
+    return { ok:true, paket:pkt.kod };
+  };
+
+  /* Yeni paket — YENİ EKRAN AÇILMAZ, kapanış modalının son adımıdır.
+     Kota aritmetiği sözleşmesi korunur: `kullanilan + kalan = aylikSaat × ay`
+     (components.md §9). Tutar ve aylık saat KULLANICIDAN alınır; paket
+     fiyat katalogu bu depoda yok, uydurulmaz (L-13). */
+  Proje.bakimAc = function(projeKod, cfg){
+    var p = Proje.kayit(projeKod);
+    if(!p) return { ok:false, why:'kayıt yok' };
+    if(!can('duzenle')) return { ok:false, why:'yetki' };
+    cfg = cfg || {};
+    var ay = parseInt(cfg.ay, 10) || 0;
+    var saat = parseInt(cfg.aylikSaat, 10) || 0;
+    var tutar = parseInt(cfg.tutar, 10) || 0;
+    var eksik = [];
+    if(!cfg.baslangic) eksik.push('Başlangıç tarihi');
+    if((DB.supportPackageTypes || []).indexOf(cfg.tip) === -1) eksik.push('Paket tipi');
+    if(ay <= 0) eksik.push('Süre (ay)');
+    if(saat <= 0) eksik.push('Aylık saat');
+    if(tutar <= 0) eksik.push('Paket bedeli');
+    if(eksik.length) return { ok:false, why:'zorunlu', eksik:eksik };
+
+    /* Bitiş = başlangıç + ay − 1 gün. `toISOString()` KULLANILMAZ: yerel
+       saat diliminde kurulan tarihi UTC'ye çevirip bir gün geriye kaydırır
+       (ölçüldü: 2026-08-01 + 12 ay → 2027-07-30 çıkıyordu, doğrusu 07-31).
+       Tarih parçaları elle biçimlenir. */
+    var d = new Date(cfg.baslangic + 'T00:00:00');
+    d.setMonth(d.getMonth() + ay); d.setDate(d.getDate() - 1);
+    var iki = function(n){ return (n < 10 ? '0' : '') + n; };
+    var bitis = d.getFullYear() + '-' + iki(d.getMonth() + 1) + '-' + iki(d.getDate());
+
+    var no = (DB.supportPackages || []).reduce(function(m, x){
+      var n = parseInt(String(x.kod).replace(/\D/g, ''), 10) || 0;
+      return n > m ? n : m; }, 0) + 1;
+    /* Sözleşme projeden DEVRALINIR — ters yönden çözülür (`contracts.proje`). */
+    var soz = (DB.contracts || []).filter(function(c){ return c.proje === p.kod; })[0];
+
+    var pkt = {
+      kod:'BKP-' + String(no).padStart(3, '0'),
+      musteri:p.musteri, ad:cfg.tip,
+      baslangic:cfg.baslangic, bitis:bitis,
+      aylikSaat:saat, kullanilan:0, kalan:saat * ay,
+      tutar:tutar, durum:'Aktif',
+      sozlesme:soz ? soz.kod : null,
+      yenileme:false, yenilemeTarihi:null, aktif:true,
+      proje:p.kod
+    };
+    (DB.supportPackages || []).push(pkt);
+    log(pkt.kod, 'Paket proje kapanışında oluşturuldu', '', p.kod, 'ok', 'i-plus');
+    log(p.kod, 'Kapanışta bakım paketi açıldı', '', pkt.kod, 'ok', 'i-link');
+    return { ok:true, paket:pkt.kod, bitis:bitis, sozlesme:pkt.sozlesme };
+  };
 })();

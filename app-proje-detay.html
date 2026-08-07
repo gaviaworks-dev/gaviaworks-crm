@@ -1348,19 +1348,106 @@ document.addEventListener('gv:ready', function(){
         return;
       }
       GV.refresh();
-      GV.result({
-        title:'Proje kapatıldı',
-        tone:r.gecmeyen ? 'warn' : 'ok',
-        text:p.kod + ' artık “Tamamlandı” durumunda · gerçekleşen bitiş ' + r.tarih +
-             (r.gecmeyen ? ' · geçmeyen ' + r.gecmeyen + ' madde gerekçeyle geçildi' : ''),
-        /* `GV.modal` aksiyonu href TAŞIMAZ, buton basar — yönlendirme
-           `onClick` ile yapılır, yoksa ölü buton olurdu (act.js ⚫ ÖLÜ). */
-        actions:[{ label:'Proje listesi', cls:'btn-line',
-                   onClick:function(){ location.href = 'app-proje.html'; } },
-                 { label:'Tamam', cls:'btn-acc' }]
-      });
+      bakimAdimi(r);
     });
   });
+
+  /* ---- REVİZE 08 — kapanışın SON ADIMI: bakım / destek geçişi ----------
+     Doküman: "Bu proje için bakım veya destek hizmeti başlatılacak mı?"
+     Üç cevap: Hayır · mevcut pakete bağla · yeni paket. Yeni paket YENİ
+     EKRAN AÇMAZ, aynı modalda alınır; bağ pakette durur (§9d).
+     Aylık saat ve bedel KULLANICIDAN alınır — paket fiyat katalogu bu
+     depoda yok ve uydurulmaz (L-13). */
+  function bakimAdimi(r){
+    var paketler = GV.proje.bakimPaketleri(p.kod).filter(function(x){ return !x.proje; });
+    var bugun = DB.today;
+
+    var secim =
+      '<div class="field"><label for="bkmKarar">Bu proje için bakım veya destek hizmeti başlayacak mı?</label>' +
+      '<select id="bkmKarar">' +
+        '<option value="hayir">Hayır — bakım hizmeti başlamayacak</option>' +
+        (paketler.length
+          ? '<option value="bagla">Mevcut pakete bağla (' + paketler.length + ' uygun paket)</option>' : '') +
+        '<option value="yeni">Yeni paket oluştur</option>' +
+      '</select></div>' +
+      (paketler.length
+        ? '<div class="field" id="bkmPaketAlan" hidden><label for="bkmPaket">Müşterinin paketi</label>' +
+          '<select id="bkmPaket">' + paketler.map(function(x){
+            return '<option value="' + x.kod + '">' + esc(x.ad) + ' · ' + x.kod +
+                   ' · ' + F.date(x.baslangic) + ' → ' + F.date(x.bitis) + '</option>'; }).join('') +
+          '</select></div>'
+        : '') +
+      '<div id="bkmYeniAlan" hidden>' +
+        '<div class="field"><label for="bkmTip">Paket tipi</label><select id="bkmTip">' +
+          DB.supportPackageTypes.map(function(t){ return '<option>' + esc(t) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="field"><label for="bkmBas">Başlangıç tarihi</label>' +
+          '<input type="date" id="bkmBas" value="' + bugun + '"></div>' +
+        '<div class="field"><label for="bkmAy">Süre (ay)</label>' +
+          '<input type="number" id="bkmAy" min="1" max="60" value="12"></div>' +
+        '<div class="field"><label for="bkmSaat">Aylık destek saati</label>' +
+          '<input type="number" id="bkmSaat" min="1" max="200" value="4"></div>' +
+        '<div class="field"><label for="bkmTutar">Paket bedeli (KDV hariç)</label>' +
+          '<input type="number" id="bkmTutar" min="0" step="1000" placeholder="Örn. 96000"></div>' +
+        '<p class="u-sm u-faint">Sözleşme projeden devralınır' +
+          (sozlesme ? ' (' + sozlesme.kod + ')' : ' — bu projenin sözleşmesi yok, paket sözleşmesiz açılır') +
+          '. Aylık saat ve bedel sorulur çünkü bu depoda paket fiyat katalogu yok.</p>' +
+      '</div>';
+
+    var m = GV.modal({
+      title:'Proje kapatıldı — ' + p.kod,
+      tone:r.gecmeyen ? 'warn' : 'ok',
+      icon:'i-check-circle', size:'sm',
+      text:p.kod + ' artık “Tamamlandı” durumunda · gerçekleşen bitiş ' + r.tarih +
+           (r.gecmeyen ? ' · geçmeyen ' + r.gecmeyen + ' madde gerekçeyle geçildi' : ''),
+      body:secim,
+      actions:[
+        { label:'Proje listesi', cls:'btn-line', onClick:function(){ location.href = 'app-proje.html'; } },
+        { label:'Tamamla', cls:'btn-acc', onClick:function(close){
+            var karar = document.getElementById('bkmKarar').value;
+            if(karar === 'hayir'){ GV.toast('Proje kapatıldı · bakım hizmeti başlatılmadı', 'ok'); return; }
+            if(karar === 'bagla'){
+              var s2 = GV.proje.bakimBagla(p.kod, document.getElementById('bkmPaket').value);
+              if(!s2.ok){ GV.toast('Paket bağlanamadı: ' + s2.why, 'danger'); return false; }
+              GV.refresh();
+              GV.toast(s2.paket + ' paketi ' + p.kod + ' projesine bağlandı', 'ok');
+              return;
+            }
+            var s3 = GV.proje.bakimAc(p.kod, {
+              baslangic:document.getElementById('bkmBas').value,
+              tip:document.getElementById('bkmTip').value,
+              ay:document.getElementById('bkmAy').value,
+              aylikSaat:document.getElementById('bkmSaat').value,
+              tutar:document.getElementById('bkmTutar').value
+            });
+            if(!s3.ok){
+              GV.toast(s3.why === 'zorunlu' ? ('Eksik alan: ' + s3.eksik.join(' · '))
+                                            : ('Paket açılamadı: ' + s3.why), 'danger');
+              return false;
+            }
+            close();
+            GV.refresh();
+            GV.result({ title:'Bakım paketi açıldı', tone:'ok',
+              text:s3.paket + ' · ' + p.musteriAd + ' · bitiş ' + F.date(s3.bitis) +
+                   (s3.sozlesme ? ' · sözleşme ' + s3.sozlesme : ' · sözleşmesiz'),
+              actions:[{ label:'Paketi aç', cls:'btn-acc',
+                         onClick:function(){ location.href = 'app-destek-paket.html?t=tumu&q=' + s3.paket; } },
+                       { label:'Tamam', cls:'btn-line' }] });
+            return false;
+          } }
+      ]
+    });
+
+    /* Seçime göre alan gösterimi — gereksiz alan hiç görünmez. */
+    var sel = document.getElementById('bkmKarar');
+    var alanBagla = document.getElementById('bkmPaketAlan');
+    var alanYeni  = document.getElementById('bkmYeniAlan');
+    if(sel) sel.addEventListener('change', function(){
+      if(alanBagla) alanBagla.hidden = sel.value !== 'bagla';
+      if(alanYeni)  alanYeni.hidden  = sel.value !== 'yeni';
+    });
+    return m;
+  }
 
   /* Dosyalar sekmesindeki yükleme alanı — ortak bileşen */
   GV.upload({

@@ -544,26 +544,36 @@ DB.tickets = [
 /* `sozlesme` varsa DB.contracts kaydına bağlar; `yenileme` yenilemeye işaretli
    paketleri gösterir (DB.contracts ile aynı alan adları). Kota aritmetiği sabittir:
    kullanilan + kalan = aylikSaat × dönem ayı. */
+/* REVİZE 08 — bakım paketinin PROJE bağı ve paket tipi sözlüğü.
+   `proje` alanı 7 kaydın 7'sinde **null** ve bu ölçülmüş bir gerçektir:
+   hiçbir paket bir projeye bağlı değil, tek dolaylı zincir de
+   (`paket.sozlesme → contract.proje`) hiçe çıkıyor (SZL-2026-022'nin projesi
+   yok). Tarih yakınlığı ya da müşteri eşleşmesi BAĞ DEĞİLDİR (§9d · L-13) —
+   BKP-004 projenin teslimden iki gün sonra başlıyor ama bunu bağ saymak
+   uydurmaktır. Alan yine de HER kayıtta duruyor: şema kayıttan kayda
+   değişmesin diye (VB-20 eki). Bağı proje kapanış akışı yazar. */
+DB.supportPackageTypes = ['Standart Bakım','Kurumsal Bakım'];
+
 DB.supportPackages = [
-  { kod:'BKP-001', musteri:'MUS-2024-001', ad:'Kurumsal Bakım', baslangic:'2026-01-01', bitis:'2026-12-31',
+  { kod:'BKP-001', proje:null, musteri:'MUS-2024-001', ad:'Kurumsal Bakım', baslangic:'2026-01-01', bitis:'2026-12-31',
     aylikSaat:8, kullanilan:34, kalan:62, tutar:180000, durum:'Aktif',
     sozlesme:'SZL-2026-022', yenileme:true, yenilemeTarihi:'2026-12-31', aktif:true },
-  { kod:'BKP-002', musteri:'MUS-2024-002', ad:'Kurumsal Bakım', baslangic:'2026-03-01', bitis:'2027-02-28',
+  { kod:'BKP-002', proje:null, musteri:'MUS-2024-002', ad:'Kurumsal Bakım', baslangic:'2026-03-01', bitis:'2027-02-28',
     aylikSaat:6, kullanilan:34, kalan:38, tutar:144000, durum:'Aktif',
     sozlesme:null, yenileme:false, yenilemeTarihi:null, aktif:true },
-  { kod:'BKP-003', musteri:'MUS-2025-005', ad:'Kurumsal Bakım', baslangic:'2025-10-01', bitis:'2027-09-30',
+  { kod:'BKP-003', proje:null, musteri:'MUS-2025-005', ad:'Kurumsal Bakım', baslangic:'2025-10-01', bitis:'2027-09-30',
     aylikSaat:10, kullanilan:196, kalan:44, tutar:420000, durum:'Aktif',
     sozlesme:null, yenileme:false, yenilemeTarihi:null, aktif:true },
-  { kod:'BKP-004', musteri:'MUS-2026-009', ad:'Standart Bakım', baslangic:'2026-07-24', bitis:'2027-01-23',
+  { kod:'BKP-004', proje:null, musteri:'MUS-2026-009', ad:'Standart Bakım', baslangic:'2026-07-24', bitis:'2027-01-23',
     aylikSaat:4, kullanilan:6, kalan:18, tutar:48000, durum:'Aktif',
     sozlesme:null, yenileme:false, yenilemeTarihi:null, aktif:true },
-  { kod:'BKP-005', musteri:'MUS-2026-010', ad:'Standart Bakım', baslangic:'2026-06-26', bitis:'2026-12-25',
+  { kod:'BKP-005', proje:null, musteri:'MUS-2026-010', ad:'Standart Bakım', baslangic:'2026-06-26', bitis:'2026-12-25',
     aylikSaat:4, kullanilan:12, kalan:12, tutar:42000, durum:'Aktif',
     sozlesme:null, yenileme:false, yenilemeTarihi:null, aktif:true },
-  { kod:'BKP-006', musteri:'MUS-2026-011', ad:'Kurumsal Bakım', baslangic:'2025-10-01', bitis:'2026-09-30',
+  { kod:'BKP-006', proje:null, musteri:'MUS-2026-011', ad:'Kurumsal Bakım', baslangic:'2025-10-01', bitis:'2026-09-30',
     aylikSaat:6, kullanilan:58, kalan:14, tutar:162000, durum:'Aktif',
     sozlesme:null, yenileme:true, yenilemeTarihi:'2026-09-30', aktif:true },
-  { kod:'BKP-007', musteri:'MUS-2025-006', ad:'Standart Bakım', baslangic:'2025-01-01', bitis:'2025-12-31',
+  { kod:'BKP-007', proje:null, musteri:'MUS-2025-006', ad:'Standart Bakım', baslangic:'2025-01-01', bitis:'2025-12-31',
     aylikSaat:4, kullanilan:48, kalan:0, tutar:96000, durum:'Sona erdi',
     sozlesme:null, yenileme:false, yenilemeTarihi:null, aktif:true }
 ];
