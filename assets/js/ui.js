@@ -622,8 +622,12 @@
         kapsamNot = 'Kapsam süzgeci uygulanamadı — oturumda karşılığı olan bir değer yok.';
         return rows;
       }
+      /* Eşleme bir ALAN ADI ya da bir YORDAM olabilir (REVİZE 13). Yordam
+         gerekiyor çünkü kapsam alanı kayıtta her zaman doğrudan yazılı değil:
+         teslim kaydında müşteri yoktur, projesinde yazılıdır. Yordam kaydı alır,
+         karşılaştırılacak değeri (ya da değer dizisini) döndürür. */
       var out = rows.filter(function(r){
-        var v = r[alan];
+        var v = typeof alan === 'function' ? alan(r) : r[alan];
         return Array.isArray(v) ? v.indexOf(deger) !== -1 : v === deger;
       });
       kapsamNot = k === 'kendi' ? 'Yalnız kendi kayıtlarınız gösteriliyor.'
