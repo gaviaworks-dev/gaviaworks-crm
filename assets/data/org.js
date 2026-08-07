@@ -129,7 +129,12 @@ DB.permMatrix = {
   freelancer:   { gor:'kendi', ekle:'yok', duzenle:'kendi', sil:'yok', onay:false, rapor:'yok', finans:false, maas:false, personel:'yok', log:false, disaAktar:false },
   diskaynak:    { gor:'kendi', ekle:'yok', duzenle:'kendi', sil:'yok', onay:false, rapor:'yok', finans:false, maas:false, personel:'yok', log:false, disaAktar:false },
   stajyer:      { gor:'kendi', ekle:'yok', duzenle:'kendi', sil:'yok', onay:false, rapor:'yok', finans:false, maas:false, personel:'yok', log:false, disaAktar:false },
-  musteri:      { gor:'kendi', ekle:'kendi', duzenle:'yok', sil:'yok', onay:true,  rapor:'kendi', finans:false, maas:false, personel:'yok', log:false, disaAktar:false }
+  /* REVİZE 13 — müşteri rolünün kapsamı `kendi` DEĞİL `musteri`dir.
+     `kendi` bir PERSONEL ekseniydi (`GV.session.emp` ile eşleşir) ve müşteri
+     oturumunda `emp` yoktur; sonuç: `GV.list`in `musteri` dalı (ui.js
+     `afterScope`) beş oturum boyunca ÖLÜ KODDU ve ekranlar koleksiyonun
+     tamamını basıyordu. `rapor` da aynı eksene çekildi. */
+  musteri:      { gor:'musteri', ekle:'musteri', duzenle:'yok', sil:'yok', onay:true,  rapor:'musteri', finans:false, maas:false, personel:'yok', log:false, disaAktar:false }
 };
 
 /* ---- Personel (PROMPT.md §14 — personel kartı) ----------------------- */

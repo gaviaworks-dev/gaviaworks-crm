@@ -107,6 +107,35 @@
           '</button>';
         });
       });
+      /* REVİZE 13 — MÜŞTERİ PERSONASI. Giriş ekranında müşteri rolü hiç yoktu;
+         portal yalnız `?role=musteri` ile açılabiliyordu ve o yol da kullanıcıyı
+         EMP-001'e (şirket sahibine) düşürüyordu. Persona UYDURULMADI: var olan
+         `DB.contacts` kayıtlarından, birincil yetkili olan ve şirketinin gerçek
+         projesi/talebi bulunan iki kişi listelenir. */
+      if(DB.contacts){
+        var musAday = DB.contacts.filter(function(c){
+          if(c.aktif === false || !c.birincil) return false;
+          return (DB.projects || []).some(function(p){ return p.musteri === c.musteri; }) ||
+                 (DB.tickets  || []).some(function(t){ return t.musteri === c.musteri; });
+        }).slice(0, 2);
+        if(musAday.length){
+          html += '<div class="lg-role-group">Müşteri Portalı</div>';
+          musAday.forEach(function(c){
+            var m = (DB.customers || []).filter(function(x){ return x.kod === c.musteri; })[0];
+            var p = String(c.ad || '').trim().split(/\s+/);
+            var ini = (p[0] || '').slice(0,1) + (p.length > 1 ? p[p.length - 1].slice(0,1) : '');
+            html += '<button type="button" class="lg-role" data-emp="' + c.kod + '" data-role="musteri">' +
+              '<span class="lg-role-ava">' + ini + '</span>' +
+              '<span class="lg-role-body">' +
+                '<span class="lg-role-name">' + c.ad + '</span>' +
+                '<span class="lg-role-title">' + DB.roleName('musteri') + ' · ' + (m ? m.kisa : c.musteri) + '</span>' +
+              '</span>' +
+              '<svg class="ic ic-sm" aria-hidden="true"><use href="#i-arrow-right"></use></svg>' +
+            '</button>';
+          });
+        }
+      }
+
       host.innerHTML = html;
 
       host.addEventListener('click', function(e){

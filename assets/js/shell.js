@@ -191,6 +191,26 @@
     yonetici:     ['sahip','genelmudur','sistem','operasyon']
   };
 
+  /* REVİZE 13 — EKRAN YASAK LİSTESİ. `SCREEN_PERM` bir BEYAZ listedir; tek bir
+     rolü dışarıda bırakmak için kalan 26 rolü tek tek yazmak gerekirdi ve o
+     liste ilk yeni rolde sessizce eskirdi. Yasak listesi ters yönden çalışır:
+     "bu ekran şu role kapalı". Menü maddesi de aynı listeden beslenir
+     (`Perm.item`), yani gizleme ile doğrudan adres kapısı **tek kaynaktan**
+     gelir — biri kapanıp diğeri açık kalamaz.
+     Müşteriye kapalı 9 ekranın gerekçesi: kapsamı olmayan ya da tanımı gereği
+     İÇ olan ekranlar. Ekran SİLİNMEZ, veri yerinde kalır (G-1). */
+  var SCREEN_DENY = {
+    gorevlerim:  ['musteri'],   /* iç görev listesi — müşterinin işi değil */
+    ozet:        ['musteri'],   /* "bugün kaydettiğim saat" = personel timesheet'i */
+    bildirimler: ['musteri'],   /* iç bildirim akışı */
+    duyurular:   ['musteri'],   /* şirket içi duyurular */
+    sla:         ['musteri'],   /* iç performans ölçütü */
+    sprint:      ['musteri'],   /* iç planlama */
+    test:        ['musteri'],   /* iç kalite kaydı */
+    hata:        ['musteri'],   /* iç hata kaydı ve yorumları */
+    degisiklik:  ['musteri']    /* iç kapsam/maliyet değerlendirmesi */
+  };
+
   var SEC_BY_ROLE = {
     sahip:        ALL,
     genelmudur:   ALL,
@@ -218,7 +238,11 @@
     freelancer:   ['panel','gorev','sohbet','dokuman','ayarlar'],
     diskaynak:    ['panel','gorev','sohbet','dokuman','ayarlar'],
     stajyer:      ['panel','gorev','sohbet','dokuman','ayarlar'],
-    musteri:      ['panel','destek','dokuman','ayarlar'],
+    /* REVİZE 13 — müşteriye açılan TEK yeni bölüm `proje` ("Projelerim").
+       Yeni ekran doğmuyor: var olan proje · milestone · teslim ekranları
+       kapsamlanıyor, bölümün iç ekranları (sprint · test · hata · değişiklik)
+       `SCREEN_DENY` ile kapalı. */
+    musteri:      ['panel','proje','destek','dokuman','ayarlar'],
   };
 
   /* ===================================================================
@@ -231,13 +255,45 @@
     try{ sessionStorage.setItem(SS_KEY, JSON.stringify(s)); }catch(e){}
   }
 
+  /* REVİZE 13 — OTURUMUN İKİ AİLESİ VAR.
+     ─────────────────────────────────────────────────────────────────────
+     `musteri` rolü bir PERSONEL değildir; kimliği `DB.contacts` (müşteri
+     yetkilisi) kaydından kurulur ve `emp` **null** kalır. Eskiden bu rol de
+     personelden kuruluyordu: `?role=musteri` ile giren kullanıcı EMP-001'e
+     (şirket sahibine) düşüyor, "bugün kaydettiğim saat" bloğu şirket
+     sahibinin saatlerini müşteriye gösteriyordu.
+     Oturum sözleşmesi:
+       personel → { emp:'EMP-*', musteri:null, kontak:null }
+       müşteri  → { emp:null,   musteri:'MUS-*', kontak:'YTK-*' }
+     `emp` null olduğunda "kişisel" bloklar BASILMAZ — `me.emp`'e bakan her
+     yer bunu kontrol eder. `GV.list` satır kapsamı `me.musteri`yi zaten
+     okuyordu (`ui.js` `afterScope`), oturumda karşılığı yoktu. */
   function buildSession(empKod, roleKey){
     var e = (window.DB && DB.emp) ? DB.emp(empKod) : null;
     if(!e) return null;
     return {
       emp:e.kod, ad:e.ad, ini:e.ini, dep:e.dep, depAd:e.depAd,
+      musteri:null, kontak:null, musteriAd:null,
       rol:roleKey || e.rol, rolAd:(window.DB ? DB.roleName(roleKey || e.rol) : roleKey),
       eposta:e.eposta, girildi:new Date().toISOString()
+    };
+  }
+
+  /* Müşteri oturumu — kimlik kaynağı `DB.contacts`, uydurma kişi yok. */
+  function buildMusteriSession(kontakKod){
+    if(!window.DB || !DB.contacts) return null;
+    var k = kontakKod ? DB.contacts.filter(function(c){ return c.kod === kontakKod; })[0] : null;
+    if(!k) k = DB.contacts.filter(function(c){ return c.aktif !== false; })[0] || DB.contacts[0];
+    if(!k) return null;
+    var m = (DB.customers || []).filter(function(c){ return c.kod === k.musteri; })[0];
+    var parca = String(k.ad || '').trim().split(/\s+/);
+    return {
+      emp:null, kontak:k.kod, musteri:k.musteri, musteriAd:m ? m.unvan : k.musteri,
+      ad:k.ad,
+      ini:(parca[0] || '').slice(0,1) + (parca.length > 1 ? parca[parca.length - 1].slice(0,1) : ''),
+      dep:null, depAd:m ? m.kisa : null,
+      rol:'musteri', rolAd:(window.DB ? DB.roleName('musteri') : 'Müşteri'),
+      eposta:k.eposta, girildi:new Date().toISOString()
     };
   }
 
@@ -252,12 +308,19 @@
     /* URL yalnız İLK seçimde okunur; okunduğu anda oturuma yazılır ve
        adres çubuğundan temizlenir — böylece rol URL'e bağlı kalmaz. */
     if(qRole || qEmp){
-      var emp = qEmp;
-      if(!emp && qRole && window.DB){
-        var m = DB.employees.filter(function(x){ return x.roller.indexOf(qRole) !== -1; })[0];
-        emp = m ? m.kod : DB.employees[0].kod;
+      var ns;
+      /* `musteri` rolü personel listesinde aranmaz — kimliği yetkili kaydından
+         kurulur (REVİZE 13). `?emp=YTK-*` de bu yolu açar. */
+      if(qRole === 'musteri' || /^YTK-/.test(qEmp || '')){
+        ns = buildMusteriSession(/^YTK-/.test(qEmp || '') ? qEmp : null);
+      }else{
+        var emp = qEmp;
+        if(!emp && qRole && window.DB){
+          var m = DB.employees.filter(function(x){ return x.roller.indexOf(qRole) !== -1; })[0];
+          emp = m ? m.kod : DB.employees[0].kod;
+        }
+        ns = buildSession(emp || 'EMP-001', qRole || null);
       }
-      var ns = buildSession(emp || 'EMP-001', qRole || null);
       if(ns){ s = ns; writeSession(s); }
       q.delete('role'); q.delete('emp');
       var rest = q.toString();
@@ -283,6 +346,9 @@
     },
     /* Menü kalemi kısıtı */
     item:function(it){
+      /* Yasak listesi beyaz listeden ÖNCE gelir — ekran kapısı ile menü
+         gizlemesi tek kaynaktan beslensin (REVİZE 13). */
+      if(it.screen && SCREEN_DENY[it.screen] && SCREEN_DENY[it.screen].indexOf(this.role()) !== -1) return false;
       if(!it.roles) return true;
       return it.roles.indexOf(this.role()) !== -1;
     },
@@ -318,6 +384,31 @@
     var t = D.today || '2026-08-03';
     function len(a){ return (a || []).length; }
     var tasks = D.tasks || [];
+
+    /* REVİZE 13 — MÜŞTERİ OTURUMUNDA SAYAÇ DA KAPSAMLIDIR.
+       Menü rozeti bir sayıdır ama sayı da bilgidir: kapsamsız "12 açık talep"
+       müşteriye başka firmaların talep hacmini söyler. Müşteri oturumunda
+       sayaçların kaynağı kendi kayıtlarına indirgenir; kapsamı olmayan
+       sayaçlar (mesaj · izin · satın alma · tahsilat …) menüsünde zaten
+       görünmüyor, yine de sıfırlanır ki sızmasınlar. */
+    var mus = session ? session.musteri : null;
+    if(mus){
+      var benimProje = (D.projects || []).filter(function(p){ return p.musteri === mus; })
+                        .map(function(p){ return p.kod; });
+      return {
+        havuz:0, bana:0,
+        geciken:  (D.deliveries || []).filter(function(x){
+                    return benimProje.indexOf(x.proje) !== -1 && x.musteriOnay === 'Bekliyor'; }).length,
+        onay:     (D.deliveries || []).filter(function(x){
+                    return benimProje.indexOf(x.proje) !== -1 && x.musteriOnay === 'Bekliyor'; }).length,
+        bildirim:0, lead:0, teklif:0, hata:0, istalebi:0,
+        destek:   (D.tickets || []).filter(function(x){
+                    return x.musteri === mus &&
+                      (D.ticketClosedStatuses || []).indexOf(x.durum) === -1; }).length,
+        mesaj:0, izin:0, bakim:0, police:0, satinalma:0, tahsilat:0,
+        dokuman:  (D.documents || []).filter(function(x){ return x.musteri === mus; }).length
+      };
+    }
     return {
       havuz:     tasks.filter(function(x){ return x.durum === 'Havuzda'; }).length,
       /* REVİZE 01 — "üzerimdeki iş" sayacı altı durum sayıyordu, dördü artık
@@ -562,6 +653,7 @@
      =================================================================== */
   function guard(activeSec, activeScreen){
     var screenOk = !SCREEN_PERM[activeScreen] || SCREEN_PERM[activeScreen].indexOf(Perm.role()) !== -1;
+    if(SCREEN_DENY[activeScreen] && SCREEN_DENY[activeScreen].indexOf(Perm.role()) !== -1) screenOk = false;
     if(Perm.sec(activeSec) && screenOk) return true;
     var main = document.querySelector('.gv-page');
     if(!main) return false;
@@ -965,7 +1057,11 @@
     secByRole:SEC_BY_ROLE,
     session:function(){ return session; },
     setSession:function(empKod, roleKey){
-      var s = buildSession(empKod, roleKey);
+      /* Müşteri personası personel listesinden kurulamaz — kimliği bir
+         `DB.contacts` kaydıdır (REVİZE 13). Giriş ekranı `YTK-*` kodu verir. */
+      var s = (roleKey === 'musteri' || /^YTK-/.test(empKod || ''))
+        ? buildMusteriSession(/^YTK-/.test(empKod || '') ? empKod : null)
+        : buildSession(empKod, roleKey);
       if(s){ writeSession(s); session = s; }
       return s;
     },
