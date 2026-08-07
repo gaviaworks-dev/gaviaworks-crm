@@ -316,6 +316,51 @@
       return { ok:true, gorev:t, eski:eski, hedef:hedef };
     },
 
+    /* SORUMLU ATAMA — iki yol, TEK giriş noktası (REVİZE 02 kuyruğu).
+
+       `app-gorev.html`'in toplu "Sorumlu ata" işlemi `run` taşımıyordu, yani
+       pasif basılıyordu. Yazarken çıkan gerçek soru şuydu: atama bazı
+       görevlerde bir GEÇİŞ (`Havuzda → Atandı`), bazılarında düz bir alan
+       yazımıdır. İkisini ekranda ayırmak, REVİZE 02'nin kapattığı ikinci
+       mutasyon yolunu geri açardı — bu yüzden ayrım BURADA yapılır:
+
+       · Görev `Havuzda` ise → `transition('Atandı')`. Geçiş tablosu, yetki
+         ve zorunlu alan denetimi olduğu gibi çalışır.
+       · Görev zaten atanmışsa → sorumlu DEĞİŞTİRME işlemidir, durum
+         değişmez. Bu bir geçiş değildir ve tabloya sokulması yanlış olurdu:
+         `Devam ediyor` durumundaki bir görevi `Atandı`ya geri çekerdi. */
+    ata:function(kod, emp, not){
+      if(!window.DB) return null;
+      var t = DB.tasks.filter(function(x){ return x.kod === kod; })[0];
+      if(!t) return { ok:false, why:'kayıt yok' };
+      if(!emp || !DB.emp || !DB.emp(emp)) return { ok:false, why:'personel yok' };
+      if(t.sorumlu === emp) return { ok:false, why:'zaten bu kişide' };
+      if(t.durum === 'Havuzda')
+        return Task.transition(kod, 'Atandı', { sorumlu:emp }, not || 'sorumlu atandı');
+      if(!can('duzenle')) return { ok:false, why:'yetki' };
+      var eski = t.sorumlu;
+      t.sorumlu = emp;
+      log(t.kod, 'Sorumlu değiştirildi' + (not ? ' — ' + not : ''),
+          eski, emp, 'info', 'i-user-check');
+      return { ok:true, gorev:t, eski:eski, gecis:false };
+    },
+
+    /* ÖNCELİK — durum ekseninden BAĞIMSIZ düz alan. Geçiş tablosuna hiç
+       dokunmaz; buraya alınmasının sebebi mutasyonun ekranda yazılmaması. */
+    oncelik:function(kod, deger){
+      if(!window.DB) return null;
+      var t = DB.tasks.filter(function(x){ return x.kod === kod; })[0];
+      if(!t) return { ok:false, why:'kayıt yok' };
+      if(!DB.priorities || DB.priorities.indexOf(deger) === -1)
+        return { ok:false, why:'geçersiz öncelik' };
+      if(t.oncelik === deger) return { ok:false, why:'zaten bu değerde' };
+      if(!can('duzenle')) return { ok:false, why:'yetki' };
+      var eski = t.oncelik;
+      t.oncelik = deger;
+      log(t.kod, 'Öncelik değiştirildi', eski, deger, 'info', 'i-flag');
+      return { ok:true, gorev:t, eski:eski };
+    },
+
     /* BEKLEME NEDENİ — durumdan bağımsız ikinci eksen (REVİZE 01).
        Görev "Devam ediyor" kalır, yalnız neyi beklediğini söyler. Eskiden
        bunun için üç ayrı DURUM vardı ve görev ilerlemeyi bırakmış görünüyordu. */
@@ -488,9 +533,121 @@
     }
   };
 
+  /* ===================================================================
+     İK — saatlik iç maliyet (REVİZE 04)
+
+     Ölçüldü: `DB.employees[].saatlikUcret` 16 personelin **1'inde** dolu
+     (EMP-015, freelancer). Kalan 15'i `maas` ekseninde ve
+     `app-personel-form.html:146` **`maas > 0` XOR `saatlikUcret > 0`**
+     kuralını uyguluyor — yani 16/16 `saatlikUcret` doldurmak var olan bir
+     sözleşmeyi kırardı.
+
+     Ayrıca sözleşmeli saat ücreti ile şirkete iç maliyet **farklı şeylerdir**:
+     birincisi dışarıya fatura edilen tutar, ikincisi işverene maliyet.
+
+     KARAR: yeni alan AÇILMADI. İç maliyet iki var olan alandan **türetilir**
+     (L-08 — az önce `harcananSure`yi tam bu gerekçeyle kaldırdık; bir sonraki
+     commit'te yeni bir türetilebilir sayaç saklamak onunla çelişirdi).
+     Hesabın iki girdisi `DB.company`'de yazılı sabittir.
+     =================================================================== */
+  var Hr = {
+    /* Şirkete saatlik iç maliyet — { saat, kaynak, formul } · yoksa null */
+    icMaliyet:function(kod){
+      if(!window.DB || !DB.employees) return null;
+      var e = DB.employees.filter(function(x){ return x.kod === kod; })[0];
+      if(!e) return null;
+      var c = DB.company || {};
+      if(e.saatlikUcret > 0)
+        return { saat:e.saatlikUcret, kaynak:'saatlikUcret',
+                 formul:'Sözleşmeli saat ücreti · ' + e.saatlikUcret + ' ₺/saat' };
+      if(e.maas > 0){
+        var s = Math.round(e.maas * c.isverenMaliyetKatsayisi / c.aylikCalismaSaati);
+        return { saat:s, kaynak:'maas',
+                 formul:e.maas + ' ₺ brüt × ' + c.isverenMaliyetKatsayisi + ' ÷ ' +
+                        c.aylikCalismaSaati + ' saat = ' + s + ' ₺/saat' };
+      }
+      /* İki eksenin ikisi de boşsa maliyet UYDURULMAZ — null döner ve
+         çağıran bunu ekranda söyler. */
+      return null;
+    },
+
+    /* İstihdam ilişkisi dış kaynak mı — `sozlesme` alanından türetilir.
+       R16 bu ekseni `DB.employees[].calismaTipi` olarak resmîleştirecek;
+       o zamana kadar tek yer burasıdır, ekranlar kendi kuralını yazmaz. */
+    disKaynak:function(kod){
+      var e = (window.DB && DB.employees || []).filter(function(x){ return x.kod === kod; })[0];
+      return !!e && e.sozlesme === 'Hizmet sözleşmesi';
+    }
+  };
+
   GV.fin = Fin;
   GV.delivery = Delivery;
   GV.task = Task;
   GV.zaman = Zaman;
   GV.proje = Proje;
+  GV.hr = Hr;
+
+  /* ===================================================================
+     PROJE — maliyet ve kârlılık (REVİZE 04)
+
+     `DB.projects[].gerceklesenMaliyet` 14 kayıtta elle yazılı TEK bir
+     rakamdı; hangi kalemden oluştuğu hiçbir yerde yazılı değildi ve
+     `app-proje-detay.html` bunu iki ayrı sekmede "türetilmiş / örtüşmeyebilir"
+     uyarısıyla itiraf ediyordu. Alan kaldırıldı; dört kalem ayrı ayrı
+     türetilir ve toplamları gösterilir.
+
+     KALEMLERİN KAYNAĞI — ve kaynağı olmayan kalem
+     · personel   Σ(onaylı saat × iç maliyet), kadrolu personel
+     · disKaynak  aynı hesap, hizmet sözleşmeli personel
+     · satinAlma  Σ `DB.purchases[proje==kod && durum=='Teslim alındı']`
+                  — talep aşamasındaki kayıt henüz maliyet değildir
+     · diger      **KAYNAK YOK.** `DB.projectExpenses` bilerek AÇILMADI
+                  (talimat: "yeni finans modülü oluşturma"); projeye bağlı
+                  başka gider koleksiyonu bu depoda yok. Sıfır döner ve
+                  ekran bunun bir ölçüm değil KAYNAK boşluğu olduğunu söyler.
+
+     `kapsam` bayrağı `GV.proje.sure`'dekiyle aynı işi yapar: zaman defteri
+     projeyi kapsamıyorsa maliyet HESAPLANAMAZ; sıfır basmak, maliyeti
+     olmayan bir proje göstermek olurdu.
+     =================================================================== */
+  Proje.maliyet = function(kod){
+    var bos = { personel:0, disKaynak:0, satinAlma:0, diger:0, toplam:0,
+                gelir:0, brutKar:0, karlilikYuzde:null, kapsam:false,
+                maliyetsizPersonel:[] };
+    if(!window.DB || !DB.projects) return bos;
+    var p = DB.projects.filter(function(x){ return x.kod === kod; })[0];
+    if(!p) return bos;
+    var s = Proje.sure(kod);
+    var onayli = (DB.timelogs || []).filter(function(l){
+      return l.proje === kod && l.onay === 'Onaylandı'; });
+
+    var personel = 0, disKaynak = 0, eksik = [];
+    onayli.forEach(function(l){
+      var m = Hr.icMaliyet(l.personel);
+      if(!m){ if(eksik.indexOf(l.personel) === -1) eksik.push(l.personel); return; }
+      var tutar = l.sure * m.saat;
+      if(Hr.disKaynak(l.personel)) disKaynak += tutar; else personel += tutar;
+    });
+
+    var satinAlma = (DB.purchases || []).filter(function(x){
+      return x.proje === kod && x.durum === 'Teslim alındı'; })
+      .reduce(function(a, x){ return a + (x.tahminiMaliyet || 0); }, 0);
+
+    personel = Math.round(personel); disKaynak = Math.round(disKaynak);
+    var toplam = personel + disKaynak + satinAlma;
+    var gelir  = p.sozlesmeTutari || 0;
+
+    /* KAPSAM, `sure`dekinden bir adım DAHA DAR: maliyet için satır sayısı
+       değil ÖLÇÜLEN maliyet gerekir. Onaylı saati de satın alması da olmayan
+       projede kâr "%100" çıkardı — maliyeti sıfır sanmak, ölçülmemişi
+       ölçülmüş göstermenin en pahalı hâli. O projede kârlılık HESAPLANMAZ. */
+    var olculdu = s.gerceklesen > 0 || satinAlma > 0;
+    return {
+      personel:personel, disKaynak:disKaynak, satinAlma:satinAlma, diger:0,
+      toplam:toplam, gelir:gelir,
+      brutKar:olculdu ? gelir - toplam : null,
+      karlilikYuzde:(olculdu && gelir) ? Math.round((gelir - toplam) / gelir * 100) : null,
+      kapsam:olculdu, saat:s.gerceklesen, maliyetsizPersonel:eksik
+    };
+  };
 })();

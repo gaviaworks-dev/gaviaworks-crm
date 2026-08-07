@@ -858,6 +858,68 @@ head('27) Proje süre zinciri · tek onay ekseni (REVİZE 03)');
     ' tanesi modül ilerlemesinden türetilmiş · haftalık defter ' + defterBas + "'de başlıyor");
 }
 
+/* ---------- 28. Proje maliyet zinciri (REVİZE 04) ----------
+   `gerceklesenMaliyet` 14 kayıtta elle yazılı tek bir rakamdı ve hangi
+   kalemden oluştuğu hiçbir yerde yazılı değildi. Alan kaldırıldı; dört kalem
+   ayrı ayrı türetiliyor. Bu eksen üç şeyi kilitler: alan geri gelmesin ·
+   iç maliyetin iki girdisi yazılı sabit kalsın · maliyeti hesaplanacak her
+   personelin bir ücret ekseni olsun. */
+head('28) Proje maliyet zinciri (REVİZE 04)');
+{
+  const C = DB.company;
+  say(typeof C.isverenMaliyetKatsayisi === 'number' && C.isverenMaliyetKatsayisi >= 1,
+    'DB.company.isverenMaliyetKatsayisi yazılı sabit değil — hesap sessizce değişir (VB-19)');
+  say(typeof C.aylikCalismaSaati === 'number' && C.aylikCalismaSaati > 0,
+    'DB.company.aylikCalismaSaati yazılı sabit değil (VB-19)');
+
+  DB.projects.forEach(p => {
+    say(!('gerceklesenMaliyet' in p),
+      p.kod + ' gerceklesenMaliyet alanı geri gelmiş — maliyet türetilir, saklanmaz (L-08)');
+  });
+
+  /* 28a. `maas` XOR `saatlikUcret` — iç maliyet türetmesi bu sözleşmeye dayanır
+     ve `app-personel-form.html:146` onu zaten uyguluyor. Bozulursa türetme ya
+     iki kez sayar ya hiç sayamaz. */
+  DB.employees.forEach(e => {
+    const m = (e.maas || 0) > 0, u = (e.saatlikUcret || 0) > 0;
+    say(m !== u, e.kod + ' maas(' + (e.maas || 0) + ') XOR saatlikUcret(' +
+      (e.saatlikUcret || 0) + ') bozuldu — iç maliyet türetilemez');
+    say(!('icMaliyetSaat' in e),
+      e.kod + ' icMaliyetSaat alanı açılmış — iç maliyet iki var olan alandan TÜRETİLİR, saklanmaz (L-08 · V-46)');
+  });
+
+  /* 28b. Projeli onaylı zaman kaydı olan her personelin maliyet ekseni olmalı —
+     yoksa o saatler maliyete hiç girmez ve toplam sessizce eksik kalır (L-22). */
+  const ucretsiz = new Set();
+  DB.timelogs.filter(l => l.proje && l.onay === 'Onaylandı').forEach(l => {
+    const e = DB.employees.filter(x => x.kod === l.personel)[0];
+    if (!e || ((e.maas || 0) <= 0 && (e.saatlikUcret || 0) <= 0)) ucretsiz.add(l.personel);
+  });
+  say(ucretsiz.size === 0,
+    'projeli onaylı zaman kaydı olan şu personelin ücret ekseni yok: ' + [...ucretsiz].join(', '));
+
+  /* 28c. Projeye bağlı satın alma gerçekten o projeye ait olmalı */
+  DB.purchases.filter(x => x.proje).forEach(x => {
+    say(DB.projects.some(p => p.kod === x.proje),
+      x.kod + ' proje=' + x.proje + ' → DB.projects içinde yok');
+  });
+
+  const sum = a => a.reduce((s, x) => s + x, 0);
+  const say2 = (kod) => {
+    const on = DB.timelogs.filter(l => l.proje === kod && l.onay === 'Onaylandı');
+    return sum(on.map(l => l.sure * (
+      (DB.employees.filter(e => e.kod === l.personel)[0] || {}).saatlikUcret > 0
+        ? DB.employees.filter(e => e.kod === l.personel)[0].saatlikUcret
+        : Math.round((DB.employees.filter(e => e.kod === l.personel)[0] || {}).maas *
+            C.isverenMaliyetKatsayisi / C.aylikCalismaSaati))));
+  };
+  const olculen = DB.projects.filter(p => say2(p.kod) > 0).length;
+  console.log('  · iç maliyet ekseni: ' + DB.employees.length + ' personelin ' +
+    DB.employees.filter(e => (e.maas || 0) > 0).length + "'i maaş, " +
+    DB.employees.filter(e => (e.saatlikUcret || 0) > 0).length + "'i saat ücreti · " +
+    'personel maliyeti ölçülebilen proje: ' + olculen + ' / ' + DB.projects.length);
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));

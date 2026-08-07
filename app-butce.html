@@ -20,6 +20,10 @@
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/work.js"></script>
 <script src="assets/data/hr.js"></script>
+<!-- ops.js = DB.purchases. `GV.proje.maliyet` satın alma kalemini buradan
+     okur; dosya yüklenmezse kalem sessizce 0 kalırdı (ölçüm değil, eksik
+     kaynak olurdu). hr.js = DB.timelogs, personel/dış kaynak kalemi. -->
+<script src="assets/data/ops.js"></script>
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
@@ -30,9 +34,31 @@ document.addEventListener('gv:ready', function(){
 
   /* ---- türetilmiş bütçe ölçütleri (referans tarih: DB.today) --------- */
   function aktif(p){ return p.durum !== 'Teslim' && !p.arsiv; }
-  function asim(p){ return p.gerceklesenMaliyet > p.butce; }
-  function kalan(p){ return p.butce - p.gerceklesenMaliyet; }
-  function kullanim(p){ return p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0; }
+
+  /* REVİZE 04 — `gerceklesenMaliyet` alanı KALDIRILDI. 14 kayıtta elle yazılı
+     tek bir rakamdı, hangi kalemden oluştuğu hiçbir yerde yazmıyordu. Maliyet
+     artık dört kalemden türetilir (personel · dış kaynak · satın alma · diğer)
+     ve tek doğru kaynağı `GV.proje.maliyet`tir — bu ekran kendi hesabını
+     yazmaz. `butce` (onaylı bütçe) KALIR: o bir ölçüm değil, plan değeri. */
+  function maliyet(p){ return GV.proje.maliyet(p.kod); }
+
+  /* Toplam maliyet — ÖLÇÜLEMİYORSA null döner. Bu depoda 14 projenin 8'inde
+     zaman defteri kayıt tutmuyor (arşivli projeler). "0 ₺ maliyet" basmak
+     maliyeti olmayan bir proje göstermek olurdu; maliyete DAYANAN her türetme
+     bu null'ı taşır ve ekranda tutar yerine "Ölçülemiyor" / "—" görünür. */
+  function mToplam(p){ var m = maliyet(p); return m.kapsam ? m.toplam : null; }
+  var OLCULEMIYOR = '<span class="u-faint">Ölçülemiyor</span>';
+  /* Sıralama sayısal bir eksen ister — null'ı yalnız SIRA hesabında 0'a
+     indirger. Gösterime bu değer hiçbir zaman gitmez. */
+  function sortNum(v){ return v == null ? 0 : v; }
+
+  /* Aşım / kalan / kullanım maliyete dayanır: ölçülemeyen projede
+     "bütçe içinde" demek de "bütçe aşıldı" demek kadar uydurma olurdu. */
+  function asim(p){ var t = mToplam(p); return t != null && t > p.butce; }
+  function kalan(p){ var t = mToplam(p); return t == null ? null : p.butce - t; }
+  function kullanim(p){
+    var t = mToplam(p);
+    return (t == null || !p.butce) ? null : Math.round(t / p.butce * 100); }
   /* REVİZE 03 — süre ekseni artık zaman defterinden gelir. `harcananSure`
      alanı kaldırıldı; `GV.proje.sure` gerçekleşeni ONAYLI zaman kayıtlarından
      hesaplar. Defter projeyi kapsamıyorsa sapma da saat maliyeti de
@@ -42,9 +68,11 @@ document.addEventListener('gv:ready', function(){
   function sureSapma(p){
     var s = sure(p);
     return (s.planlanan && s.kapsam) ? Math.round((s.gerceklesen - s.planlanan) / s.planlanan * 100) : 0; }
+  /* Saat maliyetinin bölen'i de bölünen'i de aynı ölçümden gelir: kapsam
+     yoksa hesaplanmaz (null) ve çağıran yer "—" basar. */
   function saatMaliyet(p){
-    var g = sure(p).gerceklesen;
-    return g ? Math.round(p.gerceklesenMaliyet / g) : null; }
+    var m = maliyet(p);
+    return (m.kapsam && m.saat) ? Math.round(m.toplam / m.saat) : null; }
 
   /* Proje bazlı gelir — faturalar ve tahsilatlar üzerinden */
   function projeFaturalari(p){ return DB.invoices.filter(function(i){ return i.proje === p.kod; }); }
@@ -82,14 +110,19 @@ document.addEventListener('gv:ready', function(){
   }
 
   function revizyonIste(ids){
-    var yeni = [], atlanan = [];
+    var yeni = [], atlanan = [], olcusuz = [];
     ids.forEach(function(id){
       var p = DB.projects.filter(function(x){ return x.kod === id; })[0];
       if(!p){ return; }
       var acik = DB.changeRequests.filter(function(d){
         return d.proje === p.kod && d.durum === 'Onay bekliyor' && /Bütçe revizyonu/.test(d.baslik); })[0];
       if(acik){ atlanan.push(p.kod); return; }
-      var fark = Math.max(0, p.gerceklesenMaliyet - p.butce);
+      /* Talebin `etkiMaliyet` alanı ölçülen maliyetten doğar. Maliyeti
+         ölçülemeyen projede 0 yazmak "aşım yok" iddiası olurdu — onay
+         akışına uydurma rakam düşürmek yerine proje atlanır. */
+      var t = mToplam(p);
+      if(t == null){ olcusuz.push(p.kod); return; }
+      var fark = Math.max(0, t - p.butce);
       var kod = yeniKod(DB.changeRequests, 'DGS-' + String(DB.today).slice(0,4) + '-');
       DB.changeRequests.unshift({
         kod:kod, proje:p.kod, baslik:'Bütçe revizyonu — ' + p.ad,
@@ -99,17 +132,20 @@ document.addEventListener('gv:ready', function(){
       });
       DB.activities.unshift({ kayit:p.kod, tarih:DB.today + 'T09:00', kisi:GV.session.emp,
         metin:'Bütçe revizyon talebi açıldı (' + kod + ')', eski:F.money(p.butce),
-        yeni:F.money(p.gerceklesenMaliyet), tone:'warn', icon:'i-stamp' });
+        yeni:F.money(t), tone:'warn', icon:'i-stamp' });
       yeni.push(kod);
     });
     if(!yeni.length){
-      GV.toast(atlanan.length
-        ? 'Seçili projelerin bütçe revizyon talebi zaten onay bekliyor'
-        : 'Revizyon talebi açılabilecek proje seçilmedi', 'info');
+      GV.toast(olcusuz.length
+        ? olcusuz.length + ' projenin gerçekleşen maliyeti ölçülemiyor — revizyon tutarı hesaplanamadı'
+        : atlanan.length
+          ? 'Seçili projelerin bütçe revizyon talebi zaten onay bekliyor'
+          : 'Revizyon talebi açılabilecek proje seçilmedi', 'info', 6000);
       return;
     }
     GV.toast(yeni.length + ' proje için bütçe revizyon talebi açıldı (' + yeni.join(', ') + ')' +
-      (atlanan.length ? ' · ' + atlanan.length + ' projede zaten açık talep vardı' : ''), 'ok', 6000);
+      (atlanan.length ? ' · ' + atlanan.length + ' projede zaten açık talep vardı' : '') +
+      (olcusuz.length ? ' · ' + olcusuz.length + ' projede maliyet ölçülemediği için atlandı' : ''), 'ok', 6000);
   }
 
   function pmUyar(ids){
@@ -118,12 +154,16 @@ document.addEventListener('gv:ready', function(){
       var p = DB.projects.filter(function(x){ return x.kod === id; })[0];
       if(!p) return;
       if(!p.pm){ pmsiz++; return; }
+      /* Bildirim metni de ölçüme bağlı: kullanım oranı ve gerçekleşen tutar
+         hesaplanamıyorsa yöneticiye "%0" veya "₺0" gitmez, nedeni yazılır. */
+      var t = mToplam(p), o = kullanim(p);
       DB.notifications.unshift({
         kod:yeniKod(DB.notifications, 'BLD-'),
         tur:'Bütçe uyarısı',
-        baslik:p.ad + ' bütçe kullanımı %' + kullanim(p),
-        ozet:'Onaylı bütçe ' + F.moneyK(p.butce) + ' · gerçekleşen ' + F.moneyK(p.gerceklesenMaliyet) +
-             (asim(p) ? ' — bütçe aşıldı' : ''),
+        baslik:p.ad + ' bütçe kullanımı ' + (o == null ? 'ölçülemiyor' : '%' + o),
+        ozet:'Onaylı bütçe ' + F.moneyK(p.butce) + ' · ' + (t == null
+             ? 'gerçekleşen maliyet ölçülemiyor (projenin onaylı zaman kaydı ve satın alması yok)'
+             : 'gerçekleşen ' + F.moneyK(t) + (asim(p) ? ' — bütçe aşıldı' : '')),
         tarih:DB.today + 'T09:00', kisi:p.pm, okundu:false,
         tone:asim(p) ? 'danger' : 'warn', link:'app-butce.html?q=' + p.kod
       });
@@ -163,18 +203,24 @@ document.addEventListener('gv:ready', function(){
 
     var aktifler = DB.projects.filter(aktif).slice().sort(function(a,b){ return b.butce - a.butce; });
 
-    /* 1) Proje bazlı bütçe – gerçekleşen maliyet karşılaştırması (bin ₺) */
+    /* 1) Proje bazlı bütçe – gerçekleşen maliyet karşılaştırması (bin ₺)
+       Grafik bir KARŞILAŞTIRMA: maliyeti ölçülemeyen proje için sıfır sütun
+       çizmek, bütçesinin tamamı duruyormuş gibi okunurdu. O projeler
+       grafiğin DIŞINDA bırakılır ve kaç tanesi olduğu altta yazılır. */
+    var olculebilir = aktifler.filter(function(p){ return mToplam(p) != null; });
+    var olcusuzSayi = aktifler.length - olculebilir.length;
     var barData = [];
-    aktifler.forEach(function(p){
+    olculebilir.forEach(function(p){
       barData.push({ label:musteriKisa(p), value:Math.round(p.butce / 1000), tone:'2' });
-      barData.push({ label:'maliyet', value:Math.round(p.gerceklesenMaliyet / 1000), tone:asim(p) ? 'danger' : null });
+      barData.push({ label:'maliyet', value:Math.round(mToplam(p) / 1000), tone:asim(p) ? 'danger' : null });
     });
     var toplamButce = aktifler.reduce(function(s,p){ return s + p.butce; }, 0);
-    var toplamMaliyet = aktifler.reduce(function(s,p){ return s + p.gerceklesenMaliyet; }, 0);
+    var toplamMaliyet = olculebilir.reduce(function(s,p){ return s + mToplam(p); }, 0);
     var asanlar = aktifler.filter(asim);
 
     var barLegend = [
-      { label:'Onaylı bütçe (bin ₺)', value:Math.round(toplamButce / 1000), color:'var(--info)' },
+      { label:'Onaylı bütçe (bin ₺)', value:Math.round(
+          olculebilir.reduce(function(s,p){ return s + p.butce; }, 0) / 1000), color:'var(--info)' },
       { label:'Gerçekleşen maliyet (bin ₺)', value:Math.round(toplamMaliyet / 1000), color:'var(--acc-ink)' },
       { label:'Bütçesi aşan proje', value:asanlar.length, color:'var(--danger)' }
     ];
@@ -189,9 +235,13 @@ document.addEventListener('gv:ready', function(){
     host.innerHTML = '<div class="gv-charts">' +
       '<div class="gv-chartcard">' +
         '<h3>Bütçe ve gerçekleşen maliyet</h3>' +
-        '<span class="gv-ch-sub">Aktif projeler · değerler bin ₺ · kırmızı sütun bütçe aşımı</span>' +
-        GV.chart.bar(barData, { height:230, label:'Proje bazlı bütçe ve gerçekleşen maliyet karşılaştırması' }) +
-        GV.chart.legend(barLegend) +
+        '<span class="gv-ch-sub">Maliyeti ölçülebilen aktif projeler · değerler bin ₺ · kırmızı sütun bütçe aşımı' +
+          (olcusuzSayi ? ' · ' + olcusuzSayi + ' aktif projenin maliyeti ölçülemediği için grafiğe girmedi' : '') + '</span>' +
+        (barData.length
+          ? GV.chart.bar(barData, { height:230, label:'Proje bazlı bütçe ve gerçekleşen maliyet karşılaştırması' }) +
+            GV.chart.legend(barLegend)
+          : GV.empty({ icon:'i-chart-bar', title:'Karşılaştırılacak maliyet ölçümü yok',
+              desc:'Aktif projelerin hiçbirinde onaylı zaman kaydı veya teslim alınmış satın alma bulunmuyor; gerçekleşen maliyet hesaplanamıyor.' })) +
       '</div>' +
       '<div class="gv-chartcard">' +
         '<h3>Sağlık durumuna göre bütçe dağılımı</h3>' +
@@ -208,27 +258,53 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   function maliyetDetay(p){
     if(!canFinans){ GV.toast('Bu projenin maliyet detayını görüntüleme yetkiniz yok.', 'danger'); return; }
-    var k = kalan(p), s = sureSapma(p), sm = saatMaliyet(p);
+    var k = kalan(p), s = sureSapma(p), sm = saatMaliyet(p), o = kullanim(p);
     var fat = faturalanan(p), tah = tahsilEdilen(p);
+    /* REVİZE 04 — maliyet kalemleri tek tek gösterilir: eskiden tek bir
+       "gerçekleşen maliyet" rakamı vardı ve neyden oluştuğu okunamıyordu.
+       Kapsam yoksa kalemlerin hiçbiri sıfır basmaz. */
+    var m = maliyet(p);
+    var kar = m.brutKar, yuzde = m.karlilikYuzde;
+    /* İç maliyeti tanımsız personelin saatleri hesaba GİRMEZ — bunu satırda
+       söylemezsek personel maliyeti eksik ama tam görünürdü. */
+    var eksikNot = m.kapsam && m.maliyetsizPersonel.length
+      ? ' <span class="u-faint">(' + m.maliyetsizPersonel.length +
+        ' personelin iç maliyeti tanımsız, saatleri hesaba girmedi)</span>' : '';
     var satir = [
       ['Sözleşme bedeli', F.money(p.sozlesmeTutari)],
       ['Onaylı bütçe', F.money(p.butce)],
-      ['Gerçekleşen maliyet', F.money(p.gerceklesenMaliyet)],
-      ['Kalan bütçe', k < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(k)) + '</span>' : F.money(k)],
-      ['Bütçe kullanımı', '<span class="u-num' + (kullanim(p) > 100 ? ' u-danger u-b' : '') + '">%' + F.num(kullanim(p)) + '</span>'],
+      ['Proje geliri <span class="u-faint">(net sözleşme bedeli)</span>', F.money(m.gelir)],
+      ['Personel maliyeti' + eksikNot, m.kapsam ? F.money(m.personel) : OLCULEMIYOR],
+      ['Dış kaynak <span class="u-faint">(hizmet sözleşmeli)</span>', m.kapsam ? F.money(m.disKaynak) : OLCULEMIYOR],
+      ['Satın alma / gider <span class="u-faint">(teslim alınmış)</span>', m.kapsam ? F.money(m.satinAlma) : OLCULEMIYOR],
+      /* `diger` bu depoda daima 0 — ama bu bir ÖLÇÜM değil, KAYNAK boşluğu:
+         projeye bağlı ayrı bir gider koleksiyonu (DB.projectExpenses) bilerek
+         açılmadı. "₺0" basmak "başka gideri yok" demek olurdu. */
+      ['Diğer gider', '<span class="u-faint">Kaynak yok — projeye bağlı ayrı gider kaydı tutulmuyor</span>'],
+      ['Toplam maliyet', m.kapsam ? '<span class="u-num u-b">' + F.money(m.toplam) + '</span>' : OLCULEMIYOR],
+      ['Brüt kâr <span class="u-faint">(gelir − toplam maliyet)</span>', kar == null ? OLCULEMIYOR
+        : kar < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kar)) + '</span>'
+                  : '<span class="u-num u-ok u-b">' + F.money(kar) + '</span>'],
+      ['Kârlılık', yuzde == null ? OLCULEMIYOR
+        : '<span class="u-num u-b ' + (yuzde < 0 ? 'u-danger' : 'u-ok') + '">%' + F.num(yuzde) + '</span>'],
+      /* Kalan bütçe ve kullanım oranı maliyete DAYANIR; ölçüm yoksa
+         bunlar da hesaplanmaz. */
+      ['Kalan bütçe', k == null ? OLCULEMIYOR
+        : k < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(k)) + '</span>' : F.money(k)],
+      ['Bütçe kullanımı', o == null ? OLCULEMIYOR
+        : '<span class="u-num' + (o > 100 ? ' u-danger u-b' : '') + '">%' + F.num(o) + '</span>'],
       ['Planlanan süre', F.hours(sure(p).planlanan)],
       ['Gerçekleşen süre <span class="u-faint">(onaylı zaman kaydı)</span>', sure(p).kapsam
         ? F.hours(sure(p).gerceklesen) : '<span class="u-faint">Defterde kayıt yok</span>'],
       ['Faturalandırılabilir süre', sure(p).kapsam ? F.hours(sure(p).faturalanabilir) : '<span class="u-faint">—</span>'],
       ['Süre sapması', s > 0 ? '<span class="u-num u-danger u-b">+%' + F.num(s) + '</span>'
                              : s < 0 ? '<span class="u-num u-ok">−%' + F.num(Math.abs(s)) + '</span>' : '%0'],
-      ['Ortalama saat maliyeti', sm == null ? '—' : F.money(sm) + ' / saat'],
+      ['Ortalama saat maliyeti', sm == null ? '<span class="u-faint">—</span>' : F.money(sm) + ' / saat'],
       ['Faturalanan (KDV dahil)', F.money(fat)],
       ['Tahsil edilen', F.money(tah)],
       ['Bekleyen tahsilat', F.money(fat - tah)],
-      ['Sözleşme – maliyet farkı', (p.sozlesmeTutari - p.gerceklesenMaliyet) < 0
-        ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(p.sozlesmeTutari - p.gerceklesenMaliyet)) + '</span>'
-        : '<span class="u-num u-ok u-b">' + F.money(p.sozlesmeTutari - p.gerceklesenMaliyet) + '</span>'],
+      /* "Sözleşme – maliyet farkı" satırı kaldırıldı: gelir = sözleşme bedeli
+         olduğu için yukarıdaki "Brüt kâr" ile birebir aynı sayıydı. */
       ['Proje sağlığı', '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span>'],
       ['Gecikme nedeni', p.gecikmeNedeni ? esc(p.gecikmeNedeni) : '<span class="u-faint">—</span>']
     ];
@@ -265,9 +341,15 @@ document.addEventListener('gv:ready', function(){
       { label:'Toplam onaylı bütçe', icon:'i-wallet', tone:'ok',
         format:function(v){ return mask(F.moneyK(v)); },
         calc:function(a){ return a.reduce(function(s,p){ return s + p.butce; }, 0); } },
+      /* Toplam yalnız maliyeti ÖLÇÜLEBİLEN projeleri kapsar; ölçülemeyenleri
+         0 sayıp toplasaydık, toplam "tüm projelerin maliyeti" gibi okunurdu.
+         Kaç projenin dışarıda kaldığı KPI'ın altında yazılı. */
       { label:'Gerçekleşen maliyet', icon:'i-receipt', tone:'warn',
         format:function(v){ return mask(F.moneyK(v)); },
-        calc:function(a){ return a.reduce(function(s,p){ return s + p.gerceklesenMaliyet; }, 0); } },
+        calc:function(a){ return a.reduce(function(s,p){ return s + (mToplam(p) || 0); }, 0); },
+        meta:function(a){
+          var n = a.filter(function(p){ return mToplam(p) == null; }).length;
+          return n ? n + ' projede maliyet ölçülemiyor' : 'tüm projelerde ölçülebiliyor'; } },
       { label:'Bütçesi aşan proje', icon:'i-alert', tone:'danger',
         format:function(v){ return mask(F.num(v)); },
         calc:function(a){ return a.filter(asim).length; } }
@@ -294,24 +376,35 @@ document.addEventListener('gv:ready', function(){
       { key:'butce', label:'Onaylı bütçe', cellClass:'num',
         render:function(p){ return para(p.butce); },
         exportValue:function(p){ return paraExp(p.butce); } },
-      { key:'gerceklesenMaliyet', label:'Gerçekleşen maliyet', cellClass:'num',
-        render:function(p){ return para(p.gerceklesenMaliyet); },
-        exportValue:function(p){ return paraExp(p.gerceklesenMaliyet); } },
+      /* Maliyet kolonu artık türetilen toplamı basar. Yetki maskesi ölçüm
+         kontrolünden ÖNCE gelir: yetkisiz rol "ölçülemiyor" bilgisini de
+         görmemeli, sadece maskeyi görmeli. */
+      { key:'maliyet', label:'Gerçekleşen maliyet', cellClass:'num',
+        sortValue:function(p){ return sortNum(mToplam(p)); },
+        render:function(p){
+          if(!canFinans) return '<span class="cell-mask">••••••</span>';
+          var t = mToplam(p);
+          return t == null ? OLCULEMIYOR : '<span class="cell-money">' + F.money(t) + '</span>'; },
+        exportValue:function(p){ return canFinans ? (mToplam(p) == null ? '' : mToplam(p)) : ''; } },
       { key:'kalanButce', label:'Kalan bütçe', cellClass:'num',
-        sortValue:function(p){ return kalan(p); },
+        sortValue:function(p){ return sortNum(kalan(p)); },
         render:function(p){
           if(!canFinans) return '<span class="cell-mask">••••••</span>';
           var k = kalan(p);
+          if(k == null) return '<span class="u-faint">—</span>';
           return k < 0 ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(k)) + '</span>'
                        : '<span class="cell-money">' + F.money(k) + '</span>'; },
-        exportValue:function(p){ return paraExp(kalan(p)); } },
+        exportValue:function(p){ return canFinans ? (kalan(p) == null ? '' : kalan(p)) : ''; } },
       { key:'kullanim', label:'Bütçe kullanımı', cellClass:'num',
-        sortValue:function(p){ return kullanim(p); },
+        sortValue:function(p){ return sortNum(kullanim(p)); },
         render:function(p){
           if(!canFinans) return '<span class="cell-mask">••••</span>';
           var o = kullanim(p);
+          /* Ölçüm yoksa ilerleme çubuğu çizilmez — %0 dolu bir çubuk
+             "bütçenin tamamı duruyor" demek olurdu. */
+          if(o == null) return '<span class="u-faint">—</span>';
           return GV.progress(o, { tone:o > 100 ? 'danger' : o > 85 ? 'warn' : 'ok' }); },
-        exportValue:function(p){ return canFinans ? kullanim(p) + '%' : ''; } },
+        exportValue:function(p){ return canFinans && kullanim(p) != null ? kullanim(p) + '%' : ''; } },
       { key:'sure', label:'Planlanan / gerçekleşen süre', visible:false, cellClass:'num',
         sortValue:function(p){ return sure(p).gerceklesen; },
         render:function(p){
@@ -351,12 +444,17 @@ document.addEventListener('gv:ready', function(){
         options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
       { key:'butceAsimi', label:'Bütçe aşımı', type:'select',
         options:[{ value:'evet', label:'Evet — bütçesi aşılmış' }, { value:'hayir', label:'Hayır — bütçe içinde' }],
-        test:function(p, v){ return v === 'evet' ? asim(p) : !asim(p); } },
+        /* Maliyeti ölçülemeyen proje İKİ seçeneğe de girmez: "bütçe içinde"
+           demek de ölçmediğimiz bir şeyi ölçtüğümüzü iddia etmek olurdu. */
+        test:function(p, v){
+          if(mToplam(p) == null) return false;
+          return v === 'evet' ? asim(p) : !asim(p); } },
       { key:'kullanimAralik', label:'Bütçe kullanım oranı', type:'select',
         options:[{ value:'0-50', label:'%50 altı' }, { value:'50-85', label:'%50–85' },
                  { value:'85-100', label:'%85–100' }, { value:'100+', label:'%100 üstü' }],
         test:function(p, v){
           var o = kullanim(p);
+          if(o == null) return false;   /* oran hesaplanamıyorsa hiçbir aralığa girmez */
           if(v === '0-50') return o < 50;
           if(v === '50-85') return o >= 50 && o < 85;
           if(v === '85-100') return o >= 85 && o <= 100;
@@ -368,22 +466,29 @@ document.addEventListener('gv:ready', function(){
     rowClass:function(p){ return asim(p) ? 'is-late' : ''; },
 
     card:function(p){
+      var t = mToplam(p), o = kullanim(p);
       return '<div class="gv-rcard-top"><div><a class="cell-main" href="app-proje-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
         '<div class="cell-code">' + p.kod + ' · ' + esc(p.musteriAd) + '</div></div>' +
         '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span></div>' +
         '<div class="gv-rcard-meta"><span>Bütçe ' + mask(F.moneyK(p.butce)) + '</span>' +
-        '<span>Maliyet ' + mask(F.moneyK(p.gerceklesenMaliyet)) + '</span></div>' +
-        (canFinans ? GV.progress(kullanim(p), { tone:kullanim(p) > 100 ? 'danger' : kullanim(p) > 85 ? 'warn' : 'ok' }) : '') +
+        /* Kartta da ölçülemeyen maliyet tutar yerine sözle söylenir. */
+        '<span>Maliyet ' + (canFinans ? (t == null ? OLCULEMIYOR : F.moneyK(t)) : '••••••') + '</span></div>' +
+        (canFinans && o != null ? GV.progress(o, { tone:o > 100 ? 'danger' : o > 85 ? 'warn' : 'ok' }) : '') +
         '<div class="gv-rcard-foot">' + GV.badge(p.durum) +
         '<span class="u-num">Süre sapması ' + (sureSapma(p) > 0 ? '+' : '') + '%' + F.num(sureSapma(p)) + '</span></div>';
     },
 
     mobile:function(p){
+      var t = mToplam(p), o = kullanim(p);
       return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-detay.html?id=' + p.kod + '">' + esc(p.ad) + '</a>' +
-        (canFinans ? '<span class="cell-money">' + F.moneyK(p.gerceklesenMaliyet) + '</span>' : '<span class="cell-mask">••••••</span>') + '</div>' +
+        (canFinans
+          ? (t == null ? OLCULEMIYOR : '<span class="cell-money">' + F.moneyK(t) + '</span>')
+          : '<span class="cell-mask">••••••</span>') + '</div>' +
         '<div class="gv-mrow-code">' + p.kod + ' · ' + esc(p.musteriAd) + '</div>' +
-        '<div class="u-mt-0">' + (canFinans
-          ? GV.progress(kullanim(p), { tone:kullanim(p) > 100 ? 'danger' : kullanim(p) > 85 ? 'warn' : 'ok' })
+        /* Kullanım oranı yoksa mobilde proje ilerlemesine düşülür — bütçe
+           çubuğunu %0'da göstermek yanlış bilgi olurdu. */
+        '<div class="u-mt-0">' + (canFinans && o != null
+          ? GV.progress(o, { tone:o > 100 ? 'danger' : o > 85 ? 'warn' : 'ok' })
           : GV.progress(p.ilerleme)) + '</div>' +
         '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(p.durum) +
         '<span class="badge ' + sglTone(p.saglik) + '">' + esc(p.saglik) + '</span>' +

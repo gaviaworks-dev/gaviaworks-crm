@@ -352,6 +352,32 @@ GV.report({
 | `GV.zaman.timesheetOf(l)` · `GV.zaman.kayitlar(ts)` | Kapsam tanımı — hangi satır hangi haftaya düşer | Ekranda görünen kırılım ile onaylanan satırlar bir daha ayrışamaz; onay yordamı da aynı tanımı kullanır |
 | `GV.proje.sure(kod)` | `{ planlanan, gerceklesen, faturalanabilir, tum, kayit, kapsam }` — `gerceklesen` = Σ **onaylı** zaman kaydı · `faturalanabilir` = Σ onaylı **ve** billable · `planlanan` = proje `tahminiSure`, yoksa Σ görev tahmini | `DB.projects[].harcananSure` elle yazılı bir sayıydı (14 kayıtta 9.125 saat, ~8.900'ü dayanaksız) ve **kaldırıldı**. Türetilebilen sayaç veriye yazılmaz (L-08) |
 
+| `GV.proje.maliyet(kod)` | `{ personel, disKaynak, satinAlma, diger, toplam, gelir, brutKar, karlilikYuzde, kapsam, saat, maliyetsizPersonel }` — dört kalem ayrı ayrı türetilir | `DB.projects[].gerceklesenMaliyet` 14 kayıtta elle yazılı TEK bir rakamdı; hangi kalemden oluştuğu hiçbir yerde yazılı değildi ve proje detayı bunu iki sekmede "örtüşmeyebilir" uyarısıyla itiraf ediyordu. Alan **kaldırıldı** |
+| `GV.hr.icMaliyet(kod)` | `{ saat, kaynak, formul }` — `maas > 0` ise `maas × DB.company.isverenMaliyetKatsayisi ÷ DB.company.aylikCalismaSaati`, `saatlikUcret > 0` ise doğrudan o | Yeni alan **açılmadı** (V-46): içerik tamamen türetilebilir. `maas` XOR `saatlikUcret` sözleşmesi bozulmadı; iki girdi `DB.company`'de yazılı sabittir (VB-19) |
+| `GV.hr.disKaynak(kod)` | İstihdam ilişkisi dış kaynak mı — `sozlesme === 'Hizmet sözleşmesi'` | R16 bu ekseni `calismaTipi` olarak resmîleştirecek; o zamana kadar **tek yer burasıdır**, ekranlar kendi kuralını yazmaz |
+
+> **Yordamların veri bağımlılığı (L-34).** Çağıran ekran bunların hepsini
+> `<script>` ile yüklemek zorundadır; eksikse yordam **hata vermez, eksik sayı
+> üretir**:
+>
+> | Yordam | Okuduğu veri dosyaları |
+> |---|---|
+> | `GV.fin.*` | `crm.js` (`invoices` · `payments` · `customers`) · `work.js` (`milestones`) |
+> | `GV.delivery.approve` | `work.js` (`deliveries`) |
+> | `GV.task.*` | `work.js` (`tasks` · `taskTransitions` · `taskStatuses` · `taskWaitReasons` · `priorities` · `activities`) · `org.js` (`employees`) |
+> | `GV.zaman.*` | `hr.js` (`timelogs` · `timesheets`) |
+> | `GV.proje.sure` | `work.js` (`projects` · `tasks`) · `hr.js` (`timelogs`) |
+> | `GV.proje.maliyet` | `work.js` (`projects`) · `hr.js` (`timelogs`) · `org.js` (`employees` · `company`) · **`ops.js` (`purchases`)** |
+> | `GV.hr.*` | `org.js` (`employees` · `company`) |
+
+> **`GV.proje.maliyet().kapsam` `sure()`dekinden BİR ADIM DAHA DARDIR:** maliyet
+> için satır sayısı değil **ölçülen maliyet** gerekir. Onaylı saati de satın
+> alması da olmayan projede `brutKar` ve `karlilikYuzde` **`null`** döner —
+> ilk yazımda o projeler kârlılığı **%100** gösteriyordu, yani maliyeti sıfır
+> sanmak kârı tavana yazıyordu. `diger` kalemi bu depoda her zaman `0`'dır ve
+> bu bir **ölçüm değil kaynak boşluğudur** (V-47): projeye bağlı başka gider
+> koleksiyonu yok, `DB.projectExpenses` bilerek açılmadı.
+
 > **`GV.proje.sure().kapsam` yok sayılamaz.** `false` ise zaman defteri o
 > projeyi **hiç kapsamıyor** demektir ve ekran **sıfır basmaz** — "0 saat
 > çalışıldı" ile "defterde kayıt yok" aynı şey değildir (L-13). Bu depoda

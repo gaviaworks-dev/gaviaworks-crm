@@ -13,7 +13,23 @@ DB.company = {
   vergiDairesi:'Çankaya', vergiNo:'3720654891', kurulus:'2021-03-15',
   adres:'Mustafa Kemal Mah. Dumlupınar Blv. No:274, Çankaya / Ankara',
   telefon:'+90 312 000 00 00', eposta:'info@gaviaworks.com', web:'gaviaworks.com',
-  calisanSayisi:16, paket:'Kurumsal', tenant:'gaviaworks'
+  calisanSayisi:16, paket:'Kurumsal', tenant:'gaviaworks',
+
+  /* ---- İç maliyet sabitleri (REVİZE 04) --------------------------------
+     Proje personel maliyeti = onaylı saat × personelin saatlik İÇ MALİYETİ.
+     İç maliyet TÜRETİLİR, personel kaydında saklanmaz (L-08):
+        maas > 0          → maas × isverenMaliyetKatsayisi / aylikCalismaSaati
+        saatlikUcret > 0  → saatlikUcret (dışarıya fatura edilen tutar =
+                            şirketin maliyeti)
+     İkisi `app-personel-form.html:146`'daki **XOR** sözleşmesiyle korunur;
+     iki alandan yalnız biri dolu olur ve o sözleşme bozulmadı.
+
+     Katsayı ve aylık saat BURAYA YAZILI SABİTTİR (VB-19 dersi): hesabın
+     girdisi koda gömülürse maliyet sessizce değişir ve kimse fark etmez.
+     · isverenMaliyetKatsayisi — brüt maaş üstüne işveren SGK + işsizlik payı
+     · aylikCalismaSaati — 22 iş günü × 8 saat (çalışma düzeni: 5 gün, 8 saat) */
+  isverenMaliyetKatsayisi:1.225,
+  aylikCalismaSaati:176
 };
 
 /* ---- Departmanlar (PROMPT.md §4 — 21 departman) ---------------------- */

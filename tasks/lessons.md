@@ -32,6 +32,7 @@
 | L-31 | `DB.taskTransitions['Kontrol bekliyor'].zorunlu = ['ciktiLink']` beş oturum boyunca yazılıydı. **Hiçbir görev kaydında `ciktiLink` diye bir alan yoktu** — yani kural hiç uygulanamadı. Kimse fark etmedi çünkü kuralı uygulayan bir yordam da yoktu: ekran zorunlu alanları yalnız **ipucu metni** olarak basıyordu | **Uygulanmayan kural, yanlış kuralın en sinsi hâlidir** — hata vermez, doğru görünür, ölçüme takılmaz. Bir kural veriye yazılırken (a) onu **uygulayan** bir yordam ve (b) kuralın kendi tutarlılığını sınayan bir **tarama ekseni** aynı turda yazılır. Alan adına atıf yapan her kural için "bu ad gerçek bir alan mı" sorusu ekseneleştirilir (`canon.js` eksen 25c). L-23'ün ikizi: bileşen "oldu" diyemez, veri de "kural var" diyemez | 2026-08-07 |
 | L-32 | `GV.task` yazıldı, yedi ekrana bağlandı — sonra ajan fark etti ki **`domain.js` o ekranların hiçbirinde yüklü değildi**. `GV.task` `undefined` olurdu ve hata **tıklama anında** çıkardı, sayfa açılışında değil | **L-12'nin `GV.*` tarafındaki ikizi.** Ekranın okuduğu her `DB.<koleksiyon>` gibi, ekranın çağırdığı her `GV.<domain yordamı>` için de o dosya sayfada **yüklü olmalı**. Açılışa bakan QA bunu göremez — bağlanma anı ile çağrılma anı farklıdır. Denetim tek satır: `for f in app-*.html; do grep -q "GV\.\(fin\|delivery\|task\)\.[a-z]" $f && ! grep -q domain.js $f && echo $f; done`. Ortak katmana yeni yordam eklenince bu denetim koşulur | 2026-08-07 |
 | L-33 | Görev sözlüğünden `Revize bekliyor` silinince `GV.badge` ton haritasından da silindi. Ama **haftalık timesheet reddedildiğinde** aynı değere düşüyordu (`app-zaman-onay.html`) ve o rozet sessizce **griye** indi — hata vermedi, yalnız yanlış göründü | **`TONE` haritası modüller arası DÜZ bir isim alanıdır.** Bir değeri silmeden önce o adı kullanan **her koleksiyon** aranır (`grep "'<değer>'" assets/data/*.js`), yalnız silinen eksen değil. Aynı ad iki eksende yaşayabilir; silmek birini kırar. `Taslak` · `Planlandı` · `Müşteri bekleniyor` tam bu yüzden görev sözlüğünden çıkarken haritada **kaldı** | 2026-08-07 |
+| L-34 | `GV.proje.maliyet` satın alma kalemini `DB.purchases`'tan okuyor; o koleksiyon `ops.js`'te. Dört ekran `domain.js` ve `hr.js`'i yüklüyordu ama `ops.js`'i yüklemiyordu — kalem **hata vermeden sessizce 0** kalıyordu. Ekranın kendi markup'ında `DB.purchases` geçmediği için `dbref.js` de göremezdi | **Ortak yordamın veri bağımlılığı SÖZLEŞMESİNİN parçasıdır.** L-12 ekranın kendi okuduğu koleksiyonu, L-32 çağırdığı `GV.*` dosyasını istiyordu; üçüncüsü: yordamın **içeriden** okuduğu koleksiyonlar da yüklü olmalı. Bunlar `components.md`'de yordamın satırında yazılır ve yeni yordam yazılırken ilk soru "bu hangi `DB.*`'ları okuyor" olur. En sinsi tarafı: eksiklik hata değil **eksik sayı** üretir — ekran çalışır, toplam yanlıştır | 2026-08-07 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -465,3 +466,30 @@ Aynı oturumda üç kez ölçüm aracı yanıldı ve üçü de farklı sınıft�
 değil, **okuma yöntemi** ve **tarayıcı davranışı** için de geçerlidir. Yeni bir araç
 üç soruyu birden geçmelidir: *doğru yerden mi okuyor · hüküm sağlıklı davranışı ihlal
 sayıyor mu · ölçtüğü şey tarayıcıda gerçekten öyle mi çalışıyor.*
+
+
+## L-34 · Ortak yordamın veri bağımlılığı da sözleşmenin parçasıdır
+
+**Olay:** `GV.proje.maliyet(kod)` dört kalem türetiyor; biri
+`DB.purchases[proje==kod]` üzerinden **satın alma**. O koleksiyon
+`assets/data/ops.js`'te tanımlı. Yordamı çağıran dört ekran (`app-proje` ·
+`app-proje-degisiklik-detay` · `app-rapor-referans` · `app-butce`) `domain.js`
+ve `hr.js`'i yüklüyordu ama `ops.js`'i **yüklemiyordu**.
+
+**Neden görünmedi:** hata FIRLAMADI. `DB.purchases` `undefined` olunca yordam
+`(DB.purchases || [])` ile boş diziye düşüyor ve satın alma kalemi **0** çıkıyor.
+Ekran açılıyor, konsol temiz, sayı yanlış. `dbref.js` de göremez: o, ekranın
+**kendi markup'ında** geçen `DB.<koleksiyon>` adlarını tarar; burada koleksiyon
+adı ekranda hiç geçmiyor, yordamın içinde geçiyor.
+
+**Kural:** Bir ortak yordamın okuduğu **her** `DB.<koleksiyon>` onun
+sözleşmesinin parçasıdır ve `components.md`'de o yordamın satırında yazılır.
+Yordamı çağıran ekran, listedeki dosyaların hepsini yüklemek zorundadır.
+Yeni bir `domain.js` yordamı yazılırken sorulacak ilk soru: *"bu yordam hangi
+veri dosyalarına dokunuyor?"*
+
+**Ailesi:** L-12 (ekranın kendi okuduğu koleksiyon) → L-32 (ekranın çağırdığı
+`GV.*` dosyası) → **L-34 (yordamın içeriden okuduğu koleksiyonlar)**. Üçünün
+ortak dersi aynı: *bağımlılık zinciri statik olarak taranmalı, çünkü kırıldığında
+gürültü çıkarmıyor.* L-34 üçünün en sinsisi — diğer ikisi **hata** üretir,
+bu **eksik sayı** üretir.

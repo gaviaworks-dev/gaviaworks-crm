@@ -341,7 +341,10 @@
     var deptReq = DB.deptRequests.filter(function(r){ return r.durum !== 'Tamamlandı'; });
     var upcoming = DB.milestones.filter(function(m){ return codes.indexOf(m.proje) !== -1 && m.durum !== 'Tamamlandı'; })
       .sort(function(a,b){ return a.tarih.localeCompare(b.tarih); });
-    var budgetDev = proj.filter(function(p){ return p.gerceklesenMaliyet > p.butce; });
+    /* REVİZE 04 — bütçe aşımı türetilen maliyetten okunur; ölçülemeyen proje
+       ne aşan ne aşmayan sayılır (bkz. süre sapmasındaki aynı kural). */
+    var pMal = function(p){ return GV.proje.maliyet(p.kod); };
+    var budgetDev = proj.filter(function(p){ var m = pMal(p); return m.kapsam && m.toplam > p.butce; });
     /* REVİZE 03 — süre sapması artık ZAMAN DEFTERİNDEN türetilir; `harcananSure`
        alanı kaldırıldı. Defteri olmayan proje sapma saymaz: ölçülmemiş bir
        projeyi "plan dahilinde" göstermek de "aşımda" göstermek de yanlış olurdu. */
@@ -365,7 +368,7 @@
         meta:DB.capacity.filter(function(c){ return c.doluluk >= 95; }).length + ' kişi kritik', metaTone:'down' }
     ]) + kpiGrid([
       { label:'Bütçe sapması', value:budgetDev.length, icon:'i-wallet', tone:budgetDev.length ? 'danger' : 'ok', href:'app-butce.html',
-        meta:budgetDev.length ? F.moneyK(budgetDev.reduce(function(a,p){ return a + (p.gerceklesenMaliyet - p.butce); }, 0)) + ' aşım' : 'Bütçe içinde',
+        meta:budgetDev.length ? F.moneyK(budgetDev.reduce(function(a,p){ return a + (pMal(p).toplam - p.butce); }, 0)) + ' aşım' : 'Bütçe içinde',
         metaTone:budgetDev.length ? 'down' : 'up' },
       { label:'Süre sapması', value:timeDev.length, icon:'i-timer', tone:timeDev.length ? 'warn' : 'ok',
         meta:timeDev.length ? Math.round(timeDev.reduce(function(a,p){ return a + (pSure(p).gerceklesen - p.tahminiSure); }, 0)) + ' saat aşım' : 'Plan dahilinde',

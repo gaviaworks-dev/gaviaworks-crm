@@ -22,7 +22,12 @@
 <script src="assets/data/org.js"></script>
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/work.js"></script>
+<!-- hr.js = DB.timelogs + DB.employees → personel ve dış kaynak kalemi.
+     ops.js = DB.purchases → satın alma kalemi. `GV.proje.maliyet` bu iki
+     koleksiyondan okur; ops.js yüklenmezse satın alma kalemi sessizce 0
+     kalırdı — bu bir ölçüm değil, eksik kaynak olurdu (REVİZE 04). -->
 <script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
@@ -80,13 +85,39 @@ document.addEventListener('gv:ready', function(){
   var kalanGun  = F.days(p.planlananBitis);
   var bitti     = ['Teslim'].indexOf(p.durum) !== -1 || !!p.gercekBitis || p.ilerleme === 100;
   var gecikti   = kalanGun < 0 && !bitti;
-  var kalanButce = p.butce - p.gerceklesenMaliyet;
-  var butceKullanim = p.butce ? Math.round(p.gerceklesenMaliyet / p.butce * 100) : 0;
   /* REVİZE 03 — süre üçlüsü zaman defterinden türetilir; `harcananSure`
      alanı kaldırıldı. `sure.kapsam` false ise defter bu projeyi hiç
      kapsamıyor demektir ve ekran sayı basmaz, bunu SÖYLER. */
-  var sure        = GV.proje.sure(p.kod);
-  var saatMaliyet = sure.gerceklesen ? Math.round(p.gerceklesenMaliyet / sure.gerceklesen) : null;
+  var sure = GV.proje.sure(p.kod);
+
+  /* REVİZE 04 — `gerceklesenMaliyet` alanı KALDIRILDI. 14 kayıtta elle yazılı
+     TEK bir rakamdı; hangi kalemden oluştuğu hiçbir yerde yazmıyordu ve bu
+     ekran onu iki sekmede "türetilmiş / örtüşmeyebilir" uyarısıyla itiraf
+     ediyordu. Maliyet artık dört kalemden türetilir (personel · dış kaynak ·
+     satın alma · diğer) ve tek doğru kaynağı `GV.proje.maliyet`tir — bu ekran
+     kendi hesabını YAZMAZ, süre üçlüsünde olduğu gibi yordamı çağırır.
+     `p.butce` (onaylı bütçe) KALIR: o bir ölçüm değil, plan değeridir. */
+  var maliyet = GV.proje.maliyet(p.kod);
+
+  /* DEĞİŞMEZ KURAL — maliyet ölçülemiyorsa ekran SIFIR BASMAZ (L-13).
+     "0 ₺ maliyet" ile "maliyet ölçülemiyor" aynı şey değildir: bu depoda 14
+     projenin 8'inde `kapsam` false (arşivli projelerin zaman defteri yok).
+     Bu cümle yetkiden BAĞIMSIZ basılır — ortada gizlenecek bir tutar yok;
+     `cell-mask` boş bir hücreyi maskeleyip tutar varmış gibi gösterirdi. */
+  var OLCULEMIYOR = '<span class="u-faint">Ölçülemiyor — bu projede onaylı zaman kaydı ve teslim alınmış satın alma yok</span>';
+  var OLCULEMIYOR_KISA = '<span class="u-faint">Ölçülemiyor</span>';
+  /* Tutar basan tek kapı: önce ölçüm var mı, sonra yetki maskesi (`para`). */
+  function mPara(v){ return maliyet.kapsam ? para(v) : OLCULEMIYOR; }
+
+  /* Maliyete DAYANAN türetmeler de kapsamı taşır: ölçülmemiş maliyetten
+     "bütçe içinde" sonucu çıkarmak, "bütçe aşıldı" demek kadar uydurma olurdu. */
+  var kalanButce    = maliyet.kapsam ? p.butce - maliyet.toplam : null;
+  var butceKullanim = (maliyet.kapsam && p.butce) ? Math.round(maliyet.toplam / p.butce * 100) : null;
+  /* Ortalama saat maliyeti yalnız EMEK kalemlerinden hesaplanır: satın alma
+     saatle ölçülmez, toplamı saate bölmek "saat başına düşen donanım gideri"
+     gibi karşılığı olmayan bir birim üretirdi. */
+  var emekMaliyet = maliyet.personel + maliyet.disKaynak;
+  var saatMaliyet = (maliyet.kapsam && maliyet.saat) ? Math.round(emekMaliyet / maliyet.saat) : null;
 
   /* ---- Küçük yardımcılar ---- */
   /* Sekme içi tablolar mobilde kart listesine dönmez, yatay kaydırır —
@@ -815,17 +846,34 @@ document.addEventListener('gv:ready', function(){
         ['Sözleşme bedeli (KDV hariç)', para(p.sozlesmeTutari)],
         ['KDV (%' + (sozlesme ? sozlesme.kdvOran : 20) + ')', sozlesme ? para(sozlesme.kdv) : null],
         ['Genel toplam (KDV dahil)', sozlesme ? para(sozlesme.toplam) : null],
+        /* REVİZE 04 — İŞ BÖLÜMÜ: bu sekme PLAN ile GERÇEĞİ karşılaştırır
+           (onaylı bütçe ↔ türetilmiş maliyet ↔ kalan ↔ kullanım). Kalem
+           kırılımı ve kârlılık "Maliyetler" sekmesine taşındı. Bugüne kadar
+           iki sekme aynı iki sayıyı iki farklı çerçeveyle basıyordu; kırılım
+           gelince ayrım anlam kazandı. Eski "Sözleşme – maliyet farkı" satırı
+           BURADAN KALDIRILDI: o değer birebir brüt kârdır ve tek isimle
+           Maliyetler sekmesinde durur — aynı sayıyı iki adla basmak, VB-06'nın
+           ekranı kendi içinde çelişkiye düşüren kalıbının ta kendisiydi. */
         ['Onaylı proje bütçesi (KDV hariç)', para(p.butce)],
-        ['Gerçekleşen maliyet (KDV hariç)', para(p.gerceklesenMaliyet)],
-        ['Kalan bütçe (KDV hariç)', canFinans
+        ['Gerçekleşen maliyet (KDV hariç) <span class="u-faint">(dört kalemden türetilir)</span>', mPara(maliyet.toplam)],
+        /* Nedeni üstteki satırda TAM cümleyle yazılı; ona dayanan üç satır
+           kısa etiketi kullanır — aynı cümleyi dört kez basmak uyarıyı
+           gürültüye çevirirdi. */
+        ['Kalan bütçe (KDV hariç)', kalanButce == null ? OLCULEMIYOR_KISA : (canFinans
           ? (kalanButce < 0
               ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kalanButce)) + '</span>'
               : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
-          : '<span class="cell-mask">••••••</span>'],
-        ['Bütçe kullanımı', GV.progress(butceKullanim, { tone:butceKullanim > 100 ? 'danger' : (butceKullanim > 85 ? 'warn' : null) })],
-        ['Sözleşme – maliyet farkı (KDV hariç)', canFinans
-          ? '<span class="u-num u-b">' + F.money(p.sozlesmeTutari - p.gerceklesenMaliyet) + '</span>'
-          : '<span class="cell-mask">••••••</span>'],
+          : '<span class="cell-mask">••••••</span>')],
+        /* Bütçe kullanımı yüzdedir, tutar değil — yetki maskesi istemez ama
+           ölçüm yoksa yüzde de yoktur: %0 çubuk "bütçeye hiç dokunulmadı"
+           derdi, oysa bilinen tek şey maliyetin ölçülemediği. */
+        ['Bütçe kullanımı', butceKullanim == null ? OLCULEMIYOR_KISA
+          : GV.progress(butceKullanim, { tone:butceKullanim > 100 ? 'danger' : (butceKullanim > 85 ? 'warn' : null) })],
+        ['Bütçe sapması (KDV hariç)', !maliyet.kapsam ? OLCULEMIYOR_KISA : (canFinans
+          ? (maliyet.toplam > p.butce
+              ? '<span class="u-num u-danger u-b">+' + F.money(maliyet.toplam - p.butce) + ' aşım</span>'
+              : '<span class="u-num u-ok u-b">Bütçe içinde</span>')
+          : '<span class="cell-mask">••••••</span>')],
         ['Garanti süresi', sozlesme ? esc(sozlesme.garanti) : null]
       ]) +
     '</div>' +
@@ -868,63 +916,145 @@ document.addEventListener('gv:ready', function(){
      =================================================================== */
   var modulEfor = moduller.reduce(function(a,m){ return a + m.efor; }, 0);
 
+  /* Kişi bazlı emek maliyeti ARTIK TÜRETİLMİŞ TAHMİN DEĞİL, ÖLÇÜM: her satır
+     kişinin ONAYLI saati × kendi saatlik iç maliyeti. Eskiden proje ortalama
+     saat maliyetiyle çarpılıyordu; o yüzden "toplamla örtüşmeyebilir" uyarısı
+     gerekiyordu. Bu tablonun toplamı `maliyet.personel + maliyet.disKaynak`
+     kalemlerine birebir eşittir — uyarı gereksizleşti (bkz. sekme başı notu). */
+  var kisiSat = isYukuSat.filter(function(r){ return r.sa > 0; }).map(function(r){
+    var kl     = loglar.filter(function(l){ return l.personel === r.kod; });
+    var onayli = kl.filter(function(l){ return l.onay === 'Onaylandı'; });
+    var oSaat  = onayli.reduce(function(a,l){ return a + l.sure; }, 0);
+    var fSaat  = onayli.filter(function(l){ return l.faturalanabilir; })
+                   .reduce(function(a,l){ return a + l.sure; }, 0);
+    /* İç maliyet iki alandan türetilir (maaş veya sözleşmeli saat ücreti);
+       ikisi de boşsa tutar UYDURULMAZ, null taşınır ve ekranda söylenir. */
+    var ic = GV.hr.icMaliyet(r.kod);
+    return { kod:r.kod, sa:r.sa, oSaat:oSaat, fSaat:fSaat, ic:ic,
+             dis:GV.hr.disKaynak(r.kod),
+             tutar:ic ? Math.round(oSaat * ic.saat) : null };
+  });
+  var kisiToplam = kisiSat.reduce(function(a,r){ return a + (r.tutar || 0); }, 0);
+
   var pMaliyet = '<div class="gc-body">' +
+    /* Yetki maskesi REVİZE 04'te değişmedi: finans yetkisi olmayan rol tutar
+       görmez, saat bilgisi yetkiden bağımsız kalır. */
     (!canFinans ? GV.notice({ tone:'warn', icon:'i-lock',
       title:'Maliyet tutarları gizlendi',
-      text:'Emek maliyeti ve bütçe kırılımını görmek için finans yetkisi gerekir. Saat bilgileri yetkiden bağımsız gösterilir.' }) + '<div class="u-mt-4"></div>'
+      text:'Emek maliyeti ve kalem kırılımını görmek için finans yetkisi gerekir. Saat bilgileri yetkiden bağımsız gösterilir.' }) + '<div class="u-mt-4"></div>'
+      /* ESKİ UYARI KALDIRILDI ("kırılım türetilmiş değerdir · toplamla birebir
+         örtüşmeyebilir"): kırılım artık gerçek kalemlerden geliyor ve toplamla
+         örtüşüyor. Yerine kalemlerin KAYNAĞINI söyleyen not geçti — özellikle
+         `diger` kalemi bir ölçüm değil, kaynak boşluğudur. */
       : GV.notice({ tone:'info', icon:'i-info',
-      title:'Kişi ve modül bazlı maliyet türetilmiş değerdir',
-      text:'Prototipte gider kalemi koleksiyonu yok. Kırılım, projenin ortalama saat maliyeti (' +
-        (saatMaliyet == null ? '—' : F.money(saatMaliyet) + ' / saat') +
-        ') ile saatlerin çarpımından üretilir; toplam, projenin gerçekleşen maliyetiyle birebir örtüşmeyebilir.' }) + '<div class="u-mt-4"></div>') +
-    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Maliyet Özeti</h3></div>' +
+      title:'Maliyet dört kalemden türetilir, elle yazılmaz',
+      text:'Personel ve dış kaynak kalemi onaylı zaman kayıtlarının kişi bazlı iç maliyetiyle, ' +
+           'satın alma kalemi teslim alınmış satın alma talepleriyle hesaplanır. ' +
+           '“Diğer giderler” için bu depoda kaynak koleksiyonu yok — o kalem ölçülmüyor, sıfır olduğu için değil.' }) + '<div class="u-mt-4"></div>') +
+
+    /* REVİZE 04 — dokümanın istediği YEDİ DEĞER burada: gelir · personel ·
+       dış kaynak · satın alma · toplam · brüt kâr · kârlılık %. Bütçe
+       karşılaştırması (onaylı bütçe / kalan / kullanım) Bütçe sekmesinde
+       durur; iki sekme aynı sayıyı iki çerçeveyle basmasın diye ayrıldı. */
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Maliyet Kırılımı ve Kârlılık</h3>' +
+      '<p>KDV hariç · gelir sözleşme bedelidir, maliyet kalemleri kayıtlardan türetilir</p></div>' +
+      (maliyet.kapsam
+        ? GV.dl([
+            ['Proje geliri (sözleşme bedeli)', para(maliyet.gelir)],
+            ['Personel maliyeti <span class="u-faint">(kadrolu · ' + F.hours(maliyet.saat) + ' onaylı saat)</span>', para(maliyet.personel)],
+            ['Dış kaynak maliyeti <span class="u-faint">(hizmet sözleşmeli)</span>', para(maliyet.disKaynak)],
+            ['Satın alma / gider <span class="u-faint">(teslim alınmış talepler)</span>', para(maliyet.satinAlma)],
+            /* `diger` SIFIR ₺ GİBİ BASILMAZ: kaynağı olmayan kalemi tutar
+               olarak göstermek, ölçülmemişi ölçülmüş saymak olurdu. */
+            ['Diğer giderler', '<span class="u-faint">Kaynak yok — projeye bağlı gider koleksiyonu bu depoda tutulmuyor</span>'],
+            ['Toplam maliyet', canFinans
+              ? '<span class="u-num u-b">' + F.money(maliyet.toplam) + '</span>'
+              : '<span class="cell-mask">••••••</span>'],
+            ['Brüt kâr', maliyet.brutKar == null ? OLCULEMIYOR : (canFinans
+              ? (maliyet.brutKar < 0
+                  ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(maliyet.brutKar)) + '</span>'
+                  : '<span class="u-num u-ok u-b">' + F.money(maliyet.brutKar) + '</span>')
+              : '<span class="cell-mask">••••••</span>')],
+            /* Kârlılık yüzde biçiminde basılır ama MASKEYE TABİDİR: brüt kâr
+               gizliyken oranını göstermek, gizlenen tutarı gelirden geri
+               hesaplanabilir kılardı. Ekranın eski yüzdeleri (bütçe kullanımı,
+               ilerleme) maskesiz kalmaya devam eder — onlar tutar taşımıyor. */
+            ['Kârlılık', maliyet.karlilikYuzde == null ? OLCULEMIYOR : (canFinans
+              ? GV.progress(maliyet.karlilikYuzde, { tone:maliyet.karlilikYuzde < 0 ? 'danger' : (maliyet.karlilikYuzde < 20 ? 'warn' : 'ok') })
+              : '<span class="cell-mask">••••••</span>')]
+          ]) +
+          (maliyet.maliyetsizPersonel.length
+            ? '<p class="u-sm u-faint">' + maliyet.maliyetsizPersonel.length +
+              ' kişinin saatlik iç maliyeti hesaplanamadı (' +
+              maliyet.maliyetsizPersonel.map(function(k){ return esc(DB.empName(k)); }).join(', ') +
+              '); saatleri toplama girmedi.</p>' : '')
+        /* KAPSAM YOK: tutar yerine açık cümle. Gelir sözleşmede yazılıdır ve
+           ölçüme bağlı değildir, o yüzden tek başına basılabilir. */
+        : GV.dl([['Proje geliri (sözleşme bedeli)', para(maliyet.gelir)]]) +
+          '<p class="u-sm u-faint">Bu projede onaylı zaman kaydı da teslim alınmış satın alma da yok: ' +
+          'personel, dış kaynak ve satın alma kalemleri ölçülemiyor. Sıfır ₺ basmak maliyeti olmayan bir proje ' +
+          'göstermek olurdu — bu yüzden toplam maliyet, brüt kâr ve kârlılık da hesaplanmıyor.</p>') +
+    '</div>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Emek ve Saat Karşılığı</h3></div>' +
       GV.dl([
-        ['Onaylı bütçe (KDV hariç)', para(p.butce)],
-        ['Gerçekleşen maliyet (KDV hariç)', para(p.gerceklesenMaliyet)],
-        ['Kalan bütçe (KDV hariç)', canFinans
-          ? (kalanButce < 0
-              ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kalanButce)) + '</span>'
-              : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
-          : '<span class="cell-mask">••••••</span>'],
-        ['Bütçe kullanımı', GV.progress(butceKullanim, { tone:butceKullanim > 100 ? 'danger' : (butceKullanim > 85 ? 'warn' : null) })],
         ['Planlanan süre', F.hours(sure.planlanan)],
-        ['Gerçekleşen süre', sure.kapsam ? '<b>' + F.hours(sure.gerceklesen) + '</b>'
+        ['Gerçekleşen süre <span class="u-faint">(onaylı)</span>', sure.kapsam ? '<b>' + F.hours(sure.gerceklesen) + '</b>'
           : '<span class="u-faint">Defterde kayıt yok</span>'],
         ['Süre kullanımı', sure.kapsam
           ? GV.progress(sure.planlanan ? Math.round(sure.gerceklesen / sure.planlanan * 100) : 0) : null],
-        ['Ortalama saat maliyeti', saatMaliyet == null ? null : (canFinans
+        /* Ortalama saat maliyeti yalnız emek kalemlerinin saate bölümüdür;
+           satın alma bu orana girmez (yukarıdaki `emekMaliyet` notu). */
+        ['Ortalama saat maliyeti <span class="u-faint">(emek kalemleri)</span>', saatMaliyet == null ? OLCULEMIYOR_KISA : (canFinans
           ? '<span class="cell-money">' + F.money(saatMaliyet) + '</span> / saat'
           : '<span class="cell-mask">••••••</span>')],
         ['Faturalanabilir emek (kayıtlı)', F.hours(faturalanabilirSaat) + ' / ' + F.hours(toplamSaat)]
       ]) +
     '</div>' +
-    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Kişi Bazlı Emek Maliyeti (türetilmiş)</h3></div>' +
-      (loglar.length
-        ? tablo('<th>Kişi</th><th class="num">Kayıtlı saat</th><th class="num">Faturalanabilir</th><th class="num">Türetilmiş maliyet</th><th>Pay</th>',
-            isYukuSat.filter(function(r){ return r.sa > 0; }).map(function(r){
-              var fs = loglar.filter(function(l){ return l.personel === r.kod && l.faturalanabilir; })
-                        .reduce(function(a,l){ return a + l.sure; }, 0);
-              var pay = toplamSaat ? Math.round(r.sa / toplamSaat * 100) : 0;
-              return '<tr><td>' + GV.user(r.kod) + '</td>' +
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Kişi Bazlı Emek Maliyeti</h3>' +
+      '<p>Onaylı saat × kişinin saatlik iç maliyeti · toplamı personel ve dış kaynak kalemlerine eşittir</p></div>' +
+      (kisiSat.length
+        ? tablo('<th>Kişi</th><th class="num">Kayıtlı saat</th><th class="num">Onaylı saat</th>' +
+                '<th class="num">Faturalanabilir</th><th class="num">Saatlik iç maliyet</th><th class="num">Emek maliyeti</th><th>Pay</th>',
+            kisiSat.map(function(r){
+              var pay = kisiToplam ? Math.round((r.tutar || 0) / kisiToplam * 100) : 0;
+              return '<tr><td>' + GV.user(r.kod) +
+                (r.dis ? ' <span class="tag">Dış kaynak</span>' : '') + '</td>' +
                 '<td class="num"><b class="u-num">' + F.hours(r.sa) + '</b></td>' +
-                '<td class="num"><span class="u-num">' + F.hours(fs) + '</span></td>' +
-                '<td class="num">' + (saatMaliyet == null ? '<span class="u-faint">—</span>' : para(Math.round(r.sa * saatMaliyet))) + '</td>' +
+                '<td class="num"><span class="u-num">' + F.hours(r.oSaat) + '</span></td>' +
+                '<td class="num"><span class="u-num">' + F.hours(r.fSaat) + '</span></td>' +
+                '<td class="num">' + (r.ic == null
+                  ? '<span class="u-faint">Hesaplanamıyor</span>'
+                  : (canFinans ? '<span class="cell-money">' + F.money(r.ic.saat) + '</span>' : '<span class="cell-mask">••••••</span>')) + '</td>' +
+                /* Onaylı saati olmayan kişide tutar 0 basılmaz: bu "maliyeti
+                   yok" değil, "kaydı henüz onaylanmadı" demektir. */
+                '<td class="num">' + (r.ic == null ? '<span class="u-faint">—</span>'
+                  : (r.oSaat ? para(r.tutar) : '<span class="u-faint">Onay bekliyor</span>')) + '</td>' +
                 '<td>' + GV.progress(pay, { tone:'accent' }) + '</td></tr>';
-            }).join(''))
+            }).join('')) +
+          '<div class="u-row u-mt-4"><span class="gv-count">Toplam emek maliyeti ' +
+            (maliyet.kapsam ? para(emekMaliyet) : OLCULEMIYOR_KISA) +
+            ' <span class="u-faint">(personel + dış kaynak kalemi)</span></span></div>'
         : '<p class="u-sm u-faint">Bu projeye girilmiş zaman kaydı olmadığı için kişi bazlı kırılım üretilemiyor.</p>') +
     '</div>' +
-    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Modül Bazlı Planlanan Efor Maliyeti (türetilmiş)</h3></div>' +
+    /* UYARI SİLİNMEDİ, KAPSAMI DARALTILDI: modül tablosu PLANLANAN eforu
+       çarpar — planlanan efor bir ölçüm değil, tahmindir ve kişi kırılımı gibi
+       gerçek kalemlere oturmaz. Belirsizlik burada hâlâ geçerli olduğu için
+       uyarı bu bölüme, kendi kapsamına indi. */
+    '<div class="gv-form-sec"><div class="gv-form-sec-head"><h3>Modül Bazlı Planlanan Efor Maliyeti (tahmin)</h3>' +
+      '<p>Planlanan efor × projenin ortalama saat maliyeti — planlama tahminidir, gerçekleşen maliyet kalemi değildir</p></div>' +
       (moduller.length
-        ? tablo('<th>Modül</th><th>Durum</th><th class="num">Planlanan efor</th><th class="num">Türetilmiş maliyet</th><th>Efor payı</th>',
-            moduller.map(function(m){
-              var pay = modulEfor ? Math.round(m.efor / modulEfor * 100) : 0;
-              return '<tr><td><span class="cell-main">' + esc(m.ad) + '</span></td>' +
-                '<td>' + GV.badge(m.durum) + '</td>' +
-                '<td class="num"><span class="u-num">' + F.hours(m.efor) + '</span></td>' +
-                '<td class="num">' + (saatMaliyet == null ? '<span class="u-faint">—</span>' : para(Math.round(m.efor * saatMaliyet))) + '</td>' +
-                '<td>' + GV.progress(pay, { tone:'accent' }) + '</td></tr>';
-            }).join(''))
-        : '<p class="u-sm u-faint">Modül kırılımı olmadığı için modül bazlı maliyet üretilemiyor.</p>') +
+        ? (saatMaliyet == null
+            ? '<p class="u-sm u-faint">Ortalama saat maliyeti ölçülemediği için modül bazlı tahmin üretilemiyor.</p>'
+            : tablo('<th>Modül</th><th>Durum</th><th class="num">Planlanan efor</th><th class="num">Tahmini maliyet</th><th>Efor payı</th>',
+                moduller.map(function(m){
+                  var pay = modulEfor ? Math.round(m.efor / modulEfor * 100) : 0;
+                  return '<tr><td><span class="cell-main">' + esc(m.ad) + '</span></td>' +
+                    '<td>' + GV.badge(m.durum) + '</td>' +
+                    '<td class="num"><span class="u-num">' + F.hours(m.efor) + '</span></td>' +
+                    '<td class="num">' + para(Math.round(m.efor * saatMaliyet)) + '</td>' +
+                    '<td>' + GV.progress(pay, { tone:'accent' }) + '</td></tr>';
+                }).join('')))
+        : '<p class="u-sm u-faint">Modül kırılımı olmadığı için modül bazlı tahmin üretilemiyor.</p>') +
       '<div class="u-row u-mt-4"><a class="btn btn-line btn-sm" href="app-butce.html">' +
         ico('i-wallet','ic-sm') + ' Bütçe ve maliyet ekranı</a></div>' +
     '</div></div>';
@@ -960,9 +1090,17 @@ document.addEventListener('gv:ready', function(){
       '<div class="kpi is-accent"><div class="kpi-ico">' + ico('i-gauge','ic-lg') + '</div>' +
         '<div class="kpi-body"><div class="kpi-num">%' + p.ilerleme + '</div><div class="kpi-lbl">Proje ilerlemesi</div>' +
         '<div class="kpi-meta ' + (gecikti ? 'is-down' : 'is-flat') + '">' + esc(F.rel(p.planlananBitis)) + '</div></div></div>' +
-      '<div class="kpi ' + (butceKullanim > 100 ? 'is-danger' : 'is-ok') + '"><div class="kpi-ico">' + ico('i-wallet','ic-lg') + '</div>' +
-        '<div class="kpi-body"><div class="kpi-num">%' + butceKullanim + '</div><div class="kpi-lbl">Bütçe kullanımı</div>' +
-        '<div class="kpi-meta is-flat">' + paraK(p.gerceklesenMaliyet) + ' / ' + paraK(p.butce) + '</div></div></div>' +
+      /* Bütçe kullanımı KPI'ı maliyete dayanır: ölçüm yoksa "%0" basmak
+         bütçeye hiç dokunulmadığını söylerdi. Süre KPI'ındaki dil izlenir:
+         rakam yerine durumu söyleyen küçük metin. */
+      '<div class="kpi ' + (butceKullanim == null ? 'is-info' : (butceKullanim > 100 ? 'is-danger' : 'is-ok')) + '">' +
+        '<div class="kpi-ico">' + ico('i-wallet','ic-lg') + '</div>' +
+        '<div class="kpi-body"><div class="kpi-num">' +
+          (butceKullanim == null ? '<small>ölçülemiyor</small>' : '%' + butceKullanim) + '</div>' +
+        '<div class="kpi-lbl">Bütçe kullanımı</div>' +
+        '<div class="kpi-meta is-flat">' +
+          (butceKullanim == null ? 'Onaylı bütçe ' + paraK(p.butce) + ' · maliyet ölçülemiyor'
+                                 : paraK(maliyet.toplam) + ' / ' + paraK(p.butce)) + '</div></div></div>' +
       '<div class="kpi is-info"><div class="kpi-ico">' + ico('i-timer','ic-lg') + '</div>' +
         '<div class="kpi-body"><div class="kpi-num">' + (sure.kapsam ? F.num(sure.gerceklesen) + '<small>sa</small>' : '<small>defter yok</small>') + '</div>' +
         '<div class="kpi-lbl">Gerçekleşen süre</div>' +
@@ -981,14 +1119,19 @@ document.addEventListener('gv:ready', function(){
         GV.chart.bar(sprintBar, { height:230, label:'Sprint yükü grafiği' })) : '') +
       (hataBar.length ? chartCard('Hata şiddet dağılımı', hatalar.length + ' hata kaydı',
         GV.chart.bar(hataBar, { height:230, label:'Hata şiddet grafiği' })) : '') +
+      /* Grafik de sıfır çubuk basmaz: maliyet ölçülemiyorsa o çubuk hiç
+         çizilmez, alt başlık nedenini söyler. Sıfır yükseklikte bir "Maliyet"
+         çubuğu, maliyetsiz bir proje anlatırdı. */
       (canFinans
-        ? chartCard('Bütçe ve gerçekleşen maliyet', 'KDV hariç, bin ₺',
+        ? chartCard('Bütçe ve gerçekleşen maliyet',
+            maliyet.kapsam ? 'KDV hariç, bin ₺' : 'KDV hariç, bin ₺ · gerçekleşen maliyet ölçülemiyor',
             GV.chart.bar([
               { label:'Sözleşme', value:Math.round(p.sozlesmeTutari / 1000) },
-              { label:'Bütçe', value:Math.round(p.butce / 1000) },
-              { label:'Maliyet', value:Math.round(p.gerceklesenMaliyet / 1000),
-                tone:p.gerceklesenMaliyet > p.butce ? 'danger' : 'ok' }
-            ], { height:230, label:'Bütçe ve maliyet grafiği' }), true)
+              { label:'Bütçe', value:Math.round(p.butce / 1000) }
+            ].concat(maliyet.kapsam
+              ? [{ label:'Maliyet', value:Math.round(maliyet.toplam / 1000),
+                   tone:maliyet.toplam > p.butce ? 'danger' : 'ok' }]
+              : []), { height:230, label:'Bütçe ve maliyet grafiği' }), true)
         : chartCard('Bütçe ve gerçekleşen maliyet', 'Finans yetkisi gerekir',
             GV.empty({ icon:'i-lock', title:'Tutarlar gizlendi',
               desc:'Bu grafiği görüntülemek için finans yetkisi gerekir.' }), true)) +
@@ -1047,12 +1190,19 @@ document.addEventListener('gv:ready', function(){
        ['Öncelik', GV.pri(p.oncelik)],
        ['Sözleşme bedeli (KDV hariç)', para(p.sozlesmeTutari)],
        ['Onaylı bütçe (KDV hariç)', para(p.butce)],
-       ['Gerçekleşen maliyet (KDV hariç)', para(p.gerceklesenMaliyet)],
-       ['Kalan bütçe (KDV hariç)', canFinans
+       /* Özet panel dar: ölçüm yokluğunu uzun cümleyle değil kısa etiketle
+          söyler; ayrıntısı Maliyetler sekmesinde yazılı (aynı `u-faint` dili). */
+       ['Toplam maliyet (KDV hariç)', maliyet.kapsam ? para(maliyet.toplam) : OLCULEMIYOR_KISA],
+       ['Brüt kâr (KDV hariç)', maliyet.brutKar == null ? OLCULEMIYOR_KISA : (canFinans
+          ? (maliyet.brutKar < 0
+              ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(maliyet.brutKar)) + '</span>'
+              : '<span class="u-num u-ok u-b">' + F.money(maliyet.brutKar) + '</span>')
+          : '<span class="cell-mask">••••••</span>')],
+       ['Kalan bütçe (KDV hariç)', kalanButce == null ? OLCULEMIYOR_KISA : (canFinans
           ? (kalanButce < 0
               ? '<span class="u-num u-danger u-b">−' + F.money(Math.abs(kalanButce)) + '</span>'
               : '<span class="u-num u-ok u-b">' + F.money(kalanButce) + '</span>')
-          : '<span class="cell-mask">••••••</span>'],
+          : '<span class="cell-mask">••••••</span>')],
        ['İlerleme', '<b>%' + p.ilerleme + '</b>'],
        ['Planlanan bitiş', GV.dateCell(p.planlananBitis, { done:bitti })],
        ['Gecikme', gecikti

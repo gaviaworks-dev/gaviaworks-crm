@@ -599,3 +599,68 @@ yanlış olduğunu bilmiyoruz.
    sayıyı istediğimiz yere çekmek anlamına gelirdi.
 2. **Dokuz projede gerçekleşen süre gösterilemiyor.** Gerçek bir kurulumda
    zaman defteri tüm projeleri kapsar; bu, veri hacmine bağlı bir sınırdır.
+
+## V-46 · `icMaliyetSaat` alanı AÇILMADI — iç maliyet türetilir
+
+`revize-plan.md`'nin R04 maddesi `DB.employees[].icMaliyetSaat` alanını 16/16
+doldurmayı planlıyordu. **Uygulamada alan açılmadı.** Gerekçe, planın kendi
+kuralı: alanın içeriği `maas × isverenMaliyetKatsayisi ÷ aylikCalismaSaati`
+formülünden **tamamen türetilebilir**, yani L-08'in tarif ettiği "türetilebilir
+sayaç" sınıfına girer. Aynı turda `harcananSure` ve `gerceklesenMaliyet` tam bu
+gerekçeyle kaldırılırken bir sonraki commit'te yeni bir türetilebilir sayaç
+saklamak kendi kararımızla çelişirdi.
+
+Bunun yerine `GV.hr.icMaliyet(empKod)` yordamı türetir ve **formülü de döndürür**
+(`{ saat, kaynak, formul }`) — ekran sayıyı basarken nereden geldiğini de
+gösterebilir.
+
+**Planın asıl endişesi korundu:** `app-personel-form.html:146` `maas > 0` **XOR**
+`saatlikUcret > 0` kuralını uyguluyor ve bu sözleşmeye **hiç dokunulmadı**;
+`saatlikUcret` yine yalnız o eksende çalışan tek kişide (EMP-015) dolu.
+Hesabın iki girdisi `DB.company` altında **yazılı sabittir** (VB-19):
+
+| Sabit | Değer | Neden yazılı |
+|---|---:|---|
+| `isverenMaliyetKatsayisi` | 1,225 | Brüt maaş üstüne işveren SGK + işsizlik payı |
+| `aylikCalismaSaati` | 176 | 22 iş günü × 8 saat (çalışma düzeni: 5 gün, 8 saat) |
+
+`canon.js` eksen 28 üçünü birden kilitler: sabitler yerinde mi · XOR bozuldu mu ·
+`icMaliyetSaat` alanı sonradan açıldı mı.
+
+## V-47 · Dört maliyet kaleminden ikisinin bu depoda karşılığı yok
+
+REVİZE 04 dört kalem istiyor. Ölçüm:
+
+| Kalem | Kaynak | Bu depodaki durum |
+|---|---|---|
+| **Personel** | Σ(onaylı saat × iç maliyet), kadrolu | ✅ 6 projede ölçülüyor |
+| **Dış kaynak** | aynı hesap, hizmet sözleşmeli personel | ⚠️ **0 ₺ — kaynak var, kayıt yok** |
+| **Satın alma** | `DB.purchases[proje==kod && durum=='Teslim alındı']` | ⚠️ **tek kayıt** (SAT-2026-011 · PRJ-2026-002 · 64.000 ₺) |
+| **Diğer** | — | ❌ **KAYNAK YOK** |
+
+**Dış kaynak neden 0:** hizmet sözleşmeli tek personel EMP-015 ve onun
+**projeye bağlı tek zaman kaydı yok**; tek görevi (GRV-2026-117) henüz
+başlamamış, `gercekSure:0`. Başlamamış bir görevden saat türetmek uydurma
+olurdu (L-13). Eksen kuruldu ve çalışıyor; **değeri veri gelince dolar.**
+Bu, L-22'nin tarif ettiği durumun dürüst hâlidir: bağ yazıldı, kayıt yok —
+ve kapanış kaydında "kaç kayıtta dolu" yazılıyor.
+
+**Satın alma neden tek kayıt:** `revize-plan.md` "gerçekten proje için alınmış
+kayıtlarda `proje` doldurulsun" diyordu; yedi satın alma kaydı tek tek okundu ve
+**yalnız biri proje kaynaklıydı** (`butceKodu:'BTC-PRJ-002'`, gerekçesi
+"Anka Finans projesi için model kullanımı") — o da **zaten doluydu**. Kalan altısı
+donanım, ofis sarfı, Figma lisansı, monitör ve araç: hiçbiri bir projeye ait
+değil. Plan maddesi borcu fazla tahmin etmişti (L-28'in tersi yönü); doldurulacak
+bir şey çıkmadı ve **hiçbiri zorlanarak bir projeye bağlanmadı.**
+
+**"Diğer proje giderleri" neden hesaplanmıyor:** projeye bağlı başka bir gider
+koleksiyonu bu depoda yok. `DB.projectExpenses` **bilerek açılmadı** — talimat
+"yeni bir finans modülü oluşturma" diyor. `DB.vehicleExpenses` araca bağlıdır,
+proje ekseni taşımaz. `GV.proje.maliyet` bu kalemi her zaman `0` döndürür ve
+ekran bunun bir **ölçüm değil kaynak boşluğu** olduğunu yazıyla söyler —
+"0 ₺ diğer gider" demek, ölçülmemiş bir kalemi sıfır ölçülmüş gibi gösterirdi.
+
+**Kârlılık ölçülemeyen projede HESAPLANMAZ.** İlk yazımda maliyeti sıfır olan
+proje kârlılığı **%100** çıkıyordu; bu, ölçülmemişi ölçülmüş göstermenin en
+pahalı hâliydi. `GV.proje.maliyet` artık `brutKar` ve `karlilikYuzde` alanlarını
+`null` döndürüyor ve ekran "ölçülemiyor" diyor.
