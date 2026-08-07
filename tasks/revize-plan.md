@@ -1099,6 +1099,12 @@ Konsol temiz.
 
 # FAZ 3 — TİCARİ VE MÜŞTERİ
 
+> **SIRADAKİ FAZ.** Madde sırası: **R11 → R12 → R13 → R17**.
+> Paralelleştirme (§0'daki tablo): **R11 · R12 · R17 lead'in**, **R13 ajana
+> verilebilir** (kendi ekranları var) — ama R13'ün `permMatrix` ve
+> `buildSession` düzeltmeleri **ortak katmandadır ve lead'e aittir**.
+> Yeni canon ekseni **35**'ten devam eder (29…34 dolu).
+
 ## R11 · Proje kaynağını ekle
 
 **DURUM: 🟡 yarısı hazır — `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı YOK**
@@ -1294,6 +1300,12 @@ tamamını basıyor.
 ---
 
 # FAZ 4 — SADELEŞTİRME
+
+> Madde sırası: **R14 → R15 → R16 → R18 → R19 → R20**.
+> **DÖRTLÜ DALGA:** R14 · R19 · R20 aynı anda ajanlara verilebilir (üç ayrı
+> ekran kümesi, ortak katmana dokunmuyor). R15 · R16 · R18 **lead'in** — üçü de
+> veri ve ayar ekranını paylaşıyor. Tarayıcı taramaları **dalga bitince
+> topluca** koşar, ajan başına değil (süre uyarısı: `handoff.md` §2).
 
 ## R14 · Pipeline görünümünü grupla
 
