@@ -994,6 +994,69 @@ head('29) Proje durumu ↔ proje fazı (REVİZE 05)');
     DB.projects.length + ' (kapanmış 7 kayıtta faz yok — uydurulmadı)');
 }
 
+/* ---------- 30. MILESTONE ↔ ÖDEME TAKSİTİ: İKİ AYRI KAYIT (REVİZE 06) ----------
+   `DB.milestones` ödeme planı taksitidir (tutarı var), `DB.projectMilestones`
+   proje olayıdır (tutarı YOK). Turun başında ikisi tek koleksiyondu ve iki
+   ekran aynı diziyi iki başlıkla basıyordu. Bu eksen ayrımın geri kapanmasını
+   engeller: milestone'a tutar alanı sızarsa ya da ödeme kaydında ayna alan
+   doğarsa tarama düşer. */
+head('30) Proje milestone\'u ↔ ödeme taksiti (REVİZE 06)');
+{
+  const PM = DB.projectMilestones, PARA = ['odeme', 'odemeDurum', 'taksit', 'sozlesme', 'tutar'];
+
+  /* 30a. Milestone kaydı PARA EKSENİ TAŞIMAZ — ayrımın kendisi budur. */
+  PM.forEach(m => {
+    const sizan = PARA.filter(k => k in m);
+    say(sizan.length === 0, m.kod + ' proje milestone\'una ödeme alanı sızmış: ' + sizan.join(', '));
+  });
+
+  /* 30b. Şema tekdüze ve bağlar çözülüyor. */
+  const ALAN = ['kod', 'proje', 'baslik', 'tarih', 'sorumlu', 'durum', 'teslimat', 'aciklama'];
+  PM.forEach(m => {
+    ALAN.forEach(k => say(k in m, m.kod + ' alanı eksik: ' + k));
+    say(DB.projects.some(p => p.kod === m.proje), m.kod + ' proje=' + m.proje + ' çözülmüyor');
+    say(DB.milestoneStatuses.indexOf(m.durum) !== -1, m.kod + ' durum sözlükte yok: ' + m.durum);
+    say(!m.sorumlu || DB.employees.some(e => e.kod === m.sorumlu), m.kod + ' sorumlu çözülmüyor: ' + m.sorumlu);
+    if(m.teslimat){
+      const d = DB.deliveries.filter(x => x.kod === m.teslimat)[0];
+      say(!!d, m.kod + ' teslimat=' + m.teslimat + ' çözülmüyor');
+      if(d) say(d.proje === m.proje, m.kod + ' teslimatı BAŞKA projenin: ' + d.proje);
+    }
+    /* Kaynağı yazılı olmayan kayıt = uydurulmuş kayıt (L-13). */
+    say(!!m.aciklama && /türetildi/.test(m.aciklama), m.kod + ' kayıt kaynağı yazılı değil');
+  });
+
+  /* 30c. Bağ ÖDEME kaydında durur; milestone'da ayna alan doğmamıştır (§9d). */
+  PM.forEach(m => say(!('taksit' in m) && !('odeme' in m),
+    m.kod + ' milestone tarafında ayna ödeme alanı doğmuş'));
+  DB.milestones.filter(m => m.milestone).forEach(m => {
+    const pm = PM.filter(x => x.kod === m.milestone)[0];
+    say(!!pm, m.kod + ' milestone=' + m.milestone + ' çözülmüyor');
+    if(pm) say(pm.proje === m.proje, m.kod + ' bağlı milestone BAŞKA projenin: ' + pm.proje + ' ≠ ' + m.proje);
+  });
+
+  /* 30d. Bir proje milestone'una en fazla BİR taksit bağlanır. */
+  const sayac = {};
+  DB.milestones.filter(m => m.milestone).forEach(m => { sayac[m.milestone] = (sayac[m.milestone] || 0) + 1; });
+  Object.keys(sayac).forEach(k => say(sayac[k] === 1, k + ' milestone\'una ' + sayac[k] + ' taksit bağlanmış'));
+
+  /* 30e. Teslim bağı tekildir: bir teslim en fazla bir milestone'a. */
+  const tsl = {};
+  PM.filter(m => m.teslimat).forEach(m => { tsl[m.teslimat] = (tsl[m.teslimat] || 0) + 1; });
+  Object.keys(tsl).forEach(k => say(tsl[k] === 1, k + ' teslimi ' + tsl[k] + ' milestone\'a bağlanmış'));
+
+  /* 30f. Ödeme defteri BOZULMADI — eksen 10 zaten Σ taksit = sözleşme neti
+     diyor; burada yeni FK'nın taksit sayısını değiştirmediği ölçülür. */
+  say(DB.milestones.length === 19, 'ödeme planı taksit sayısı değişmiş: ' + DB.milestones.length);
+
+  console.log('  · proje milestone: ' + PM.length + ' kayıt · ' +
+    new Set(PM.map(m => m.proje)).size + ' proje · ' +
+    PM.filter(m => m.teslimat).length + ' teslim kaydından türetildi · ' +
+    (PM.length - PM.filter(m => m.teslimat).length) + ' tamamlanmış taksitten');
+  console.log('  · ödeme taksitinin milestone bağı: ' +
+    DB.milestones.filter(m => m.milestone).length + ' / ' + DB.milestones.length + ' dolu (bağ isteğe bağlıdır)');
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
