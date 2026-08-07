@@ -875,3 +875,46 @@ tahmin yanlış olduğunda kullanıcı yanlış değeri onaylamış olur.
 "Mobil Operasyon ERP Faz 1 Sözleşmesi" hem `Mobil Uygulama` hem `CRM / ERP`
 anahtarına uyuyor; doğrusu ikincisi. Zorunlu alana sessizce yanlış değer
 yazmak, boş bırakmaktan kötüdür (L-13 · L-31).
+
+---
+
+## V-57 · 24 aylık pakete `periyot` YAZILMADI — sözlükte karşılığı yok
+
+**Karar:** REVİZE 17'nin `periyot` alanı 7 paketin **6'sında** dolu
+(`Yıllık` 4 · `6 Aylık` 2), **BKP-003'te `null`**.
+
+**Ölçüm:** periyot dönem uzunluğundan türetilir ve türetme gün düzeltmeli ay
+sayımıdır (`components.md` §9, kota formülüyle aynı). BKP-003'ün dönemi
+`2025-10-01 → 2027-09-30` = **24 ay**; sözlük `Aylık · 3 Aylık · 6 Aylık ·
+Yıllık` diyor ve 24 ayın karşılığı yok.
+
+**Neden `Yıllık` yazılmadı:** iki yıllık bir paketi yıllık göstermek, ekranda
+"her yıl yenilenir" diye okunacak bir bilgi üretirdi — kayıtta böyle bir şey
+yazmıyor (`yenileme:false`). Uydurulmuş bir sınıflandırma, boş bir alandan
+daha zararlıdır çünkü **ölçülmüş gibi görünür**.
+
+**Onun yerine ne yapıldı:** liste kolonu periyot boşken dönemi **ay olarak**
+yazıyor ("24 aylık dönem · standart periyotlardan biri değil").
+`canon.js` **eksen 36d** iki yönü birden kilitliyor: periyot doluysa dönemin
+karşılığıdır; **boşsa dönem sözlükteki hiçbir periyoda eşit olamaz** — yani
+"boş bırakmak" ancak gerçekten türetilemediğinde meşrudur, kolaycılık olamaz.
+
+---
+
+## V-58 · Paket → sözleşme bağı 1/7'de kaldı — tarih kesişimi bağ sayılmadı
+
+**Karar:** REVİZE 17'nin "sözleşme bağı güçlendirilsin" maddesinde
+`DB.supportPackages[].sozlesme` **1/7'de bırakıldı** (yalnız BKP-001 →
+SZL-2026-022, o da zaten doluydu).
+
+**Ölçüm:** kalan 6 paketin müşterisiyle tarih aralığı kesişen sözleşme
+kayıtları var (ör. BKP-002 · MUS-2024-002 · 2026-03-01→2027-02-28 ile
+SZL-2026-019 · 2026-03-02→2026-08-14 kesişiyor). Ama SZL-2026-019 bir
+**uygulama geliştirme** sözleşmesidir, bakım sözleşmesi değil; kesişme
+tesadüftür. Sözleşme defterindeki tek bakım sözleşmesi SZL-2026-022'dir ve
+zaten bağlıdır.
+
+**Gerekçe:** V-52'nin aynısı — *tarih yakınlığı bağ değildir* (L-13). Altı
+paketi geliştirme sözleşmelerine bağlamak, ekranda "bu bakım hizmeti şu
+sözleşmeye dayanıyor" diye okunacak **yanlış** bir cümle üretirdi. Bağ,
+kullanıcı kurduğunda ya da veri geldiğinde doğar.
