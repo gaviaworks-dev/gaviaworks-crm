@@ -152,6 +152,25 @@ document.addEventListener('gv:ready', function(){
   var FAZLAR   = DB.projectPhases.slice();
   if(duzenle && kayit.faz && FAZLAR.indexOf(kayit.faz) === -1) FAZLAR.push(kayit.faz);
 
+  /* REVİZE 11 — PROJE KAYNAĞI kümesi ve SÖZLEŞME SEÇİCİ.
+     Kaynak formun İLK alanıdır çünkü diğer alanların zorunluluğunu o belirler:
+     `Müşteri Sözleşmesi` seçilirse sözleşme alanı görünür ve zorunlu olur,
+     diğer dört değerde alan hiç basılmaz (GV.form `showIf` sözleşmesi).
+     Seçilebilir sözleşmeler: projesi HENÜZ OLMAYANLAR — bir sözleşme ikinci
+     bir proje doğuramaz (form zaten `?sozlesme=` yolunda bunu uyguluyordu,
+     seçici de aynı kuralı uygular). */
+  var KAYNAKLAR = DB.projectSources;
+  var SOZLESMELER = DB.contracts
+    .filter(function(s){ return !s.proje; })
+    .map(function(s){
+      var m = DB.customers.filter(function(c){ return c.kod === s.musteri; })[0];
+      return { value:s.kod, label:s.kod + ' · ' + s.ad + (m ? ' · ' + m.unvan : '') };
+    });
+  /* Düzenlemede bağlı sözleşme (varsa) salt okunur gösterilir: bağ SÖZLEŞME
+     kaydında yaşar (§9d) ve iki ekrandan yazılırsa ikinci mutasyon yolu doğar. */
+  var bagliSozlesme = duzenle
+    ? DB.contracts.filter(function(s){ return s.proje === kayit.kod; })[0] || null : null;
+
   /* Proje türü hizmet kataloğundan gelir — 8 projenin 8'i katalogdaki bir değeri taşıyor. */
   var TURLER  = DB.services.slice();
   var turDisi = duzenle && kayit.tur && TURLER.indexOf(kayit.tur) === -1;
@@ -205,6 +224,7 @@ document.addEventListener('gv:ready', function(){
   if(duzenle){
     Object.keys(kayit).forEach(function(k){ formRec[k] = kayit[k]; });
     LISTE_ALAN.forEach(function(k){ formRec[k] = metin(kayit[k]); });
+    formRec.sozlesme = bagliSozlesme ? bagliSozlesme.kod : '';
     formRec.gercekBitis = kayit.gercekBitis || '';
     formRec.gecikmeNedeni = kayit.gecikmeNedeni || '';
     formRec.arsiv = kayit.arsiv === true;
@@ -216,6 +236,10 @@ document.addEventListener('gv:ready', function(){
     var ks = (kaynakSozlesme && !sozlesmeDolu) ? kaynakSozlesme : null;
     formRec = {
       ad:(ks ? projeAdiTuret(ks) : ''),
+      /* Kaynak sözleşmeden geldiyse kaynak alanı da ön seçilidir — kullanıcı
+         aynı bilgiyi ikinci kez girmez (talimat: fazla tıklamaya zorlama). */
+      kaynak:(ks ? 'Müşteri Sözleşmesi' : ''),
+      sozlesme:(ks ? ks.kod : ''),
       musteri:(ks && onSzlMus ? onSzlMus.kod : (onMus ? onMus.kod : '')),
       tur:'', faz:FAZLAR[0] || '',
       oncelik:'Orta', pm:'', teknikSorumlu:'', musteriSorumlu:'',
@@ -386,8 +410,10 @@ document.addEventListener('gv:ready', function(){
       text:'Kaydettiğinizde sıradaki proje numarası atanır, son güncelleme tarihi ' + F.date(DB.today) +
            ' olarak yazılır, aktivite geçmişine “Proje oluşturuldu” satırı düşülür ve proje listesine ' +
            'dönülür. Modül, sprint, taksit ve teslim kayıtları bu formda açılmaz — proje kartı ' +
-           'doğduktan sonra kendi ekranlarından eklenir. Sözleşme bağı da burada kurulmaz: bağ ' +
-           'sözleşme kaydının “proje” alanında yazılır (components.md §9d yön kuralı).',
+           'doğduktan sonra kendi ekranlarından eklenir. Kaynağı “Müşteri Sözleşmesi” seçerseniz ' +
+           'sözleşme alanı açılır; seçilen sözleşme kaydettiğinizde bu projeye bağlanır — bağ ' +
+           'sözleşme kaydının “proje” alanında yazılır, projede ayna alan açılmaz ' +
+           '(components.md §9d yön kuralı).',
       actions:[{ label:'Projeler', href:'app-proje.html' }] });
 
     var musNot = '';
@@ -468,9 +494,42 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var sections = [
     { title:'Proje kimliği',
-      desc:'Projenin adı, müşterisi ve sınıflandırması. Proje numarası kaydederken sistem tarafından ' +
-           'atanır, elle girilmez.',
+      desc:'Projenin nereden doğduğu, adı, müşterisi ve sınıflandırması. Proje numarası kaydederken ' +
+           'sistem tarafından atanır, elle girilmez.',
       fields:[
+        /* REVİZE 11 — kaynak İLK alandır: sözleşme seçicisinin görünüp
+           görünmeyeceğini o belirler. Manuel proje açma KALDIRILMADI —
+           'İç Proje' ya da 'Diğer' seçildiğinde sözleşme hiç sorulmaz ve
+           akış bugünküyle birebir aynı kalır (talimat REVİZE 11 son satırı). */
+        { key:'kaynak', label:'Proje kaynağı', type:'select', options:KAYNAKLAR, required:true, cols:6,
+          placeholder:'Kaynak seçin',
+          hint:'Projenin ticari dayanağı. “Müşteri Sözleşmesi” seçilirse sözleşme alanı açılır ve ' +
+               'zorunlu olur; diğer değerlerde sözleşme sorulmaz. Bu alan müşteri kartındaki ' +
+               '“kaynak” (satış kaynağı) ekseninden farklıdır.' },
+        { key:'sozlesme', label:'Sözleşme', type:'select',
+          options:(bagliSozlesme
+            ? [{ value:bagliSozlesme.kod, label:bagliSozlesme.kod + ' · ' + bagliSozlesme.ad }]
+            : SOZLESMELER),
+          required:!duzenle, cols:6,
+          showIf:function(d){ return d.kaynak === 'Müşteri Sözleşmesi'; },
+          placeholder:(SOZLESMELER.length || bagliSozlesme) ? 'Sözleşme seçin' : 'Projesi olmayan sözleşme yok',
+          hint:duzenle
+            ? 'Sözleşme bağı sözleşme kaydının “proje” alanında yaşar (components.md §9d); bu formdan ' +
+              'değiştirilmez, sözleşme detayından yönetilir. ' +
+              (bagliSozlesme ? 'Bu proje ' + bagliSozlesme.kod + ' sözleşmesine bağlı.'
+                             : 'Bu projenin sözleşme kaydı bu depoda yok.')
+            : 'Yalnız projesi henüz olmayan ' + SOZLESMELER.length + ' sözleşme listelenir — bir sözleşme ' +
+              'ikinci bir proje doğuramaz. Seçtiğinizde müşteri, ad, tarihler ve bedel sözleşmeden ' +
+              'ön doldurulur; hepsi değiştirilebilir.',
+          validate:function(v, d){
+            if(duzenle || d.kaynak !== 'Müşteri Sözleşmesi' || !v) return '';
+            var s = DB.contracts.filter(function(x){ return x.kod === v; })[0];
+            if(!s) return 'Seçilen sözleşme kaydı sistemde yok.';
+            if(s.proje) return s.kod + ' sözleşmesi ' + s.proje + ' projesine zaten bağlı.';
+            if(d.musteri && s.musteri !== d.musteri)
+              return 'Sözleşmenin müşterisi (' + s.musteri + ') seçilen müşteriden farklı.';
+            return '';
+          } },
         { key:'ad', label:'Proje adı', type:'text', required:true, cols:12,
           placeholder:'Örn. Vitalis Hasta Randevu Mobil Uygulaması',
           validate:function(v, d){
@@ -478,9 +537,18 @@ document.addEventListener('gv:ready', function(){
               return (!duzenle || p.kod !== kayit.kod) && p.ad.trim().toLowerCase() === String(v).trim().toLowerCase(); })[0];
             return ayni ? 'Aynı adla başka bir proje var (' + ayni.kod + '). Ad ayırt edici olmalıdır.' : '';
           } },
-        { key:'musteri', label:'Müşteri', type:'select', options:MUSTERILER, required:true, cols:6,
+        /* Müşteri, kaynağı 'İç Proje' OLMAYAN her projede zorunludur. İç proje
+           tanım gereği müşterisizdir; alanı zorunlu bırakmak sözlüğe koyduğumuz
+           değeri kullanılamaz hâle getirirdi (L-31: uygulanamayan kural). */
+        { key:'musteri', label:'Müşteri', type:'select', options:MUSTERILER, cols:6,
+          required:function(d){ return d.kaynak !== 'İç Proje'; },
           placeholder:'Müşteri seçin',
-          hint:'Projenin müşteri bağı burada yazılır; müşteri unvanı kayda bu seçimden kopyalanır.' },
+          hint:'Projenin müşteri bağı burada yazılır; müşteri unvanı kayda bu seçimden kopyalanır. ' +
+               'Yalnız kaynağı “İç Proje” olan kayıtlarda boş bırakılabilir.',
+          validate:function(v, d){
+            return (v && d.kaynak === 'İç Proje')
+              ? 'İç proje müşteriye bağlanmaz — kaynağı değiştirin ya da müşteriyi boşaltın.' : '';
+          } },
         { key:'tur', label:'Proje türü', type:'select', options:TURLER, required:true, cols:6,
           placeholder:'Tür seçin',
           hint:'Hizmet kataloğundaki ' + TURLER.length + ' değerden biri. Liste ekranının tür filtresi bu kümeyi kullanır.',
@@ -675,6 +743,53 @@ document.addEventListener('gv:ready', function(){
     mount:'#formMount', id:'proje', record:formRec, sections:sections
   });
 
+  /* =================================================================
+     REVİZE 11 — SÖZLEŞME SEÇİCİNİN DAVRANIŞI
+     Üç durum: (a) adresten sözleşme geldi → seçili ve KİLİTLİ, (b) düzenleme →
+     salt okunur (bağ sözleşme kaydında yaşar), (c) yeni kayıt → seçilebilir ve
+     seçim ön dolgu yapar. Ön dolgu YALNIZ BOŞ alanı doldurur: kullanıcının
+     yazdığı bir değeri sözleşme ezmez.
+     ================================================================= */
+  var szlSelect = form.el.querySelector('[name="sozlesme"]');
+  if(szlSelect && (duzenle || (kaynakSozlesme && !sozlesmeDolu))){
+    szlSelect.disabled = true;                     /* değeri okunur, değiştirilemez */
+    var kynSelect = form.el.querySelector('[name="kaynak"]');
+    if(kynSelect && kaynakSozlesme && !sozlesmeDolu && !duzenle) kynSelect.disabled = true;
+  }
+  /* Seçilen sözleşmenin özeti — sözleşme alanının altında, YENİ KART AÇILMADAN. */
+  var szlBilgi = document.createElement('div');
+  szlBilgi.className = 'u-mt-4';
+  var szlWrap = form.el.querySelector('[data-field="sozlesme"]');
+  if(szlWrap) szlWrap.appendChild(szlBilgi);
+
+  if(szlSelect && !duzenle && !szlSelect.disabled){
+    szlSelect.addEventListener('change', function(){
+      var s = DB.contracts.filter(function(x){ return x.kod === szlSelect.value; })[0];
+      if(!s) return;
+      var mus = DB.customers.filter(function(c){ return c.kod === s.musteri; })[0];
+      function doldur(ad, deger){
+        var el = form.el.querySelector('[name="' + ad + '"]');
+        if(el && !String(el.value || '').trim() && deger != null && deger !== '') el.value = deger;
+      }
+      doldur('ad', projeAdiTuret(s));
+      doldur('musteri', s.musteri);
+      doldur('baslangic', s.baslangic);
+      doldur('planlananBitis', s.bitis);
+      doldur('sozlesmeTutari', s.tutar);           /* NET — sözleşme `tutar`ı KDV hariç */
+      /* Proje TÜRÜ ön doldurulmaz ve bu bilinçli bir boşluktur (V-56):
+         sözleşme kaydında hizmet alanı yok, ad alanı da hizmet kataloğunun
+         hiçbir değerini birebir taşımıyor (7 sözleşmenin 7'sinde 0 eşleşme).
+         Anahtar kelimeden tahmin etmek zorunlu bir alana YANLIŞ değer yazardı
+         ("Mobil Operasyon ERP" → Mobil Uygulama? CRM / ERP?) — L-13. */
+      szlBilgi.innerHTML = GV.notice({ tone:'ok', icon:'i-file', title:s.kod + ' sözleşmesinden ön dolduruldu',
+        text:(mus ? mus.unvan + ' · ' : '') + esc(s.ad) + ' · ' + F.money(s.tutar, '₺') + ' (KDV hariç) · ' +
+             F.date(s.baslangic) + ' – ' + F.date(s.bitis) + '. Ödeme planı: ' + esc(s.odemePlani || '—') +
+             '. Taksitler bu formda açılmaz; proje doğduktan sonra ödeme planı ekranından bağlanır. ' +
+             'Boş alanlar dolduruldu, sizin yazdıklarınıza dokunulmadı.' });
+      form.sync();
+    });
+  }
+
   /* Proje adı müşteri seçiminden TÜRETİLMEZ: veride 8 projenin hiçbirinin adı müşteri
      unvanıyla başlamıyor (“Vitalis Hasta Randevu Mobil Uygulaması” ≠ “Vitalis Sağlık Grubu”).
      Otomatik doldurma yarım bir ad bırakacağı için kurulmadı; müşteri unvanı yalnız
@@ -684,7 +799,8 @@ document.addEventListener('gv:ready', function(){
      KAYDET
      ================================================================= */
   var ALAN_ADI = {
-    ad:'Proje adı', musteri:'Müşteri', musteriAd:'Müşteri unvanı', tur:'Proje türü', faz:'Faz',
+    ad:'Proje adı', kaynak:'Proje kaynağı',
+    musteri:'Müşteri', musteriAd:'Müşteri unvanı', tur:'Proje türü', faz:'Faz',
     oncelik:'Öncelik', pm:'Proje yöneticisi', teknikSorumlu:'Teknik sorumlu',
     musteriSorumlu:'Müşteri sorumlusu', ekip:'Proje ekibi',
     baslangic:'Başlangıç tarihi', planlananBitis:'Planlanan bitiş', gercekBitis:'Gerçekleşen bitiş',
@@ -731,6 +847,10 @@ document.addEventListener('gv:ready', function(){
     return String(v);
   }
 
+  /* Formda seçilen sözleşme kaydı — `degerleriOku` yazar, `kaydet` okur.
+     Proje kaydına GİRMEZ: bağ sözleşmenin `proje` alanında yaşar (§9d). */
+  var secilenSozlesme = null;
+
   function degerleriOku(){
     var raw = form.submit();
     if(!raw) return null;
@@ -738,8 +858,12 @@ document.addEventListener('gv:ready', function(){
     var v = {};
     Object.keys(raw).forEach(function(k){
       if(k.indexOf(EKIP_ON) === 0) return;         /* ekip kutuları ayrı toplanır */
+      if(k === 'sozlesme') return;                 /* projede AYNA ALAN AÇILMAZ (§9d) */
       v[k] = raw[k];
     });
+    /* Sözleşme seçimi kayda değil BAĞA gider; `kaydet` bunu ayrı okur. */
+    secilenSozlesme = raw.sozlesme
+      ? DB.contracts.filter(function(x){ return x.kod === raw.sozlesme; })[0] || null : null;
 
     v.ekip = EKIP_ADAY.filter(function(e){ return !!raw[EKIP_ON + e.kod]; })
                       .map(function(e){ return e.kod; });
@@ -817,22 +941,25 @@ document.addEventListener('gv:ready', function(){
       }
       /* PROJE BAŞLATMA zincirinin kapanışı: bağ SÖZLEŞME kaydına yazılır, projede
          ayna alan açılmaz (§9d). Aynı sözleşmeye ikinci proje bağlanmaz. */
+      /* Bağın kaynağı İKİ yol: adresten gelen sözleşme (`?sozlesme=`) ya da
+         formdaki sözleşme seçici (REVİZE 11). İkisi de aynı mutasyondan geçer. */
+      var szl = secilenSozlesme || kaynakSozlesme;
       var szlBagli = false;
-      if(kaynakSozlesme && !kaynakSozlesme.proje){
-        kaynakSozlesme.proje = kod;
+      if(szl && !szl.proje){
+        szl.proje = kod;
         szlBagli = true;
         DB.activities.unshift({
-          kayit:kaynakSozlesme.kod, tarih:simdi(), kisi:GV.session.emp,
+          kayit:szl.kod, tarih:simdi(), kisi:GV.session.emp,
           metin:'Sözleşmeden proje başlatıldı', eski:null, yeni:kod, tone:'ok', icon:'i-briefcase'
         });
         DB.activities.unshift({
           kayit:kod, tarih:simdi(), kisi:GV.session.emp,
-          metin:'Proje ' + kaynakSozlesme.kod + ' sözleşmesinden başlatıldı',
-          eski:null, yeni:kaynakSozlesme.kod, tone:'accent', icon:'i-file'
+          metin:'Proje ' + szl.kod + ' sözleşmesinden başlatıldı',
+          eski:null, yeni:szl.kod, tone:'accent', icon:'i-file'
         });
       }
       GV.toast(kod + ' oluşturuldu' +
-        (szlBagli ? ' · ' + kaynakSozlesme.kod + ' sözleşmesine bağlandı' : ''), 'ok');
+        (szlBagli ? ' · ' + szl.kod + ' sözleşmesine bağlandı' : ''), 'ok');
     }
 
     form.setDirty(false);
