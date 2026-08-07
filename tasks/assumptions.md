@@ -463,3 +463,77 @@ kayıttan kayda değişemez (VB-18 dersi).
 `canon.js` eksen **24b** iki yönlü kilitler: bağ varsa dört alan birebir aynı olmalı;
 bağ **yoksa** aynı telefon ya da e-posta ikinci bir yerde geçmemeli — yani sessiz
 kopya artık imkânsız.
+
+---
+
+# REVİZE TURU VARSAYIMLARI (13. oturum, 2026-08-07)
+
+## V-42 · Görev durum sözlüğü 19'dan 10'a inerken dört kayıt nereye taşındı
+
+REVİZE 01 hedef sözlüğü 7 ana + 3 ek = 10 değer veriyor. Kalkan dokuz değerin
+sekizi veride **hiç kullanılmıyordu**; dördü kullanılıyordu ve taşındı:
+
+| Kayıt | Eski | Yeni | Gerekçe |
+|---|---|---|---|
+| GRV-2026-102 | `Kontrol bekliyor` | `Kontrolde` | Yeniden adlandırma — doküman sözlüğü |
+| GRV-2026-107 | `Revize bekliyor` | `Revizede` | İki değer aynı durumu anlatıyordu; hedef sözlükte `Revizede` var |
+| GRV-2026-117 | `Kabul bekliyor` | `Atandı` | Kabul bir ara durum değil, atamanın parçası |
+| GRV-2026-123 | `Planlandı` | `Atandı` | Sorumlusu ve termini olan görev atanmıştır |
+
+Dördü de `DB.activities`'e **eski→yeni** ile yazıldı. Taşıma bir işlemdir;
+sessizce yapılırsa kullanıcı kaydının neden değiştiğini göremez.
+
+**`beklemeNedeni` iki kayıtta dolu, ikisi de yazılı kanıttan türetildi** —
+uydurulmadı: GRV-2026-105'in `engelNedeni`'nde *"Müşteri Logo API test hesabını
+hâlâ açmadı"*, GRV-2026-107'nin `revizeNot`'unda *"Kapsam dışı — ek teklif
+gerekiyor"* yazıyordu. Kanıtı olmayan hiçbir göreve bekleme nedeni verilmedi;
+"gecikmiş görev muhtemelen bekliyordur" gibi bir çıkarım yapılmadı.
+
+## V-43 · Onay adımının gerekip gerekmediği SAKLANMAZ, türetilir
+
+REVİZE 02 `Kontrolde → Onay Bekliyor → Tamamlandı` ile `Kontrolde → Tamamlandı`
+arasında bir ayrım istiyor ama bu ayrımı taşıyan bir alan yoktu. Yeni bir
+`onayGerekli` bayrağı **açılmadı** (L-08: türetilebilen saklanmaz). Kural:
+
+> Kontrol eden ile onaylayan **aynı kişiyse** kontrol zaten onaydır — görev
+> doğrudan `Tamamlandı`ya gider. **Farklıysa** araya `Onay bekliyor` girer.
+
+Veride bugün 26 görevin **17'sinde aynı**, **9'unda farklı**. Yani ayrım zaten
+veride yazılıydı, yalnız okunmuyordu. `GV.task.onayGerekli(t)` bunu okur.
+
+## V-44 · `DB.projects[].harcananSure` türetilebilir DEĞİLDİR — ölçüldü
+
+REVİZE 03 "gerçekleşen süre onaylanmış timesheet kayıtlarından otomatik gelsin"
+diyor. Türetmenin **kaynağı ölçüldü ve yetmiyor**:
+
+| Kaynak | Toplam saat |
+|---|---|
+| `DB.projects[].harcananSure` (bugün kayıtlı) | **9.125** |
+| `DB.timelogs` — onaylı **ve** projeli | **53** |
+| `DB.timelogs` — tümü | 247 |
+| `DB.tasks[].gercekSure` | 138,5 |
+| `Σ(modül efor × ilerleme%)` | 2.289 · yalnız **5 projede** |
+| `DB.sprints[].tamamlanan` | 190 |
+
+14 projenin **9'unda tek bir zaman kaydı yok**, **9'unda modül kırılımı yok**.
+Yani 9.125 saatin yaklaşık **8.900'ünü** hiçbir kayıt desteklemiyor.
+
+**Karar.** O saatleri üretmek, olmayan bir işi olmuş göstermek olurdu (L-13) ve
+"her kayıt var olan gerçek bir olaydan türetilir" kuralını çiğnerdi. Bunun
+yerine, deponun **kendi sanksiyonlu kalıbı** uygulanır — `DB.sprints[].gorevSayisi`
+(V-27, canon eksen 12): sprint 60 gerçek görev sayar, `DB.tasks` 25 temsili görev
+tutar ve eksen `sayaç ≥ modellenen` der.
+
+Uygulama:
+
+1. **Ekranın gösterdiği "Gerçekleşen" DEĞER TÜRETİLİR** — `GV.proje.sure()`
+   onaylı zaman kayıtlarından hesaplar. Dokümanın istediği budur ve olan budur.
+2. `harcananSure` **elle girilen bir alan olmaktan çıkar**; ömür boyu beyan
+   edilen toplam olarak kalır, adı bunu söyler ve **forma girilmez**.
+3. `canon.js` ekseni `harcananSure ≥ Σ onaylı zaman kaydı` der — eşitlik değil.
+4. Modellenen defterin kapsamadığı projede ekran **bunu söyler**; 37 saati
+   "projenin tamamı" gibi sessizce basmaz.
+
+**Dürüst kalan boşluk:** prototipin zaman defteri 45 satırlık bir örneklemdir.
+Gerçek bir kurulumda `harcananSure` tamamen kalkar ve yalnız türetme kalır.
+Bu, veri hacmine bağlı bir sınırdır, tasarım kararı değildir.
