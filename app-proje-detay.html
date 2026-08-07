@@ -164,6 +164,10 @@ document.addEventListener('gv:ready', function(){
     '<div class="ph-actions">' +
       '<a class="btn btn-line" href="app-gorev.html">' + ico('i-tasks') + ' Görevler</a>' +
       '<a class="btn btn-line" href="app-proje-milestone.html">' + ico('i-milestone') + ' Milestone</a>' +
+      /* REVİZE 07 — kapanmış projede buton BASILMAZ; "kapat" diyip sonra
+         "zaten kapalı" demek sahte aksiyondur (act.js sınıfı 🔴 YALAN). */
+      (GV.proje.kapali(p) ? '' :
+        '<button type="button" class="btn btn-line" id="btnKapat">' + ico('i-check-circle') + ' Projeyi Kapat</button>') +
       '<a class="btn btn-acc" href="app-proje-form.html?id=' + p.kod + '">' + ico('i-edit') + ' Düzenle</a>' +
     '</div></div>';
 
@@ -1284,6 +1288,79 @@ document.addEventListener('gv:ready', function(){
     '</div>';
 
   GV.tabs('#recTabs');
+
+  /* ===================================================================
+     PROJE KAPANIŞ AKIŞI (REVİZE 07)
+
+     Yeni ekran, yeni menü, yeni bileşen YOK: var olan `GV.confirm` +
+     `.gv-checklist` + `GV.result` ile kurulur. Sekiz kontrolün cevabı
+     `GV.proje.kapanisKontrol`ten gelir — ekran kendi hesabını yapmaz,
+     yoksa checklist ile kapanışın kendisi farklı karar verebilirdi.
+
+     Geçmeyen madde kapanışı ENGELLEMEZ, gerekçe ister; gerekçe aktiviteye
+     yazılır. Ölçülemeyen madde (`olculdu:false`) "geçti" sayılmaz ve ayrı
+     tonla basılır — kontrol yapılamadıysa güvence de yoktur.
+     =================================================================== */
+  var btnKapat = document.getElementById('btnKapat');
+  if(btnKapat) btnKapat.addEventListener('click', function(){
+    var kontrol = GV.proje.kapanisKontrol(p.kod);
+    var gecmeyen = kontrol.filter(function(k){ return k.olculdu && !k.gecti; });
+    var olcusuz  = kontrol.filter(function(k){ return !k.olculdu; });
+
+    var liste = '<ul class="gv-checklist">' + kontrol.map(function(k){
+      var rozet = !k.olculdu ? '<span class="badge is-neutral no-dot">Ölçülemedi</span>'
+                : k.gecti    ? '<span class="badge is-ok no-dot">Tamam</span>'
+                             : '<span class="badge is-danger no-dot">' + k.sayi + ' kayıt</span>';
+      return '<li><span><span class="cell-main">' + esc(k.etiket) + '</span>' +
+        '<span class="cell-sub">' + esc(k.detay) + '</span></span>' + rozet + '</li>';
+    }).join('') + '</ul>';
+
+    /* Alan markup'ı `.field` — görev detayının bekleme/revizyon modallarıyla
+       aynı kalıp; kapanış için yeni bir form dili kurulmaz. */
+    var gerekceAlan = gecmeyen.length
+      ? '<div class="field"><label for="kapanisGerekce">Kapanış gerekçesi</label>' +
+        '<textarea id="kapanisGerekce" rows="3" ' +
+        'placeholder="Örn. Fatura tahsilatı sözleşme gereği teslimden 30 gün sonra yapılacak"></textarea>' +
+        '<p class="u-sm u-faint">Geçmeyen ' + gecmeyen.length + ' madde var; kapanış engellenmez ama ' +
+        'gerekçe proje hareket geçmişine yazılır.</p></div>'
+      : '';
+
+    GV.confirm({
+      title:'Projeyi Kapat — ' + p.kod,
+      tone:gecmeyen.length ? 'warn' : 'ok',
+      okLabel:'Projeyi Kapat', cancelLabel:'Vazgeç',
+      text:'Kapanış projenin durumunu “Tamamlandı” yapar, gerçekleşen bitiş tarihini ' +
+           DB.today + ' olarak yazar ve faz kaydını boşaltır.' +
+           (olcusuz.length ? ' ' + olcusuz.length + ' madde ölçülemedi — o maddeler için güvence yoktur.' : ''),
+      body:liste + gerekceAlan
+    }).then(function(ok){
+      if(!ok) return;
+      var g = document.getElementById('kapanisGerekce');
+      var r = GV.proje.kapat(p.kod, g ? g.value : '');
+      if(!r.ok){
+        if(r.why === 'gerekçe'){
+          GV.toast('Geçmeyen madde var: kapanış gerekçesi yazılmalıdır (' + r.eksik.join(' · ') + ')', 'danger');
+        }else if(r.why === 'yetki'){
+          GV.toast('Proje kapatma yetkiniz yok.', 'danger');
+        }else{
+          GV.toast('Proje kapatılamadı: ' + r.why, 'warn');
+        }
+        return;
+      }
+      GV.refresh();
+      GV.result({
+        title:'Proje kapatıldı',
+        tone:r.gecmeyen ? 'warn' : 'ok',
+        text:p.kod + ' artık “Tamamlandı” durumunda · gerçekleşen bitiş ' + r.tarih +
+             (r.gecmeyen ? ' · geçmeyen ' + r.gecmeyen + ' madde gerekçeyle geçildi' : ''),
+        /* `GV.modal` aksiyonu href TAŞIMAZ, buton basar — yönlendirme
+           `onClick` ile yapılır, yoksa ölü buton olurdu (act.js ⚫ ÖLÜ). */
+        actions:[{ label:'Proje listesi', cls:'btn-line',
+                   onClick:function(){ location.href = 'app-proje.html'; } },
+                 { label:'Tamam', cls:'btn-acc' }]
+      });
+    });
+  });
 
   /* Dosyalar sekmesindeki yükleme alanı — ortak bileşen */
   GV.upload({

@@ -29,7 +29,13 @@ DB.company = {
      · isverenMaliyetKatsayisi — brüt maaş üstüne işveren SGK + işsizlik payı
      · aylikCalismaSaati — 22 iş günü × 8 saat (çalışma düzeni: 5 gün, 8 saat) */
   isverenMaliyetKatsayisi:1.225,
-  aylikCalismaSaati:176
+  aylikCalismaSaati:176,
+
+  /* REVİZE 07 — proje kapanışında hangi dokümanın ZORUNLU olduğu.
+     Bu tanım olmadan "eksik doküman var mı?" sorusu ÖLÇÜLEMEZ: eksikliğin
+     kendisi ancak bir beklenti listesine göre tanımlanabilir. Liste
+     `DB.documents[].tur` kümesinden seçildi — uydurma tür yazılmadı. */
+  zorunluProjeDokuman:['Sözleşme','Teknik doküman','Test raporu']
 };
 
 /* ---- Departmanlar (PROMPT.md §4 — 21 departman) ---------------------- */

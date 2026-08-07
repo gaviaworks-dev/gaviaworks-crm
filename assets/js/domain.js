@@ -709,4 +709,125 @@
       kapsam:olculdu, saat:s.gerceklesen, maliyetsizPersonel:eksik
     };
   };
+
+  /* ===================================================================
+     PROJE KAPANIŞ KONTROLÜ (REVİZE 07)
+
+     Dokümanın istediği sekiz kontrol tek yordamda toplanır; ekran yalnız
+     basar. Ekranda yazılsaydı kapanış modalı ile kapanışın KENDİSİ farklı
+     cevap verebilirdi — REVİZE 02'de görev geçişinin başına gelen buydu.
+
+     Her madde şunu döndürür:
+       { anahtar, etiket, gecti, sayi, detay, href, olculdu }
+     `olculdu:false` ⇒ **kontrol yapılamadı**, "geçti" DEĞİL. Ölçülemeyen
+     bir maddeyi yeşile yazmak, kapanışı olmayan bir güvenceyle onaylatmak
+     olurdu (L-13 · L-25). Ekran onu ayrı tonla basar.
+
+     Kapanış ENGELLENMEZ: geçmeyen madde uyarır, kullanıcı gerekçe yazarak
+     kapatır ve gerekçe aktiviteye girer. Doküman "kullanıcıya sade bir
+     checklist göster" diyor, "kapanışı kilitle" demiyor.
+     =================================================================== */
+  var GOREV_ACIK = ['Tamamlandı', 'İptal edildi', 'Arşivlendi'];
+
+  Proje.kapanisKontrol = function(kod){
+    var p = Proje.kayit(kod);
+    if(!p) return [];
+    var K = p.kod;
+    var t   = (DB.tasks || []).filter(function(x){ return x.proje === K; });
+    var cr  = (DB.changeRequests || []).filter(function(x){ return x.proje === K; });
+    var tsl = (DB.deliveries || []).filter(function(x){ return x.proje === K; });
+    var dok = (DB.documents || []).filter(function(x){ return x.proje === K; });
+    var fat = (DB.invoices || []).filter(function(x){ return x.proje === K; });
+    var tak = (DB.milestones || []).filter(function(x){ return x.proje === K; });
+    var pkt = (DB.supportPackages || []).filter(function(x){ return x.proje === K; });
+
+    var acikGorev = t.filter(function(x){ return GOREV_ACIK.indexOf(x.durum) === -1; });
+    var kontrolde = t.filter(function(x){ return x.durum === 'Kontrolde'; });
+    var acikCr    = cr.filter(function(x){ return ['Onaylandı','Reddedildi'].indexOf(x.durum) === -1; });
+    var acikTsl   = tsl.filter(function(x){ return x.durum !== 'Onaylandı'; });
+    var onaysiz   = tsl.filter(function(x){ return x.musteriOnay !== 'Onaylandı'; });
+    var zorunlu   = ((DB.company || {}).zorunluProjeDokuman || []);
+    var eksikDok  = zorunlu.filter(function(tur){
+                      return !dok.some(function(d){ return d.tur === tur && d.onay === 'Onaylandı'; }); });
+    var acikFat   = fat.filter(function(x){ return ['Ödendi','İptal'].indexOf(x.durum) === -1; });
+    var acikTak   = tak.filter(function(x){ return x.odemeDurum !== 'Ödendi'; });
+
+    return [
+      { anahtar:'gorev', etiket:'Açık görev', olculdu:t.length > 0,
+        gecti:acikGorev.length === 0, sayi:acikGorev.length,
+        detay:t.length ? (acikGorev.length + ' / ' + t.length + ' görev açık')
+                       : 'Bu projede görev kaydı yok — kontrol yapılamadı',
+        href:'app-gorev.html?t=tumu&q=' + K },
+      { anahtar:'kontrolde', etiket:'Kontrolde bekleyen görev', olculdu:t.length > 0,
+        gecti:kontrolde.length === 0, sayi:kontrolde.length,
+        detay:t.length ? (kontrolde.length + ' görev kontrolde')
+                       : 'Bu projede görev kaydı yok — kontrol yapılamadı',
+        href:'app-gorev.html?t=kontrolde&q=' + K },
+      { anahtar:'revizyon', etiket:'Açık revizyon talebi', olculdu:cr.length > 0,
+        gecti:acikCr.length === 0, sayi:acikCr.length,
+        detay:cr.length ? (acikCr.length + ' / ' + cr.length + ' talep karara bağlanmadı')
+                        : 'Bu projede revizyon talebi yok',
+        href:'app-proje-degisiklik.html?t=tumu&q=' + K },
+      { anahtar:'teslim', etiket:'Teslimatlar tamamlandı', olculdu:tsl.length > 0,
+        gecti:acikTsl.length === 0, sayi:acikTsl.length,
+        detay:tsl.length ? (acikTsl.length + ' / ' + tsl.length + ' teslim onaylanmadı')
+                         : 'Bu projede teslim kaydı yok — kontrol yapılamadı',
+        href:'app-proje-teslim.html?t=tumu&q=' + K },
+      { anahtar:'musteriOnay', etiket:'Müşteri onayı alındı', olculdu:tsl.length > 0,
+        gecti:onaysiz.length === 0, sayi:onaysiz.length,
+        detay:tsl.length ? (onaysiz.length + ' teslimde müşteri onayı yok')
+                         : 'Onay ölçülecek teslim kaydı yok — kontrol yapılamadı',
+        href:'app-proje-teslim.html?t=tumu&q=' + K },
+      { anahtar:'dokuman', etiket:'Zorunlu dokümanlar tam', olculdu:zorunlu.length > 0,
+        gecti:eksikDok.length === 0, sayi:eksikDok.length,
+        detay:eksikDok.length ? ('eksik: ' + eksikDok.join(' · '))
+                              : zorunlu.length + ' zorunlu tür de onaylı',
+        href:'app-dokuman.html?t=tumu&q=' + K },
+      { anahtar:'finans', etiket:'Açık finansal işlem', olculdu:(fat.length + tak.length) > 0,
+        gecti:acikFat.length === 0 && acikTak.length === 0, sayi:acikFat.length + acikTak.length,
+        detay:(fat.length + tak.length)
+          ? (acikFat.length + ' fatura · ' + acikTak.length + ' taksit ödenmedi')
+          : 'Bu projede fatura ve taksit kaydı yok — kontrol yapılamadı',
+        href:'app-fatura.html?t=tumu&q=' + K },
+      /* Sekizinci madde bir SORUDUR, bir kontrol değil — cevabı kapanış
+         akışının son adımında kullanıcıdan alınır (REVİZE 08). Bugün proje
+         ile bakım paketi arasında bağ yok, o yüzden `olculdu:false`. */
+      { anahtar:'bakim', etiket:'Bakım / destek hizmeti başlayacak mı',
+        olculdu:pkt.length > 0, gecti:pkt.length > 0, sayi:pkt.length,
+        detay:pkt.length ? (pkt.length + ' bakım paketi bu projeye bağlı')
+                         : 'Bu projeye bağlı bakım paketi yok — kapanışta sorulur',
+        href:'app-destek-paket.html' }
+    ];
+  };
+
+  /* Kapanışın KENDİSİ. Kontrolden geçmemiş madde varsa `gerekce` ZORUNLUDUR;
+     gerekçe uydurulmaz, kullanıcıdan alınır ve aktiviteye yazılır. */
+  Proje.kapat = function(kod, gerekce, tarih){
+    var p = Proje.kayit(kod);
+    if(!p) return { ok:false, why:'kayıt yok' };
+    if(Proje.kapali(p)) return { ok:false, why:'zaten kapalı', durum:p.durum };
+    if(!can('duzenle')) return { ok:false, why:'yetki', roller:['pm','gm','sahip'] };
+
+    var kontrol = Proje.kapanisKontrol(p.kod);
+    var gecmeyen = kontrol.filter(function(k){ return k.olculdu && !k.gecti; });
+    if(gecmeyen.length && !String(gerekce || '').trim())
+      return { ok:false, why:'gerekçe', eksik:gecmeyen.map(function(k){ return k.etiket; }) };
+
+    var gun = tarih || DB.today;
+    var eski = p.durum;
+    p.durum = 'Tamamlandı';
+    p.gercekBitis = gun;
+    p.ilerleme = 100;
+    p.faz = null;              /* faz yürüyen işin nerede olduğunu söyler (REVİZE 05) */
+    p.sonGuncelleme = gun;
+
+    /* Aktivite ortak `log()` ile yazılır: kişi KOD olarak durur (VB-12) ve
+       eski → yeni ekseni timeline'da görünür. Ekran ikinci bir kayıt yazmaz. */
+    log(p.kod, 'Proje kapatıldı — gerçekleşen bitiş ' + gun +
+        (gecmeyen.length
+          ? ' · kapanış kontrolünde geçmeyen ' + gecmeyen.length + ' madde gerekçeyle geçildi: ' + gerekce
+          : ' · kapanış kontrolünün ölçülebilen maddelerinin tamamı geçti'),
+        eski, 'Tamamlandı', gecmeyen.length ? 'warn' : 'ok', 'i-check-circle');
+    return { ok:true, kod:p.kod, tarih:gun, gecmeyen:gecmeyen.length };
+  };
 })();
