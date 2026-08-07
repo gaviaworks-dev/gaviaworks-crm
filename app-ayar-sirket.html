@@ -19,6 +19,12 @@
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/work.js"></script>
 <script src="assets/data/hr.js"></script>
+<!-- REVİZE 18 — Aktif Modüller bloğu modül başına KAYIT SAYISI basıyor;
+     sayılar `DB.tickets` · `DB.supportPackages` · `DB.purchases` · `DB.assets` ·
+     `DB.assignments` · `DB.vehicles` üzerinden okunur ve hepsi ops.js'te.
+     Dosya yüklenmezse sayaç hata vermeden SIFIR basar (L-34) — ölçülmüş
+     sıfır ile yüklenmemiş sıfır aynı görünür. -->
+<script src="assets/data/ops.js"></script>
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
@@ -288,6 +294,50 @@ document.addEventListener('gv:ready', function(){
     }).join('') + '</div>';
   }
 
+  /* ---- REVİZE 18 — AKTİF MODÜLLER ------------------------------------
+     Yeni sekme AÇILMADI: blok "Çalışma Düzeni" sekmesine girdi (talimat:
+     mevcut yapı üzerinden çöz). Kutular `gunKutulari()` ile birebir aynı
+     kalıbı kullanır — yeni bileşen ve yeni CSS sınıfı yok.
+     Anahtar KAPATMAK VERİ SİLMEZ: ilgili menü maddesi ve ekranı kullanıcıdan
+     gizlenir, kayıt ve dosya yerinde kalır (G-1 · talimat REVİZE 18). */
+  /* Sözlük FONKSİYONDA tutulur, `var`da değil: sekme panelleri bu satırdan
+     ÖNCE kuruluyor ve `var` o anda `undefined` oluyordu (ölçüldü: panel
+     açılışta TypeError ile ölüyor, sekmeler hiç basılmıyordu). İşlev
+     bildirimi hoisting ile her yerden çağrılabilir. */
+  function modulEtiket(){
+    return { satis:'Satış', proje:'Projeler', destek:'Destek', personel:'Personel',
+             finans:'Finans', satinalma:'Satın Alma', demirbas:'Demirbaş', filo:'Filo' };
+  }
+  /* Modül başına ölçülen kayıt sayısı — kullanıcı neyi gizlediğini bilsin.
+     Sayı VERİDEN okunur; "kapatınca ne olacağı" tahmin edilmez. */
+  function modulKayit(k){
+    var D = window.DB || {};
+    if(k === 'satis')     return (D.leads || []).length + ' aday · ' + (D.quotes || []).length + ' teklif';
+    if(k === 'proje')     return (D.projects || []).length + ' proje';
+    if(k === 'destek')    return (D.tickets || []).length + ' talep · ' + (D.supportPackages || []).length + ' paket';
+    if(k === 'personel')  return (D.employees || []).length + ' personel';
+    if(k === 'finans')    return (D.invoices || []).length + ' fatura · ' + (D.contracts || []).length + ' sözleşme';
+    if(k === 'satinalma') return (D.purchases || []).length + ' talep';
+    if(k === 'demirbas')  return (D.assets || []).length + ' demirbaş · ' + (D.assignments || []).length + ' zimmet';
+    if(k === 'filo')      return (D.vehicles || []).length + ' araç';
+    return '';
+  }
+  function modulKutulari(){
+    var akt = (DB.company.aktifModuller || {});
+    return '<div class="u-row u-wrap">' + Object.keys(modulEtiket()).map(function(k){
+      return '<label class="f-check"><input type="checkbox" data-modul="' + k + '"' +
+        (akt[k] !== false ? ' checked' : '') + '>' +
+        '<span>' + esc(modulEtiket()[k]) + ' <span class="u-faint">· ' + esc(modulKayit(k)) + '</span></span></label>';
+    }).join('') + '</div>';
+  }
+  function modulOku(){
+    var out = {};
+    Array.prototype.forEach.call(document.querySelectorAll('[data-modul]'), function(c){
+      out[c.dataset.modul] = c.checked;
+    });
+    return out;
+  }
+
   /* Kaydedilmemiş seçim S'ye yazılmaz — önizleme parametreyle beslenir. */
   function haftalikOzet(gunler, gunlukSaat){
     var gun = (gunler || S.gunler).length;
@@ -320,6 +370,12 @@ document.addEventListener('gv:ready', function(){
         '<div id="skGunler">' + gunKutulari() + '</div>' +
       '</div>' +
       '<div id="skCalismaForm"></div>' +
+      '<div class="gv-form-sec">' +
+        '<div class="gv-form-sec-head"><h3>Aktif modüller</h3>' +
+        '<p>İşaretsiz modülün menüsü kullanıcıdan gizlenir ve ekranları doğrudan adresle de ' +
+        'açılmaz. <b>Veri silinmez</b> — anahtar geri açıldığında kayıtlar olduğu gibi döner.</p></div>' +
+        '<div id="skModuller">' + modulKutulari() + '</div>' +
+      '</div>' +
       '<div class="gv-form-sec">' +
         '<div class="gv-form-sec-head"><h3>Kapasite karşılaştırması</h3>' +
         '<p>Bu ekrandaki ayar ile kapasite ve timesheet verisinin uyumu.</p></div>' +
@@ -750,6 +806,18 @@ document.addEventListener('gv:ready', function(){
     S.mesaiBas = d.mesaiBas; S.mesaiBit = d.mesaiBit;
     S.ogleArasi = d.ogleArasi; S.gunlukSaat = Number(d.gunlukSaat);
     S.yillikIzin = Number(d.yillikIzin); S.fazlaMesai = d.fazlaMesai;
+
+    /* REVİZE 18 — modül anahtarları. Kapanan/açılan modül LOG'a yazılır:
+       menü kaybolduğunda kullanıcı "ekran silinmiş" sanmasın, kaydı olsun. */
+    var mod = modulOku();
+    var eskiMod = Object.assign({}, DB.company.aktifModuller || {});
+    var degisenMod = Object.keys(mod).filter(function(k){ return (eskiMod[k] !== false) !== mod[k]; });
+    DB.company.aktifModuller = mod;
+    if(degisenMod.length){
+      logKaydi('Aktif modülleri güncelledi', C.tenant,
+        degisenMod.map(function(k){ return modulEtiket()[k] + ': ' + (eskiMod[k] !== false ? 'açık' : 'kapalı'); }).join(' · '),
+        degisenMod.map(function(k){ return modulEtiket()[k] + ': ' + (mod[k] ? 'açık' : 'kapalı'); }).join(' · '));
+    }
     var yeni = S.gunler.length + ' gün · ' + S.mesaiBas + '-' + S.mesaiBit + ' · ' +
                (S.gunler.length * S.gunlukSaat) + ' sa/hafta';
     var ok = yaz();
@@ -764,6 +832,8 @@ document.addEventListener('gv:ready', function(){
       ? 'Çalışma düzeni kaydedildi — kapasite verisiyle tutarlı'
       : 'Çalışma düzeni kaydedildi — DB.capacity ile ' + F.hours(saat - KAP.value) + ' sapma var',
       saat === KAP.value ? 'ok' : 'warn', 4600);
+    /* Menü modül anahtarından besleniyor; değişiklik anında görünsün. */
+    if(degisenMod.length && GV.refresh) GV.refresh();
   });
 
   document.getElementById('skCalismaSifirla').addEventListener('click', function(){

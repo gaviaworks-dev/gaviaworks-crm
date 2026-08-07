@@ -32,7 +32,7 @@
       { ic:'i-grid',         lbl:'Yönetici Paneli',  href:'app-panel-yonetici.html',     screen:'yonetici', roles:['sahip','genelmudur','sistem','operasyon'] }
     ]},
 
-    satis:{ ic:'i-target', eyebrow:'Satış', title:'Satış ve CRM', menu:[
+    satis:{ modul:'satis', ic:'i-target', eyebrow:'Satış', title:'Satış ve CRM', menu:[
       { ic:'i-user-plus',    lbl:'Müşteri Adayları', href:'app-lead.html',               screen:'lead', cnt:'lead' },
       { ic:'i-funnel',       lbl:'Satış Pipeline',   href:'app-pipeline.html',           screen:'pipeline' },
       { seclbl:'Referans' },
@@ -49,7 +49,7 @@
       { ic:'i-phone',        lbl:'İletişim Geçmişi', href:'app-musteri-iletisim.html',   screen:'iletisim' }
     ]},
 
-    proje:{ ic:'i-briefcase', eyebrow:'Teslimat', title:'Proje Yönetimi', menu:[
+    proje:{ modul:'proje', ic:'i-briefcase', eyebrow:'Teslimat', title:'Proje Yönetimi', menu:[
       { ic:'i-briefcase',    lbl:'Projeler',         href:'app-proje.html',              screen:'proje' },
       { ic:'i-milestone',    lbl:'Milestone',        href:'app-proje-milestone.html',    screen:'milestone' },
       { ic:'i-sprint',       lbl:'Sprintler',        href:'app-proje-sprint.html',       screen:'sprint' },
@@ -74,7 +74,7 @@
       { ic:'i-arrow-right',  lbl:'Departman Talepleri', href:'app-istalebi.html',        screen:'istalebi', cnt:'istalebi' }
     ]},
 
-    destek:{ ic:'i-support', eyebrow:'Servis', title:'Destek ve Bakım', menu:[
+    destek:{ modul:'destek', ic:'i-support', eyebrow:'Servis', title:'Destek ve Bakım', menu:[
       { ic:'i-support',      lbl:'Destek Talepleri', href:'app-destek.html',             screen:'destek', cnt:'destek' },
       { ic:'i-hourglass',    lbl:'SLA Takibi',       href:'app-destek-sla.html',         screen:'sla' },
       { ic:'i-shield-check', lbl:'Bakım Paketleri',  href:'app-destek-paket.html',       screen:'paket' },
@@ -85,7 +85,7 @@
       { ic:'i-chat',         lbl:'Kanallar',         href:'app-sohbet.html',             screen:'sohbet', cnt:'mesaj' }
     ]},
 
-    personel:{ ic:'i-users', eyebrow:'İnsan Kaynakları', title:'Personel ve İK', menu:[
+    personel:{ modul:'personel', ic:'i-users', eyebrow:'İnsan Kaynakları', title:'Personel ve İK', menu:[
       { ic:'i-users',        lbl:'Personel',         href:'app-personel.html',           screen:'personel' },
       { ic:'i-calendar-check', lbl:'İzinler',        href:'app-izin.html',               screen:'izin', cnt:'izin' },
       { seclbl:'Zaman' },
@@ -99,19 +99,19 @@
     ]},
 
     varlik:{ ic:'i-package', eyebrow:'Envanter', title:'Demirbaş ve Filo', menu:[
-      { ic:'i-package',      lbl:'Demirbaşlar',      href:'app-demirbas.html',           screen:'demirbas' },
-      { ic:'i-clipboard-check', lbl:'Zimmetler',     href:'app-zimmet.html',             screen:'zimmet' },
+      { ic:'i-package',      lbl:'Demirbaşlar',      href:'app-demirbas.html',           screen:'demirbas', modul:'demirbas' },
+      { ic:'i-clipboard-check', lbl:'Zimmetler',     href:'app-zimmet.html',             screen:'zimmet', modul:'demirbas' },
+      /* REVİZE 19 — DÖRT ARAÇ İÇİN YEDİ ÜST DÜZEY MENÜ MADDESİ VARDI.
+         Altı alt madde (Bakım · Muayene · Sigorta ve Kasko · Yakıt · Giderler ·
+         Kaza ve Ceza) menüden kalktı; hepsinin karşılığı araç detayında zaten
+         **sekme** olarak duruyor (ölçüm: yedi alanın yedisi). **EKRAN SİLİNMEDİ**
+         (G-1 kararı): dosyalar `BUILT`'te, doğrudan adresle ve araç detayındaki
+         "…ekranı" bağlantılarıyla açılıyor, veri yerinde. Sadeleşen MENÜ. */
       { seclbl:'Araç ve Filo' },
-      { ic:'i-car',          lbl:'Araçlar',          href:'app-arac.html',               screen:'arac' },
-      { ic:'i-wrench',       lbl:'Bakım',            href:'app-arac-bakim.html',         screen:'bakim', cnt:'bakim' },
-      { ic:'i-clipboard',    lbl:'Muayene',          href:'app-arac-muayene.html',       screen:'muayene' },
-      { ic:'i-shield',       lbl:'Sigorta ve Kasko', href:'app-arac-sigorta.html',       screen:'sigorta', cnt:'police' },
-      { ic:'i-fuel',         lbl:'Yakıt',            href:'app-arac-yakit.html',         screen:'yakit' },
-      { ic:'i-receipt',      lbl:'Giderler',         href:'app-arac-gider.html',         screen:'gider' },
-      { ic:'i-alert',        lbl:'Kaza ve Ceza',     href:'app-arac-kaza.html',          screen:'kaza' }
+      { ic:'i-car',          lbl:'Araçlar',          href:'app-arac.html',               screen:'arac', modul:'filo' }
     ]},
 
-    satinalma:{ ic:'i-cart', eyebrow:'Tedarik', title:'Satın Alma', menu:[
+    satinalma:{ modul:'satinalma', ic:'i-cart', eyebrow:'Tedarik', title:'Satın Alma', menu:[
       { ic:'i-cart',         lbl:'Talepler',         href:'app-satinalma.html',          screen:'talep', cnt:'satinalma' },
       { ic:'i-stamp',        lbl:'Onay Bekleyenler', href:'app-satinalma.html?t=onay',   screen:'salmaonay' },
       { ic:'i-quote',        lbl:'Teklif Toplama',   href:'app-satinalma-teklif.html',   screen:'salmateklif' },
@@ -119,7 +119,7 @@
       { ic:'i-building',     lbl:'Tedarikçiler',     href:'app-tedarikci.html',          screen:'tedarikci' }
     ]},
 
-    finans:{ ic:'i-wallet', eyebrow:'Finans', title:'Finans ve Sözleşme', menu:[
+    finans:{ modul:'finans', ic:'i-wallet', eyebrow:'Finans', title:'Finans ve Sözleşme', menu:[
       { ic:'i-file-check',   lbl:'Sözleşmeler',      href:'app-sozlesme.html',           screen:'sozlesme' },
       { ic:'i-receipt',      lbl:'Faturalar',        href:'app-fatura.html',             screen:'fatura' },
       { ic:'i-wallet',       lbl:'Tahsilatlar',      href:'app-tahsilat.html',           screen:'tahsilat', cnt:'tahsilat', tone:'danger' },
@@ -309,6 +309,7 @@
   }
 
   var session = null;
+  var syncNav = null;                 /* boot'ta atanır — REVİZE 18 */
 
   function resolveSession(){
     var s = readSession();
@@ -351,15 +352,39 @@
                     rapor:'yok', finans:false, maas:false, personel:'yok', log:false, disaAktar:false };
     },
     /* Bölüme erişim */
+    /* REVİZE 18 — MODÜL ANAHTARI. Yetki "kim görebilir", modül "şirket bunu
+       kullanıyor mu" sorusudur; ikisi ayrı eksendir ve tek yerde birleşir.
+       `Perm.sec` · `Perm.item` · `guard` üçü de buradan geçtiği için anahtar
+       kapandığında menü, rail ve doğrudan adres kapısı BİRLİKTE kapanır —
+       biri kapanıp diğeri açık kalamaz. Tanımsız anahtar AÇIK sayılır:
+       ayarda karşılığı olmayan bir modül sessizce ekranı yutmasın. */
+    modul:function(key){
+      if(!key) return true;
+      var m = (window.DB && DB.company && DB.company.aktifModuller) || null;
+      if(!m || !(key in m)) return true;
+      return m[key] !== false;
+    },
     sec:function(key){
       var list = SEC_BY_ROLE[this.role()] || ['panel'];
-      return list.indexOf(key) !== -1;
+      if(list.indexOf(key) === -1) return false;
+      var sc = SECTIONS[key];
+      if(sc && sc.modul && !this.modul(sc.modul)) return false;
+      /* Bölümün TÜM maddeleri gizlendiyse bölüm de düşer — boş bir bölüm
+         açmak kullanıcıya tıklanacak bir hiç sunmaktır. Ayraç (`seclbl`)
+         madde sayılmaz. */
+      if(sc && sc.menu){
+        var self = this;
+        var gorunur = sc.menu.filter(function(it){ return !it.seclbl && self.item(it); });
+        if(sc.menu.some(function(it){ return !it.seclbl; }) && !gorunur.length) return false;
+      }
+      return true;
     },
     /* Menü kalemi kısıtı */
     item:function(it){
       /* Yasak listesi beyaz listeden ÖNCE gelir — ekran kapısı ile menü
          gizlemesi tek kaynaktan beslensin (REVİZE 13). */
       if(it.screen && SCREEN_DENY[it.screen] && SCREEN_DENY[it.screen].indexOf(this.role()) !== -1) return false;
+      if(it.modul && !this.modul(it.modul)) return false;      /* REVİZE 18 */
       if(!it.roles) return true;
       return it.roles.indexOf(this.role()) !== -1;
     },
@@ -662,12 +687,40 @@
   /* ===================================================================
      7. YETKİ KAPISI — 403
      =================================================================== */
+  /* Ekran → modül eşlemesi: önce menü maddesi, yoksa bölümün kendi modülü.
+     Eşleme SECTIONS'tan okunur; ikinci bir liste tutulmaz (L-33 sınıfı). */
+  /* Menüde karşılığı OLMAYAN ekranlar (REVİZE 19 ile menüden kalkan altı filo
+     ekranı ve onların form/detay kardeşleri) modülünü dosya adı önekinden
+     alır. Yoksa "menüden kaldırdım" ile "modül kapalı" ayrışır ve kapalı filo
+     modülünde `app-arac-yakit.html` doğrudan adresle açık kalırdı. */
+  var MODUL_DOSYA = [
+    { on:'app-arac',     modul:'filo' },
+    { on:'app-demirbas', modul:'demirbas' },
+    { on:'app-zimmet',   modul:'demirbas' }
+  ];
+  function modulOf(sec, screen){
+    var dosya = location.pathname.split('/').pop();
+    for(var i = 0; i < MODUL_DOSYA.length; i++){
+      if(dosya.indexOf(MODUL_DOSYA[i].on) === 0) return MODUL_DOSYA[i].modul;
+    }
+    var sc = SECTIONS[sec];
+    if(!sc) return null;
+    var it = (sc.menu || []).filter(function(x){ return x.screen === screen; })[0];
+    if(it && it.modul) return it.modul;
+    if(it && !it.modul && sc.modul) return sc.modul;
+    return sc.modul || null;
+  }
+
   function guard(activeSec, activeScreen){
     var screenOk = !SCREEN_PERM[activeScreen] || SCREEN_PERM[activeScreen].indexOf(Perm.role()) !== -1;
     if(SCREEN_DENY[activeScreen] && SCREEN_DENY[activeScreen].indexOf(Perm.role()) !== -1) screenOk = false;
     /* Dosya adı ekseni — form ekranı listesiyle aynı anahtarı taşıdığında. */
     var dosya = location.pathname.split('/').pop();
     if(SCREEN_DENY[dosya] && SCREEN_DENY[dosya].indexOf(Perm.role()) !== -1) screenOk = false;
+    /* REVİZE 18 — kapalı modülün ekranı doğrudan adresle de açılmaz. Ekranın
+       modülü menü kaydından okunur (tek kaynak); menüde karşılığı olmayan
+       ekran bölümün modülüne düşer. VERİ VE DOSYA YERİNDE KALIR (G-1). */
+    if(!Perm.modul(modulOf(activeSec, activeScreen))) screenOk = false;
     if(Perm.sec(activeSec) && screenOk) return true;
     var main = document.querySelector('.gv-page');
     if(!main) return false;
@@ -985,6 +1038,10 @@
       });
       document.body.style.overflow = '';
     }
+    /* REVİZE 18 — modül anahtarı değişince menü ve rail de yeniden çizilir;
+       yoksa ayar kaydedildikten sonra kapalı modülün maddesi ekranda kalır ve
+       kullanıcı ayarın işlemediğini sanar (L-15'in menü tarafındaki ikizi). */
+    if(typeof syncNav === 'function') syncNav();
     document.dispatchEvent(new CustomEvent('gv:ready'));
   };
 
@@ -1042,6 +1099,16 @@
     var activeScreen = body.dataset.screen || '';
     var cnt = counters();
     GV.counters = cnt;
+
+    /* REVİZE 18 — rail ve menü yeniden çizimi tek yerde; `GV.refresh()` de
+       bunu çağırır (modül anahtarı değişince menü anında güncellenir). */
+    syncNav = function(){
+      var c = counters();
+      GV.counters = c;
+      renderRail(activeSec, c);
+      renderMenu(activeSec, activeScreen, c);
+      wireNav();
+    };
 
     renderRail(activeSec, cnt);
     renderMenu(activeSec, activeScreen, cnt);
