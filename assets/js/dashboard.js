@@ -13,7 +13,9 @@
   var openTask = function(t){ return ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; };
   var lateTask = function(t){ return openTask(t) && t.termin && days(t.termin) < 0; };
   var openLead = function(l){ return ['Kazanıldı','Kaybedildi','Beklemeye alındı'].indexOf(l.asama) === -1; };
-  var activeProject = function(p){ return ['Teslim'].indexOf(p.durum) === -1 && !p.arsiv; };
+  /* REVİZE 05 — "devam eden proje" tanımı `GV.proje.acik`ta; dashboard da
+     ekranlarla aynı cümleyi kullanır, kendi kopyasını taşımaz. */
+  var activeProject = function(p){ return GV.proje.acik(p); };
   var lateProject = function(p){ return activeProject(p) && p.planlananBitis && days(p.planlananBitis) < 0; };
 
   /* ---------------------------------------------------------------

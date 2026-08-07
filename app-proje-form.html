@@ -27,6 +27,7 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
@@ -206,7 +207,6 @@ document.addEventListener('gv:ready', function(){
     LISTE_ALAN.forEach(function(k){ formRec[k] = metin(kayit[k]); });
     formRec.gercekBitis = kayit.gercekBitis || '';
     formRec.gecikmeNedeni = kayit.gecikmeNedeni || '';
-    formRec.aktif = kayit.aktif !== false;
     formRec.arsiv = kayit.arsiv === true;
     if(turDisi) formRec.tur = '';
     EKIP_ADAY.forEach(function(e){
@@ -227,7 +227,7 @@ document.addEventListener('gv:ready', function(){
       sozlesmeTutari:(ks ? ks.tutar : ''), butce:'',
       repo:'', canli:'', test:'', tasarim:'', sunucu:'',
       teknoloji:'', ucuncuTaraf:'', riskler:'', gecikmeNedeni:'',
-      aktif:true, arsiv:false
+      arsiv:false
     };
     EKIP_ADAY.forEach(function(e){ formRec[EKIP_ON + e.kod] = false; });
   }
@@ -255,8 +255,7 @@ document.addEventListener('gv:ready', function(){
     : null;
 
   /* Gecikmiş projelerde gecikme nedeni yazılı mı — kural buradan ölçülür. */
-  var gecikenler = DB.projects.filter(function(p){
-    return p.durum !== 'Teslim' && p.planlananBitis && p.planlananBitis < DB.today; });
+  var gecikenler = DB.projects.filter(GV.proje.geciken);
   var gecikenNedenli = gecikenler.filter(function(p){ return !!p.gecikmeNedeni; }).length;
 
   /* =================================================================
@@ -319,12 +318,12 @@ document.addEventListener('gv:ready', function(){
           : (kayit.musteri ? '<span class="u-num">' + esc(kayit.musteri) + '</span>' + sub('Müşteri kaydı bulunamadı') : null)],
         ['Proje durumu', GV.badge(kayit.durum) +
           (kayit.arsiv === true ? ' <span class="tag">Arşiv</span>' : '') +
-          (kayit.aktif === false ? ' <span class="tag">Pasif</span>' : '')],
+          (kayit.arsiv === true ? ' <span class="tag">Arşiv</span>' : '')],
         ['Sağlık durumu', GV.badge(kayit.saglik)],
         ['Öncelik', GV.pri(kayit.oncelik)],
         ['Proje yöneticisi', GV.user(kayit.pm, { sm:true })],
         ['İlerleme', GV.progress(kayit.ilerleme)],
-        ['Planlanan bitiş', GV.dateCell(kayit.planlananBitis, { done:kayit.durum === 'Teslim' }) +
+        ['Planlanan bitiş', GV.dateCell(kayit.planlananBitis, { done:GV.proje.bitti(kayit) }) +
           sub(F.rel(kayit.planlananBitis))],
         ['Son güncelleme', F.date(kayit.sonGuncelleme)],
         ['Son değiştiren', son ? esc(DB.empName(son.kisi)) + sub(F.dt(son.tarih) + ' · ' + son.metin) : null]
@@ -489,9 +488,19 @@ document.addEventListener('gv:ready', function(){
             return (v && TURLER.indexOf(v) === -1)
               ? 'Proje türü hizmet kataloğundaki ' + TURLER.length + ' değerden biri olmalıdır.' : '';
           } },
-        { key:'faz', label:'Faz', type:'select', options:FAZLAR, required:true, cols:6,
-          placeholder:'Faz seçin',
-          hint:'Veride faz sözlüğü yok; küme mevcut projelerden türetildi (' + FAZLAR.join(', ') + ').' },
+        /* REVİZE 05 — FAZ ZORUNLU DEĞİLDİR. Küme iki aileden oluşur (iş
+           kırılımı fazı ya da numaralı faz) ve her proje faz kullanmak
+           zorunda değildir; kapanmış 7 projede faz kaydı yok ve oraya
+           uydurma değer yazılmadı (L-13). Zorunlu kalsaydı o kayıtları
+           düzenlemek imkânsız olurdu. */
+        { key:'faz', label:'Faz', type:'select', options:FAZLAR, cols:6,
+          placeholder:'Faz seçin (zorunlu değil)',
+          hint:'Faz projenin hangi BÖLÜMÜNDE olduğunu söyler, hangi halde olduğunu değil — ' +
+               '“Tamamlandı” bir faz değil, bir durumdur. Küme: ' + FAZLAR.join(' · ') + '.',
+          validate:function(v, d){
+            return (v && GV.proje.kapaliDurumlar.indexOf(d.durum) !== -1)
+              ? 'Kapanmış projede faz taşınmaz — faz yürüyen işin nerede olduğunu söyler.' : '';
+          } },
         { key:'oncelik', label:'Öncelik', type:'select', options:DB.priorities, required:true, cols:6,
           hint:'Öncelik sözlüğü: ' + DB.priorities.join(' · ') + '.' }
       ]},
@@ -533,19 +542,21 @@ document.addEventListener('gv:ready', function(){
           validate:function(v, d){
             if(v && d.baslangic && v < d.baslangic) return 'Gerçekleşen bitiş başlangıç tarihinden önce olamaz.';
             if(v && v > DB.today) return 'Gerçekleşen bitiş ileri bir tarih olamaz.';
-            if(!v && d.durum === 'Teslim') return 'Teslim edilmiş projede gerçekleşen bitiş tarihi zorunludur.';
-            if(v && d.durum !== 'Teslim') return 'Gerçekleşen bitiş yazılan proje “Teslim” durumunda olmalıdır.';
+            var teslim = GV.proje.teslimDurumlari;
+            if(!v && teslim.indexOf(d.durum) !== -1) return 'Teslim edilmiş projede gerçekleşen bitiş tarihi zorunludur.';
+            if(v && teslim.indexOf(d.durum) === -1) return 'Gerçekleşen bitiş yazılan proje “' + teslim.join('” ya da “') + '” durumunda olmalıdır.';
             return '';
           } },
         { key:'durum', label:'Proje durumu', type:'select', options:DURUMLAR, required:true, cols:4,
-          hint:'Veride durum sözlüğü koleksiyonu yok; küme proje listesinin durum filtresiyle aynı beş değerdir.' },
+          hint:'Proje DURUMU işin hangi halde olduğunu söyler; hangi bölümünde olduğunu “Proje fazı” söyler (REVİZE 05). “Tamamlandı” bir faz değil, bir durumdur.' },
         { key:'ilerleme', label:'İlerleme oranı', type:'percent', required:true, cols:4,
           hint:moduller.length
             ? 'Bu projenin ' + moduller.length + ' modülünün ortalaması %' + modOrt + ' — bilgi amaçlıdır, alan elle girilir.'
             : 'Modüllerden hesaplanmaz, elle girilir.',
           validate:function(v, d){
-            if(d.durum === 'Teslim' && sayi(v) !== 100) return 'Teslim edilmiş projenin ilerlemesi %100 olmalıdır.';
-            if(d.durum !== 'Teslim' && sayi(v) === 100) return '%100 ilerleyen proje “Teslim” durumuna alınmalıdır.';
+            var teslim = GV.proje.teslimDurumlari;
+            if(teslim.indexOf(d.durum) !== -1 && sayi(v) !== 100) return 'Teslim edilmiş projenin ilerlemesi %100 olmalıdır.';
+            if(teslim.indexOf(d.durum) === -1 && sayi(v) === 100) return '%100 ilerleyen proje “' + teslim[0] + '” durumuna alınmalıdır.';
             return '';
           } },
         { key:'saglik', label:'Proje sağlık durumu', type:'select', options:SAGLIK, required:true, cols:4,
@@ -629,26 +640,27 @@ document.addEventListener('gv:ready', function(){
           placeholder:'Örn. Müşteri içerik onayı 9 gün gecikti',
           hint:'Ölçüm: gecikmiş ' + gecikenler.length + ' projenin ' + gecikenNedenli + ' tanesinde bu alan dolu.',
           validate:function(v, d){
-            var gecikti = d.durum !== 'Teslim' && d.planlananBitis && d.planlananBitis < DB.today;
+            var gecikti = GV.proje.geciken(d);
             return (gecikti && !String(v || '').trim())
               ? 'Planlanan bitişi geçmiş ve teslim edilmemiş projede gecikme nedeni yazılmalıdır.' : '';
           } }
       ]},
 
+    /* REVİZE 05 / VB-20 — `aktif` anahtarı KALDIRILDI. Proje kaydında iki
+       arşiv ekseni vardı (`aktif:false` ve `arsiv:true`); 14 kaydın 14'ünde
+       `aktif:true` yazıyordu, yani eksen hiç kullanılmıyordu ama iki alanın
+       çelişmesi mümkündü ve hangisinin kazandığı yalnız liste bileşeninde
+       yazılıydı. Arşiv tek eksende: `arsiv`. */
     { title:'Kayıt durumu',
-      desc:'Kaydın listelerde görünüp görünmeyeceği. Liste bileşeni “pasif” ve “arşiv” bayraklarının ' +
-           'ikisini de arşiv sayar; ikisi ayrı alan olduğu için ikisi de burada gösterilir.',
+      desc:'Kaydın listelerde görünüp görünmeyeceği. Arşiv tek eksendir; ' +
+           'arşivlenen proje yalnız arşiv görünümünde listelenir.',
       fields:[
-        { key:'aktif', label:'Kayıt durumu', type:'switch', cols:6,
-          onLabel:'Kayıt aktif — listelerde ve seçim kutularında görünür',
-          hint:'Kapatılırsa kayıt pasife düşer; bağlı modül, görev ve teslimler silinmez.' },
         { key:'arsiv', label:'Arşiv', type:'switch', cols:6,
           onLabel:'Proje arşivlendi — yalnız arşiv görünümünde listelenir',
-          hint:'Veride 8 projenin 1’inde bu bayrak var; liste bileşeni “arşiv” ve “pasif” bayraklarını ' +
-               'aynı eksende değerlendirir.',
+          hint:'Veride 14 projenin 7’sinde bu bayrak var; hepsi durumu “Tamamlandı” olan kayıtlar.',
           validate:function(v, d){
-            return (v && d.durum !== 'Teslim')
-              ? 'Teslim edilmemiş proje arşivlenemez — önce durumu “Teslim” yapın ya da kaydı pasife alın.' : '';
+            return (v && GV.proje.kapaliDurumlar.indexOf(d.durum) === -1)
+              ? 'Kapanmamış proje arşivlenemez — önce durumu “Tamamlandı” ya da “İptal Edildi” yapın.' : '';
           } }
       ]}
   );
@@ -683,7 +695,7 @@ document.addEventListener('gv:ready', function(){
     tasarim:'Tasarım dosyası bağlantısı', sunucu:'Sunucu ve barındırma',
     teknoloji:'Kullanılan teknolojiler', ucuncuTaraf:'Üçüncü taraf servisler',
     riskler:'Proje riskleri', gecikmeNedeni:'Gecikme nedeni',
-    sonGuncelleme:'Son güncelleme tarihi', aktif:'Kayıt durumu', arsiv:'Arşiv'
+    sonGuncelleme:'Son güncelleme tarihi', arsiv:'Arşiv'
   };
 
   /* Tarih DB.today'den gelir; new Date() ile bugün alınmaz. */
@@ -710,7 +722,6 @@ document.addEventListener('gv:ready', function(){
     if(k === 'ekip') return (v || []).length ? (v || []).map(DB.empName).join(', ') : '—';
     if(Array.isArray(v)) return v.length ? v.join(' | ') : '—';
     if(v == null || v === '') return '—';
-    if(k === 'aktif') return v ? 'Aktif' : 'Pasif';
     if(k === 'arsiv') return v ? 'Arşivli' : 'Arşivde değil';
     if(['pm','teknikSorumlu','musteriSorumlu'].indexOf(k) !== -1) return DB.empName(v);
     if(PARA_ALAN.indexOf(k) !== -1) return F.money(v, '₺');
@@ -735,7 +746,6 @@ document.addEventListener('gv:ready', function(){
 
     LISTE_ALAN.forEach(function(k){ v[k] = satirlar(v[k]); });
     SAYI_ALAN.forEach(function(k){ v[k] = sayi(v[k]); });
-    v.aktif = !!v.aktif;
     v.arsiv = !!v.arsiv;
     v.ad = String(v.ad || '').trim();
     v.gercekBitis   = String(v.gercekBitis || '').trim() || null;
