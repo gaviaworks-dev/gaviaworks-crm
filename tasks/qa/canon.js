@@ -698,12 +698,74 @@ head('25) Görev durumu · geçiş tablosu · bekleme ekseni (REVİZE 01/02)');
     say(S.indexOf(v) === -1,
       '"' + v + '" görev durumu olarak geri gelmiş — bu bir BEKLEME NEDENİ, durum değil (REVİZE 01)'));
 
+  /* 25h. Onay adımı TÜRETİLİR (V-43): kontrol eden ile onaylayan aynı kişiyse
+     ayrı bir onay adımı yoktur — o hâlde görev `Onay bekliyor`da DURAMAZ,
+     çünkü beklediği onay hiç gelmeyecektir. GRV-2026-113 tam bu durumdaydı:
+     ekran iki adımlık zincir basıyor, kayıt üçüncü adımı bekliyordu. */
+  DB.tasks.filter(t => t.durum === 'Onay bekliyor').forEach(t => say(
+    t.onaylayan !== t.kontrolEden,
+    t.kod + ' "Onay bekliyor" ama kontrolEden = onaylayan (' + t.onaylayan +
+    ') — beklediği onay adımı yok (V-43)'));
+
   /* 25g. Tamamlanmış görev %100, tamamlanmamış görevde tamamlanma tarihi yok */
   DB.tasks.forEach(t => {
     if (t.durum === 'Tamamlandı') say(t.ilerleme === 100,
       t.kod + ' tamamlandı ama ilerleme=' + t.ilerleme);
     if (t.tamamlanma) say(['Tamamlandı', 'Arşivlendi'].indexOf(t.durum) !== -1,
       t.kod + ' tamamlanma tarihi var ama durum="' + t.durum + '"');
+  });
+}
+
+/* ---------- 26. ZAMAN DEFTERİ ↔ GÖREV EMEĞİ (REVİZE 03) ----------
+   `DB.tasks[].gercekSure` ile o görevin zaman kayıtları AYNI olguyu anlatır;
+   ikisi ayrı yazılınca ayrışırlar (L-08). Ölçüldüğünde 26 görevin 16'sında
+   ayrışmıştı: sekizinde defter daha yüksekti (bir göreve birden çok kişi
+   kaydediyor), sekizinde görev saat iddia ediyordu ama defterde **tek satır
+   yoktu**. Defter kazandı; kaydı olmayan sekiz görev için kayıt görevin
+   kendisinden türetildi (kaynak `aciklama`'da yazılı).
+
+   NOT — proje düzeyinde bu eşitlik KURULAMAZ ve kurulmadı (V-44): projelerin
+   beyan ettiği 9.125 saatin ~8.900'ünü hiçbir kayıt desteklemiyor. Orada
+   kural eşitlik değil, `beyan ≥ defter`tir. Görev düzeyinde eşitlik
+   kurulabildi çünkü kaynak kayıt vardı. */
+head('26) Zaman defteri ↔ görev emeği (REVİZE 03)');
+{
+  const sum = a => a.reduce((s, x) => s + x, 0);
+  DB.tasks.forEach(t => {
+    const ls = DB.timelogs.filter(l => l.gorev === t.kod);
+    const tl = sum(ls.map(l => l.sure));
+    say(Math.abs(tl - (t.gercekSure || 0)) < 0.01,
+      t.kod + ' gercekSure=' + t.gercekSure + ' ≠ zaman defteri toplamı=' + tl +
+      ' (' + ls.length + ' kayıt) — aynı olgu iki yerde ayrı yazılmış (L-08)');
+  });
+
+  /* 26a. Defterin her satırı çözülür ve görev/proje/müşteri üçlüsü görevle uyumlu */
+  DB.timelogs.filter(l => l.gorev).forEach(l => {
+    const t = DB.tasks.filter(x => x.kod === l.gorev)[0];
+    say(!!t, l.kod + ' gorev=' + l.gorev + ' → DB.tasks içinde yok');
+    if (!t) return;
+    say(l.proje === t.proje,
+      l.kod + ' proje=' + l.proje + ' ama görevin projesi ' + t.proje);
+    say(l.musteri === t.musteri,
+      l.kod + ' musteri=' + l.musteri + ' ama görevin müşterisi ' + t.musteri);
+  });
+
+  /* 26b. Onaylı ⊆ tüm · faturalanabilir onaylı ⊆ onaylı — R03'ün üç değeri
+     birbirini kapsamalı, yoksa proje kartındaki üçlü çelişir */
+  const tum  = sum(DB.timelogs.map(l => l.sure));
+  const onay = sum(DB.timelogs.filter(l => l.onay === 'Onaylandı').map(l => l.sure));
+  const fat  = sum(DB.timelogs.filter(l => l.onay === 'Onaylandı' && l.faturalanabilir).map(l => l.sure));
+  say(fat <= onay, 'faturalandırılabilir (' + fat + ') > onaylı (' + onay + ')');
+  say(onay <= tum, 'onaylı (' + onay + ') > tüm kayıtlar (' + tum + ')');
+  console.log('  · defter: tüm ' + tum + ' sa · onaylı ' + onay + ' sa · onaylı+faturalanabilir ' + fat + ' sa');
+
+  /* 26c. Proje beyanı defteri KAPSAR — eşitlik değil, `beyan ≥ defter` (V-44).
+     Bugün beyan çok yüksek; kural yön koyar: defter beyanı aşarsa beyan yanlıştır. */
+  DB.projects.forEach(p => {
+    const d = sum(DB.timelogs.filter(l => l.proje === p.kod && l.onay === 'Onaylandı').map(l => l.sure));
+    say(p.harcananSure >= d,
+      p.kod + ' harcananSure=' + p.harcananSure + ' < onaylı defter toplamı=' + d +
+      ' — beyan defteri kapsamalı (V-44)');
   });
 }
 

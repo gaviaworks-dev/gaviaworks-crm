@@ -267,6 +267,11 @@
       if(hedef === 'Devam ediyor' && !t.baslangic) t.baslangic = DB.today;
       if(hedef === 'Revizede'){ t.revizyon = (t.revizyon || 0) + 1; }
       if(hedef === 'Tamamlandı'){ t.ilerleme = 100; t.tamamlanma = DB.today; }
+      /* Arşiv bu veride İKİ alanla anlatılıyor (`durum:'Arşivlendi'` ve `arsiv:true`)
+         ve `GV.list` ikisini de arşiv sayıyor — VB-20'nin açık bıraktığı eksen.
+         Yalnız birini yazmak, kaydı bir ekranda arşivli bir ekranda değil
+         gösterirdi; ikisi tek yerde birlikte yazılır. */
+      if(hedef === 'Arşivlendi') t.arsiv = true;
       if(hedef !== 'Engellendi' && t.beklemeNedeni && hedef === 'Devam ediyor'){
         /* Engel kalkıp çalışmaya dönülüyorsa bekleme de biter */
         Task.bekleme(kod, null, null, true);
@@ -275,6 +280,40 @@
           hedef === 'Tamamlandı' ? 'ok' : hedef === 'İptal edildi' || hedef === 'Engellendi' ? 'danger' : 'info',
           hedef === 'Tamamlandı' ? 'i-check-circle' : 'i-refresh');
       return { ok:true, gorev:t, eski:eski, bildirim:kural.bildirim || [] };
+    },
+
+    /* ARŞİVDEN GERİ AL — geçiş tablosunun TERSİ DEĞİL, ayrı bir işlem.
+       `Arşivlendi` bilerek son duraktır (`next:[]`): arşive iki durumdan
+       gelinir (`Tamamlandı` · `İptal edildi`), dolayısıyla tabloya çıkış
+       kenarı eklemek iptal edilmiş bir görevi tamamlanmış diye diriltirdi.
+       İleri geçiş yordamını ters yönde kullanmak da yanlış olurdu: o yordam
+       `Tamamlandı` hedefinde `tamamlanma`yı BUGÜNE yazar ve kaydın gerçek
+       bitiş tarihini ezerdi.
+
+       Bu yüzden geri alma, gideceği yeri TAHMİN ETMEZ — aktivite kaydından
+       okur: arşivleme işlemi zaten `eski` değerini yazmıştır. Kayıt yoksa
+       işlem YAPILMAZ ve nedeni söylenir; yarım uygulamak (arsiv bayrağını
+       temizleyip durumu bırakmak) kaydı arşiv listesinde bırakır ve üstüne
+       başarı mesajı basardı — UID-27'nin tam olarak o hatası. */
+    arsivGeriAl:function(kod){
+      if(!window.DB) return null;
+      var t = DB.tasks.filter(function(x){ return x.kod === kod; })[0];
+      if(!t) return { ok:false, why:'kayıt yok' };
+      if(t.durum !== 'Arşivlendi' && !t.arsiv) return { ok:false, why:'zaten arşivde değil' };
+      if(!can('duzenle')) return { ok:false, why:'yetki' };
+      var iz = (DB.activities || []).filter(function(a){
+        return a.kayit === kod && a.yeni === 'Arşivlendi' && a.eski;
+      })[0];
+      if(!iz) return { ok:false, why:'kaynak durum bilinmiyor',
+                       aciklama:'Bu kaydın arşivlenme hareketi yazılı değil; hangi duruma döneceği tahmin edilmez.' };
+      var hedef = iz.eski;
+      if(DB.taskStatuses.indexOf(hedef) === -1)
+        return { ok:false, why:'kaynak durum sözlükte yok', aciklama:hedef };
+      var eski = t.durum;
+      t.durum = hedef;
+      delete t.arsiv;
+      log(t.kod, 'Arşivden geri alındı', eski, hedef, 'ok', 'i-refresh');
+      return { ok:true, gorev:t, eski:eski, hedef:hedef };
     },
 
     /* BEKLEME NEDENİ — durumdan bağımsız ikinci eksen (REVİZE 01).
@@ -287,14 +326,26 @@
       if(neden != null && DB.taskWaitReasons.indexOf(neden) === -1)
         return { ok:false, why:'geçersiz bekleme nedeni' };
       var eski = t.beklemeNedeni || null;
-      if(eski === (neden || null)) return { ok:false, why:'zaten bu durumda' };
-      if(neden){ t.beklemeNedeni = neden; if(notu) t.beklemeNotu = notu; }
-      else { delete t.beklemeNedeni; delete t.beklemeNotu; }
+      var eskiNot = t.beklemeNotu || null;
+      var yeniNot = notu == null ? eskiNot : (notu || null);
+      /* Neden AYNI kalıp yalnız not değişiyorsa bu bir işlemdir, "zaten bu
+         durumda" değildir. İlk yazımda öyle sayılıyordu ve kullanıcı bekleme
+         notunu güncelleyemiyordu — ekran dürüstçe "değişiklik yapılmadı"
+         diyordu ama yapılmak istenen şey meşruydu. */
+      if(eski === (neden || null) && eskiNot === yeniNot)
+        return { ok:false, why:'zaten bu durumda' };
+      if(neden){
+        t.beklemeNedeni = neden;
+        if(yeniNot) t.beklemeNotu = yeniNot; else delete t.beklemeNotu;
+      }else{ delete t.beklemeNedeni; delete t.beklemeNotu; }
       if(!sessiz){
-        log(t.kod, neden ? 'Bekleme nedeni işaretlendi' : 'Bekleme kaldırıldı',
-            eski, neden || null, neden ? 'warn' : 'ok', neden ? 'i-clock' : 'i-check');
+        var sadeceNot = eski === (neden || null);
+        log(t.kod, sadeceNot ? 'Bekleme notu güncellendi'
+                 : neden ? 'Bekleme nedeni işaretlendi' : 'Bekleme kaldırıldı',
+            sadeceNot ? eskiNot : eski, sadeceNot ? yeniNot : (neden || null),
+            neden ? 'warn' : 'ok', neden ? 'i-clock' : 'i-check');
       }
-      return { ok:true, gorev:t, eski:eski };
+      return { ok:true, gorev:t, eski:eski, eskiNot:eskiNot };
     }
   };
 
