@@ -320,7 +320,12 @@
     var tasks = D.tasks || [];
     return {
       havuz:     tasks.filter(function(x){ return x.durum === 'Havuzda'; }).length,
-      bana:      tasks.filter(function(x){ return x.sorumlu === me && ['Devam ediyor','Atandı','Planlandı','Başlanmadı','Kabul bekliyor','Bilgi bekliyor'].indexOf(x.durum) !== -1; }).length,
+      /* REVİZE 01 — "üzerimdeki iş" sayacı altı durum sayıyordu, dördü artık
+         sözlükte yok (`Planlandı` · `Başlanmadı` · `Kabul bekliyor` ·
+         `Bilgi bekliyor`) ve zaten hiçbir kayıtta geçmiyorlardı. Kalan iki
+         değer sayacın gerçekte ölçtüğü şeydi. `Engellendi` bilerek DIŞARIDA:
+         engelli iş üzerimde ama bugün yapılabilir değil. */
+      bana:      tasks.filter(function(x){ return x.sorumlu === me && ['Devam ediyor','Atandı'].indexOf(x.durum) !== -1; }).length,
       geciken:   tasks.filter(function(x){ return x.termin < t && ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(x.durum) === -1; }).length,
       onay:      (D.approvals || []).filter(function(x){ return x.durum === 'Bekliyor'; }).length,
       bildirim:  (D.notifications || []).filter(function(x){ return !x.okundu; }).length,

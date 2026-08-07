@@ -147,8 +147,12 @@
     'Havuzda':'info', 'Atandı':'info', 'Devam ediyor':'accent', 'Kontrolde':'purple',
     'Revizede':'warn', 'Onay bekliyor':'purple', 'Tamamlandı':'ok',
     'Engellendi':'danger', 'İptal edildi':'neutral', 'Arşivlendi':'neutral',
-    /* başka modüllerin de kullandığı ortak durum adları */
+    /* başka modüllerin de kullandığı ortak durum adları.
+       `Revize bekliyor` görev sözlüğünden çıktı ama **haftalık timesheet**
+       reddedildiğinde hâlâ bu değere düşüyor (`app-zaman-onay.html`) — görev
+       ekseninden sildiğimde o rozet griye düşmüştü. Ad ortak, eksen ayrı. */
     'Taslak':'neutral', 'Planlandı':'info', 'Müşteri bekleniyor':'warn',
+    'Revize bekliyor':'warn',
     /* satış aşamaları — §8.2 (15 aşama) */
     'Yeni talep':'info', 'İlk iletişim':'info', 'Ön görüşme':'info', 'İhtiyaç analizi':'accent',
     'Teknik değerlendirme':'accent', 'Ön analiz hazırlanıyor':'accent', 'Fiyatlandırma':'purple',

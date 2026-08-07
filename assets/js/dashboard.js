@@ -421,7 +421,7 @@
     var open = mine.filter(openTask);
     var todayTasks = open.filter(function(t){ return t.termin === T(); });
     var soon = open.filter(function(t){ return t.termin && days(t.termin) > 0 && days(t.termin) <= 7; });
-    var control = DB.tasks.filter(function(t){ return t.kontrolEden === s.emp && t.durum === 'Kontrol bekliyor'; });
+    var control = DB.tasks.filter(function(t){ return t.kontrolEden === s.emp && t.durum === 'Kontrolde'; });
     var unread = DB.channels.reduce(function(a,c){ return a + c.okunmamis; }, 0);
     var myLeave = DB.leaves.filter(function(l){ return l.personel === s.emp; });
     var emp = DB.emp(s.emp) || {};
