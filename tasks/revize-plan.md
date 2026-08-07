@@ -52,9 +52,9 @@ Bu turun kendi çalışma kuralları:
 
 | # | Revize | Faz | Durum | Tek cümlelik ölçüm |
 |---|---|---|---|---|
-| R01 | Görev durumlarını sadeleştir | 1 | 🟡 | 19 değerli sözlük, 11'i kullanımda, hedef 10; `beklemeNedeni` yok |
-| R02 | Görev geçiş algoritması | 1 | 🟡 | `DB.taskTransitions` **var** ama 9 mutasyon yolunun 2'sinde uygulanıyor; yetki ve zorunlu alan yalnız **ipucu metni** |
-| R03 | Timesheet → gerçekleşen süre | 1 | ⬜ | kayıtlı 9.125 sa ↔ onaylı zaman kaydı **53 sa**; iki onay ekseni birbirine bağlı değil |
+| R01 | Görev durumlarını sadeleştir | 1 | **✅ TAMAM** | sözlük 19 → 10; bekleme ayrı eksene çıktı; canon eksen 25 |
+| R02 | Görev geçiş algoritması | 1 | **✅ TAMAM** | tablo artık uygulanıyor; dropdown yerine aksiyon butonu; `GV.task` tek mutasyon noktası |
+| R03 | Timesheet → gerçekleşen süre | 1 | 🟡 **görev düzeyi tamam** | görev ↔ defter 26/26 eşitlendi, canon eksen 26; proje düzeyi sıradaki |
 | R04 | Timesheet + gider → gerçek maliyet | 1 | ⬜ | dört kalemin dördü de yok; `icMaliyetSaat` 0/16, `purchases.proje` 1/7 |
 | R05 | Proje durumu / faz ayrımı | 2 | 🟡 | 14 projenin **7'sinde** `faz:'Tamamlandı'`; VB-20 olarak zaten kayıtlı |
 | R06 | Milestone / ödeme ayrımı | 2 | ⬜ | tek koleksiyon (`DB.milestones`), 10 alanın 4'ü ödeme; `sorumlu`/`aciklama`/`teslimat` yok |
@@ -122,9 +122,35 @@ eklenir (25 · 26 · 27), `components.md`'ye **yazılı sözleşme** girer. Tür
 
 # FAZ 1 — KRİTİK
 
-## R01 · Görev durum yapısını sadeleştir
+> **R01 ✅ · R02 ✅ tamam (2026-08-07).** R03 ve R04 sıradaki iş.
+> Kapanışta `canon.js` **2.929 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen
+> → şimdi 26 eksen). Yeni eksenler: **25** görev durumu/geçiş/bekleme,
+> **26** zaman defteri ↔ görev emeği. İkisi de kasıtlı bozulmuş bir kopyayla
+> sınandı (L-24/L-27 gereği), scratchpad'de, repo dosyasına dokunmadan.
 
-**DURUM: 🟡 kısmen — sözlük 19 değerli, veride 11'i geçiyor, `beklemeNedeni` alanı YOK**
+## R01 · Görev durum yapısını sadeleştir · ✅ TAMAM
+
+**KAPANDI (2026-08-07)** — sözlük 19 → **10**; bekleme ayrı eksene çıktı.
+
+Yapılanlar: `DB.taskStatuses` 10 değer · `DB.taskWaitReasons` (7) ·
+`DB.tasks[].beklemeNedeni` + `beklemeNotu` · dört kayıt taşındı ve altı aktivite
+kaydı yazıldı (V-42) · ton haritası sadeleşti, **başka modüllerin kullandığı üç ad
+korundu** (`Taslak` teklif/satın alma · `Planlandı` taksit/sprint/teslim/eğitim ·
+`Müşteri bekleniyor` destek talebi) · liste chip'leri, kanban kolonları, form,
+rapor ve ayar ekranları yeni sözlüğe bağlandı · `shell.js` sayacı ve iki dashboard
+sayacı düzeltildi — ikisi de **kaldırılan durumları saydığı için hep sıfırdı**.
+
+Ölçüm izi (turun başındaki durum, kayıt olarak kalsın):
+
+| | |
+|---|---|
+| Sözlük | 19 değer, **8'i hiçbir kayıtta geçmiyor** |
+| Taşınan kayıt | 4 (`Kontrol bekliyor`→`Kontrolde` · `Revize bekliyor`→`Revizede` · `Kabul bekliyor`/`Planlandı`→`Atandı`) |
+| `beklemeNedeni` | turun başında **yok** · şimdi 2/26 kayıtta dolu, ikisi de yazılı kanıttan türetildi |
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 kısmen — sözlük 19 değerli, veride 11'i geçiyor, `beklemeNedeni` alanı YOK**
 
 Ölçüm (canlı veri, 2026-08-07):
 
@@ -169,11 +195,42 @@ Sözlükten çıkacak 9 değer ve gerekçesi:
 **Dokunulacak dosyalar:** `assets/data/work.js` · `assets/js/ui.js` (ton haritası) ·
 `app-gorev.html` · `app-gorev-detay.html` · `app-gorev-form.html`
 
+</details>
+
 ---
 
-## R02 · Görev geçişlerini kontrollü hale getir
+## R02 · Görev geçişlerini kontrollü hale getir · ✅ TAMAM
 
-**DURUM: 🟡 kısmen — geçiş tablosu VAR, uygulanmıyor; mutasyon ekranda, dropdown hâlâ orada**
+**KAPANDI (2026-08-07)** — tablo artık **uygulanıyor**; dropdown kalktı.
+
+Yapılanlar: `GV.task` (`domain.js`) — `transition` · `nextSteps` · `bekleme` ·
+`arsivGeriAl` · `onayGerekli` · `yetkili` · `eksikAlanlar` · geçiş tablosu
+10 duruma göre yeniden yazıldı, aksiyon etiketleri (`etiket`/`tone`/
+`DB.taskActionLabels`) eklendi · görev detayında **dropdown yerine aksiyon
+butonları**, yetkisiz adım gerekçesiyle pasif, eksik zorunlu alan küçük modalla
+soruluyor · `btnOnayla`/`btnRevize`, liste satır aksiyonu, toplu arşiv, hata
+detayı ve onay kuyruğu **hepsi tek yordamdan** geçiyor · form artık kural yoksa
+**reddediyor** (eskiden sessizce geçiriyordu).
+
+Yol boyunca çıkan ve kapatılan beş şey:
+
+1. **`domain.js` bu ekranların hiçbirinde yüklü değildi** — `GV.task` `undefined`
+   olurdu. 7 ekrana `<script>` eklendi. (L-12'nin ikizi: `GV.*` için de geçerli.)
+2. **`ciktiLink`** zorunlu alanı hiçbir görevde yoktu — kural beş oturumdur
+   uygulanamıyordu. → `teslimEdilenCikti`, ve **canon 25c** artık her zorunlu alan
+   adının gerçek bir alan olmasını istiyor. (→ **L-31**)
+3. **Onay adımı** için alan açılmadı; `onaylayan !== kontrolEden` diye türetildi
+   (17 görevde aynı, 9'unda farklı — ayrım zaten verideydi, okunmuyordu). **V-43**
+4. **GRV-2026-113** kendi durumuyla çelişiyordu (`Onay bekliyor` ama tek kişi);
+   onaylayan gerçek bir kalıptan düzeltildi, **canon 25h** bunu kilitledi.
+5. **Arşivden geri alma** geçiş tablosunun tersi DEĞİL: `Arşivlendi` bilerek son
+   duraktır (iki durumdan gelinir, çıkış kenarı iptal edilmiş görevi tamamlanmış
+   diye diriltirdi) ve ileri yordam gerçek bitiş tarihini ezerdi. Ayrı yordam
+   aktivite kaydından okur, kayıt yoksa **yarım uygulamaz, reddeder**.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 kısmen — geçiş tablosu VAR, uygulanmıyor; mutasyon ekranda, dropdown hâlâ orada**
 
 Ölçüm:
 
@@ -214,11 +271,48 @@ karmaşıklaştırma."* Bugünkü tek geçiş yolu dropdown'dur.
 **Dokunulacak dosyalar:** `assets/js/domain.js` · `assets/data/work.js` ·
 `app-gorev-detay.html` · `app-gorev.html` (toplu işlem) · `tasks/components.md`
 
+</details>
+
+**Açık kalan iki küçük madde (R02'nin kuyruğu, FAZ 1 içinde kapanır):**
+
+- [ ] `app-gorev.html` toplu işlem `ata` ve `oncelik`'in `run`'ı yok. Sahte
+      başarı basmıyorlar (UID-27 düzeltmesinden sonra `ui.js` `run`'sız toplu
+      işlemi **pasif** basıyor), ama karar gerekiyor: `ata` havuzdaki görevde
+      `Havuzda → Atandı` **geçişidir**, diğerlerinde düz alan yazımı — ikisini
+      tek butona toplamak REVİZE 02'nin kapattığı ikinci mutasyon yolunu geri
+      açardı. Ya `GV.task` üzerinden iki yolu ayıran bir toplu işlem yazılır ya
+      da madde kaldırılır.
+- [ ] `app-ayar-arsiv.html` arşivden geri alma artık `GV.task.arsivGeriAl`
+      yordamına bağlanabilir (ekran yazıldığında yordam henüz yoktu; ekran
+      kendi türetmesini yapıyor ve **doğru davranıyor**, ama iki yerde iki
+      türetme var — tek yordama indirilecek).
+
 ---
 
 ## R03 · Projede harcanan süreyi timesheet'ten otomatik getir
 
-**DURUM: ⬜ yok — `harcananSure` elle yazılmış sayı, timesheet ile bağı YOK**
+**DURUM: 🟡 hazırlığı yapıldı — görev düzeyi kapandı, proje düzeyi sıradaki iş**
+
+> **2026-08-07'de yapılan hazırlık.** R03'ün asıl işi proje düzeyinde ama zincirin
+> alt ucu (görev ↔ zaman defteri) önce düzeltildi, çünkü proje türetmesi onun
+> üstüne kurulacak:
+> - `DB.tasks[].gercekSure` **26/26 kayıtta** zaman defteriyle birebir eşitlendi
+>   (öncesinde **16 kayıtta ayrışıyordu**). Defteri olmayan 8 görev için kayıt
+>   görevin kendisinden türetildi, kaynağı `aciklama`'da yazılı — 61 saat, 8 kayıt,
+>   uydurma yok. Defter 45 → **53 satır**.
+> - `canon.js` **eksen 26** bu eşitliği ve üç değerin iç içeliğini
+>   (`faturalanabilir ⊆ onaylı ⊆ tüm`) kilitledi; proje düzeyinde **eşitlik değil
+>   `beyan ≥ defter`** diyor (V-44).
+> - Görev detayında harcanan süre artık **defterden türetiliyor**; zaman kaydı
+>   modalı `gercekSure`'ü **artırmıyor** (çift defter kalktı, L-08).
+>
+> **Sıradaki:** `GV.proje.sure()` · `GV.zaman.onayla()` (haftalık onay alttaki
+> zaman kayıtlarını da onaylasın — bugün onaylamıyor) · proje kartındaki üç değer ·
+> `harcananSure`'ün formdan kalkması.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): ⬜ yok — `harcananSure` elle yazılmış sayı, timesheet ile bağı YOK**
 
 Ölçüm (canlı veri — 14 proje, 45 zaman kaydı):
 
@@ -295,6 +389,8 @@ sayı **düşer ve öyle kalır**.
 `assets/data/hr.js` · `app-proje.html` · `app-proje-detay.html` ·
 `app-rapor-proje.html` · `assets/js/dashboard.js` · `tasks/qa/canon.js` ·
 `tasks/components.md`
+
+</details>
 
 ---
 
