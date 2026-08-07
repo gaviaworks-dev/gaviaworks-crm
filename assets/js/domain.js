@@ -633,9 +633,18 @@
     /* İstihdam ilişkisi dış kaynak mı — `sozlesme` alanından türetilir.
        R16 bu ekseni `DB.employees[].calismaTipi` olarak resmîleştirecek;
        o zamana kadar tek yer burasıdır, ekranlar kendi kuralını yazmaz. */
+    /* REVİZE 16 — eksen artık `calismaTipi`dir, sözleşme türü değil.
+       Önceki tanım (`sozlesme === 'Hizmet sözleşmesi'`) bir VEKİLDİ ve
+       components.md'de "R16 bu ekseni resmîleştirecek, o zamana kadar tek yer
+       burasıdır" diye yazılıydı; o gün geldi. `Kadrolu` dışındaki her istihdam
+       ilişkisi (Freelancer · Ajans · Danışman · Dış Kaynak) dış kaynaktır ve
+       proje maliyetinde personel değil DIŞ KAYNAK kalemine yazılır (REVİZE 04).
+       Alan yoksa eski vekile düşülür — şema kayıttan kayda değişmesin diye
+       `canon.js` eksen 37 alanın 16/16 tanımlı olmasını zaten zorunlu kılıyor. */
     disKaynak:function(kod){
       var e = (window.DB && DB.employees || []).filter(function(x){ return x.kod === kod; })[0];
-      return !!e && e.sozlesme === 'Hizmet sözleşmesi';
+      if(!e) return false;
+      return e.calismaTipi ? e.calismaTipi !== 'Kadrolu' : e.sozlesme === 'Hizmet sözleşmesi';
     }
   };
 
