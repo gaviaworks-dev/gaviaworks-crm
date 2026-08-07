@@ -60,6 +60,48 @@ document.addEventListener('gv:ready', function(){
   var acik = function(t){ return ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) === -1; };
   var geciken = function(t){ return acik(t) && t.termin && F.days(t.termin) < 0; };
 
+  /* Toplu atama / öncelik — tek modal, tek yordam, sayarak rapor.
+     Seçim `GV.modal` ile alınır (yeni bileşen yazılmaz); uygulama
+     `GV.task.ata` / `GV.task.oncelik` üzerinden geçer ve KAÇ kaydın gerçekten
+     değiştiği sayılır. "N kayıt işlendi" gibi seçim sayısını tekrarlayan bir
+     cümle kurulmaz — UID-27'nin tam olarak düştüğü hata buydu. */
+  function topluSecim(kodlar, tur){
+    var atama = tur === 'ata';
+    var secenekler = atama
+      ? DB.employees.filter(function(e){ return e.aktif !== false; })
+          .map(function(e){ return { v:e.kod, t:e.ad + ' · ' + e.pozisyon }; })
+      : DB.priorities.map(function(x){ return { v:x, t:x }; });
+    GV.modal({
+      title:atama ? 'Seçilen görevlere sorumlu ata' : 'Seçilen görevlerin önceliğini değiştir',
+      text:kodlar.length + ' görev seçildi.' +
+           (atama ? ' Havuzdaki görevler için bu işlem "Havuzda → Atandı" geçişidir; ' +
+                    'zaten atanmış görevlerde yalnız sorumlu değişir, durum korunur.' : ''),
+      icon:atama ? 'i-user-check' : 'i-flag', tone:'warn', size:'sm',
+      body:'<div class="field"><label for="tpSec">' + (atama ? 'Sorumlu' : 'Öncelik') + '</label>' +
+           '<select id="tpSec"><option value="">Seçiniz…</option>' +
+           secenekler.map(function(o){
+             return '<option value="' + GV.esc(o.v) + '">' + GV.esc(o.t) + '</option>'; }).join('') +
+           '</select></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:'Uygula', cls:'btn-acc', onClick:function(close, el){
+            var v = el.querySelector('#tpSec').value;
+            if(!v){ GV.toast(atama ? 'Sorumlu seçilmedi' : 'Öncelik seçilmedi', 'danger'); return false; }
+            var olan = 0, gecis = 0, olmayan = [];
+            kodlar.forEach(function(k){
+              var r = atama ? GV.task.ata(k, v) : GV.task.oncelik(k, v);
+              if(r && r.ok){ olan++; if(r.bildirim || r.gecis === undefined && atama) gecis++; }
+              else olmayan.push(k + ' — ' + gecisRed(r));
+            });
+            if(!olan) GV.toast('Hiçbir görev güncellenmedi · ' + olmayan[0], 'danger');
+            else GV.toast(olan + ' görev güncellendi' +
+              (atama && gecis ? ' · ' + gecis + ' tanesi havuzdan atandı' : '') +
+              (olmayan.length ? ' · ' + olmayan.length + ' görev atlandı (' + olmayan[0] + ')' : ''),
+              olmayan.length ? 'warn' : 'ok');
+            GV.refresh();
+          } }]
+    });
+  }
+
   /* REVİZE 02 — `GV.task.transition` reddini KULLANICI DİLİNE çevirir.
      Yordam `{ok:false, why:…}` döner; ekranın işi bunu yutmak değil söylemektir.
      Eskiden bu ekran kendi kapısını yazıyor ("havuzda değil") ve gerçek redde —
@@ -298,8 +340,18 @@ document.addEventListener('gv:ready', function(){
        düğme yalan söylemek yerine yazılmadığını söylüyor.
        `arsiv` ise yazıldı: hedefi tek ve geçiş tablosunda tanımlı. */
     bulk:[
-      { key:'ata', label:'Sorumlu ata', icon:'i-user-check' },
-      { key:'oncelik', label:'Öncelik değiştir', icon:'i-flag' },
+      /* REVİZE 02 kuyruğu — bu iki toplu işlemin `run`'ı yoktu, yani pasif
+         basılıyorlardı (UID-27 düzeltmesinden sonra bileşen `run`suz aksiyona
+         başarı mesajı basmıyor). Karar: ikisi de yazıldı ama mutasyon EKRANDA
+         DEĞİL `GV.task`'ta durur. Atama bazı görevlerde bir GEÇİŞ
+         (`Havuzda → Atandı`), bazılarında düz alan yazımıdır; bu ayrımı
+         ekranda yapmak REVİZE 02'nin kapattığı ikinci mutasyon yolunu geri
+         açardı. `GV.task.ata` ayrımı kendi içinde yapıyor, ekran yalnız
+         seçimi soruyor ve sonucu SAYARAK raporluyor. */
+      { key:'ata', label:'Sorumlu ata', icon:'i-user-check',
+        run:function(kodlar){ topluSecim(kodlar, 'ata'); } },
+      { key:'oncelik', label:'Öncelik değiştir', icon:'i-flag',
+        run:function(kodlar){ topluSecim(kodlar, 'oncelik'); } },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true },
       { key:'arsiv', label:'Arşivle', icon:'i-archive', tone:'danger',
         confirm:'{n} görev arşivlenecek. Arşivleme bir durum geçişidir: yalnız ' +

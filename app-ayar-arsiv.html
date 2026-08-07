@@ -24,6 +24,7 @@
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico;
@@ -195,6 +196,11 @@ document.addEventListener('gv:ready', function(){
      yoksa ekran bir durum uydurmaz; geri almayı reddeder (ders UID-27:
      yapılmayan işlem için başarı mesajı basılmaz).
      ================================================================= */
+  /* REVİZE 02 kuyruğu — bu türetme artık `GV.task.arsivGeriAl` içinde de
+     yaşıyordu: aynı soru ("bu görev hangi durumdan arşive girdi?") iki yerde
+     iki kez cevaplanıyordu. Ekran yordamı yazıldığında henüz yoktu; şimdi var
+     ve ONA devrediliyor. Ekranın kendi hesabı silinmiyor, YORDAMA bağlanıyor:
+     yordamın reddi de burada gösterilebilsin diye önce sonucu okuyoruz. */
   function arsivOncesiDurum(kod){
     var a = DB.activities.filter(function(r){
       return r.kayit === kod && r.yeni === 'Arşivlendi' && r.eski; })[0];
@@ -228,7 +234,18 @@ document.addEventListener('gv:ready', function(){
         if(!onceki && aday.length === 1) onceki = aday[0];
         if(onceki){
           d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:onceki,
-            uygula:function(){ r.durum = onceki; } });
+            /* Mutasyon TEK yordamdan geçer (`GV.task.arsivGeriAl`): durumu geri
+               yazar, `arsiv` bayrağını temizler ve aktivite kaydını düşer.
+               Ekran ikisini ayrı ayrı yazsaydı aktivite kaydı hiç doğmazdı ve
+               bir sonraki geri alma "kaynak durum bilinmiyor" derdi. Yordam
+               reddederse ekran de reddeder — yarım uygulanmaz (UID-27). */
+            uygula:function(){
+              var res = GV.task.arsivGeriAl(r.kod);
+              if(res && res.ok) return true;
+              GV.toast('Görev arşivden çıkarılamadı: ' +
+                       ((res && (res.aciklama || res.why)) || 'bilinmeyen neden'), 'danger');
+              return false;
+            } });
         } else {
           d.push({ alan:'durum', ad:'Durum', eski:'Arşivlendi', yeni:'—',
             engel:'Bu görevin arşive girmeden önceki durumu aktivite geçmişinde yok. Geçiş ' +
@@ -301,10 +318,16 @@ document.addEventListener('gv:ready', function(){
              : '')
     }).then(function(ok){
       if(!ok) return;
+      /* `uygula` açıkça `false` dönerse o alan YAZILMADI: log da düşmez,
+         başarı mesajı da basılmaz. Bileşen, çağıranın yapmadığı işin yerine
+         başarı varsayamaz (L-23). */
+      var yazilan = 0;
       d.forEach(function(c){
-        c.uygula();
+        if(c.uygula() === false) return;
         logKaydi('Arşivden geri aldı · ' + c.ad + ' alanını değiştirdi', x.kod, c.eski, c.yeni);
+        yazilan++;
       });
+      if(!yazilan){ if(L) L.refresh(); return; }
       GV.toast(x.kod + ' arşivden geri alındı', 'ok');
       if(L) L.refresh();
     });
@@ -415,7 +438,7 @@ document.addEventListener('gv:ready', function(){
     musteriAd:'Müşteri adı', pm:'Proje yöneticisi', ekip:'Ekip', saglik:'Sağlık',
     baslangic:'Başlangıç', planlananBitis:'Planlanan bitiş', gercekBitis:'Gerçek bitiş',
     ilerleme:'İlerleme (%)', sozlesmeTutari:'Sözleşme tutarı', butce:'Bütçe',
-    gerceklesenMaliyet:'Gerçekleşen maliyet', tahminiSure:'Tahmini süre (saat)',
+    tahminiSure:'Planlanan süre (saat)',
     harcananSure:'Harcanan süre (saat)', oncelik:'Öncelik', faz:'Faz', repo:'Repo',
     canli:'Canlı ortam', test:'Test ortamı', tasarim:'Tasarım', sunucu:'Sunucu',
     teknoloji:'Teknoloji', ucuncuTaraf:'Üçüncü taraf', teknikSorumlu:'Teknik sorumlu',
@@ -677,11 +700,13 @@ document.addEventListener('gv:ready', function(){
             /* Tekil geri almadaki kural toplu işlemde de geçerli: bir alan
                yazılamıyorsa o KAYIT hiç ellenmez, yarım uygulanmaz. */
             if(engeller(d).length){ atlanan.push(x.kod); return; }
+            var yazildi = 0;
             d.forEach(function(c){
-              c.uygula();
+              if(c.uygula() === false) return;
               logKaydi('Arşivden geri aldı · ' + c.ad + ' alanını değiştirdi (toplu işlem)', x.kod, c.eski, c.yeni);
-              n++;
+              n++; yazildi++;
             });
+            if(!yazildi){ atlanan.push(x.kod); return; }
             yapilan++;
           });
           /* Sayı GERÇEKTEN işlenen kayıttan gelir; seçilen kayıt sayısından değil */
