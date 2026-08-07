@@ -1420,6 +1420,102 @@ head('36) Hizmet paketi tipi ve periyodu (REVİZE 17)');
     ' · periyodu sözlük dışı dönem: ' + DB.supportPackages.filter(p => !p.periyot).length);
 }
 
+head('37) Departman · uzmanlık · çalışma tipi · modül anahtarı (REVİZE 15 · 16 · 18)');
+{
+  /* 37a. Ana departman kümesi ve bağlar. `ustDepartman` boş OLABİLİR ama
+     yalnız departman OLMAYAN iki kayıtta (DEP-20 · DEP-21) — ve o iki kayıt
+     `aktif:false` olmak zorundadır, yoksa "departman değil" dediğimiz şey
+     departman listesinde yaşamayı sürdürür. */
+  say(Array.isArray(DB.departmentGroups) && DB.departmentGroups.length === 8,
+    'DB.departmentGroups sekiz ana departmanı taşımıyor');
+  DB.departments.forEach(d => {
+    say('ustDepartman' in d, d.kod + " 'ustDepartman' alanı yok — şema kayıttan kayda değişiyor");
+    if (d.ustDepartman) {
+      say(DB.departmentGroups.indexOf(d.ustDepartman) !== -1,
+        d.kod + ' ustDepartman sözlükte yok: ' + d.ustDepartman);
+    } else {
+      say(d.aktif === false,
+        d.kod + ' ana departmanı yok ama hâlâ AKTİF — departman değilse listede yaşamamalı');
+      say(!DB.employees.some(e => e.dep === d.kod),
+        d.kod + ' departman değil ama kadrosu var: ' +
+        DB.employees.filter(e => e.dep === d.kod).map(e => e.kod).join(', '));
+    }
+  });
+
+  /* 37b. `depAd` denormalize kopyası departman kaydıyla ÇELİŞMEZ (VB-04 sınıfı). */
+  DB.employees.forEach(e => {
+    const d = DB.departments.filter(x => x.kod === e.dep)[0];
+    say(!!d, e.kod + ' dep=' + e.dep + ' çözülmüyor');
+    if (d) say(e.depAd === d.ad,
+      e.kod + " depAd='" + e.depAd + "' ≠ " + d.kod + ".ad='" + d.ad + "'");
+    if (d) say(d.aktif !== false,
+      e.kod + ' pasif departmanda kayıtlı: ' + d.kod);
+  });
+
+  /* 37c. `DB.departments[].personel` sayacı gerçek kadroyla tutar (L-08:
+     türetilebilir sayaç yazılıysa taranır). */
+  DB.departments.forEach(d => {
+    const n = DB.employees.filter(e => e.dep === d.kod).length;
+    say(typeof d.personel !== 'number' || d.personel === n,
+      d.kod + ' personel sayacı ' + d.personel + ', gerçek kadro ' + n);
+  });
+
+  /* 37d. UZMANLIK — dolu olan değer kendi ANA departmanının kümesindendir.
+     Kümesi olmayan ana departmanda alan boş olmak ZORUNDA (V-60): oraya
+     değer yazmak sözlüğü olmayan bir eksen uydurmak olurdu. */
+  DB.employees.forEach(e => {
+    say('uzmanlik' in e, e.kod + " 'uzmanlik' alanı yok — şema kayıttan kayda değişiyor");
+    const d = DB.departments.filter(x => x.kod === e.dep)[0];
+    const kume = (d && d.ustDepartman && DB.specialities[d.ustDepartman]) || [];
+    if (e.uzmanlik) {
+      say(kume.indexOf(e.uzmanlik) !== -1,
+        e.kod + ' uzmanlık "' + e.uzmanlik + '" ana departmanının (' +
+        (d ? d.ustDepartman : '—') + ') kümesinde yok');
+    } else {
+      say(true, '');   /* boş uzmanlık meşrudur — kümesi olmayan departman */
+    }
+  });
+
+  /* 37e. ÇALIŞMA TİPİ — sözlükten, 16/16 dolu ve `calismaTuru` ile KARIŞMAZ.
+     İki eksenin kesişimi boş olmalı: mesai değeri istihdam alanına sızarsa
+     VB-20'nin hatası tekrarlanır. */
+  say(Array.isArray(DB.workTypes) && DB.workTypes.length > 0, 'DB.workTypes sözlüğü yok');
+  const mesai = [...new Set(DB.employees.map(e => e.calismaTuru).filter(Boolean))];
+  DB.workTypes.forEach(t => say(mesai.indexOf(t) === -1,
+    "'" + t + "' hem çalışma tipi hem mesai değeri olarak kullanılıyor — iki eksen karışıyor"));
+  DB.employees.forEach(e => {
+    say('calismaTipi' in e, e.kod + " 'calismaTipi' alanı yok — şema kayıttan kayda değişiyor");
+    say(!!e.calismaTipi, e.kod + ' çalışma tipi boş');
+    say(!e.calismaTipi || DB.workTypes.indexOf(e.calismaTipi) !== -1,
+      e.kod + ' çalışma tipi sözlükte yok: ' + e.calismaTipi);
+    /* Hizmet sözleşmesi kadrolu olamaz: eski vekil (`sozlesme`) ile yeni eksen
+       birbiriyle çelişmemeli — çelişirse hangisinin doğru olduğu belirsizleşir
+       ve `GV.hr.disKaynak` sessizce yanlış kalemi besler. */
+    if (e.sozlesme === 'Hizmet sözleşmesi')
+      say(e.calismaTipi !== 'Kadrolu',
+        e.kod + ' hizmet sözleşmeli ama çalışma tipi Kadrolu — iki eksen çelişiyor');
+  });
+
+  /* 37f. MODÜL ANAHTARI — sekiz anahtar tanımlı ve boole. Anahtar kapalı
+     olabilir; ama tanımsız olamaz, yoksa ayar ekranı olmayan bir anahtarı
+     kapatıyormuş gibi gösterir. */
+  const MODULLER = ['satis','proje','destek','personel','finans','satinalma','demirbas','filo'];
+  const akt = (DB.company || {}).aktifModuller;
+  say(!!akt, 'DB.company.aktifModuller yok — modül anahtarı ölçülemez');
+  if (akt) MODULLER.forEach(k => {
+    say(k in akt, 'aktifModuller.' + k + ' tanımlı değil');
+    say(typeof akt[k] === 'boolean', 'aktifModuller.' + k + ' boole değil: ' + akt[k]);
+  });
+
+  console.log('  · ana departman: ' + DB.departmentGroups.map(g =>
+      g + ' ' + DB.departments.filter(d => d.ustDepartman === g).length).join(' · '));
+  console.log('  · çalışma tipi: ' + DB.workTypes.map(t =>
+      t + ' ' + DB.employees.filter(e => e.calismaTipi === t).length)
+      .filter(x => !/ 0$/.test(x)).join(' · ') +
+    ' · uzmanlık dolu: ' + DB.employees.filter(e => e.uzmanlik).length + '/' + DB.employees.length +
+    ' · açık modül: ' + MODULLER.filter(k => akt && akt[k] !== false).length + '/8');
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
