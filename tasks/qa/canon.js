@@ -1224,6 +1224,51 @@ head('33) Destek talebi şeması ve durum ekseni (REVİZE 09)');
       .map(k => k + ' ' + T.filter(t => t[k] != null).length + '/' + T.length).join(' · '));
 }
 
+/* ---------- 34. TALEPTEN DOĞAN KAYITLAR (REVİZE 10) ----------
+   Ticket üç şeye dönüşebilir: görev · revizyon talebi · satış fırsatı.
+   Bağ HER ZAMAN doğan kayıtta durur (§9d); ticket'ta `gorev`/`cr`/`firsat`
+   ayna alanı DOĞMAMALIDIR. `DB.leads[].destek` bugün 0/12 dolu — alan
+   dönüşüm akışıyla dolar, uydurulmadı (eksen 21'e bu yüzden eklenmedi, L-22). */
+head('34) Talepten doğan kayıtlar (REVİZE 10)');
+{
+  /* 34a. Ayna alan yasağı — üç yön de ticket'ta doğmamış olmalı. */
+  DB.tickets.forEach(t => {
+    ['gorev','cr','degisiklik','firsat','lead'].forEach(k => say(!(k in t),
+      t.kod + " ayna alan doğmuş: '" + k + "' — bağ doğan kayıtta durur (§9d)"));
+  });
+
+  /* 34b. `DB.leads[].destek` alanı HER kayıtta tanımlı; dolu olan çözülür. */
+  DB.leads.forEach(l => {
+    say('destek' in l, l.kod + " 'destek' alanı yok — şema kayıttan kayda değişiyor");
+    if(l.destek){
+      const t = DB.tickets.filter(x => x.kod === l.destek)[0];
+      say(!!t, l.kod + ' destek=' + l.destek + ' çözülmüyor');
+      if(t) say(!t.musteri || t.musteri === l.musteri,
+        l.kod + ' fırsatın müşterisi talebinkiyle uyuşmuyor: ' + l.musteri + ' ≠ ' + t.musteri);
+      say(l.kaynak === 'Destek talebi',
+        l.kod + ' destekten doğmuş ama kaynak: ' + l.kaynak);
+    }
+  });
+
+  /* 34c. Kaynak sözlüğü dönüşümün yazdığı değeri taşıyor. */
+  say((DB.refTypes || []).indexOf('Destek talebi') !== -1,
+    "DB.refTypes 'Destek talebi' değerini taşımıyor — dönüşüm sözlük dışı kaynak yazar");
+  DB.leads.forEach(l => say(!l.kaynak || DB.refTypes.indexOf(l.kaynak) !== -1,
+    l.kod + ' kaynak sözlükte yok: ' + l.kaynak));
+
+  /* 34d. Var olan iki bağ da çözülmeye devam ediyor (dönüşüm onları kırmasın). */
+  DB.tasks.filter(x => x.destek).forEach(x => say(DB.tickets.some(t => t.kod === x.destek),
+    x.kod + ' destek=' + x.destek + ' çözülmüyor'));
+  DB.changeRequests.filter(x => x.destek).forEach(x => say(DB.tickets.some(t => t.kod === x.destek),
+    x.kod + ' destek=' + x.destek + ' çözülmüyor'));
+
+  console.log('  · talepten doğan kayıt: görev ' + DB.tasks.filter(x => x.destek).length +
+    ' · hata ' + DB.bugs.filter(x => x.destek).length +
+    ' · revizyon ' + DB.changeRequests.filter(x => x.destek).length +
+    ' · fırsat ' + DB.leads.filter(x => x.destek).length +
+    ' (fırsat bağı dönüşüm akışında doğar — veride yazılı bağ yok, uydurulmadı)');
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
