@@ -61,6 +61,15 @@ DB.healthLevels    = ['İyi','Dikkat','Riskli'];
    (`Faz 1/2/3`). Bir projede bir aile kullanılır. 'Tamamlandı' burada
    **yoktur** — o bir durumdur. */
 DB.projectPhases   = ['Analiz','Tasarım','Geliştirme','Test','Faz 1','Faz 2','Faz 3'];
+/* ---- Proje KAYNAĞI (REVİZE 11) ---------------------------------------
+   Projenin nasıl DOĞDUĞU — durumu, fazı ya da türü değil. `DB.refTypes`
+   ile KARIŞTIRILMAZ: o SATIŞ kaynağı eksenidir (adayın nereden geldiği,
+   18 değer) ve müşteri/aday kartında yaşar. Proje kaynağı bir projenin
+   ticari dayanağını söyler ve formda ilk alandır, çünkü diğer alanların
+   zorunluluğunu o belirler (sözleşme seçici yalnız 'Müşteri Sözleşmesi'
+   iken görünür ve zorunludur). */
+DB.projectSources  = ['Müşteri Sözleşmesi','İç Proje','Satış Öncesi / PoC',
+  'Bakım / Destek','Diğer'];
 /* ⚠️ Modül durumu proje durumundan AYRI bir eksendir ve kelimeleri proje
    durum sözlüğünden çıkarılınca da yaşamayı sürdürür (L-33: bir durum adını
    silmeden önce o adı kullanan HER koleksiyon aranır). 15 modülün 15'i bu
@@ -134,13 +143,38 @@ DB.taskActionLabels = {
    "türetilmiş / örtüşmeyebilir" uyarısıyla itiraf ediyordu. Yerine
    `GV.proje.maliyet(kod)` geçti: personel · dış kaynak · satın alma · diğer
    kalemlerini ayrı ayrı türetir, toplamı ve kârlılığı ondan hesaplar.
-   `butce` KALIR: onaylı bütçe bir plan değeridir, sayaç değil. */
+   `butce` KALIR: onaylı bütçe bir plan değeridir, sayaç değil.
+
+   ⚠️ `kaynak` ALANI AÇILDI (REVİZE 11 · 2026-08-07) — 14/14 dolu, UYDURULMADAN.
+   Türetme kuralı ve kanıtı kayıt kayıt şudur:
+     · Sözleşme kaydı onu gösteren 6 proje → 'Müşteri Sözleşmesi'. Kanıt
+       `DB.contracts[].proje` (SZL-2026-019/020/021/023/024 · SZL-2025-018) ve
+       altısında da `sozlesmeTutari` sözleşmenin netiyle birebir.
+     · PRJ-2026-007 → 'Satış Öncesi / PoC'. Kanıt: sözleşmesi yok, `Planlama`
+       durumunda ve 336.000 ₺ bedeli **TKL-2026-008** teklifinin toplamıyla
+       birebir aynı (aynı müşteri MUS-2025-004, teklif hâlâ "Teklif
+       hazırlanıyor"). Yani bedel sözleşme bedeli değil TEKLİF bedelidir —
+       VB-20'nin "sözleşmesiz sözleşme bedeli" bulgusunun bu kayıttaki karşılığı.
+     · PRJ-2026-008 → 'Satış Öncesi / PoC'. Kanıt: kaydın kendi adı
+       ("Risk Raporlama **Pilotu**"), sözleşmesi/teklifi/faturası yok ve aynı
+       müşteri (MUS-2026-011) sonradan 600.000 ₺'lik TKL-2026-012 → SZL-2026-021
+       zinciriyle asıl projeyi (PRJ-2026-002) imzalamış.
+     · Kalan 6 arşivli proje → 'Müşteri Sözleşmesi'. Kanıt: hepsinin müşterisi
+       ve sözleşme bedeli var, hepsi teslim edilip kapanmış ve hepsinde müşteri
+       memnuniyet anketi (`DB.surveys[].ilgili`) var. **Sözleşme kaydı
+       UYDURULMADI** (→ V-54): bu depodaki `DB.contracts` defteri 2025-06'da
+       başlıyor, daha eski işlerin sözleşmesi hiç girilmemiş. Eksik olan kayıt
+       yazılsaydı yedi sahte SZL numarası, tarihi ve ödeme planı doğardı (L-13).
+       `canon.js` eksen 35d bu yüzden sözleşme zorunluluğunu **arşivsiz**
+       projelerde arar: yeni bir kayıt aynı boşluğu bir daha açamaz.
+   `kaynak` `DB.refTypes` ile KARIŞTIRILMAZ — o satış kaynağıdır (müşteri/aday
+   kartında), bu proje kaynağıdır. */
 DB.projects = [
   { kod:'PRJ-2026-001', ad:'Vitalis Hasta Randevu Mobil Uygulaması', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu',
     pm:'EMP-003', ekip:['EMP-004','EMP-008','EMP-005','EMP-009'], durum:'Kontrol / Test', saglik:'Riskli',
     baslangic:'2026-03-02', planlananBitis:'2026-08-14', gercekBitis:null, ilerleme:82,
     sozlesmeTutari:880000, butce:540000, tahminiSure:1240,
-    tur:'Mobil Uygulama', oncelik:'Yüksek', faz:'Faz 1',
+    kaynak:'Müşteri Sözleşmesi', tur:'Mobil Uygulama', oncelik:'Yüksek', faz:'Faz 1',
     repo:'github.com/gaviaworks/vitalis-mobile', canli:'—', test:'test.vitalis-app.com',
     tasarim:'figma.com/vitalis', sunucu:'AWS eu-central-1', teknoloji:['React Native','NestJS','PostgreSQL'],
     ucuncuTaraf:['Twilio SMS','Firebase Push'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-013',
@@ -150,7 +184,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-007','EMP-005','EMP-006'], durum:'Aktif', saglik:'İyi',
     baslangic:'2026-06-24', planlananBitis:'2026-09-04', gercekBitis:null, ilerleme:48,
     sozlesmeTutari:500000, butce:380000, tahminiSure:820,
-    tur:'Yapay Zekâ Çözümü', oncelik:'Yüksek', faz:'Faz 1',
+    kaynak:'Müşteri Sözleşmesi', tur:'Yapay Zekâ Çözümü', oncelik:'Yüksek', faz:'Faz 1',
     repo:'github.com/gaviaworks/anka-scoring', canli:'—', test:'staging.anka-score.com',
     tasarim:'figma.com/anka', sunucu:'Müşteri VPC', teknoloji:['Python','FastAPI','React','pgvector'],
     ucuncuTaraf:['OpenAI API','Findeks servisi'], teknikSorumlu:'EMP-007', musteriSorumlu:'EMP-002',
@@ -160,7 +194,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-005','EMP-006','EMP-004','EMP-009','EMP-010'], durum:'Aktif', saglik:'Dikkat',
     baslangic:'2025-09-15', planlananBitis:'2026-09-30', gercekBitis:null, ilerleme:64,
     sozlesmeTutari:920000, butce:720000, tahminiSure:2100,
-    tur:'CRM / ERP', oncelik:'Yüksek', faz:'Faz 1',
+    kaynak:'Müşteri Sözleşmesi', tur:'CRM / ERP', oncelik:'Yüksek', faz:'Faz 1',
     repo:'github.com/gaviaworks/marmara-erp', canli:'erp.marmaraenerji.com', test:'test-erp.marmaraenerji.com',
     tasarim:'figma.com/marmara-erp', sunucu:'Müşteri on-premise', teknoloji:['Node.js','React','PostgreSQL','Redis'],
     ucuncuTaraf:['Logo ERP','e-Fatura'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -170,7 +204,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-006','EMP-005'], durum:'Teslim Sürecinde', saglik:'İyi',
     baslangic:'2026-05-18', planlananBitis:'2026-07-24', gercekBitis:'2026-07-22', ilerleme:100,
     sozlesmeTutari:295000, butce:210000, tahminiSure:460,
-    tur:'Süreç Otomasyonu', oncelik:'Orta', faz:'Faz 1',
+    kaynak:'Müşteri Sözleşmesi', tur:'Süreç Otomasyonu', oncelik:'Orta', faz:'Faz 1',
     repo:'github.com/gaviaworks/ozgida-uretim', canli:'uretim.ozgida.com.tr', test:'—',
     tasarim:'figma.com/ozgida', sunucu:'Gavia yönetimli VPS', teknoloji:['Node.js','Vue','MySQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -179,7 +213,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-004','EMP-006','EMP-016'], durum:'Aktif', saglik:'İyi',
     baslangic:'2026-06-08', planlananBitis:'2026-09-18', gercekBitis:null, ilerleme:37,
     sozlesmeTutari:420000, butce:260000, tahminiSure:600,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
+    kaynak:'Müşteri Sözleşmesi', tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
     repo:'github.com/gaviaworks/nova-rezervasyon', canli:'—', test:'demo.novaturizm.com',
     tasarim:'figma.com/nova', sunucu:'Gavia yönetimli VPS', teknoloji:['Next.js','PostgreSQL'],
     ucuncuTaraf:['iyzico','Google Maps'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-014',
@@ -188,7 +222,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-006','EMP-009'], durum:'Aktif', saglik:'Riskli',
     baslangic:'2026-03-16', planlananBitis:'2026-06-26', gercekBitis:null, ilerleme:71,
     sozlesmeTutari:185000, butce:120000, tahminiSure:280,
-    tur:'Web Uygulaması', oncelik:'Kritik', faz:'Faz 1',
+    kaynak:'Müşteri Sözleşmesi', tur:'Web Uygulaması', oncelik:'Kritik', faz:'Faz 1',
     repo:'github.com/gaviaworks/trakya-randevu', canli:'—', test:'test.trakyaotomotiv.com',
     tasarim:'figma.com/trakya', sunucu:'Gavia yönetimli VPS', teknoloji:['Laravel','Vue','MySQL'],
     ucuncuTaraf:['Netgsm SMS'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-013',
@@ -198,7 +232,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-006','EMP-004'], durum:'Planlama', saglik:'İyi',
     baslangic:'2026-08-18', planlananBitis:'2026-10-16', gercekBitis:null, ilerleme:6,
     sozlesmeTutari:336000, butce:200000, tahminiSure:420,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
+    kaynak:'Satış Öncesi / PoC', tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
     repo:'—', canli:'—', test:'—', tasarim:'figma.com/ege-veli', sunucu:'Mevcut okul sunucusu',
     teknoloji:['Next.js','PostgreSQL'], ucuncuTaraf:['Netgsm SMS'],
     teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-002',
@@ -207,7 +241,7 @@ DB.projects = [
     pm:'EMP-003', ekip:['EMP-005','EMP-006'], durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2025-02-10', planlananBitis:'2025-07-30', gercekBitis:'2025-07-28', ilerleme:100,
     sozlesmeTutari:960000, butce:600000, tahminiSure:1400,
-    tur:'Web Uygulaması', oncelik:'Yüksek', faz:null, arsiv:true,
+    kaynak:'Müşteri Sözleşmesi', tur:'Web Uygulaması', oncelik:'Yüksek', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/deniz-sevkiyat', canli:'panel.denizlojistik.com', test:'—',
     tasarim:'figma.com/deniz', sunucu:'Müşteri bulut', teknoloji:['Node.js','React','PostgreSQL'],
     ucuncuTaraf:['Google Maps','e-İrsaliye'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -228,7 +262,7 @@ DB.projects = [
     durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2024-08-05', planlananBitis:'2025-10-17', gercekBitis:'2025-10-31', ilerleme:100,
     sozlesmeTutari:620000, butce:400000, tahminiSure:940,
-    tur:'Entegrasyon', oncelik:'Orta', faz:null, arsiv:true,
+    kaynak:'Müşteri Sözleşmesi', tur:'Entegrasyon', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/deniz-arac-takip', canli:'—', test:'—',
     tasarim:'—', sunucu:'Müşteri bulut', teknoloji:['Node.js','PostgreSQL'],
     ucuncuTaraf:['Arvento'], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -239,7 +273,7 @@ DB.projects = [
     durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2025-06-02', planlananBitis:'2026-03-27', gercekBitis:'2026-04-03', ilerleme:100,
     sozlesmeTutari:420000, butce:280000, tahminiSure:720,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:null, arsiv:true,
+    kaynak:'Müşteri Sözleşmesi', tur:'Web Uygulaması', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/vitalis-lab', canli:'lab.vitalis.com.tr', test:'—',
     tasarim:'figma.com/vitalis-lab', sunucu:'Müşteri bulut', teknoloji:['React','Node.js'],
     ucuncuTaraf:['HL7 arayüzü'], teknikSorumlu:'EMP-004', musteriSorumlu:'EMP-002',
@@ -250,7 +284,7 @@ DB.projects = [
     durum:'Tamamlandı', saglik:'Dikkat',
     baslangic:'2025-04-14', planlananBitis:'2025-11-14', gercekBitis:'2025-11-28', ilerleme:100,
     sozlesmeTutari:480000, butce:320000, tahminiSure:820,
-    tur:'Mobil Uygulama', oncelik:'Orta', faz:null, arsiv:true,
+    kaynak:'Müşteri Sözleşmesi', tur:'Mobil Uygulama', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/anadolu-stok', canli:'—', test:'—',
     tasarim:'figma.com/anadolu-stok', sunucu:'Şirket bulut', teknoloji:['React Native','Node.js'],
     ucuncuTaraf:['Barkod SDK'], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-013',
@@ -262,7 +296,7 @@ DB.projects = [
     durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2025-07-07', planlananBitis:'2026-01-23', gercekBitis:'2026-01-30', ilerleme:100,
     sozlesmeTutari:340000, butce:220000, tahminiSure:610,
-    tur:'Web Uygulaması', oncelik:'Orta', faz:null, arsiv:true,
+    kaynak:'Müşteri Sözleşmesi', tur:'Web Uygulaması', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/kilic-uretim', canli:'panel.kilictekstil.com', test:'—',
     tasarim:'—', sunucu:'Müşteri sunucusu', teknoloji:['Vue','Node.js','MySQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-005', musteriSorumlu:'EMP-002',
@@ -273,7 +307,7 @@ DB.projects = [
     durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2026-02-16', planlananBitis:'2026-05-22', gercekBitis:'2026-05-29', ilerleme:100,
     sozlesmeTutari:190000, butce:130000, tahminiSure:340,
-    tur:'Veri ve Raporlama', oncelik:'Orta', faz:null, arsiv:true,
+    kaynak:'Satış Öncesi / PoC', tur:'Veri ve Raporlama', oncelik:'Orta', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/anka-risk-pilot', canli:'—', test:'—',
     tasarim:'—', sunucu:'Müşteri bulut', teknoloji:['Python','PostgreSQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-007', musteriSorumlu:'EMP-014',
@@ -284,7 +318,7 @@ DB.projects = [
     durum:'Tamamlandı', saglik:'İyi',
     baslangic:'2023-11-06', planlananBitis:'2025-03-31', gercekBitis:'2025-04-18', ilerleme:100,
     sozlesmeTutari:120000, butce:82000, tahminiSure:280,
-    tur:'Web Uygulaması', oncelik:'Düşük', faz:null, arsiv:true,
+    kaynak:'Müşteri Sözleşmesi', tur:'Web Uygulaması', oncelik:'Düşük', faz:null, arsiv:true,
     repo:'github.com/gaviaworks/karadeniz-alim', canli:'—', test:'—',
     tasarim:'—', sunucu:'Şirket bulut', teknoloji:['PHP','MySQL'],
     ucuncuTaraf:[], teknikSorumlu:'EMP-006', musteriSorumlu:'EMP-002',
@@ -980,6 +1014,17 @@ DB.approvals = [
 
 /* ---- Aktivite kayıtları (log — eski/yeni değer) ------------------------ */
 DB.activities = [
+  /* REVİZE 11 — proje kaynağı alanı açıldı (2026-08-07). Sözleşme kaydıyla
+     doğrudan kanıtlanan 6 projeye satır yazılmadı (bağ zaten `DB.contracts`'te
+     görünür); kaynağı TÜRETİLEN 8 kayda gerekçesi yazıldı. */
+  { kayit:'PRJ-2026-007', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — sözleşme kaydı yok, bedel TKL-2026-008 teklifinin toplamıyla birebir aynı', eski:null, yeni:'Satış Öncesi / PoC', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2026-008', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — kaydın adı pilot çalışma diyor, sözleşmesi ve teklifi yok; müşteri asıl projeyi (PRJ-2026-002) sonradan imzaladı', eski:null, yeni:'Satış Öncesi / PoC', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2025-008', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — müşteriye teslim edilip kapanmış iş; sözleşme kaydı bu depoda yok, uydurulmadı', eski:null, yeni:'Müşteri Sözleşmesi', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2024-011', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — müşteriye teslim edilip kapanmış iş; sözleşme kaydı bu depoda yok, uydurulmadı', eski:null, yeni:'Müşteri Sözleşmesi', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2025-009', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — müşteriye teslim edilip kapanmış iş; sözleşme kaydı bu depoda yok, uydurulmadı', eski:null, yeni:'Müşteri Sözleşmesi', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2025-010', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — müşteriye teslim edilip kapanmış iş; sözleşme kaydı bu depoda yok, uydurulmadı', eski:null, yeni:'Müşteri Sözleşmesi', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2025-012', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — müşteriye teslim edilip kapanmış iş; sözleşme kaydı bu depoda yok, uydurulmadı', eski:null, yeni:'Müşteri Sözleşmesi', tone:'info', icon:'i-briefcase' },
+  { kayit:'PRJ-2023-014', tarih:'2026-08-03T10:00', kisi:'EMP-001', metin:'Proje kaynağı belirlendi — müşteriye teslim edilip kapanmış iş; sözleşme kaydı bu depoda yok, uydurulmadı', eski:null, yeni:'Müşteri Sözleşmesi', tone:'info', icon:'i-briefcase' },
   /* REVİZE 01 — durum sözlüğü 19'dan 10'a indi (2026-08-07).
      Dört kaydın durumu taşındı; taşıma bir işlemdir, sessizce yapılmaz. */
   { kayit:'GRV-2026-102', tarih:'2026-08-03T09:00', kisi:'EMP-001', metin:'Durum sözlüğü sadeleştirildi — durum karşılığına taşındı', eski:'Kontrol bekliyor', yeni:'Kontrolde', tone:'info', icon:'i-refresh' },

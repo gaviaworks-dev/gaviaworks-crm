@@ -1269,6 +1269,75 @@ head('34) Talepten doğan kayıtlar (REVİZE 10)');
     ' (fırsat bağı dönüşüm akışında doğar — veride yazılı bağ yok, uydurulmadı)');
 }
 
+head('35) Proje kaynağı (REVİZE 11)');
+{
+  const PoC = ['İç Proje', 'Satış Öncesi / PoC'];
+
+  /* 35a. Alan 14/14 tanımlı ve sözlükten. */
+  say(Array.isArray(DB.projectSources) && DB.projectSources.length > 0,
+    'DB.projectSources sözlüğü yok — kaynak ekseni sözlüksüz kalamaz');
+  DB.projects.forEach(p => {
+    say('kaynak' in p, p.kod + " 'kaynak' alanı yok — şema kayıttan kayda değişiyor");
+    say(!p.kaynak || DB.projectSources.indexOf(p.kaynak) !== -1,
+      p.kod + ' kaynak sözlükte yok: ' + p.kaynak);
+    say(!!p.kaynak, p.kod + ' kaynak boş — proje kaynağı zorunlu alandır');
+  });
+
+  /* 35b. Sözleşme kaydı OLAN projenin kaynağı sözleşmedir ve bedeli tutar.
+     Bağ tek yönlüdür: `DB.contracts[].proje` (§9d). */
+  DB.contracts.filter(c => c.proje).forEach(c => {
+    const p = DB.projects.filter(x => x.kod === c.proje)[0];
+    say(!!p, c.kod + ' proje=' + c.proje + ' çözülmüyor');
+    if(!p) return;
+    say(p.kaynak === 'Müşteri Sözleşmesi',
+      p.kod + ' sözleşmesi var (' + c.kod + ') ama kaynak: ' + p.kaynak);
+    say(!p.sozlesmeTutari || p.sozlesmeTutari === c.tutar,
+      p.kod + ' sözleşme bedeli sözleşmenin netiyle uyuşmuyor: ' +
+      money(p.sozlesmeTutari) + ' ≠ ' + money(c.tutar));
+  });
+
+  /* 35c. Bir sözleşme EN FAZLA bir projeyi gösterir (L-13 tekil bağ). */
+  {
+    const say1 = {};
+    DB.contracts.filter(c => c.proje).forEach(c => { say1[c.proje] = (say1[c.proje] || 0) + 1; });
+    Object.keys(say1).forEach(k => say(say1[k] === 1,
+      k + ' projesini ' + say1[k] + ' sözleşme gösteriyor — bağ tekil olmalı'));
+  }
+
+  /* 35d. Kaynağı sözleşme olan ARŞİVSİZ projenin sözleşme kaydı VARDIR.
+     Arşivli kayıtlar kapsam dışıdır ve bu bilinçli bir istisnadır (V-54):
+     `DB.contracts` defteri 2025-06'da başlıyor, daha eski teslim edilmiş altı
+     işin sözleşmesi hiç girilmemiş ve UYDURULMADI. Kural arşivsiz eksende
+     çalıştığı için yeni bir kayıt aynı boşluğu bir daha açamaz — VB-20'nin
+     "sözleşmesiz sözleşme bedeli" bulgusu buradan kapanır. */
+  DB.projects.filter(p => !p.arsiv && p.kaynak === 'Müşteri Sözleşmesi').forEach(p => {
+    say(DB.contracts.some(c => c.proje === p.kod),
+      p.kod + " kaynağı 'Müşteri Sözleşmesi' ama onu gösteren sözleşme kaydı yok" +
+      (p.sozlesmeTutari ? ' (bedel: ' + money(p.sozlesmeTutari) + ' ₺)' : ''));
+  });
+
+  /* 35e. İç proje ve satış öncesi işin sözleşme kaydı OLMAZ — olsaydı kaynağı
+     'Müşteri Sözleşmesi' olurdu. İki eksen tek alanda karışmasın. */
+  DB.projects.filter(p => PoC.indexOf(p.kaynak) !== -1).forEach(p => {
+    say(!DB.contracts.some(c => c.proje === p.kod),
+      p.kod + ' kaynağı ' + p.kaynak + ' ama sözleşme kaydı var');
+  });
+
+  /* 35f. Ayna alan yasağı — bağ sözleşmede durur, projede `sozlesme` doğmaz. */
+  DB.projects.forEach(p => say(!('sozlesme' in p),
+    p.kod + " ayna alan doğmuş: 'sozlesme' — bağ sözleşme kaydında durur (§9d)"));
+
+  /* 35g. Kaynak SATIŞ kaynağıyla karıştırılmıyor: proje kaynağı sözlüğünün
+     hiçbir değeri `DB.refTypes` içinde olmamalı, yoksa iki eksen aynı kelimeyi
+     paylaşır ve süzgeçler birbirine karışır (L-33 sınıfı). */
+  DB.projectSources.forEach(s => say(DB.refTypes.indexOf(s) === -1,
+    "'" + s + "' hem proje kaynağı hem satış kaynağı sözlüğünde — iki eksen karışıyor"));
+
+  console.log('  · kaynak dağılımı: ' + DB.projectSources
+    .map(s => s + ' ' + DB.projects.filter(p => p.kaynak === s).length).join(' · ') +
+    ' · sözleşmeli proje ' + DB.contracts.filter(c => c.proje).length + '/' + DB.projects.length);
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
