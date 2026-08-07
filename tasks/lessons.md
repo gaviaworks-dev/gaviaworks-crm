@@ -493,3 +493,21 @@ veri dosyalarına dokunuyor?"*
 ortak dersi aynı: *bağımlılık zinciri statik olarak taranmalı, çünkü kırıldığında
 gürültü çıkarmıyor.* L-34 üçünün en sinsisi — diğer ikisi **hata** üretir,
 bu **eksik sayı** üretir.
+
+**ÖLÇÜM EKSENİ AÇILDI (15. oturum): `tasks/qa/dep.js`.** Üç tekrardan (L-12 ·
+L-32 · L-34) sonra el denetimi bırakıldı — sözleşme `components.md` §6b'den
+**okunur**, hedef listesi `qa-lib.allScreens()`ten gelir, her ekranın çağırdığı
+yordamların veri dosyaları o ekranda aranır. Üç sınıf ihlal sayılır:
+(a) yordamın okuduğu veri dosyası yüklenmiyor · (b) `domain.js` yüklenmiyor ·
+(c) çağrılan yordamın §6b'de **satırı yok** — ölçülemeyen bağımlılık da ihlaldir,
+"veri okumaz" ise tabloya `—` ile yazılır. Bir çağrı kaynağı ekranın kendi
+markup'ı ile **yüklediği ortak js dosyasıdır**: `app-panel.html`'in
+`GV.proje.maliyet` bağımlılığı `dashboard.js` üzerinden geçişlidir ve elle
+denetimin göremediği yer tam olarak burasıydı.
+İlk koşum **142 ekran · 24 çağıran ekran · 46 çağrı · ihlal 1** (kalan tek ihlal
+`GV.delivery.kararlar`ın tablodaki eksik satırıydı, aynı turda kapandı).
+Araç beş olumsuz vakayla sınandı (L-24) ve **kendi ilk hükmünde yanıldı**:
+`app-proje-form.html`'in R03/R04 kararlarını anlatan `/* */` yorumlarındaki
+yordam adlarını çağrı sayıp üç sahte ihlal üretti (L-26'nın "bu hüküm hangi
+**sağlıklı** davranışı ihlal gösterir?" sorusu). Tarama artık yorumdan arınmış
+kaynağı okuyor.

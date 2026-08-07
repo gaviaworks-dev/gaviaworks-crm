@@ -364,6 +364,7 @@ GV.report({
 > |---|---|
 > | `GV.fin.*` | `crm.js` (`invoices` · `payments` · `customers`) · `work.js` (`milestones`) |
 > | `GV.delivery.approve` | `work.js` (`deliveries`) |
+> | `GV.delivery.kararlar` | — (sabit sözlük, hiçbir koleksiyon okumaz) |
 > | `GV.task.*` | `work.js` (`tasks` · `taskTransitions` · `taskStatuses` · `taskWaitReasons` · `priorities` · `activities`) · `org.js` (`employees`) |
 > | `GV.zaman.*` | `hr.js` (`timelogs` · `timesheets`) |
 > | `GV.proje.sure` | `work.js` (`projects` · `tasks`) · `hr.js` (`timelogs`) |
@@ -527,6 +528,7 @@ Uygulandığı ekranlar: `app-satinalma-teklif.html` (karşılaştırma matrisin
 | `qa.js "a.html,b.html" [rol]` | 1440/768/390 · konsol hatası · yatay taşma · sayfaya özel `<style>` · `href="#"` | `TEMİZ — hata yok, taşma yok` |
 | `canon.js` | 7 canonical eksen: müşteri kartı ↔ işlem · fatura ↔ tahsilat · komisyon ↔ yönlendiren · SLA politikası ↔ talep · bakım paketi ↔ talep · anket ↔ müşteri/talep · `slaDurum` ↔ hesap | `TEMİZ — N kontrol` |
 | `dbref.js` | Her ekranın okuduğu `DB.<koleksiyon>` ↔ yüklediği veri dosyası (lessons L-12) | `TEMİZ — N ekran` |
+| `dep.js` | **"Yordamın İÇERİDEN okuduğu koleksiyon bu ekranda yüklü mü?"** (L-34) — sözleşme §6b tablosundan **okunur**, elle yazılmaz; çağrı kaynağı ekranın markup'ı **ve yüklediği ortak js dosyasıdır** (`app-panel` → `dashboard.js` → `GV.proje.maliyet`). `dbref.js` bunu göremez: koleksiyon adı ekranda değil yordamın içinde geçer. İhlalin üç sınıfı: veri dosyası yüklenmiyor · `domain.js` yüklenmiyor · yordamın §6b'de satırı yok | `TEMİZ — N ekran, M çağrı` |
 | `links.js` | Kırık hedef · BUILT'te olmayan ekran · hayalet BUILT kaydı · yetim ekran. Üretilmemiş hedefleri **kuyruk** olarak listeler, hata saymaz | `TEMİZ` + kuyruk listesi |
 | `gate.js [roller]` | Tüm ekranlar × roller: konsol hatası, 403 sayımı, boş sayfa | `TEMİZ` |
 | `tabs.js "a.html" [roller]` | Detay ekranının **her sekmesini** tek tek tıklar, konsol hatası + boş aktif panel arar (L-12 sınıfı: açılış QA'si sekme içini göremez) | `TEMİZ — N sekme tıklaması` |
