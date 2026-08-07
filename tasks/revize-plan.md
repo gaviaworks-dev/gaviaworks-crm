@@ -5,6 +5,23 @@
 > Tek doğruluk kaynağı: [`tasks/revize-talimati.md`](revize-talimati.md).
 > Tur başlangıcı: **2026-08-07**, 13. oturum.
 
+## İlerleme — mekanik ölçüm
+
+İlerleme **başlıktaki damgadan değil, alt madde kutularından** okunur:
+
+```bash
+echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks/revize-plan.md)"
+```
+
+| Ölçüm | Değer |
+|---|---|
+| Alt madde | **138** |
+| İşaretli | **15** (R01 8/8 · R02 7/7 · R02 kuyruğu 0/2) |
+
+> Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
+> bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
+> `plan.md`'nin 295/295 defteri bu disiplinle tutulmuştu.
+
 ---
 
 ## 0. Turun kuralları
@@ -33,6 +50,9 @@ Bu turun kendi çalışma kuralları:
 - Aynı anda en fazla **dört ajan** (L-20). Ajan tek ekran yazar, commit atmaz;
   ortak katman lead'indir.
 - Ayrı concern = ayrı commit. Staged dosya doğrulanır, push edilir.
+- **Alt madde bitince aynı turn içinde işaretlenir.** İlerleme damgadan değil
+  kutudan okunur (yukarıdaki grep). Damga (`✅`/`🟡`) yalnız kutuların özetidir;
+  ikisi çeliştiğinde **kutu doğrudur**.
 
 ### Turun başındaki ölçüm tabanı
 
@@ -179,17 +199,17 @@ Sözlükten çıkacak 9 değer ve gerekçesi:
 
 **Yapılacaklar**
 
-- [ ] `DB.taskStatuses` → 10 değer: `Havuzda · Atandı · Devam ediyor · Kontrolde ·
+- [x] `DB.taskStatuses` → 10 değer: `Havuzda · Atandı · Devam ediyor · Kontrolde ·
       Revizede · Onay bekliyor · Tamamlandı · Engellendi · İptal edildi · Arşivlendi`
-- [ ] `DB.taskWaitReasons` sözlüğü aç: `Müşteri · Departman · Bilgi · Dosya ·
+- [x] `DB.taskWaitReasons` sözlüğü aç: `Müşteri · Departman · Bilgi · Dosya ·
       Teknik Karar · Yönetici Onayı · Diğer`
-- [ ] `DB.tasks[].beklemeNedeni` alanı (null'lanabilir) + `beklemeNotu`
-- [ ] Taşınan 3 kaydın durumu güncellensin, **aktivite kaydı yazılsın** (uydurma yok:
+- [x] `DB.tasks[].beklemeNedeni` alanı (null'lanabilir) + `beklemeNotu`
+- [x] Taşınan 3 kaydın durumu güncellensin, **aktivite kaydı yazılsın** (uydurma yok:
       taşıma gerçek bir işlem, `DB.activities`'e eski→yeni ile girer)
-- [ ] `Kontrol bekliyor` → `Kontrolde` yeniden adlandırma (1 kayıt + sözlük + tonlar)
-- [ ] `GV.badge` ton haritasında yeni sözlüğün karşılığı olsun, kalkan değerler çıksın
-- [ ] Liste ekranı **tasarımı değişmez**; sekme ve süzgeç kümesi yeni sözlükten beslenir
-- [ ] Görev detayı ve listesinde bekleme nedeni **badge'in yanında ikincil çip** olarak
+- [x] `Kontrol bekliyor` → `Kontrolde` yeniden adlandırma (1 kayıt + sözlük + tonlar)
+- [x] `GV.badge` ton haritasında yeni sözlüğün karşılığı olsun, kalkan değerler çıksın
+- [x] Liste ekranı **tasarımı değişmez**; sekme ve süzgeç kümesi yeni sözlükten beslenir
+- [x] Görev detayı ve listesinde bekleme nedeni **badge'in yanında ikincil çip** olarak
       görünsün (yeni satır/alan açılmaz)
 
 **Dokunulacak dosyalar:** `assets/data/work.js` · `assets/js/ui.js` (ton haritası) ·
@@ -251,22 +271,22 @@ karmaşıklaştırma."* Bugünkü tek geçiş yolu dropdown'dur.
 
 **Yapılacaklar**
 
-- [ ] `GV.task.transition(kod, hedef, ctx)` — `assets/js/domain.js`'e yeni yordam.
+- [x] `GV.task.transition(kod, hedef, ctx)` — `assets/js/domain.js`'e yeni yordam.
       Geçiş tablosunu **uygular**: hedef `next` içinde değilse reddeder · `yetki`
       ilişkisini oturumdan doğrular (`sorumlu`/`kontrolEden`/`onaylayan`/`pm` **rol
       değil ilişki** anahtarlarıdır) · `zorunlu` alanları kontrol eder · aktivite yazar
-- [ ] `GV.task.nextSteps(gorev)` — o kayıt + o oturum için **yapılabilir** geçişlerin
+- [x] `GV.task.nextSteps(gorev)` — o kayıt + o oturum için **yapılabilir** geçişlerin
       listesi. Aksiyon butonları buradan üretilir.
-- [ ] `DB.taskTransitions` yeni 10 değerli sözlüğe göre yeniden yazılsın; `Revizede`
+- [x] `DB.taskTransitions` yeni 10 değerli sözlüğe göre yeniden yazılsın; `Revizede`
       ve `Kontrolde` akışı dokümandaki gibi kurulsun:
       `Havuzda → Atandı → Devam ediyor → Kontrolde` · `Kontrolde → Revizede |
       Onay bekliyor | Tamamlandı` · `Revizede → Kontrolde`
-- [ ] Görev detayında **dropdown kalksın**, yerine mevcut buton diline uygun
+- [x] Görev detayında **dropdown kalksın**, yerine mevcut buton diline uygun
       aksiyon butonları: `Çalışmaya Başla · Kontrole Gönder · Revizeye Gönder ·
       Onayla · Tamamla · İptal Et`
-- [ ] `btnOnayla` / `btnRevize` de aynı yordamdan geçsin — üç yol, tek mutasyon
-- [ ] Zaman kaydı modalı `t.gercekSure`'ü **artırmasın** (R03 onu türetiyor)
-- [ ] `components.md` §6b'ye `GV.task.*` sözleşmesi
+- [x] `btnOnayla` / `btnRevize` de aynı yordamdan geçsin — üç yol, tek mutasyon
+- [x] Zaman kaydı modalı `t.gercekSure`'ü **artırmasın** (R03 onu türetiyor)
+- [x] `components.md` §6b'ye `GV.task.*` sözleşmesi
 
 **Dokunulacak dosyalar:** `assets/js/domain.js` · `assets/data/work.js` ·
 `app-gorev-detay.html` · `app-gorev.html` (toplu işlem) · `tasks/components.md`
