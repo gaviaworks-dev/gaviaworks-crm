@@ -13,9 +13,68 @@
 **`plan.md`'ye dokunulmaz.** O defter 295/295 ile kapandı; revize turunun maddeleri
 oraya eklenmez, yüzdesi bozulmaz.
 
-**Turun durumu:** Adım 0 (talimatın repoya alınması) ve Adım 1 (ölçüm + defter) bitti.
-20 maddenin 20'si ölçüldü: 6'sı hiç yok · 13'ü kısmen · 1'i neredeyse hazır.
-Sıradaki iş **FAZ 1** (R01–R04). Ayrıntı `revize-plan.md`'de.
+**Turun durumu (13. oturum sonu, 2026-08-07):**
+
+| Adım | Durum |
+|---|---|
+| Adım 0 — talimatı repoya al | ✅ `tasks/revize-talimati.md` |
+| Adım 1 — ölç + defter yaz | ✅ 20 maddenin 20'si ölçüldü · `tasks/revize-plan.md` |
+| **FAZ 1 · R01** görev durumlarını sadeleştir | ✅ **TAMAM** |
+| **FAZ 1 · R02** görev geçiş algoritması | ✅ **TAMAM** (iki küçük kuyruk maddesi açık, plana yazıldı) |
+| **FAZ 1 · R03** timesheet → gerçekleşen süre | 🟡 **görev düzeyi tamam**, proje düzeyi açık |
+| **FAZ 1 · R04** timesheet + gider → gerçek maliyet | ⬜ açık |
+| FAZ 2 · 3 · 4 | ⬜ açık — ölçümleri plana yazılı, uygulama başlamadı |
+
+**Tarama:** `canon.js` **2.929 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen →
+şimdi **26 eksen**). Yeni: **25** görev durumu/geçiş/bekleme · **26** zaman defteri
+↔ görev emeği. İkisi de kasıtlı bozulmuş bir kopyayla sınandı (L-24/L-27),
+scratchpad'de, repo dosyasına dokunulmadan.
+
+### Sıradaki oturum ne yapacak — sırayla
+
+**1. R03'ün proje ucu.** Alt uç (görev ↔ defter) kapandı; üst uç açık.
+   - `GV.zaman.onayla(timesheetKod)` → `domain.js`. **Bugün haftalık timesheet
+     onaylanınca alttaki `DB.timelogs[].onay` DEĞİŞMİYOR** (`app-zaman-onay.html:136`
+     yalnız `t.durum` yazıyor). Yani "onaylı zaman kaydı" iki farklı şey demek.
+     Tek onay ekseni kurulacak.
+   - `GV.proje.sure(kod)` → `{ planlanan, gerceklesen, faturalanabilir }`.
+   - Proje kartında üç değer (`app-proje.html:55` `kpis[]` — **yeni kart açılmaz**).
+   - `app-proje-detay.html:568` `faturalanabilirSaat` **tüm** kayıtları topluyor,
+     onaylı eksene çekilecek. `app-rapor-proje.html:702` açıklaması da düzelecek.
+   - `harcananSure` formdan kalkacak (`app-proje-form.html:559-560`); alan **kalır**,
+     beyan olarak — gerekçe **V-44**, canon eksen 26c `beyan ≥ defter` diyor.
+
+**2. R04.** `DB.employees[].icMaliyetSaat` (16/16) — ⚠️ `saatlikUcret`i doldurma:
+   `app-personel-form.html:146` `maas > 0` **XOR** `saatlikUcret > 0` kuralını
+   uyguluyor, kırarsın. Ayrı eksen aç. Katsayı `DB.company`'de yazılı sabit olsun.
+   Sonra `GV.proje.maliyet()` ve canon ekseni.
+
+**3. FAZ 2**'ye geç (R05 → R06 → R07 → R08 → R09 → R10).
+
+### Bu turda öğrenilen, tekrar etmemesi gereken üç şey
+
+1. **`domain.js` yedi ekranın hiçbirinde yüklü değildi.** `GV.task`/`GV.fin`
+   çağıran bir ekran `<script src="assets/js/domain.js">` taşımak zorunda —
+   yoksa tıklama anında patlar, **açılışta değil**, yani açılışa bakan QA görmez.
+   Yeni ekran `GV.*` domain yordamı çağıracaksa **önce script etiketi**.
+   (L-12'nin `GV.*` tarafındaki ikizi. Denetim tek satır:
+   `for f in app-*.html; do grep -q "GV\.\(fin\|delivery\|task\)\." $f && ! grep -q domain.js $f && echo $f; done`)
+2. **`GV.badge` ton haritası düz bir isim alanıdır.** Bir görev durumunu silerken
+   aynı adı kullanan **her koleksiyon** aranır. `Revize bekliyor`'u sildim, haftalık
+   timesheet reddi o değere düşüyordu ve rozet griye indi. Geri kondu.
+3. **Ekran metni ile menü etiketi ayrı yerlerde yaşıyor.** Liste sekmesi
+   "Kontroldekiler" olunca `shell.js:70` "Kontrol Bekleyenler" kaldı.
+
+### Ölçüm kaynağı
+
+> ⚠️ **`docs/G-veri-modeli.md` BAYAT** — tek commit'te yazıldı, sonra veri büyüdü.
+> `projects n=8` diyor, gerçek **14**; `tasks n=25` → **26**; `activities n=8` →
+> **200**; `timelogs n=45` → **53**. **Ölçüm kaynağı canlı veridir** (→ L-30).
+
+> ⚠️ **V2-03 ("`musteri` kapsamı backend ister") ölçümle yanlışlandı.** `GV.list`
+> `musteri` kapsamını zaten uyguluyor (`ui.js:600`); eksik olan `permMatrix.musteri.gor`
+> değeri (bugün `'kendi'`, `'musteri'` olmalı) ve `buildSession`'daki müşteri alanı —
+> ikisi de arayüz tarafı. R13'te kapatılacak (gerekçe `revize-plan.md` §G-2).
 
 > ⚠️ **`docs/G-veri-modeli.md` BAYAT** — tek commit'te yazıldı, sonra veri büyüdü.
 > `projects n=8` diyor, gerçek **14**; `tasks n=25` diyor, gerçek **26**;
