@@ -50,6 +50,23 @@ Bu turun kendi çalışma kuralları:
   kayıttan türetilir** ve kaynağı `aciklama` alanında yazılır.
 - Aynı anda en fazla **dört ajan** (L-20). Ajan tek ekran yazar, commit atmaz;
   ortak katman lead'indir.
+
+### Paralelleştirme planı (Beyar, 15. oturum — faz faz)
+
+| Faz | Lead (tek başına) | Ajana verilebilir | Gerekçe |
+|---|---|---|---|
+| **FAZ 2** — R09 · R10 | **hepsi** | — | ticket → görev / CR / fırsat **tek zincir**, üçü de `domain.js`'e dokunuyor |
+| **FAZ 3** — R11 · R12 · R13 | R11 · R12 | **R13** (müşteri portalı) | R11/R12 veri katmanına dokunuyor; R13'ün **kendi ekranları** var |
+| **FAZ 4** — R14…R20 | R15 · R16 · R18 | **DÖRTLÜ DALGA: R14 · R19 · R20** | R14/R19/R20 üç ayrı ekran kümesi, ortak katmana dokunmuyor; R15/R16/R18 **veri ve ayar ekranını paylaşıyor** |
+
+**Ajan kuralı (değişmez):** tek ekran yazar · ortak katmana (`ui.js` · `shell.js` ·
+`domain.js` · `tokens.css` · veri dosyaları) **dokunmaz** · `canon.js`'e eksen
+**eklemez** · commit atmaz · defter yazmaz. Eksen ihtiyacını **lead'e rapor eder**,
+ekseni lead yazar. Doğrulama ve commit lead'indir.
+
+**Tarayıcı taramaları tek tek koşar** — dalga bitince **topluca**, ajan başına
+değil. (Dört Playwright koşumunu art arda başlatmak 15. oturumda makinenin boş
+belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 - Ayrı concern = ayrı commit. Staged dosya doğrulanır, push edilir.
 - **Alt madde bitince aynı turn içinde işaretlenir.** İlerleme damgadan değil
   kutudan okunur (yukarıdaki grep). Damga (`✅`/`🟡`) yalnız kutuların özetidir;
