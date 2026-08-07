@@ -1154,6 +1154,76 @@ head('32) Proje → bakım paketi bağı (REVİZE 08)');
     ' (bağ kapanış akışında kurulur; veride yazılı bağ yok — uydurulmadı)');
 }
 
+/* ---------- 33. DESTEK TALEBİ ŞEMASI VE DURUM EKSENİ (REVİZE 09) ----------
+   Turun başında ticket durumu hiçbir sözlükte tanımlı değildi ve on iki yerde
+   elle yazılıydı. Bu eksen sözlüğü, yeni alanların iç tutarlılığını ve
+   `cozumTarihi`nin ALAN OLMADIĞINI (türetildiğini) kilitler. */
+head('33) Destek talebi şeması ve durum ekseni (REVİZE 09)');
+{
+  const T = DB.tickets;
+
+  /* 33a. Sözlükler var; her talebin durumu ve kanalı sözlükten. */
+  say(Array.isArray(DB.ticketStatuses) && DB.ticketStatuses.length === 7,
+    'DB.ticketStatuses 7 değerli değil');
+  say(Array.isArray(DB.ticketChannels) && DB.ticketChannels.length > 0, 'DB.ticketChannels yok');
+  say(Array.isArray(DB.ticketClosedStatuses) && DB.ticketClosedStatuses.length > 0,
+    'DB.ticketClosedStatuses yok — shell.js sayacı ile domain.js ayrışır');
+  (DB.ticketClosedStatuses || []).forEach(d => say(DB.ticketStatuses.indexOf(d) !== -1,
+    'kapalı durum ana sözlükte yok: ' + d));
+  T.forEach(t => {
+    say(DB.ticketStatuses.indexOf(t.durum) !== -1, t.kod + ' durum sözlükte yok: ' + t.durum);
+    say(!t.kanal || DB.ticketChannels.indexOf(t.kanal) !== -1, t.kod + ' kanal sözlükte yok: ' + t.kanal);
+  });
+
+  /* 33b. Şema tekdüze — yeni alanlar HER kayıtta tanımlı (VB-20 eki). */
+  ['kanal','aciklama','cozumAciklama','cozenPersonel','musteriOnay','kapanisTarihi']
+    .forEach(k => T.forEach(t => say(k in t, t.kod + " '" + k + "' alanı yok")));
+
+  /* 33c. `cozumTarihi` ALAN OLARAK DOĞMAMIŞ olmalı — `cozumSuresi` ile iki
+     defter tutmak L-08'in tam ihlali; ekran onu türetiyor. */
+  T.forEach(t => say(!('cozumTarihi' in t),
+    t.kod + " 'cozumTarihi' alanı doğmuş — cozumSuresi ile iki defter olur (L-08)"));
+
+  /* 33d. Çözüm/kapanış izi durumla çelişemez. */
+  const KAPALI = DB.ticketClosedStatuses || [];
+  T.forEach(t => {
+    if(t.cozumSuresi != null)
+      say(KAPALI.indexOf(t.durum) !== -1,
+        t.kod + ' çözüm süresi var ama durumu kapalı değil: ' + t.durum);
+    if(t.kapanisTarihi){
+      say(t.durum === 'Kapatıldı', t.kod + ' kapanış tarihi var ama durumu: ' + t.durum);
+      say(t.kapanisTarihi >= t.acilis, t.kod + ' kapanış açılıştan önce');
+      if(t.ilkYanit) say(t.kapanisTarihi >= t.ilkYanit, t.kod + ' kapanış ilk yanıttan önce');
+    }
+    if(t.cozenPersonel)
+      say(DB.employees.some(e => e.kod === t.cozenPersonel),
+        t.kod + ' çözen personel çözülmüyor: ' + t.cozenPersonel);
+    /* Kaynağı yazılı olmayan açıklama = uydurulmuş metin (L-13). */
+    if(t.aciklama) say(/türetildi/.test(t.aciklama), t.kod + ' açıklamanın kaynağı yazılı değil');
+    if(t.cozumAciklama) say(/türetildi/.test(t.cozumAciklama), t.kod + ' çözüm açıklamasının kaynağı yazılı değil');
+  });
+
+  /* 33e. `memnuniyet` ile `musteriOnay` AYRI eksenler — biri anket puanı,
+     öteki çözümün kabulü. Aynı alana iki eksen sığmaz (L-13). */
+  T.forEach(t => say(t.musteriOnay == null || ['Onaylandı','Bekliyor','Reddedildi'].indexOf(t.musteriOnay) !== -1,
+    t.kod + ' müşteri onayı sözlük dışı: ' + t.musteriOnay));
+
+  /* 33f. Aktivite kayıtlarındaki eski/yeni değerler de yeni sözlüğe taşındı —
+     yarım kalan yeniden adlandırma timeline'da eski adı yaşatır. */
+  const ESKI = ['Açık','Devam ediyor','Kapandı'];
+  DB.activities.filter(a => String(a.kayit).indexOf('DST-') === 0).forEach(a => {
+    say(ESKI.indexOf(a.eski) === -1, a.kayit + ' aktivitesi eski ada takılı: ' + a.eski);
+    say(ESKI.indexOf(a.yeni) === -1, a.kayit + ' aktivitesi eski ada takılı: ' + a.yeni);
+  });
+
+  const dag = {};
+  T.forEach(t => { dag[t.durum] = (dag[t.durum] || 0) + 1; });
+  console.log('  · durum dağılımı: ' + Object.keys(dag).map(k => k + ' ' + dag[k]).join(' · '));
+  console.log('  · yeni alan doluluğu: ' +
+    ['kanal','aciklama','cozumAciklama','cozenPersonel','musteriOnay','kapanisTarihi']
+      .map(k => k + ' ' + T.filter(t => t[k] != null).length + '/' + T.length).join(' · '));
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
