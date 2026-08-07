@@ -32,6 +32,43 @@ document.addEventListener('gv:ready', function(){
   var TODAY = DB.today;
   var canFinans = GV.perm.can('finans');
 
+  /* ================= REVİZE 13 — MÜŞTERİ OTURUMU KAPSAMI =================
+     Ajanda `panel` bölümündedir, müşteri rolüne AÇIKTIR — ama ekran sekiz
+     kaynaktan olay topluyor ve bunların yarısı şirketin iç işleyişidir.
+     Kapsam yazılmadan müşteri yetkilisi 26 görevin sorumlusunu, 17 faturanın
+     kodunu ve BAŞKA müşterilerin adını, sözleşme yenilemelerini, personel
+     izinlerini, araç muayenelerini ve doğum günlerini görüyordu.
+     Kural: `GV.session.musteri` doluysa ajanda YALNIZ o müşterinin kendi
+     kayıtlarını üretir. Bu bir görüntü süzgeci değil — iç kaynak blokları hiç
+     ÇALIŞMAZ, olay dizisine girmez. Böylece kaynak sekmesindeki sayı, KPI
+     şeridi ve gün sayacı da sızdıramaz.
+     Personel oturumunda (`musteri` null) hiçbir davranış değişmez. */
+  var oturumMusteri = (GV.session && GV.session.musteri) || null;
+  var benimProje = oturumMusteri
+    ? (DB.projects || []).filter(function(p){ return p.musteri === oturumMusteri; })
+        .map(function(p){ return p.kod; })
+    : [];
+
+  /* Kayıt müşteriye ait mi? Bağ ya kaydın kendi `musteri` alanından ya da
+     müşterinin projesinden gelir. İkisi de yoksa kayıt müşteriye AİT DEĞİLDİR
+     — tarihin yakın olması bağ sayılmaz. */
+  function benim(musKod, projKod){
+    if(!oturumMusteri) return true;
+    if(musKod && musKod === oturumMusteri) return true;
+    return !!projKod && benimProje.indexOf(projKod) !== -1;
+  }
+
+  /* Müşteriye KAPALI ekrana bağlantı basılmaz: toplantı listesi `toplanti`,
+     fatura ve sözleşme listeleri `finans` bölümündedir; müşteri bu bölümleri
+     görmez. Kaydın projesi varsa müşteriye açık olan proje ekranına bağlanır,
+     yoksa bağlantı hiç üretilmez — çalışmayan buton bırakmayız. */
+  function bag(href, lbl, projKod){
+    if(!oturumMusteri) return { href:href, lbl:lbl };
+    if(projKod && benimProje.indexOf(projKod) !== -1)
+      return { href:'app-proje-detay.html?id=' + projKod, lbl:'Projeyi aç' };
+    return { href:null, lbl:null };
+  }
+
   var AY_UZUN = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
   var DOW = ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
 
@@ -66,17 +103,27 @@ document.addEventListener('gv:ready', function(){
     { key:'sozlesme',  label:'Sözleşme yenilemeleri',   icon:'i-file-check',     tone:'info',   tekil:'Sözleşme yenileme' },
     { key:'ozel',      label:'Doğum günü ve yıldönümü', icon:'i-award',          tone:'ok',     tekil:'Özel gün' }
   ];
+  /* Müşteri oturumunda üretilmeyen kaynaklar sekme çubuğunda da durmaz —
+     sayacı sıfır duran bir sekme "burada kayıtlar var ama size kapalı" demektir,
+     bu da bir bilgidir. */
+  if(oturumMusteri) SRC = SRC.filter(function(s){
+    return ['toplanti','milestone','fatura','sozlesme'].indexOf(s.key) !== -1;
+  });
   function srcOf(k){ return SRC.filter(function(s){ return s.key === k; })[0] || SRC[0]; }
 
   var EV = [];
   function add(o){ o.id = 'E' + EV.length; EV.push(o); return o; }
 
-  /* 1 — Toplantılar (DB.meetings) */
-  (DB.meetings || []).filter(function(m){ return m.aktif !== false; }).forEach(function(m){
+  /* 1 — Toplantılar (DB.meetings) — müşteri oturumunda kendi toplantıları:
+         kayıttaki müşteri kodu ya da toplantının projesi üzerinden. */
+  (DB.meetings || []).filter(function(m){
+    return m.aktif !== false && benim(m.musteri, m.proje);
+  }).forEach(function(m){
+    var b = bag('app-toplanti.html', 'Toplantı kaydını aç', m.proje);
     add({
       src:'toplanti', d:String(m.tarih).slice(0,10), saat:String(m.tarih).slice(11,16),
       title:m.ad, tone:'accent', kod:m.kod, badge:m.durum,
-      href:'app-toplanti.html', hrefLbl:'Toplantı kaydını aç',
+      href:b.href, hrefLbl:b.lbl,
       rows:[
         ['Toplantı türü', esc(m.tur)],
         ['Durum', GV.badge(m.durum)],
@@ -91,29 +138,37 @@ document.addEventListener('gv:ready', function(){
     });
   });
 
-  /* 2 — Görev terminleri (DB.tasks.termin) */
-  (DB.tasks || []).filter(function(t){ return t.aktif !== false && t.termin; }).forEach(function(t){
-    var bitti = ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) !== -1;
-    var gecikti = !bitti && F.days(t.termin) < 0;
-    add({
-      src:'gorev', d:t.termin, saat:null, title:t.baslik,
-      tone: bitti ? 'ok' : (gecikti ? 'danger' : 'info'), kod:t.kod, badge:t.durum,
-      href:'app-gorev-detay.html?id=' + t.kod, hrefLbl:'Görev detayını aç',
-      rows:[
-        ['Görev türü', esc(t.tur)],
-        ['Durum', GV.badge(t.durum)],
-        ['Öncelik', GV.pri(t.oncelik)],
-        ['Termin', GV.dateCell(t.termin, { done:bitti })],
-        ['Sorumlu', GV.user(t.sorumlu, { sm:true })],
-        ['Proje', projName(t.proje) ? esc(projName(t.proje)) : null],
-        ['Müşteri', custName(t.musteri) ? esc(custName(t.musteri)) : null],
-        ['İlerleme', GV.progress(t.ilerleme)]
-      ]
+  /* 2 — Görev terminleri (DB.tasks.termin) — İÇ İŞ.
+         Müşteri oturumunda blok hiç çalışmaz: görev kaydı sorumlu personeli,
+         iç önceliği ve müşterinin projesinde olmayan işleri taşır. Müşterinin
+         kendi projesindeki görev bile ona iç iş dağılımını gösterir. */
+  if(!oturumMusteri){
+    (DB.tasks || []).filter(function(t){ return t.aktif !== false && t.termin; }).forEach(function(t){
+      var bitti = ['Tamamlandı','İptal edildi','Arşivlendi'].indexOf(t.durum) !== -1;
+      var gecikti = !bitti && F.days(t.termin) < 0;
+      add({
+        src:'gorev', d:t.termin, saat:null, title:t.baslik,
+        tone: bitti ? 'ok' : (gecikti ? 'danger' : 'info'), kod:t.kod, badge:t.durum,
+        href:'app-gorev-detay.html?id=' + t.kod, hrefLbl:'Görev detayını aç',
+        rows:[
+          ['Görev türü', esc(t.tur)],
+          ['Durum', GV.badge(t.durum)],
+          ['Öncelik', GV.pri(t.oncelik)],
+          ['Termin', GV.dateCell(t.termin, { done:bitti })],
+          ['Sorumlu', GV.user(t.sorumlu, { sm:true })],
+          ['Proje', projName(t.proje) ? esc(projName(t.proje)) : null],
+          ['Müşteri', custName(t.musteri) ? esc(custName(t.musteri)) : null],
+          ['İlerleme', GV.progress(t.ilerleme)]
+        ]
+      });
     });
-  });
+  }
 
-  /* 3 — Kilometre taşları / proje teslimleri (DB.milestones) */
-  (DB.milestones || []).forEach(function(m){
+  /* 3 — Kilometre taşları / proje teslimleri (DB.milestones)
+         Müşteri oturumunda kapsam projeden gelir: kilometre taşı kaydında
+         müşteri alanı yok, projesinde yazılı. Kendi projesinin teslim takvimi
+         müşterinin görmesi gereken şeydir — bağlantısı da açık kalır. */
+  (DB.milestones || []).filter(function(m){ return benim(null, m.proje); }).forEach(function(m){
     add({
       src:'milestone', d:m.tarih, saat:null, title:m.ad,
       tone: m.durum === 'Tamamlandı' ? 'ok' : (m.durum === 'Gecikti' ? 'danger' : 'warn'),
@@ -129,76 +184,90 @@ document.addEventListener('gv:ready', function(){
     });
   });
 
-  /* 4 — Personel izinleri (DB.leaves, baslangic..bitis aralığı günlere açılır) */
-  (DB.leaves || []).filter(function(l){ return l.aktif !== false && l.durum !== 'Reddedildi'; }).forEach(function(l){
-    var gunler = [], ds = l.baslangic, guard = 0;
-    while(ds <= l.bitis && guard++ < 120){ gunler.push(ds); ds = addDays(ds, 1); }
-    gunler.forEach(function(g, i){
+  /* 4 — Personel izinleri (DB.leaves, baslangic..bitis aralığı günlere açılır)
+         KİŞİSEL VERİ. Müşteri oturumunda blok hiç çalışmaz: kimin ne zaman,
+         hangi gerekçeyle izinli olduğu müşteriyi ilgilendirmez (KVKK). */
+  if(!oturumMusteri){
+    (DB.leaves || []).filter(function(l){ return l.aktif !== false && l.durum !== 'Reddedildi'; }).forEach(function(l){
+      var gunler = [], ds = l.baslangic, guard = 0;
+      while(ds <= l.bitis && guard++ < 120){ gunler.push(ds); ds = addDays(ds, 1); }
+      gunler.forEach(function(g, i){
+        add({
+          src:'izin', d:g, saat:null,
+          title: DB.empName(l.personel) + ' — ' + l.tur + (gunler.length > 1 ? ' (' + (i + 1) + '/' + gunler.length + ')' : ''),
+          tone: l.durum === 'Onaylandı' ? 'ok' : 'warn', kod:l.kod, badge:l.durum,
+          href:'app-izin.html', hrefLbl:'İzin listesini aç',
+          rows:[
+            ['Personel', GV.user(l.personel, { sm:true })],
+            ['İzin türü', esc(l.tur)],
+            ['Durum', GV.badge(l.durum)],
+            ['Başlangıç', F.date(l.baslangic)],
+            ['Bitiş', F.date(l.bitis)],
+            ['Toplam gün', '<b>' + l.gun + '</b>'],
+            ['Vekil', l.vekil ? GV.user(l.vekil, { sm:true }) : null],
+            ['Gerekçe', esc(l.gerekce)],
+            ['Onaylayan', GV.user(l.onaylayan, { sm:true })]
+          ]
+        });
+      });
+    });
+  }
+
+  /* 5 — Araç muayene ve sigorta/kasko yenilemeleri (DB.inspections + DB.policies)
+         ŞİRKET İÇİ VARLIK. Müşteri oturumunda blok hiç çalışmaz — şirketin
+         filosu, plakası, poliçe primi müşterinin ajandasında işi yoktur. */
+  if(!oturumMusteri){
+    (DB.inspections || []).filter(function(x){ return x.aktif !== false && x.sonrakiTarih; }).forEach(function(x){
       add({
-        src:'izin', d:g, saat:null,
-        title: DB.empName(l.personel) + ' — ' + l.tur + (gunler.length > 1 ? ' (' + (i + 1) + '/' + gunler.length + ')' : ''),
-        tone: l.durum === 'Onaylandı' ? 'ok' : 'warn', kod:l.kod, badge:l.durum,
-        href:'app-izin.html', hrefLbl:'İzin listesini aç',
+        src:'arac', d:x.sonrakiTarih, saat:null, title:vehPlate(x.arac) + ' — muayene son tarihi',
+        tone:'danger', kod:x.kod, badge:x.durum,
+        href:'app-arac-muayene.html', hrefLbl:'Muayene listesini aç',
         rows:[
-          ['Personel', GV.user(l.personel, { sm:true })],
-          ['İzin türü', esc(l.tur)],
-          ['Durum', GV.badge(l.durum)],
-          ['Başlangıç', F.date(l.baslangic)],
-          ['Bitiş', F.date(l.bitis)],
-          ['Toplam gün', '<b>' + l.gun + '</b>'],
-          ['Vekil', l.vekil ? GV.user(l.vekil, { sm:true }) : null],
-          ['Gerekçe', esc(l.gerekce)],
-          ['Onaylayan', GV.user(l.onaylayan, { sm:true })]
+          ['Araç', esc(vehName(x.arac))],
+          ['Durum', GV.badge(x.durum)],
+          ['Geçerlilik', F.date(x.gecerlilik)],
+          ['Son muayene', F.date(x.sonTarih)],
+          ['Sonuç', esc(x.sonuc)],
+          ['Kusur', x.kusur ? esc(x.kusur) : null],
+          ['İstasyon', esc(x.istasyon)],
+          ['Kalan gün', '<b>' + x.kalanGun + '</b>']
         ]
       });
     });
-  });
-
-  /* 5 — Araç muayene ve sigorta/kasko yenilemeleri (DB.inspections + DB.policies) */
-  (DB.inspections || []).filter(function(x){ return x.aktif !== false && x.sonrakiTarih; }).forEach(function(x){
-    add({
-      src:'arac', d:x.sonrakiTarih, saat:null, title:vehPlate(x.arac) + ' — muayene son tarihi',
-      tone:'danger', kod:x.kod, badge:x.durum,
-      href:'app-arac-muayene.html', hrefLbl:'Muayene listesini aç',
-      rows:[
-        ['Araç', esc(vehName(x.arac))],
-        ['Durum', GV.badge(x.durum)],
-        ['Geçerlilik', F.date(x.gecerlilik)],
-        ['Son muayene', F.date(x.sonTarih)],
-        ['Sonuç', esc(x.sonuc)],
-        ['Kusur', x.kusur ? esc(x.kusur) : null],
-        ['İstasyon', esc(x.istasyon)],
-        ['Kalan gün', '<b>' + x.kalanGun + '</b>']
-      ]
+    (DB.policies || []).filter(function(p){ return p.aktif !== false && p.bitis; }).forEach(function(p){
+      add({
+        src:'arac', d:p.bitis, saat:null, title:vehPlate(p.arac) + ' — ' + p.tur + ' yenileme',
+        tone:'danger', kod:p.kod, badge:p.yenileme && p.yenileme !== '—' ? p.yenileme : null,
+        href:'app-arac-sigorta.html', hrefLbl:'Poliçe listesini aç',
+        rows:[
+          ['Araç', esc(vehName(p.arac))],
+          ['Poliçe türü', esc(p.tur)],
+          ['Sigorta şirketi', esc(p.sirket)],
+          ['Poliçe no', esc(p.police)],
+          ['Başlangıç', F.date(p.baslangic)],
+          ['Bitiş', F.date(p.bitis)],
+          ['Prim', money(p.prim)],
+          ['Yenileme durumu', esc(p.yenileme)],
+          ['Acente', esc(p.acente)],
+          ['Kalan gün', '<b>' + p.kalanGun + '</b>']
+        ]
+      });
     });
-  });
-  (DB.policies || []).filter(function(p){ return p.aktif !== false && p.bitis; }).forEach(function(p){
-    add({
-      src:'arac', d:p.bitis, saat:null, title:vehPlate(p.arac) + ' — ' + p.tur + ' yenileme',
-      tone:'danger', kod:p.kod, badge:p.yenileme && p.yenileme !== '—' ? p.yenileme : null,
-      href:'app-arac-sigorta.html', hrefLbl:'Poliçe listesini aç',
-      rows:[
-        ['Araç', esc(vehName(p.arac))],
-        ['Poliçe türü', esc(p.tur)],
-        ['Sigorta şirketi', esc(p.sirket)],
-        ['Poliçe no', esc(p.police)],
-        ['Başlangıç', F.date(p.baslangic)],
-        ['Bitiş', F.date(p.bitis)],
-        ['Prim', money(p.prim)],
-        ['Yenileme durumu', esc(p.yenileme)],
-        ['Acente', esc(p.acente)],
-        ['Kalan gün', '<b>' + p.kalanGun + '</b>']
-      ]
-    });
-  });
+  }
 
-  /* 6 — Fatura vadeleri (DB.invoices.vade) */
-  (DB.invoices || []).filter(function(f){ return f.aktif !== false && f.vade; }).forEach(function(f){
+  /* 6 — Fatura vadeleri (DB.invoices.vade)
+         Müşterinin KENDİ faturasının vadesini görmesi meşrudur, başkasınınki
+         değil: kapsam kaydın müşteri kodundan, o yoksa faturanın projesinden
+         kurulur. Tutarlar zaten `finans` yetkisiyle maskeli. */
+  (DB.invoices || []).filter(function(f){
+    return f.aktif !== false && f.vade && benim(f.musteri, f.proje);
+  }).forEach(function(f){
+    var b = bag('app-fatura.html', 'Fatura listesini aç', f.proje);
     add({
       src:'fatura', d:f.vade, saat:null, title:f.kod + ' · ' + f.musteriAd,
       tone: f.durum === 'Ödendi' ? 'ok' : (f.durum === 'Gecikti' ? 'danger' : 'warn'),
       kod:f.kod, badge:f.durum,
-      href:'app-fatura.html', hrefLbl:'Fatura listesini aç',
+      href:b.href, hrefLbl:b.lbl,
       rows:[
         ['Müşteri', esc(f.musteriAd)],
         ['Durum', GV.badge(f.durum)],
@@ -213,12 +282,17 @@ document.addEventListener('gv:ready', function(){
     });
   });
 
-  /* 7 — Sözleşme yenilemeleri (DB.contracts.yenilemeTarihi) */
-  (DB.contracts || []).filter(function(c){ return c.aktif !== false && c.yenileme && c.yenilemeTarihi; }).forEach(function(c){
+  /* 7 — Sözleşme yenilemeleri (DB.contracts.yenilemeTarihi)
+         Müşteri kendi sözleşmesinin yenileme tarihini görür — bu onun da
+         takvimidir. Başka müşterilerin yenileme tarihi ticari bilgidir. */
+  (DB.contracts || []).filter(function(c){
+    return c.aktif !== false && c.yenileme && c.yenilemeTarihi && benim(c.musteri, c.proje);
+  }).forEach(function(c){
+    var b = bag('app-sozlesme.html', 'Sözleşme listesini aç', c.proje);
     add({
       src:'sozlesme', d:c.yenilemeTarihi, saat:null, title:c.ad + ' — yenileme',
       tone:'info', kod:c.kod, badge:c.durum,
-      href:'app-sozlesme.html', hrefLbl:'Sözleşme listesini aç',
+      href:b.href, hrefLbl:b.lbl,
       rows:[
         ['Müşteri', esc(c.musteriAd)],
         /* REVİZE 12 — yenilemeyi takip eden kişi ajandada da yazılı. */
@@ -235,45 +309,49 @@ document.addEventListener('gv:ready', function(){
   });
 
   /* 8 — Doğum günü ve işe giriş yıldönümü (DB.employees.dogum / girisTarihi)
-         Yıllık tekrar eden olaylar: görüntülenen eksen için ±1 yıl üretilir. */
-  var yil0 = parseInt(TODAY.slice(0,4), 10);
-  (DB.employees || []).filter(function(e){ return e.aktif !== false; }).forEach(function(e){
-    [-1, 0, 1].forEach(function(off){
-      var y = yil0 + off;
-      if(e.dogum){
-        add({
-          src:'ozel', d:y + '-' + e.dogum.slice(5), saat:null, title:e.ad + ' — doğum günü',
-          tone:'ok', kod:e.kod, badge:null,
-          href:'app-personel.html', hrefLbl:'Personel listesini aç',
-          rows:[
-            ['Personel', GV.user(e.kod, { sm:true })],
-            ['Pozisyon', esc(e.pozisyon)],
-            ['Departman', esc(e.depAd)],
-            ['Yaş', '<b>' + (y - parseInt(e.dogum.slice(0,4), 10)) + '</b>'],
-            ['Lokasyon', esc(e.lokasyon)]
-          ]
-        });
-      }
-      if(e.girisTarihi){
-        var kacinci = y - parseInt(e.girisTarihi.slice(0,4), 10);
-        if(kacinci >= 1){
+         Yıllık tekrar eden olaylar: görüntülenen eksen için ±1 yıl üretilir.
+         KİŞİSEL VERİ + ŞİRKET İÇİ KUTLAMA. Müşteri oturumunda blok hiç
+         çalışmaz — doğum tarihi ve kıdem müşteriye açılacak bilgi değildir. */
+  if(!oturumMusteri){
+    var yil0 = parseInt(TODAY.slice(0,4), 10);
+    (DB.employees || []).filter(function(e){ return e.aktif !== false; }).forEach(function(e){
+      [-1, 0, 1].forEach(function(off){
+        var y = yil0 + off;
+        if(e.dogum){
           add({
-            src:'ozel', d:y + '-' + e.girisTarihi.slice(5), saat:null,
-            title:e.ad + ' — ' + kacinci + '. iş yıldönümü',
+            src:'ozel', d:y + '-' + e.dogum.slice(5), saat:null, title:e.ad + ' — doğum günü',
             tone:'ok', kod:e.kod, badge:null,
             href:'app-personel.html', hrefLbl:'Personel listesini aç',
             rows:[
               ['Personel', GV.user(e.kod, { sm:true })],
               ['Pozisyon', esc(e.pozisyon)],
               ['Departman', esc(e.depAd)],
-              ['İşe giriş', F.date(e.girisTarihi)],
-              ['Kıdem', '<b>' + kacinci + ' yıl</b>']
+              ['Yaş', '<b>' + (y - parseInt(e.dogum.slice(0,4), 10)) + '</b>'],
+              ['Lokasyon', esc(e.lokasyon)]
             ]
           });
         }
-      }
+        if(e.girisTarihi){
+          var kacinci = y - parseInt(e.girisTarihi.slice(0,4), 10);
+          if(kacinci >= 1){
+            add({
+              src:'ozel', d:y + '-' + e.girisTarihi.slice(5), saat:null,
+              title:e.ad + ' — ' + kacinci + '. iş yıldönümü',
+              tone:'ok', kod:e.kod, badge:null,
+              href:'app-personel.html', hrefLbl:'Personel listesini aç',
+              rows:[
+                ['Personel', GV.user(e.kod, { sm:true })],
+                ['Pozisyon', esc(e.pozisyon)],
+                ['Departman', esc(e.depAd)],
+                ['İşe giriş', F.date(e.girisTarihi)],
+                ['Kıdem', '<b>' + kacinci + ' yıl</b>']
+              ]
+            });
+          }
+        }
+      });
     });
-  });
+  }
 
   var BYDAY = {};
   EV.forEach(function(e){ (BYDAY[e.d] = BYDAY[e.d] || []).push(e); });
@@ -351,7 +429,11 @@ document.addEventListener('gv:ready', function(){
       title: state.v === 'gun' ? 'Bu günde olay yok' : 'Bu dönemde olay yok',
       desc: state.off.length
         ? 'Seçili kaynak filtreleri bu dönemdeki tüm olayları gizliyor. Filtreleri temizleyip tekrar bakabilirsiniz.'
-        : 'Bu dönem için planlanmış toplantı, termin, yenileme veya izin kaydı bulunmuyor.',
+        /* Boş durum metni de kapsamı yansıtır: müşteriye görmediği kaynakları
+           (termin · izin) saymayız, yoksa "izin kaydım mı vardı" diye düşünür. */
+        : oturumMusteri
+          ? 'Bu dönem için planlanmış toplantı, proje teslimi, fatura vadesi veya sözleşme yenilemesi bulunmuyor.'
+          : 'Bu dönem için planlanmış toplantı, termin, yenileme veya izin kaydı bulunmuyor.',
       action:acik
     }) + '</div>';
   }
@@ -452,7 +534,24 @@ document.addEventListener('gv:ready', function(){
     var ufuk = addDays(TODAY, 60);
     var say = function(fn){ return EV.filter(fn).length; };
 
-    var k = [
+    /* KPI de bir sızıntı yüzeyidir: "bu hafta 9 terminli görev" müşteriye iç
+       iş hacmini, "3 yaklaşan araç yenilemesi" filoyu söyler. Müşteri
+       oturumunda şerit kendi olay kümesinden kurulur ve yalnız müşteriye AÇIK
+       ekrana bağlanır — kapalı ekrana giden kart bağlantısız basılır. */
+    var k = oturumMusteri ? [
+      { tone:'accent', icon:'i-users', href:null, lbl:'Bu ay toplantınız',
+        n:say(function(e){ return e.src === 'toplanti' && e.d >= ayBas && e.d <= ayBit; }),
+        meta:AY_UZUN[parseInt(ayBas.slice(5,7), 10) - 1] + ' ' + ayBas.slice(0,4) },
+      { tone:'warn', icon:'i-milestone', href:'app-proje-milestone.html', lbl:'Bu ay proje teslimi',
+        n:say(function(e){ return e.src === 'milestone' && e.d >= ayBas && e.d <= ayBit; }),
+        meta:AY_UZUN[parseInt(ayBas.slice(5,7), 10) - 1] + ' ' + ayBas.slice(0,4) },
+      { tone:'danger', icon:'i-receipt', href:null, lbl:'Yaklaşan fatura vadesi',
+        n:say(function(e){ return e.src === 'fatura' && e.d >= TODAY && e.d <= ufuk; }),
+        meta:'Önümüzdeki 60 gün' },
+      { tone:'info', icon:'i-file-check', href:null, lbl:'Yaklaşan sözleşme yenilemesi',
+        n:say(function(e){ return e.src === 'sozlesme' && e.d >= TODAY && e.d <= ufuk; }),
+        meta:'Önümüzdeki 60 gün' }
+    ] : [
       { tone:'accent', icon:'i-users', href:'app-toplanti.html', lbl:'Bu ay toplantı',
         n:say(function(e){ return e.src === 'toplanti' && e.d >= ayBas && e.d <= ayBit; }),
         meta:AY_UZUN[parseInt(ayBas.slice(5,7), 10) - 1] + ' ' + ayBas.slice(0,4) },
@@ -468,11 +567,13 @@ document.addEventListener('gv:ready', function(){
     ];
 
     kpiHost.innerHTML = k.map(function(x){
-      return '<a class="kpi is-' + x.tone + '" href="' + x.href + '">' +
-        '<div class="kpi-ico">' + ico(x.icon,'ic-lg') + '</div>' +
+      var govde = '<div class="kpi-ico">' + ico(x.icon,'ic-lg') + '</div>' +
         '<div class="kpi-body"><div class="kpi-num">' + F.num(x.n) + '</div>' +
         '<div class="kpi-lbl">' + esc(x.lbl) + '</div>' +
-        '<div class="kpi-meta is-flat">' + ico('i-clock','ic-sm') + esc(x.meta) + '</div></div></a>';
+        '<div class="kpi-meta is-flat">' + ico('i-clock','ic-sm') + esc(x.meta) + '</div></div>';
+      return x.href
+        ? '<a class="kpi is-' + x.tone + '" href="' + x.href + '">' + govde + '</a>'
+        : '<div class="kpi is-' + x.tone + '">' + govde + '</div>';
     }).join('');
   }
 
@@ -503,10 +604,25 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* ================= Render ============================================== */
+  /* Kapsam SESSİZ uygulanmaz (L-23): müşteri eksik takvim görüp "toplantım
+     kaydolmamış" sanmamalı, neyin gösterildiğini ve neyin gösterilmediğini
+     bilmeli. */
+  function kapsamNotu(){
+    if(!oturumMusteri) return '';
+    return '<div class="gc-body">' + GV.notice({
+      tone:'info', icon:'i-shield',
+      title:'Yalnız size ait kayıtlar gösteriliyor',
+      text:'Ajanda ' + ((GV.session && GV.session.musteriAd) || 'firmanızın') +
+           ' toplantıları, proje teslimleri, fatura vadeleri ve sözleşme yenilemeleriyle sınırlıdır; ' +
+           'iç görev terminleri, personel izinleri ve şirket içi kayıtlar bu görünümde yer almaz.'
+    }) + '</div>';
+  }
+
   function render(){
     syncURL();
     var p = period();
-    mount.innerHTML = ust() + (state.v === 'ay' ? ayGorunum() : state.v === 'hafta' ? haftaGorunum() : gunGorunum());
+    mount.innerHTML = kapsamNotu() + ust() +
+      (state.v === 'ay' ? ayGorunum() : state.v === 'hafta' ? haftaGorunum() : gunGorunum());
     GV.chipbar(mount);
     var sub = document.querySelector('.gv-page-head [data-listcount]');
     if(sub) sub.textContent = p.label + ' · ' + rangeEvents(p.from, p.to).length + ' olay gösteriliyor';
@@ -516,10 +632,14 @@ document.addEventListener('gv:ready', function(){
   GV.pageHead({
     eyebrow:'Ana Panel', title:'Ajanda',
     sub:'—',
-    actions:[
-      { label:'Toplantılar', icon:'i-users', href:'app-toplanti.html' },
+    /* Toplantı listesi `toplanti` bölümündedir, müşteri o bölümü görmez —
+       müşteri oturumunda kısayol açık olan proje listesine bakar. */
+    actions:(oturumMusteri
+      ? [{ label:'Projelerim', icon:'i-briefcase', href:'app-proje.html' }]
+      : [{ label:'Toplantılar', icon:'i-users', href:'app-toplanti.html' }]
+    ).concat([
       { label:'Yazdır', icon:'i-printer', cls:'btn-acc', id:'btnYazdir' }
-    ]
+    ])
   });
 
   var yaz = document.getElementById('btnYazdir');

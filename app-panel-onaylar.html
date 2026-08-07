@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="assets/css/ui.css">
 </head>
 <body data-sec="panel" data-screen="onaylar">
+<div id="kapsamNot"></div>
 <div id="liste"></div>
 
 <script src="assets/data/org.js"></script>
@@ -23,14 +24,69 @@
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* REVİZE 13 — MÜŞTERİ KAPSAMI.
+     `DB.approvals` şirketin İÇ onay kuyruğudur: timesheet · izin · komisyon ·
+     satın alma · teklif iç onayı… Müşteri oturumunda 12 onayın tamamı
+     listeleniyordu; tutarlar `finans` maskesiyle gizliydi ama SATIRLAR değildi.
+     Müşterinin bu kuyrukta taraf olduğu tek kalem KENDİ ONAYINI BEKLEYEN
+     TESLİMdir (dokümandaki "Bekleyen onaylar" kalemi budur, shell sayacı da
+     aynı tanımı kullanır: `deliveries.musteriOnay === 'Bekliyor'`).
+     Kapsam yalnız müşteri oturumunda bildirilir: personel rollerinin
+     (`kendi` · `departman` · `proje`) bu ekranda bugün de süzgeci yok, eşleme
+     yazılmadan `scopeField` bildirmek onlara kapsam çubuğu bastırırdı. */
+  var musKapsam = GV.perm.scope('gor') === 'musteri';
+  var musKod    = (GV.session || {}).musteri;
+
+  /* Onayın müşterisi onay kaydında YAZILI DEĞİL — `kayit` alanı onayın hangi
+     kayda ait olduğunu söyler (SAT-* · IZN-* · TSL-* …), müşteri o kaydın
+     projesinde yazılıdır. Teslim kaydına bağlanmayan her onay türü müşteri
+     oturumunda listeden düşer (null döner).
+     ÖLÇÜM (2026-08-07): `DB.approvals` içinde TSL-* kaydına bağlı onay YOK →
+     müşteri oturumunda liste bugün 0 satırdır. Satır uydurulmaz; veriye teslim
+     onayı yazıldığı gün bu yordam onu kendiliğinden geçirir. */
+  function onayMusterisi(x){
+    var t = (DB.deliveries || []).filter(function(d){ return d.kod === x.kayit; })[0];
+    if(!t) return null;
+    var p = DB.proj(t.proje);
+    return p ? p.musteri : null;
+  }
+
+  /* Boş durumun DÜRÜST olması için sayı veriden ölçülür — müşterinin onayını
+     bekleyen teslimler `app-proje-teslim.html`de yaşıyor, onay kuyruğunda değil. */
+  function bekleyenTeslim(){
+    if(!musKod) return [];
+    var pk = (DB.projects || []).filter(function(p){ return p.musteri === musKod; })
+              .map(function(p){ return p.kod; });
+    return (DB.deliveries || []).filter(function(d){
+      return pk.indexOf(d.proje) !== -1 && d.musteriOnay === 'Bekliyor'; });
+  }
+  var teslimSayi = musKapsam ? bekleyenTeslim().length : 0;
+
   GV.pageHead({ eyebrow:'Gündem', title:'Bekleyen Onaylar',
-    actions:[{ label:'Onay Akışları', icon:'i-sliders', href:'app-ayar-onay.html' },
-             { label:'Bildirimler', icon:'i-bell', cls:'btn-acc', href:'app-panel-bildirimler.html' }] });
+    /* Müşteri oturumunda iç ekranlara (onay akışı ayarı · iç bildirim akışı)
+       düğme bırakılmaz — ikisi de bu role kapalı. */
+    actions:musKapsam
+      ? [{ label:'Teslimler', icon:'i-package', cls:'btn-acc', href:'app-proje-teslim.html' }]
+      : [{ label:'Onay Akışları', icon:'i-sliders', href:'app-ayar-onay.html' },
+         { label:'Bildirimler', icon:'i-bell', cls:'btn-acc', href:'app-panel-bildirimler.html' }] });
+
+  /* Süzme SESSİZ olmaz (L-23): müşteri neyi görmediğini de bilir. */
+  if(musKapsam){
+    document.getElementById('kapsamNot').innerHTML = GV.notice({
+      tone:'info', icon:'i-shield',
+      title:'Yalnız sizin onayınızı bekleyen kayıtlar',
+      text:'Bu ekranda size ait onay kalemleri listelenir; şirket içi onay kuyruğu gösterilmez.'
+    });
+  }
+
   GV.list({
     mount:'#liste', id:'onaylar', key:'kod', source:function(){ return DB.approvals; },
     exportName:'bekleyen-onaylar', exportTitle:'Bekleyen Onaylar', pageSize:25, archive:false,
     search:{ placeholder:'Onay no, kayıt, başlık veya tür ara', fields:['kod','tur','kayit','baslik'] },
     defaultSort:'tarih',
+    /* Eşleme bir ALAN ADI değil YORDAM: kapsam alanı kayıtta yazılı değil. */
+    scopeField:musKapsam ? { musteri:onayMusterisi } : null,
     kpis:[
       { label:'Bekleyen onay', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Bekliyor'; }).length; } },
       { label:'Kritik aciliyet', icon:'i-alert', tone:'danger',
@@ -42,7 +98,15 @@ document.addEventListener('gv:ready', function(){
         calc:function(a){ var b = a.filter(function(x){ return x.durum === 'Bekliyor'; });
           return b.length ? Math.max.apply(null, b.map(function(x){ return Math.abs(F.days(x.tarih)); })) : 0; } }
     ],
-    tabs:[
+    /* Sekmeler onay TÜRÜ ekseninde kırılır; müşteri oturumunda o türlerin hepsi
+       kapsam dışı kaldığı için sekme de basılmaz — boş sekme iç kuyruğun
+       taksonomisini (izin · satın alma · timesheet) ele verirdi. Kalan üç sekme
+       durum eksenlidir. */
+    tabs:musKapsam ? [
+      { key:'bekleyen', label:'Bekleyenler', icon:'i-stamp', filter:function(x){ return x.durum === 'Bekliyor'; } },
+      { key:'sonuc', label:'Sonuçlananlar', icon:'i-check-circle', filter:function(x){ return x.durum !== 'Bekliyor'; } },
+      { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
+    ] : [
       { key:'bekleyen', label:'Bekleyenler', icon:'i-stamp', filter:function(x){ return x.durum === 'Bekliyor'; } },
       { key:'satinalma', label:'Satın Alma', icon:'i-cart', filter:function(x){ return x.tur === 'Satın alma talebi'; } },
       { key:'izin', label:'İzin', icon:'i-calendar-check', filter:function(x){ return x.tur === 'İzin talebi'; } },
@@ -73,7 +137,14 @@ document.addEventListener('gv:ready', function(){
                  (x.durum === 'Bekliyor' ? '<span class="cell-sub">' + g + ' gündür bekliyor</span>' : ''); } },
       { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
     ],
-    filters:[
+    /* Süzgeç seçenekleri de bilgidir: `tur` listesi iç onay türlerini,
+       `onaylayan` listesi tüm personel kadrosunu sayardı. Müşteri oturumunda
+       ikisi de basılmaz. */
+    filters:musKapsam ? [
+      { key:'durum', label:'Onay durumu', type:'select', options:['Bekliyor','Onaylandı','Reddedildi'] },
+      { key:'aciliyet', label:'Aciliyet', type:'multi', options:DB.priorities },
+      { key:'tarih', label:'Talep tarihi', type:'daterange' }
+    ] : [
       { key:'tur', label:'Onay türü', type:'multi',
         options:DB.approvals.map(function(a){ return a.tur; }).filter(function(v,i,s){ return s.indexOf(v) === i; }) },
       { key:'durum', label:'Onay durumu', type:'select', options:['Bekliyor','Onaylandı','Reddedildi'] },
@@ -106,7 +177,20 @@ document.addEventListener('gv:ready', function(){
                   x.durum = 'Reddedildi'; GV.toast(x.kod + ' reddedildi', 'ok'); refresh(); } }] }); } }
     ],
     bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
-    emptyState:{ icon:'i-check-circle', title:'Bekleyen onay yok', desc:'Onay kuyruğunuz temiz — sizi bekleyen işlem bulunmuyor.' }
+    /* Müşteri oturumunda boş liste DÜRÜST anlatılır: kuyruk boş değil, bu
+       kuyrukta sizin kaleminiz yok. Onayınızı bekleyen teslim varsa sayısı
+       veriden okunur ve ekrana yönlendirilir — sayı uydurulmaz, teslim de yoksa
+       aksiyon basılmaz. */
+    emptyState:musKapsam
+      ? { icon:'i-stamp', title:'Onayınızı bekleyen kayıt yok',
+          desc:teslimSayi
+            ? 'Onay kuyruğunda size ait bir kalem bulunmuyor. Onayınızı bekleyen ' +
+              teslimSayi + ' teslim, Teslimler ekranında listeleniyor.'
+            : 'Onay kuyruğunda size ait bir kalem bulunmuyor; onayınızı bekleyen bir teslim de yok.',
+          action:teslimSayi
+            ? '<a class="btn btn-acc" href="app-proje-teslim.html"><svg class="ic"><use href="#i-package"></use></svg> Teslimlere Git</a>'
+            : '' }
+      : { icon:'i-check-circle', title:'Bekleyen onay yok', desc:'Onay kuyruğunuz temiz — sizi bekleyen işlem bulunmuyor.' }
   });
 
 });
