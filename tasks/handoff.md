@@ -54,7 +54,14 @@ bozulmuş bir kopyayla, olumlu **ve dört-altı ayrı olumsuz** vakayla sınand�
 (142 ekran · 34 çağıran ekran · 77 çağrı) · `dbref.js` TEMİZ (142 ekran) ·
 `links.js` TEMİZ · `gate.js` TEMİZ (**710 sayfa yüklemesi**, konsol hatası 0) ·
 `tabs.js` TEMİZ (**224 sekme tıklaması** · 26 ekran) · `act.js` TEMİZ
-(**213 aksiyon** · yalan 0 · ölü 0).
+(**213 aksiyon** · yalan 0 · ölü 0) · `qa.js` TEMİZ (**142 ekran × 3 kırılım** —
+1440/768/390, hata yok, taşma yok).
+
+> ⚠️ **`qa.js` ~25 dakika sürüyor.** Süre kestirimi (handoff §2'de "~4 dk")
+> bu makinede tutmuyor. Taramaları **art arda değil tek tek** koştur: dördü
+> aynı anda koşunca boş bellek ~70 MB'a iniyor ve `tabs.js`/`act.js`
+> TimeoutError'la ölüyor (aynı doygunluk Claude Code'un API bağlantısını da
+> düşürdü). Uzun koşumu `nohup … > dosya &` ile müstakil başlat.
 
 R07 ve R08'in akışları ayrıca **tarayıcıda tek seferlik** ölçüldü
 (`r07.js` · `r08.js`, scratchpad): 8 checklist maddesi basılıyor · gerekçesiz
