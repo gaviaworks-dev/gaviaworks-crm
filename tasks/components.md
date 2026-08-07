@@ -341,8 +341,24 @@ GV.report({
 | `GV.fin.refreshCustomer(kod)` | `bekleyenTahsilat` türetir (L-08: sayaç yazılmaz, hesaplanır) | — |
 | `GV.delivery.approve(kod, karar, tarih?, not?)` | `karar ∈ GV.delivery.kararlar` (`Onaylandı`/`Bekliyor`/`Revizyon istendi`); onay ile teslim durumunu **aynı eksende** tutar | Liste yalnız `musteriOnay` yazıyor, detay `durum`u da güncelliyordu; yetki ekseni liste tarafında `onay`, detay tarafında `duzenle`ydi |
 | `GV.delivery.kararlar` | Karar sözlüğü | Süzgeçler ve mobil render bu listeden beslenir — üçüncü değer artık gizlenmiyor |
+| `GV.task.transition(kod, hedef, ek?, not?)` | Görev durum geçişinin **tek** mutasyon noktası: hedefi `DB.taskTransitions[durum].next` içinde arar · yetkiyi doğrular · zorunlu alanları denetler · yan etkileri (`baslangic` · `revizyon` · `ilerleme` · `tamamlanma`) uygular · aktivite yazar | Tablo veride beş oturumdur duruyordu ama **uygulanmıyordu**: dokuz mutasyon yolunun yalnız ikisi ona bakıyordu, ikisi izin verilen rolleri yalnız **ipucu metni** olarak basıyordu, dördü kendi durumunu elle yazıyordu |
+| `GV.task.nextSteps(kod)` | Bu görev + bu oturum için **yapılabilir** geçişler: `[{ hedef, etiket, tone, izin, eksik }]` | Ekran aksiyon butonu üretir; **uzun statü dropdown'ı basmaz** (REVİZE 02) |
+| `GV.task.bekleme(kod, neden\|null, notu?)` | `beklemeNedeni` eksenini yazar/temizler; `neden ∈ DB.taskWaitReasons` | Bekleme bir DURUM değildir — görev "Devam ediyor" kalır, yalnız neyi beklediğini söyler (REVİZE 01) |
+| `GV.task.onayGerekli(t)` | Ayrı onay adımı gerekli mi — **türetilir** (`onaylayan !== kontrolEden`) | Saklanmaz (L-08). Kontrol eden ile onaylayan aynı kişiyse kontrol zaten onaydır |
+| `GV.task.yetkili(t, kural)` · `GV.task.eksikAlanlar(t, kural, ek?)` | Geçiş ön koşulları — ekran aynı mantığı ikinci kez yazmasın diye dışarı açık | Form ile detay ekranı farklı karar veremesin |
 
-**Dönüş sözleşmesi:** `{ ok:true, … }` ya da `{ ok:false, why:'yetki'|'kayıt yok'|'zaten kapalı'|… }`.
+> **`yetki` listesi iki tür anahtar taşır ve ikisi ayrı çözülür.** `'pm'` bir
+> **roldür** ("proje yöneticisi rolündeki herkes"); `'sorumlu'` · `'kontrolEden'` ·
+> `'onaylayan'` · `'veren'` birer **ilişkidir** ("BU görevin sorumlusu"). Karıştırmak
+> her geliştiriciyi her görevin sorumlusu yapardı.
+
+> **Zorunlu alan adı gerçek bir alan olmalı.** `Kontrol bekliyor` kuralı beş oturum
+> boyunca `ciktiLink` istiyordu; hiçbir görevde böyle bir alan yoktu, yani kural hiç
+> uygulanamadı ve kimse fark etmedi. `canon.js` **eksen 25** artık bunu tarıyor.
+
+**Dönüş sözleşmesi:** `{ ok:true, … }` ya da `{ ok:false, why:'yetki'|'kayıt yok'|'zaten kapalı'|'zorunlu'|… }`.
+`why:'yetki'` ile birlikte `roller`, `why:'zorunlu'` ile birlikte `eksik` döner —
+ekran kullanıcıya **neden olmadığını** söyleyebilsin diye.
 Ekran `ok` değilse **başarı mesajı basmaz** (L-23). Yordam kendi aktivite kaydını yazar;
 ekran ayrıca `DB.activities`'e yazmaz — iki kayıt doğardı.
 
