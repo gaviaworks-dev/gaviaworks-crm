@@ -316,9 +316,19 @@ karmaşıklaştırma."* Bugünkü tek geçiş yolu dropdown'dur.
 
 ---
 
-## R03 · Projede harcanan süreyi timesheet'ten otomatik getir
+## R03 · Projede harcanan süreyi timesheet'ten otomatik getir · ✅ TAMAM
 
-**DURUM: 🟡 hazırlığı yapıldı — görev düzeyi kapandı, proje düzeyi sıradaki iş**
+**KAPANDI (2026-08-07, 14. oturum)** — 8/8 alt madde · görev **ve** proje ucu.
+`DB.projects[].harcananSure` kaldırıldı, üç değer `GV.proje.sure`'de türetiliyor;
+zaman defteri 53 → **131 satır** (modül ilerlemesinden türetildi, kaynağı
+`aciklama`'da yazılı); haftalık onay ile satır onayı **tek eksene** indi
+(`GV.zaman.onayla/iade/onaylaKayit`). Türetilemeyen ~5.600 saat için tek bir
+kayıt bile üretilmedi: `kapsam:false` dönen 7 projede ekran sıfır basmaz,
+"defterde kayıt yok" der. Kilit: `canon.js` eksen **26** ve **27**.
+
+<details><summary>Turun ortasındaki ara durum kaydı</summary>
+
+**DURUM (ara kayıt): 🟡 hazırlığı yapıldı — görev düzeyi kapandı, proje düzeyi sıradaki iş**
 
 > **2026-08-07'de yapılan hazırlık.** R03'ün asıl işi proje düzeyinde ama zincirin
 > alt ucu (görev ↔ zaman defteri) önce düzeltildi, çünkü proje türetmesi onun
@@ -336,6 +346,8 @@ karmaşıklaştırma."* Bugünkü tek geçiş yolu dropdown'dur.
 > **Sıradaki:** `GV.proje.sure()` · `GV.zaman.onayla()` (haftalık onay alttaki
 > zaman kayıtlarını da onaylasın — bugün onaylamıyor) · proje kartındaki üç değer ·
 > `harcananSure`'ün formdan kalkması.
+
+</details>
 
 <details><summary>Turun başındaki tam ölçüm</summary>
 
@@ -421,9 +433,11 @@ sayı **düşer ve öyle kalır**.
 
 ---
 
-## R04 · Proje maliyetini otomatik hesapla
+## R04 · Proje maliyetini otomatik hesapla · ✅ TAMAM
 
-**DURUM: ✅ TAMAM (2026-08-07)** — `gerceklesenMaliyet` kaldırıldı, dört kalem türetiliyor.
+**KAPANDI (2026-08-07, 14. oturum)** — 9/9 alt madde. `gerceklesenMaliyet`
+kaldırıldı; `GV.proje.maliyet` dört kalemi ayrı ayrı türetiyor. Kilit:
+`canon.js` eksen **28**.
 
 Ölçüm:
 

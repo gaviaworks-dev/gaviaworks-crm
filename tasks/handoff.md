@@ -37,7 +37,20 @@ oraya eklenmez, yüzdesi bozulmaz.
 > Kutu **yapılan iş doğrulanarak** işaretlenir ve bir alt madde bitince **aynı
 > turn içinde** işaretlenir. Damga ile kutu çelişirse **kutu doğrudur**.
 
-**Tarama:** `canon.js` **3.469 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen →
+**Tarama (15. oturum koşumu):** `canon.js` **3.591 kontrol · TEMİZ** (29 eksen) ·
+`dep.js` **TEMİZ** (142 ekran · 27 çağıran ekran · 62 çağrı) · `dbref.js` **TEMİZ**
+(142 ekran) · `links.js` **TEMİZ** · `gate.js` **TEMİZ** (142 ekran × 5 rol =
+**710 sayfa yüklemesi**, konsol hatası 0 · 403 sayımı: sahip 0 · pm 57 ·
+destek 88 · muhasebe 65 · stajyer 126) · `qa.js` **TEMİZ** (142 ekran × 3 kırılım).
+
+> ⚠️ **`tabs.js` ve `act.js` KOŞMADI — sonuçları YOK.** Dördü art arda
+> koşturulunca makinenin boş belleği ~70 MB'a indi; `qa.js` 4 dakika yerine
+> ~25 dakika sürdü, `tabs.js` ve `act.js` `app-arac-detay.html`'de
+> **TimeoutError** ile öldü. Bu bir ekran kusuru değil, koşum kusurudur —
+> "temiz" sayılmadı. İkisi makine boştayken **tek tek** koşturulmalı.
+> (Aynı doygunluk Claude Code'un API bağlantısını da düşürdü.)
+
+**Önceki tur:** `canon.js` **3.469 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen →
 şimdi **28 eksen**). Yeni: **27** proje süre zinciri / tek onay ekseni ·
 **28** proje maliyet zinciri. İkisi de bilinçli bozulmuş bir kopyayla, olumlu ve
 **altı/yedi ayrı olumsuz** vakayla sınandı (L-24/L-27), scratchpad'de, repo
