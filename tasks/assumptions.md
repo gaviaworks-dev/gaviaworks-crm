@@ -918,3 +918,45 @@ zaten bağlıdır.
 paketi geliştirme sözleşmelerine bağlamak, ekranda "bu bakım hizmeti şu
 sözleşmeye dayanıyor" diye okunacak **yanlış** bir cümle üretirdi. Bağ,
 kullanıcı kurduğunda ya da veri geldiğinde doğar.
+
+---
+
+## V-59 · Bir filo belgesinin aracı BAĞLANMADI — plakası filoda yok
+
+**Karar:** REVİZE 19'un `DB.documents[].arac` alanı 11/11 kayıtta tanımlı,
+**1'inde dolu** (`DOK-2026-205` → `ARC-001`).
+
+**Kanıt:** DOK-2026-205'in adı `06 GW 1907 Trafik Sigorta Poliçesi` — plaka
+belgenin **adında yazılı** ve ARC-001'in plakası. Bağ ölçülerek kuruldu.
+
+**Neden ikincisi bağlanmadı:** `DOK-2026-211` "Ticari Araç Ruhsat Fotokopisi —
+**34 GVA 118**" diyor; filodaki dört aracın plakaları `06 GW 1907 · 2201 ·
+3388 · 5544`. Belge bu depodaki hiçbir araca ait değil. Dört araçtan birine
+"yakın olduğu için" bağlamak, ruhsatı yanlış araca yazmak olurdu (L-13).
+
+**Ekran sessiz kalmıyor:** araç detayının Evraklar sekmesi hem dolu hem boş
+durumda *"aracı belirtilmemiş 1 filo belgesi var"* diyor ve doküman merkezine
+yönlendiriyor — bağ kullanıcı kurduğunda doğar.
+
+---
+
+## V-60 · Uzmanlık 9/16 kayıtta dolu — kümesi olmayan departmanda alan BOŞ
+
+**Karar:** REVİZE 15'in `uzmanlik` alanı 16/16 kayıtta **tanımlı**, 9'unda
+**dolu**. Boş kalan 7 kayıt: Yönetim · Satış (2) · Proje Yönetimi · İK ·
+Muhasebe · Destek.
+
+**Gerekçe:** Doküman uzmanlığı **iki ana departman altında** tanımlıyor —
+Yazılım (Frontend · Backend · Full-stack · Mobile · DevOps · QA) ve Yapay Zekâ
+(AI Development · Automation · Machine Learning · AI Integration ·
+Prompt / Agent). `Tasarım`ın iki değeri veride yazılı iki pozisyondan türetildi
+(`Kıdemli UI/UX Tasarımcı` · `Freelance Grafik Tasarımcı`). Kalan beş ana
+departman için doküman uzmanlık listesi **vermiyor** ve veride de türetilecek
+bir eksen yok: orada `pozisyon` zaten işi anlatıyor
+("Satış ve İş Geliştirme Yöneticisi" bir uzmanlık listesine ihtiyaç duymuyor).
+
+**Neden uydurulmadı:** beş departmana uzmanlık listesi yazmak, sözlüğü olmayan
+bir ekseni varmış gibi göstermek olurdu; süzgeç ve rapor o kümeye göre kırılım
+üretir, altında ölçüm olmazdı. `canon.js` **eksen 37d** dolu değerin kendi ana
+departmanının kümesinden olmasını zorunlu kılıyor; boş değer meşrudur.
+Ekran da tire basmıyor, *"bu departmanda uzmanlık ekseni tanımlı değil"* diyor.

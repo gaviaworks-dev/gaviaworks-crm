@@ -33,6 +33,7 @@
 | L-32 | `GV.task` yazıldı, yedi ekrana bağlandı — sonra ajan fark etti ki **`domain.js` o ekranların hiçbirinde yüklü değildi**. `GV.task` `undefined` olurdu ve hata **tıklama anında** çıkardı, sayfa açılışında değil | **L-12'nin `GV.*` tarafındaki ikizi.** Ekranın okuduğu her `DB.<koleksiyon>` gibi, ekranın çağırdığı her `GV.<domain yordamı>` için de o dosya sayfada **yüklü olmalı**. Açılışa bakan QA bunu göremez — bağlanma anı ile çağrılma anı farklıdır. Denetim tek satır: `for f in app-*.html; do grep -q "GV\.\(fin\|delivery\|task\)\.[a-z]" $f && ! grep -q domain.js $f && echo $f; done`. Ortak katmana yeni yordam eklenince bu denetim koşulur | 2026-08-07 |
 | L-33 | Görev sözlüğünden `Revize bekliyor` silinince `GV.badge` ton haritasından da silindi. Ama **haftalık timesheet reddedildiğinde** aynı değere düşüyordu (`app-zaman-onay.html`) ve o rozet sessizce **griye** indi — hata vermedi, yalnız yanlış göründü | **`TONE` haritası modüller arası DÜZ bir isim alanıdır.** Bir değeri silmeden önce o adı kullanan **her koleksiyon** aranır (`grep "'<değer>'" assets/data/*.js`), yalnız silinen eksen değil. Aynı ad iki eksende yaşayabilir; silmek birini kırar. `Taslak` · `Planlandı` · `Müşteri bekleniyor` tam bu yüzden görev sözlüğünden çıkarken haritada **kaldı** | 2026-08-07 |
 | L-34 | `GV.proje.maliyet` satın alma kalemini `DB.purchases`'tan okuyor; o koleksiyon `ops.js`'te. Dört ekran `domain.js` ve `hr.js`'i yüklüyordu ama `ops.js`'i yüklemiyordu — kalem **hata vermeden sessizce 0** kalıyordu. Ekranın kendi markup'ında `DB.purchases` geçmediği için `dbref.js` de göremezdi | **Ortak yordamın veri bağımlılığı SÖZLEŞMESİNİN parçasıdır.** L-12 ekranın kendi okuduğu koleksiyonu, L-32 çağırdığı `GV.*` dosyasını istiyordu; üçüncüsü: yordamın **içeriden** okuduğu koleksiyonlar da yüklü olmalı. Bunlar `components.md`'de yordamın satırında yazılır ve yeni yordam yazılırken ilk soru "bu hangi `DB.*`'ları okuyor" olur. En sinsi tarafı: eksiklik hata değil **eksik sayı** üretir — ekran çalışır, toplam yanlıştır | 2026-08-07 |
+| L-36 | REVİZE 18'in modül anahtarı menüyü tazeliyordu; tazeleme yordamı `wireNav()`i de çağırıyor, o da `document` ve `window`'a bağlanıyordu — 30 detay ekranında `GV.refresh()` başına **+3 net dinleyici** | **Bir bölümü yeniden çizen yordam yalnız o bölümün düğümlerine dokunur.** Yeniden çizilen düğüm ile dinleyicinin bağlandığı düğüm aynı değilse bağlama tekrarlanmaz; tekrarlanacaksa `GV.on(…, key)` ile tekil anahtardan geçer (L-16 · L-18'in üçüncü kardeşi). Yakalayan yine `listen.js` oldu — tarama seti regresyonu kod incelemesinden önce buldu | 2026-08-07 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -538,3 +539,29 @@ doğrulanır: bozulan dosyayı gerçekten okuduğunu gösteren en az bir vaka
 başarısız olmalıdır. (c) L-17 · L-24 · L-26 · L-27 · L-29 ile aynı aile:
 **araç da ölçülür** — ve bu kez ölçülmesi gereken şey aracın hükmü değil,
 **neye baktığıydı**.
+
+## L-36 · Menüyü tazelemek, menünün BAĞLI OLDUĞU düğümleri tazelemek değildir
+
+**Olay:** REVİZE 18 modül anahtarını açtı; anahtar değişince menünün anında
+güncellenmesi için `GV.refresh()`'e bir `syncNav()` bağlandı ve o da rail ile
+menüyü yeniden çizip **`wireNav()`i tekrar çağırdı**. `wireNav` üç şeye
+bağlanıyor: `#gvBurger`, `#gvOverlay` (skeleton düğümleri) ve **`document`
+keydown ile `window` resize**. İlk ikisi her çizimde yeniden yaratılmadığı için
+sorun çıkarmadı; son ikisi kalıcı düğüm olduğu için **her tazelemede bir
+dinleyici daha** bıraktı.
+
+**Ölçüm:** `listen.js` 30 detay ekranında `GV.refresh()` başına **+3 net
+dinleyici** raporladı (`document` 6 → 9, görev detayında 9 → 12). Hiçbir ekran
+hata vermedi, hiçbir görünüm bozulmadı — ekran doğru çalışıyordu.
+
+**Kural:** Bir bölümü yeniden çizen yordam, **yalnız o bölümün düğümlerine**
+dokunur. Yeniden çizilen düğüm ile dinleyicinin bağlandığı düğüm aynı değilse
+bağlama işlemi tekrarlanmaz; tekrarlanacaksa `GV.on(el, type, fn, key)` ile
+tekil anahtar üzerinden bağlanır (L-16). Yeni bir "tazele" yolu açarken
+sorulacak soru: *"bu yol hangi kalıcı düğüme ikinci kez dinleyici bağlıyor?"*
+
+**Ailesi:** L-16 (yerinde yeniden çizim dinleyici biriktirir) → L-18 (mount
+dışına basılan overlay tazelenmez) → **L-36 (tazeleme yolunun KENDİSİ dinleyici
+biriktirir)**. Üçünü de aynı araç yakaladı: `listen.js` add − remove farkını
+sayıyor. Bu, tarama setinin bir regresyonu **kod incelemesinden önce** yakaladığı
+üçüncü olaydır.
