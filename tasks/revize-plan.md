@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **105** — FAZ 1 · FAZ 2 · **FAZ 3 KAPANDI** |
-| Kalan | 33 (FAZ 4) |
+| İşaretli | **138** — **DÖRT FAZIN DÖRDÜ DE KAPANDI** |
+| Kalan | **0** |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -103,13 +103,13 @@ belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 | R11 | Proje kaynağı | 3 | **✅ TAMAM** | `DB.projectSources` açıldı · `kaynak` 14/14 · koşullu sözleşme seçici (`GV.form` `showIf`) · canon eksen 35 |
 | R12 | Sözleşme sorumlusu | 3 | **✅ TAMAM** | `contracts[].sorumlu` 7/7 · türetme tek yordamda · yenileme bildirimi kişiye · canon eksen 24c |
 | R13 | Müşteri portalı | 3 | **✅ TAMAM** | oturum `DB.contacts`'tan · 12 ekran kapalı · 8 ekran kapsamlı · `GV.guardRecord` · yeni eksen `portal.js` TEMİZ |
-| R14 | Pipeline gruplama | 4 | 🟡 | 13 kanban kolonunun **5'i boş**; `sira` bölüntüsü kalıbı aynı dosyada zaten var |
-| R15 | Departman ve uzmanlık | 4 | ⬜ | 16 personel için **21 departman**; 7'si boş, 5'i uzmanlık, 2'si çalışma tipi |
-| R16 | Freelancer çalışma tipi | 4 | 🟡 | `calismaTuru` **mesai** ekseni; istihdam ilişkisi 4 alana dağılmış |
+| R14 | Pipeline gruplama | 4 | **✅ TAMAM** | `pipelineStages[].grup` · kanban 13 → **6 kolon** · `GV.list` `groupOf` kancası · tablo sekmeleri aynı kaynaktan |
+| R15 | Departman ve uzmanlık | 4 | **✅ TAMAM** | `departmentGroups` (8) + `ustDepartman` 21/21 · `specialities` · `uzmanlik` 9/16 türetildi · canon eksen 37 |
+| R16 | Freelancer çalışma tipi | 4 | **✅ TAMAM** | `DB.workTypes` + `calismaTipi` 16/16 · `calismaTuru` korundu · `GV.hr.disKaynak` bu eksenden okuyor |
 | R17 | Hizmet paketi / abonelik | 3 | **✅ TAMAM** | 10 tipli sözlük · `tip`/`periyot`/`sorumlu` 7/7 · yenileme tek yordamda · canon eksen 36 |
-| R18 | Opsiyonel modüller | 4 | ⬜ | modül anahtarı yok; **ama gizleme mekaniği hazır** (11 madde `roles:` ile gizli) |
-| R19 | Araç sayfaları | 4 | 🟢 | **yedi alanın yedisi zaten araç detayında tab**; iş yalnız menüde |
-| R20 | Rapor gruplama | 4 | 🟡 | gruplama kategori sayfalarında **zaten var**; ihlal yalnız `app-rapor.html`'de (99 çip tek ekranda) |
+| R18 | Opsiyonel modüller | 4 | **✅ TAMAM** | `company.aktifModuller` (8) · `Perm.modul` tek kapı: menü + rail + adres · ayar bloğu · veri silinmiyor |
+| R19 | Araç sayfaları | 4 | **✅ TAMAM** | 6 alt madde menüden kalktı (**ekran silinmedi**) · Evraklar sekmesi + `documents[].arac` · `filo` modülüne bağlı |
+| R20 | Rapor gruplama | 4 | **✅ TAMAM** | dizin ilk açılışta **0 çip** · katalog 99 → **105/105 eşleşme** (VB-26) · iş işlevi etiketi · Tekrarlayan Gelir + Sözleşme bitişleri |
 
 **Özet:** 20 maddenin **6'sı hiç yok**, **13'ü kısmen var**, **1'i neredeyse hazır**.
 Hiçbiri sıfırdan bir modül gerektirmiyor — talimatın *"yeni özellik eklemekten önce
@@ -1493,6 +1493,36 @@ kayıyor.
 
 # FAZ 4 — SADELEŞTİRME
 
+> **FAZ 4 KAPANDI — R14 ✅ · R15 ✅ · R16 ✅ · R18 ✅ · R19 ✅ · R20 ✅
+> (2026-08-07, 16. oturum).** Kapanışta `canon.js` **4.517 kontrol · TEMİZ**
+> (faz başında 4.299 · 36 eksen → şimdi **37 eksen**). Yeni eksen **37**
+> (departman · uzmanlık · çalışma tipi · modül anahtarı) **yedi olumsuz vakayla**
+> sınandı: sözlük dışı ana departman · "departman değil" kaydının yeniden
+> aktifleşmesi · yabancı kümeden uzmanlık · çalışma tipi ↔ sözleşme çelişkisi ·
+> mesai değerinin çalışma tipi sözlüğüne sızması · tanımsız modül anahtarı ·
+> `depAd` kopyasının departman adıyla çelişmesi.
+>
+> **Dörtlü dalga:** R14 · R19 · R20 (iki ayrı ekran) ajanlara verildi;
+> R15 · R16 · R18 lead'de kaldı — üçü de `org.js` ile ayar ekranını paylaşıyor.
+>
+> Ortak katman kazancı: `GV.list` kanban'ında **`groupOf(row)`** kancası ·
+> **`Perm.modul`** (menü · rail · adres kapısı tek kaynaktan) ·
+> `SCREEN_DENY`'ın **dosya adı ekseni** (form ekranı listesiyle aynı
+> `data-screen`'i taşıdığı için anahtarla kapatmak listeyi de kapatırdı) ·
+> `MODUL_DOSYA` öneki (menüde karşılığı olmayan ekranın modülü).
+>
+> ⚠️ **`listen.js` bu fazda bir regresyon yakaladı.** Modül anahtarı değişince
+> menüyü tazeleyen `syncNav()`, `wireNav()`i de çağırıyordu; `wireNav`
+> `document` ve `window`'a bağlanır ve o düğümler tazelemede ölmez — ölçüm:
+> 30 detay ekranında `GV.refresh()` başına **+3 net dinleyici** (L-16'nın tam
+> olarak yasakladığı birikme). Rail ve menü yeniden çizilir, iskelet düğümleri
+> ve dinleyicileri yerinde kalır.
+>
+> ⚠️ **Ajan bir veri hatamı yakaladı:** `DB.documents` genişletmemde
+> `DOK-2026-205` kaydına `arac` anahtarı **iki kez** yazılmıştı
+> (`arac:null, arac:'ARC-001'`). JS son değeri aldığı için sonuç doğruydu ama
+> ölü anahtar kalmıştı; aynı turda temizlendi.
+
 > Madde sırası: **R14 → R15 → R16 → R18 → R19 → R20**.
 > **DÖRTLÜ DALGA:** R14 · R19 · R20 aynı anda ajanlara verilebilir (üç ayrı
 > ekran kümesi, ortak katmana dokunmuyor). R15 · R16 · R18 **lead'in** — üçü de
@@ -1520,15 +1550,15 @@ kayıyor.
 
 **Yapılacaklar**
 
-- [ ] `DB.pipelineStages[].grup` alanı — `sira` bölüntüsü: 1–3 `Yeni / Kalifikasyon` ·
+- [x] `DB.pipelineStages[].grup` alanı — `sira` bölüntüsü: 1–3 `Yeni / Kalifikasyon` ·
       4–6 `Analiz` · 7–9 `Teklif` · 10–11 `Pazarlık` · 12 `Sözleşme` · 13–15 `Sonuç`.
       **15 aşamanın hiçbiri silinmez** (talimat: "mevcut aşamaları kaldırma")
-- [ ] `GV.list` kanban'ına `groupOf(row)` kancası — ortak katmanda, ~3 satır
+- [x] `GV.list` kanban'ına `groupOf(row)` kancası — ortak katmanda, ~3 satır
       (`ui.js:887`). Bugünkü `groupBy` davranışı **değişmez**, yeni kanca opsiyonel
-- [ ] `app-pipeline.html` kanban'ı **6 kolona** insin; kart üzerinde gerçek alt aşama
+- [x] `app-pipeline.html` kanban'ı **6 kolona** insin; kart üzerinde gerçek alt aşama
       rozet olarak görünmeye devam etsin
-- [ ] Detay ve tablo görünümü **aynen kalsın** — alt aşama orada tam gösterilir
-- [ ] Tablo sekmelerindeki 3'lü bölüntü yeni 6'lı grupla **çelişmesin**; tek
+- [x] Detay ve tablo görünümü **aynen kalsın** — alt aşama orada tam gösterilir
+- [x] Tablo sekmelerindeki 3'lü bölüntü yeni 6'lı grupla **çelişmesin**; tek
       kaynaktan (`grup` alanı) beslensin — iki yerde iki bölüntü yaşamaz
 
 ---
@@ -1571,17 +1601,17 @@ Personelde uzmanlık ekseni yok; en yakını `pozisyon` (serbest metin) ve
 
 **Yapılacaklar**
 
-- [ ] `DB.departments` **silinmez** (talimat: "mevcut departman verilerini silme").
+- [x] `DB.departments` **silinmez** (talimat: "mevcut departman verilerini silme").
       Her kayda `ustDepartman` alanı eklenir; 21 kayıt dokümandaki **8 ana
       departmana** bağlanır. Menü ve süzgeçler ana departmanı gösterir, detay
       alt kırılımı korur.
-- [ ] `DB.specialities` sözlüğü açılır (Yazılım altı 6 · AI altı 5 · diğerleri)
-- [ ] `DB.employees[].uzmanlik` alanı — mevcut `dep` + `pozisyon`'dan **türetilir**,
+- [x] `DB.specialities` sözlüğü açılır (Yazılım altı 6 · AI altı 5 · diğerleri)
+- [x] `DB.employees[].uzmanlik` alanı — mevcut `dep` + `pozisyon`'dan **türetilir**,
       uydurulmaz
-- [ ] DEP-20 / DEP-21 departman olmaktan çıkar → R16'nın `calismaTipi` eksenine taşınır;
+- [x] DEP-20 / DEP-21 departman olmaktan çıkar → R16'nın `calismaTipi` eksenine taşınır;
       EMP-015 gerçek departmanına (**DEP-06 Tasarım** — yöneticisi zaten EMP-004,
       pozisyonu "Freelance Grafik Tasarımcı") + `calismaTipi:'Freelancer'` olur
-- [ ] `depAd` denormalize kopyası 16/16 kayıtta güncellenir; `DB.departments[].personel`
+- [x] `depAd` denormalize kopyası 16/16 kayıtta güncellenir; `DB.departments[].personel`
       sayacı da (`app-ayar-departman.html` zaten ona güvenmiyor, `kadro()` ile sayıyor)
 
 > ✅ **İyi haber — hiçbir ekran departman ADI listesini elle yazmıyor.** 22 dropdown
@@ -1615,14 +1645,14 @@ sıkıştırmak olurdu — VB-20'nin tam olarak düştüğü hata.
 
 **Yapılacaklar**
 
-- [ ] `DB.workTypes` sözlüğü: `Kadrolu · Freelancer · Ajans · Danışman · Dış Kaynak`
-- [ ] `DB.employees[].calismaTipi` alanı — **`calismaTuru` korunur**, yanına gelir.
+- [x] `DB.workTypes` sözlüğü: `Kadrolu · Freelancer · Ajans · Danışman · Dış Kaynak`
+- [x] `DB.employees[].calismaTipi` alanı — **`calismaTuru` korunur**, yanına gelir.
       Değer var olan `sozlesme` + `dep` alanlarından türetilir
       (Hizmet sözleşmesi + DEP-21 → `Freelancer`; Staj sözleşmesi → `Kadrolu`;
       geri kalan 14 → `Kadrolu`)
-- [ ] Personel listesinde süzgeç ve kolon olarak görünsün (**yeni ekran açılmaz**)
-- [ ] R04'ün "dış kaynak maliyeti" kalemi bu eksenden beslensin
-- [ ] R15 ile birlikte: DEP-20/21 çalışma tipine taşınınca departman olarak
+- [x] Personel listesinde süzgeç ve kolon olarak görünsün (**yeni ekran açılmaz**)
+- [x] R04'ün "dış kaynak maliyeti" kalemi bu eksenden beslensin
+- [x] R15 ile birlikte: DEP-20/21 çalışma tipine taşınınca departman olarak
       **silinmez**, `aktif:false` yapılır ve kayıtları taşınır
 
 **Dokunulacak dosyalar:** `assets/data/hr.js` · `assets/data/org.js` ·
@@ -1653,17 +1683,22 @@ sıkıştırmak olurdu — VB-20'nin tam olarak düştüğü hata.
 
 **Yapılacaklar**
 
-- [ ] `DB.company.aktifModuller` — 8 anahtar (`satis · proje · destek · personel ·
+- [x] `DB.company.aktifModuller` — 8 anahtar (`satis · proje · destek · personel ·
       finans · satinalma · demirbas · filo`), varsayılan hepsi açık
-- [ ] `SECTIONS` maddelerine `modul:'filo'` gibi etiket (yalnız gerekenlere).
+- [x] `SECTIONS` maddelerine `modul:'filo'` gibi etiket (yalnız gerekenlere).
       `varlik` bölümü: `app-arac-*` maddeleri `filo`, demirbaş/zimmet `demirbas`
-- [ ] `Perm.sec` ve `Perm.item`'a modül testi — **tek yerde**, üç tüketici otomatik
-- [ ] `guard()` de kapansın: kapalı modülün ekranı doğrudan adresle de açılmasın —
+- [x] `Perm.sec` ve `Perm.item`'a modül testi — **tek yerde**, üç tüketici otomatik
+- [x] `guard()` de kapansın: kapalı modülün ekranı doğrudan adresle de açılmasın —
       **ama veri ve dosya yerinde kalır** (G-1 kararı)
-- [ ] Bir bölümün tüm maddeleri gizlendiyse bölüm rail'den de düşsün
-- [ ] `app-ayar-sirket.html`'e **yeni sekme açılmadan** "Çalışma Düzeni" sekmesine
+- [x] Bir bölümün tüm maddeleri gizlendiyse bölüm rail'den de düşsün
+- [x] `app-ayar-sirket.html`'e **yeni sekme açılmadan** "Çalışma Düzeni" sekmesine
       Aktif Modüller bloğu (mevcut switch kontrolüyle)
-- [ ] `tasks/qa/gate.js` ve `links.js` kapalı modülü hata saymasın
+- [x] `tasks/qa/gate.js` ve `links.js` kapalı modülü hata saymıyor — **kod
+      değişikliği gerekmedi ve bu ölçülerek doğrulandı**: kapalı modülün ekranı
+      `guard()`ın bastığı `.gv-state.is-danger` 403 durumunu üretiyor, `gate.js`
+      onu `denied` sayacına yazıyor (hata değil), metin uzunluğu da boş sayfa
+      eşiğinin üstünde. `links.js` `BUILT` ile diski karşılaştırır; modül
+      anahtarı ikisini de değiştirmez
 
 ---
 
@@ -1696,18 +1731,18 @@ katlanmışlar. Geri kalanı katlamak için izlenecek örnek bu.
 
 **Yapılacaklar**
 
-- [ ] Sidebar'daki **6 filo alt maddesi** (Bakım · Muayene · Sigorta ve Kasko ·
+- [x] Sidebar'daki **6 filo alt maddesi** (Bakım · Muayene · Sigorta ve Kasko ·
       Yakıt · Giderler · Kaza ve Ceza) menüden kalksın; **Araçlar** kalır.
       Ekranlar **silinmez**, `BUILT`'te kalır, doğrudan adresle ve araç detayındaki
       "…ekranı" bağlantılarıyla erişilir (G-1)
-- [ ] Araç detayına **Evraklar** sekmesi — yeni koleksiyon açılmadan: ruhsat/poliçe/
+- [x] Araç detayına **Evraklar** sekmesi — yeni koleksiyon açılmadan: ruhsat/poliçe/
       muayene belgeleri `DB.documents`'tan `arac` bağı ile okunur
       (`DB.documents[].arac` alanı açılır, VB-15 kalıbı)
-- [ ] Sigorta ve Muayene sekmeleri **birleştirilmez** — bugün ayrı ve doluları var;
+- [x] Sigorta ve Muayene sekmeleri **birleştirilmez** — bugün ayrı ve doluları var;
       doküman "kullanılabilir" diyor, zorunlu kılmıyor. Birleştirmek çalışan bir
       ayrımı bozardı
-- [ ] Merkezî listelerin üst bilgisine "araç detayından da erişilir" bağlantısı
-- [ ] R18 ile birlikte: `filo` modülü kapalıysa **Araçlar** maddesi de gizlenir
+- [x] Merkezî listelerin üst bilgisine "araç detayından da erişilir" bağlantısı
+- [x] R18 ile birlikte: `filo` modülü kapalıysa **Araçlar** maddesi de gizlenir
 
 ---
 
@@ -1747,22 +1782,22 @@ dokümanınki *iş işlevi* (Satış/Proje/İK/Finans/Destek/Sözleşmeler).
 
 **Yapılacaklar**
 
-- [ ] `app-rapor.html` ilk açılışta **kategori kartlarını kapalı** göstersin;
+- [x] `app-rapor.html` ilk açılışta **kategori kartlarını kapalı** göstersin;
       çipler kategori açılınca gelsin. Arama kutusu **kalır** ve arama sonuçları
       açık gelir — kullanıcı fazla tıklamaya zorlanmaz
-- [ ] Katalog ile kurulu raporlar **anahtar düzeyinde eşleşsin** — katalog artık
+- [x] Katalog ile kurulu raporlar **anahtar düzeyinde eşleşsin** — katalog artık
       ekranlardan **türetilsin**, elle yazılmasın (VB-26 kapanır, L-08)
-- [ ] Kategori ekseni dokümanın 6 grubuna **etiketle** yaklaştırılsın: her rapora
+- [x] Kategori ekseni dokümanın 6 grubuna **etiketle** yaklaştırılsın: her rapora
       `isGrup` alanı (Satış · Proje · İnsan Kaynağı · Finans · Destek · Sözleşmeler)
       eklenir; dizin ekranı isterse iş işlevine göre de gruplayabilir.
       **7 kategori ekranı ve 8 sidebar maddesi olduğu gibi kalır** — talimat
       "yeni ana menü açma" ve "çalışan modülü kaldırma" diyor
-- [ ] Eksik iki rapor **var olan ekranlara** eklensin, yeni ekran açılmadan:
+- [x] Eksik iki rapor **var olan ekranlara** eklensin, yeni ekran açılmadan:
       - `Tekrarlayan Gelir` → `app-rapor-finans.html`, grup *Nakit*
         (`DB.supportPackages` + `yillikGelir()`; R17'nin `periyot` alanı bunu besler)
       - `Sözleşme yaklaşan bitişler` → `app-rapor-finans.html`, yeni grup *Sözleşmeler*;
         `Yenileme fırsatları` raporu da oraya taşınır
-- [ ] Destek raporları (`Açık Ticket · SLA · Çözüm Süresi`) → **`app-rapor-musteri.html`**
+- [x] Destek raporları (`Açık Ticket · SLA · Çözüm Süresi`) → **`app-rapor-musteri.html`**
       içindeki mevcut `destek` raporu genişletilir; **`app-rapor-destek.html`
       AÇILMAZ** (yeni ana modül yasak, veri 7 kayıt)
-- [ ] `filo` raporları R18'in `filo` modülüne bağlansın
+- [x] `filo` raporları R18'in `filo` modülüne bağlansın

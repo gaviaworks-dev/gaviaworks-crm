@@ -145,7 +145,10 @@
       { ic:'i-users',        lbl:'Personel Raporları', href:'app-rapor-personel.html',   screen:'raporpersonel' },
       { ic:'i-tasks',        lbl:'Görev Raporları',  href:'app-rapor-gorev.html',        screen:'raporgorev' },
       { ic:'i-percent',      lbl:'Referans Raporları', href:'app-rapor-referans.html',   screen:'raporreferans' },
-      { ic:'i-car',          lbl:'Filo Raporları',   href:'app-rapor-filo.html',         screen:'raporfilo' },
+      /* REVİZE 20 · REVİZE 18 — filo raporları filo modülüne bağlı: modül
+         kapalıysa araç ekranları gibi bu rapor kümesi de menüden düşer ve
+         doğrudan adresle açılmaz. Raporun kendisi ve verisi yerinde kalır. */
+      { ic:'i-car',          lbl:'Filo Raporları',   href:'app-rapor-filo.html',         screen:'raporfilo', modul:'filo' },
       { ic:'i-trend-up',     lbl:'Satış ve Finans',  href:'app-rapor-finans.html',       screen:'raporfinans' },
       { ic:'i-briefcase',    lbl:'Proje Raporları',  href:'app-rapor-proje.html',        screen:'raporproje' }
     ]},
@@ -694,7 +697,8 @@
      alır. Yoksa "menüden kaldırdım" ile "modül kapalı" ayrışır ve kapalı filo
      modülünde `app-arac-yakit.html` doğrudan adresle açık kalırdı. */
   var MODUL_DOSYA = [
-    { on:'app-arac',     modul:'filo' },
+    { on:'app-arac',        modul:'filo' },
+    { on:'app-rapor-filo',  modul:'filo' },
     { on:'app-demirbas', modul:'demirbas' },
     { on:'app-zimmet',   modul:'demirbas' }
   ];
