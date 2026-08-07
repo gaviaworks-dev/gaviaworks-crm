@@ -216,7 +216,16 @@ document.addEventListener('gv:ready', function(){
   DB.tickets.forEach(function(t){ if(t.durum && DURUMLAR.indexOf(t.durum) === -1) DURUMLAR.push(t.durum); });
   var ACIK_DURUM = function(d){ return GV.destek.kapaliDurumlar().indexOf(d) === -1; };
 
+  /* REVİZE 13 — MÜŞTERİ OTURUMU. Portal kullanıcısı kendi adına talep açar:
+     müşteri listesi kendi firmasına iner (12 firmanın adı seçim kutusunda
+     görünmez), yetkili kendi kimliğinden gelir ve destek sorumlusu alanı hiç
+     basılmaz — iç atamayı müşteri yapmaz. Personel oturumunda hiçbir şey
+     değişmez. */
+  var oturumMusteri = (GV.session && GV.session.musteri) || null;
+  var oturumKontak  = (GV.session && GV.session.kontak)  || null;
+
   var MUSTERILER = DB.customers
+    .filter(function(c){ return !oturumMusteri || c.kod === oturumMusteri; })
     .filter(function(c){ return c.aktif !== false || (duzenle && c.kod === kayit.musteri); })
     .map(function(c){
       var p = paketBul(c.kod);
@@ -268,8 +277,11 @@ document.addEventListener('gv:ready', function(){
       durum:kayit.durum || '', ucretli:!!kayit.ucretli, aktif:kayit.aktif !== false
     };
   }else{
+    var benimKontak = oturumKontak
+      ? DB.contacts.filter(function(c){ return c.kod === oturumKontak; })[0] : null;
     formRec = {
-      musteri:onMusteri ? onMusteri.kod : '', proje:'', acan:'', sorumlu:'',
+      musteri:oturumMusteri || (onMusteri ? onMusteri.kod : ''), proje:'',
+      acan:benimKontak ? benimKontak.ad : '', sorumlu:'',
       baslik:'', kategori:'', oncelik:'', etki:'',
       acilisTarih:DB.today, acilisSaat:suan(),
       ilkYanitTarih:'', ilkYanitSaat:'', cozumSuresi:'', harcananSure:0,
@@ -390,7 +402,17 @@ document.addEventListener('gv:ready', function(){
       actions:[{ label:'Destek listesi', href:'app-destek.html' }] });
 
     var musteriNot = '';
-    if(qsMusteri && !onMusteri){
+    /* REVİZE 13 — portal kullanıcısına ne olduğunu SÖYLE: kendi adına talep
+       açıyor, iç atama alanı ona basılmadı ve talebi kimin karşılayacağı
+       müşteri kartındaki sorumludan geliyor. Sessiz türetme bırakılmaz. */
+    if(oturumMusteri){
+      var benimMus = DB.customers.filter(function(c){ return c.kod === oturumMusteri; })[0];
+      musteriNot = GV.notice({ tone:'ok', icon:'i-shield', title:'Kendi firmanız adına talep açıyorsunuz',
+        text:(benimMus ? benimMus.unvan + ' ' : '') + 'firması ve sizin yetkili kaydınız seçili geldi; ' +
+             'başka bir firma adına talep açılamaz. Talebi üstlenecek çalışan bu formda sorulmaz — ' +
+             'talep, müşteri kartınızda yazılı destek sorumlusuna' +
+             (benimMus && benimMus.sorumlu ? ' (' + DB.empName(benimMus.sorumlu) + ')' : '') + ' düşer.' });
+    }else if(qsMusteri && !onMusteri){
       musteriNot = GV.notice({ tone:'warn', title:'Adresteki müşteri bulunamadı',
         text:'“' + qsMusteri + '” numaralı müşteri kaydı sistemde yok, bu yüzden müşteri alanı ön seçili gelmedi. ' +
              'Listeden geçerli bir müşteri seçebilirsiniz.',
@@ -466,10 +488,16 @@ document.addEventListener('gv:ready', function(){
             var y = DB.contacts.filter(function(x){ return x.musteri === d.musteri && x.ad === v; })[0];
             return y ? '' : 'Bu ad seçili müşterinin yetkilileri arasında yok.';
           } },
+        /* REVİZE 13 — iç atama alanı MÜŞTERİYE BASILMAZ: talebi hangi çalışanın
+           üstleneceği şirketin iç kararıdır ve çalışan listesi de bir sızıntı
+           yüzeyidir. Müşteri oturumunda alan hiç doğmaz; değeri kaydederken
+           müşteri kartındaki sorumludan TÜRETİLİR (uydurma değil: 12/12
+           müşteride yazılı) ve ekran bunu kullanıcıya söyler. */
+        (oturumMusteri ? null :
         { key:'sorumlu', label:'Destek sorumlusu', type:'select', options:SORUMLULAR, required:true, cols:6,
           placeholder:'Sorumlu seçin',
-          hint:'Talebi üstlenen çalışan; SLA eskalasyonu bu kişiden başlar.' }
-      ]},
+          hint:'Talebi üstlenen çalışan; SLA eskalasyonu bu kişiden başlar.' })
+      ].filter(Boolean)},
 
     { title:'Talep içeriği ve SLA ekseni',
       desc:'Kategori ve öncelik SLA politikası tablosunun iki eksenidir: bu ikisi seçilince talebin SLA’sı ' +
@@ -791,7 +819,11 @@ document.addEventListener('gv:ready', function(){
       baslik:String(raw.baslik || '').trim(),
       kategori:raw.kategori, oncelik:raw.oncelik, etki:raw.etki,
       sla:t.sla,                                   /* politikanın etiketi — türetilir */
-      sorumlu:raw.sorumlu, acan:raw.acan,
+      /* REVİZE 13 — müşteri oturumunda `sorumlu` alanı forma hiç basılmaz;
+         değer müşteri kartındaki sorumludan türetilir (12/12 dolu). Uydurma
+         değil: talebi bugün de o kişi karşılıyor. */
+      sorumlu:raw.sorumlu || (oturumMusteri && m ? m.sorumlu : raw.sorumlu),
+      acan:raw.acan,
       acilis:acilis, ilkYanit:ilk,
       mudahaleSuresi:t.mudahaleSuresi,             /* açılış → ilk yanıt farkı — türetilir */
       cozumSuresi:coz,

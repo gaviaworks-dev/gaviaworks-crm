@@ -29,8 +29,44 @@ document.addEventListener('gv:ready', function(){
   var canFinans = GV.perm.can('finans');
   var canEkle   = GV.perm.can('ekle');
 
-  var id = new URLSearchParams(location.search).get('id') || (DB.tickets[0] || {}).kod;
+  /* =================================================================
+     REVİZE 13 — MÜŞTERİ OTURUMU VE SAHİPLİK
+     `GV.session` iki aileden gelir: personel (`emp:'EMP-*'`, `musteri:null`)
+     ve müşteri portalı (`emp:null`, `musteri:'MUS-*'`). Bu ekran `?id=` değerini
+     HAM okuyor ve kaydı KİMİN açtığını sormuyordu: müşteri oturumuyla giren
+     biri adres çubuğuna başka firmanın talep kodunu yazınca o talebin
+     başlığını, açıklamasını, çözüm notlarını ve tüm aktivite geçmişini
+     (iç personel notları dahil) okuyabiliyordu. Kapsam artık listede değil,
+     KAYDIN KENDİSİNDE sorulur — detay ekranı liste süzgecinin arkasından
+     dolaşılabilen bir kapıydı.
+     ================================================================= */
+  var musOturum = (GV.session && GV.session.musteri) || null;  /* 'MUS-*' | null */
+  var icBlok    = !musOturum;   /* iç üretim / iç ölçüm blokları basılsın mı */
+
+  function benim(x){ return x.musteri === musOturum; }
+
+  var qId = new URLSearchParams(location.search).get('id');
+  /* `?id=` verilmediğinde ekran bir varsayılana düşer. Personel oturumunda
+     bugünkü davranış (koleksiyonun ilk kaydı) BİREBİR korunur; müşteri
+     oturumunda varsayılan da kapsamlı olmalı — aksi hâlde portal kendiliğinden
+     yabancı bir kayda iniyordu (ölçüldü: MUS-2024-001 oturumu `?id=`siz
+     açıldığında DST-2026-118'e, Trakya Otomotiv'in talebine düşüyor). */
+  var varsayilan = musOturum ? (DB.tickets.filter(benim)[0] || null)
+                             : (DB.tickets[0] || null);
+  var id = qId || (varsayilan ? varsayilan.kod : undefined);
   var t  = DB.tickets.filter(function(x){ return x.kod === id; })[0];
+
+  /* ---- Müşteri oturumunda hiç talep yok: kayıt uydurmak yerine dürüst boş durum ---- */
+  if(musOturum && !qId && !varsayilan){
+    GV.pageHead({ eyebrow:'Destek ve Bakım', title:'Destek Talebi Detayı', sub:'Kayıtlı talep yok',
+      actions:[{ label:'Destek taleplerim', icon:'i-support', href:'app-destek.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-support', title:'Adınıza kayıtlı destek talebi yok',
+      desc:GV.session.musteriAd + ' adına açılmış bir destek talebi bulunmuyor. ' +
+           'Talep açıldığında kaydın detayı bu ekranda görünür.',
+      action:'<a class="btn btn-acc" href="app-destek.html">Destek taleplerime git</a>' }) + '</div>';
+    return;
+  }
 
   /* ---- Kayıt yok: listeye dönüş aksiyonlu boş durum ---- */
   if(!t){
@@ -40,6 +76,27 @@ document.addEventListener('gv:ready', function(){
       icon:'i-alert-circle', title:'Destek talebi bulunamadı',
       desc:'“' + (id || '') + '” numaralı destek talebi sistemde yok. Bağlantı eski olabilir.',
       action:'<a class="btn btn-acc" href="app-destek.html">Destek listesine dön</a>' }) + '</div>';
+    return;
+  }
+
+  /* ---- SAHİPLİK KAPISI — kaydın HİÇBİR alanı basılmadan önce ----------
+     Kayıt var ama müşteri oturumunun firmasına ait değil. Ekran buradan sonra
+     tek bir alanını bile basmaz; kırıntı da bırakmaz: kırıntı, sayfa başlığı ve
+     hata metni de birer sızıntı yüzeyidir. Ekranda yalnız KULLANICININ KENDİ
+     yazdığı kod geçer — başlık, müşteri adı, durum ve SLA geçmez. Sızıntı sessiz
+     de kapanmaz: kullanıcı neden göremediğini okur (shell'in 403 dili, kilit
+     ikonu ve listeye dönüş aksiyonu). */
+  if(musOturum && !benim(t)){
+    document.title = 'Yetkisiz erişim — GaviaWorks CRM';
+    GV.pageHead({ eyebrow:'Destek ve Bakım', title:'Destek Talebi Detayı', sub:'Yetkisiz erişim',
+      actions:[{ label:'Destek taleplerim', icon:'i-support', href:'app-destek.html' }] });
+    mount.innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-lock', title:'Bu destek talebini görüntüleme yetkiniz yok',
+      desc:'“' + id + '” kodlu talep ' + GV.session.musteriAd + ' kayıtlarına ait değil. ' +
+           'Müşteri portalında yalnız kendi firmanızın destek talepleri açılabilir; ' +
+           'başka bir firmanın kaydı bağlantıyla da açılamaz. Bu kaydın size ait ' +
+           'olması gerekiyorsa destek ekibinize bildirin.',
+      action:'<a class="btn btn-acc" href="app-destek.html">Destek taleplerime dön</a>' }) + '</div>';
     return;
   }
 
@@ -195,6 +252,12 @@ document.addEventListener('gv:ready', function(){
   function para(v){
     if(!canFinans) return '<span class="cell-mask">••••••</span>';
     return '<span class="cell-money">' + F.money(v) + '</span>';
+  }
+  /* Müşteri kartı ekranı müşteri rolüne KAPALI (shell `SEC_BY_ROLE.musteri`
+     listesinde `musteri` bölümü yok) — portalda 403'e giden bağ bırakılmaz,
+     ad düz metne iner. Personel oturumunda bağ aynen durur. */
+  function musLink(metin){
+    return icBlok ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + metin + '</a>' : metin;
   }
   function saat(v){ return '<b class="u-num">' + F.hours(v) + '</b>'; }
   function kalanMetin(dk){
@@ -548,10 +611,15 @@ document.addEventListener('gv:ready', function(){
      SAYFA BAŞLIĞI
      ================================================================= */
   var actions = [
-    { label:'Destek listesi', icon:'i-support',   href:'app-destek.html' },
-    { label:'SLA takibi',     icon:'i-hourglass', href:'app-destek-sla.html' }
+    { label:'Destek listesi', icon:'i-support', href:'app-destek.html' }
   ];
-  if(canEkle){
+  /* SLA takibi ekranı müşteri rolüne kapalı (shell `SCREEN_DENY.sla` — iç
+     performans ölçütü); portalda 403'e çıkan bir düğme bırakılmaz. */
+  if(icBlok) actions.push({ label:'SLA takibi', icon:'i-hourglass', href:'app-destek-sla.html' });
+  /* `musteri` rolünde `ekle` yetkisi 'musteri' kapsamıyla AÇIK, ama bu modal İÇ
+     ÜRETİM yapar: tüm aktif personel listesini, tüm müşterilerin projelerini,
+     CR süre/maliyet etkisini ve fırsat bütçesini müşteriye açardı. */
+  if(canEkle && icBlok){
     actions.push({ label:'İşleme Dönüştür', icon:'i-tasks', cls:'btn-acc', run:donusturModal });
   }
 
@@ -573,8 +641,7 @@ document.addEventListener('gv:ready', function(){
       '<h1>' + esc(t.baslik) + '</h1>' +
       '<div class="gv-rec-meta">' +
         (musteri
-          ? '<span>' + ico('i-building','ic-sm') + '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' +
-            esc(musteri.kisa) + '</a></span>'
+          ? '<span>' + ico('i-building','ic-sm') + musLink(esc(musteri.kisa)) + '</span>'
           : '<span>' + ico('i-building','ic-sm') + esc(t.musteriAd) + '</span>') +
         '<span>' + ico('i-tag','ic-sm') + esc(t.kategori) + '</span>' +
         '<span>' + ico('i-calendar','ic-sm') + 'Açılış ' + F.dt(t.acilis) + '</span>' +
@@ -591,14 +658,23 @@ document.addEventListener('gv:ready', function(){
   var don = donusumleriTara();
   var donSayi = don.gorevler.length + don.hatalar.length + don.degisim.length;
 
+  /* İÇ sekmeler müşteri oturumunda kurulmaz — sekme de panel de basılmaz:
+       SLA        → şirketin politika matrisi, eskalasyon kuralı ve kayıt/hesap
+                    uyuşmazlık itirafı; iç ölçüm (shell `SCREEN_DENY.sla`).
+       Dönüşümler → görev · hata · değişiklik talebi · satış fırsatı. Dördünün de
+                    hedef ekranı müşteri rolüne kapalı, fırsat bütçesi satış verisi.
+       Aktivite   → iç personel notları ve durum geçişleri ("ek geliştirme teklifi
+                    iletildi" gibi satış izleri burada duruyor).
+     Talebin KENDİ alanları (SLA etiketi, durumu, sorumlusu, memnuniyeti) kapalı
+     değil — müşteri onları kapsamlı destek listesinde zaten görüyor. */
   var tabs = [
     { key:'genel',      lbl:'Genel',            ic:'i-info' },
-    { key:'sla',        lbl:'SLA',              ic:'i-hourglass' },
+    { key:'sla',        lbl:'SLA',              ic:'i-hourglass',                     icOnly:true },
     { key:'paket',      lbl:'Bakım Paketi',     ic:'i-shield-check', cnt:paket ? 1 : 0 },
     { key:'memnuniyet', lbl:'Memnuniyet',       ic:'i-star',         cnt:anket ? 1 : 0 },
-    { key:'donusum',    lbl:'Dönüşümler',       ic:'i-refresh',      cnt:donSayi },
-    { key:'aktivite',   lbl:'Aktivite Geçmişi', ic:'i-activity',     cnt:acts.length }
-  ];
+    { key:'donusum',    lbl:'Dönüşümler',       ic:'i-refresh',      cnt:donSayi,     icOnly:true },
+    { key:'aktivite',   lbl:'Aktivite Geçmişi', ic:'i-activity',     cnt:acts.length, icOnly:true }
+  ].filter(function(x){ return icBlok || !x.icOnly; });
 
   var tabBar = '<div class="gv-tabs" role="tablist" id="recTabs">' + tabs.map(function(x){
     return '<button type="button" class="gv-tab" role="tab" data-tab="' + x.key + '">' + ico(x.ic,'ic-sm') + esc(x.lbl) +
@@ -630,7 +706,7 @@ document.addEventListener('gv:ready', function(){
     ])) +
     sec('Müşteri ve Bağlam', GV.dl([
       ['Müşteri', musteri
-        ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>' +
+        ? musLink(esc(musteri.unvan)) +
           ' <span class="cell-sub">' + esc(musteri.kod) + ' · ' + esc(musteri.sektor) + '</span>'
         : esc(t.musteriAd)],
       ['Müşteri durumu', musteri ? GV.badge(musteri.durum) : null],
@@ -834,9 +910,7 @@ document.addEventListener('gv:ready', function(){
           ['Paket adı', esc(paket.ad)],
           ['Durum', GV.badge(paket.durum)],
           ['Dönem', F.date(paket.baslangic) + ' – ' + F.date(paket.bitis)],
-          ['Müşteri', musteri
-            ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.unvan) + '</a>'
-            : esc(t.musteriAd)],
+          ['Müşteri', musteri ? musLink(esc(musteri.unvan)) : esc(t.musteriAd)],
           ['Paket bedeli <span class="u-faint">(KDV hariç)</span>', para(paket.tutar)]
         ])) +
         sec('Kota Kullanımı', GV.dl([
@@ -862,8 +936,11 @@ document.addEventListener('gv:ready', function(){
             ? GV.dateCell(paket.yenilemeTarihi, { done:paket.durum === 'Sona erdi' }) +
               ' <span class="cell-sub">' + F.rel(paket.yenilemeTarihi) + '</span>'
             : null],
+          /* Sözleşme ekranı finans bölümünde; müşteri rolünde o bölüm yok →
+             portalda kod düz metne iner, sözleşme bilgisi yine görünür. */
           ['Bağlı sözleşme', paketSozlesme
-            ? '<a href="app-sozlesme.html">' + esc(paketSozlesme.kod) + '</a>' +
+            ? (icBlok ? '<a href="app-sozlesme.html">' + esc(paketSozlesme.kod) + '</a>'
+                      : '<span class="u-num">' + esc(paketSozlesme.kod) + '</span>') +
               ' <span class="cell-sub">' + esc(paketSozlesme.ad) + '</span>'
             : (paket.sozlesme
                 ? '<span class="u-num">' + esc(paket.sozlesme) + '</span>' +
@@ -994,7 +1071,7 @@ document.addEventListener('gv:ready', function(){
         desc:'Hiçbir görev, hata, değişiklik talebi veya satış fırsatının `destek` alanı ' + t.kod + ' kodunu göstermiyor. ' +
              'Kullanım sorusu ve bilgi talebi gibi kategoriler zaten kayıt doğurmaz; hata kategorisindeki ' +
              'bir talepte bu boşluk dönüşümün henüz yapılmadığı anlamına gelir.',
-        action:canEkle
+        action:(canEkle && icBlok)
           ? '<button type="button" class="btn btn-acc" id="btnDonusturBos">' + ico('i-tasks') +
             ' Göreve dönüştür</button>'
           : '<a class="btn btn-line" href="app-gorev.html">Görev listesine git</a>' }) + '</div>';
@@ -1103,9 +1180,7 @@ document.addEventListener('gv:ready', function(){
   var aside =
     '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-info') + 'Özet</h2></div>' +
     '<div class="gc-body">' + ozetListe([
-      ['Müşteri', musteri
-        ? '<a href="app-musteri-detay.html?id=' + musteri.kod + '">' + esc(musteri.kisa) + '</a>'
-        : esc(t.musteriAd)],
+      ['Müşteri', musteri ? musLink(esc(musteri.kisa)) : esc(t.musteriAd)],
       ['Kategori', '<span class="tag">' + esc(t.kategori) + '</span>'],
       ['Öncelik', GV.pri(t.oncelik)],
       ['Açılış zamanı', '<span class="cell-date">' + F.dt(t.acilis) + '</span>'],
@@ -1115,7 +1190,11 @@ document.addEventListener('gv:ready', function(){
       ['Memnuniyet', t.memnuniyet != null ? puanBadge(t.memnuniyet) : '<span class="u-faint">Yanıt yok</span>']
     ]) + '</div></section>' +
 
-    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-hourglass') + 'SLA Hedefleri</h2></div>' +
+    /* SLA Hedefleri kartı SLA sekmesinin özeti — politika kodu, eskalasyon tabanı
+       ve belirleyen eksen iç ölçüm. Sekme müşteri oturumunda kapalı olduğu için
+       kart da kapalı; ikisi tek karardan beslenir. */
+    (icBlok
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-hourglass') + 'SLA Hedefleri</h2></div>' +
     '<div class="gc-body">' + (P
       ? ozetListe([
           ['İlk yanıt hedefi', '<b class="u-num">' + sure(yanitHedef) + '</b>'],
@@ -1132,7 +1211,8 @@ document.addEventListener('gv:ready', function(){
         (slaYuzde == null ? '' : '<div class="u-mt-8">' +
           GV.progress(Math.min(100, slaYuzde), { tone:tonu(slaHesap) }) + '</div>')
       : '<p class="u-sm u-faint">Bu kategori ve öncelik için tanımlı SLA politikası bulunamadı.</p>') +
-    '</div></section>' +
+    '</div></section>'
+      : '') +
 
     (paket
       ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-shield-check') +
@@ -1151,9 +1231,13 @@ document.addEventListener('gv:ready', function(){
         '</div></section>'
       : '') +
 
-    '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
-    '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
-      '<p class="u-sm u-faint">Bu destek talebinde henüz kayıtlı hareket yok.</p>') + '</div></section>';
+    /* Son Hareket, Aktivite Geçmişi sekmesinin ilk üç satırıdır — aynı iç
+       personel notlarını taşır, aynı kararla kapanır. */
+    (icBlok
+      ? '<section class="gv-card"><div class="gc-head"><h2 class="gc-title">' + ico('i-activity') + 'Son Hareket</h2></div>' +
+        '<div class="gc-body">' + (acts.length ? GV.activity(acts.slice(0, 3)) :
+          '<p class="u-sm u-faint">Bu destek talebinde henüz kayıtlı hareket yok.</p>') + '</div></section>'
+      : '');
 
   mount.innerHTML = head +
     '<div class="gv-grid gv-grid-aside">' +
