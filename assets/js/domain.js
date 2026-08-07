@@ -692,9 +692,89 @@
     }
   };
 
+  /* ===================================================================
+     YENİLEME — sözleşme ve hizmet paketi (REVİZE 17)
+     ───────────────────────────────────────────────────────────────────
+     Aynı iş İKİ EKRANDA ayrı ayrı yazılıydı ve ikisi farklı davranıyordu:
+     `app-sozlesme-detay.html` yalnız `bitis`i bir yıl uzatıyor ve aktivite
+     kaydı yazıyordu; `app-destek-paket.html` `baslangic` ile `bitis`i birlikte
+     kaydırıyor, yenileme işaretini tüketiyor ama **hiç aktivite yazmıyordu**.
+     Talimat "aynı özelliği iki farklı yerde yeniden oluşturma" diyor; yordam
+     tek yere indi, alan politikası TÜRE göre yazılı:
+
+       'sozlesme' → `bitis` +1 yıl · `yenilemeTarihi` varsa +1 yıl · durum Aktif.
+                    `baslangic` DEĞİŞMEZ — imza dönemi geçmiştir.
+       'paket'    → `baslangic` ve `bitis` birlikte +1 yıl (kota dönemi kayar,
+                    ay sayısı ve dolayısıyla `kullanilan + kalan = aylikSaat × ay`
+                    sözleşmesi korunur) · durum Aktif · yenileme işareti tüketilir.
+                    Kota DEVREDER — bugünkü davranış budur ve ekran bunu yazıyor.
+
+     İkisi de artık aktivite kaydı yazar. Okuduğu koleksiyonlar (L-34):
+     `misc.js` (contracts) · `ops.js` (supportPackages) · `work.js` (activities).
+     =================================================================== */
+  var TUR_ALAN = {
+    sozlesme:{ koleksiyon:'contracts',       ad:'Sözleşme',      baslangicKayar:false, isaretVar:false },
+    paket:   { koleksiyon:'supportPackages', ad:'Hizmet paketi', baslangicKayar:true,  isaretVar:true  }
+  };
+  function yilEkle(iso){
+    return iso ? (Number(String(iso).slice(0, 4)) + 1) + String(iso).slice(4) : iso;
+  }
+  var Yenileme = {
+    /* Kaydı bulur — tür bilinmiyorsa `null`. */
+    kayit:function(tur, kod){
+      var t = TUR_ALAN[tur];
+      if(!t || !window.DB) return null;
+      return (DB[t.koleksiyon] || []).filter(function(x){ return x.kod === kod; })[0] || null;
+    },
+    /* Ekranın onay metnini kurabilmesi için: ne olacağının ÖNİZLEMESİ.
+       Mutasyon yok — ekran ile yordam aynı sayıyı söylesin diye açıktır. */
+    onizleme:function(tur, kod){
+      var t = TUR_ALAN[tur], r = this.kayit(tur, kod);
+      if(!r) return null;
+      return {
+        tur:tur, etiket:t.ad,
+        eskiBaslangic:r.baslangic, yeniBaslangic:t.baslangicKayar ? yilEkle(r.baslangic) : r.baslangic,
+        eskiBitis:r.bitis, yeniBitis:yilEkle(r.bitis),
+        eskiDurum:r.durum,
+        isaret:t.isaretVar ? !!r.yenileme : null
+      };
+    },
+    /* Bir yıl uzatır. Dönüş sözleşmesi ortak: { ok:true, … } / { ok:false, why }. */
+    uzat:function(tur, kod){
+      var t = TUR_ALAN[tur];
+      if(!t) return { ok:false, why:'tür' };
+      var r = this.kayit(tur, kod);
+      if(!r) return { ok:false, why:'kayıt yok' };
+      if(!r.bitis) return { ok:false, why:'bitiş tarihi yok' };
+      var eskiBitis = r.bitis, eskiDurum = r.durum;
+      if(t.baslangicKayar) r.baslangic = yilEkle(r.baslangic);
+      r.bitis = yilEkle(r.bitis);
+      if(r.yenilemeTarihi) r.yenilemeTarihi = t.isaretVar ? null : yilEkle(r.yenilemeTarihi);
+      if(t.isaretVar) r.yenileme = false;
+      r.durum = 'Aktif';
+      log(r.kod, t.ad + ' bir yıl yenilendi (durum: ' + eskiDurum + ' → Aktif)',
+          eskiBitis, r.bitis, 'ok', 'i-refresh');
+      return { ok:true, kod:r.kod, eskiBitis:eskiBitis, bitis:r.bitis,
+               baslangic:r.baslangic, eskiDurum:eskiDurum };
+    },
+    /* Yenilemeye işaretle — paket ekseninde toplu işlem bunu çağırır. */
+    isaretle:function(tur, kod){
+      var t = TUR_ALAN[tur];
+      if(!t || !t.isaretVar) return { ok:false, why:'tür' };
+      var r = this.kayit(tur, kod);
+      if(!r) return { ok:false, why:'kayıt yok' };
+      if(r.yenileme) return { ok:false, why:'zaten işaretli' };
+      r.yenileme = true;
+      r.yenilemeTarihi = r.yenilemeTarihi || r.bitis;
+      log(r.kod, t.ad + ' yenilemeye işaretlendi', '', r.yenilemeTarihi, 'warn', 'i-flag');
+      return { ok:true, kod:r.kod, tarih:r.yenilemeTarihi };
+    }
+  };
+
   GV.destek = Destek;
   GV.proje = Proje;
   GV.hr = Hr;
+  GV.yenileme = Yenileme;
 
   /* ===================================================================
      PROJE — maliyet ve kârlılık (REVİZE 04)
@@ -953,6 +1033,16 @@
     var pkt = {
       kod:'BKP-' + String(no).padStart(3, '0'),
       musteri:p.musteri, ad:cfg.tip,
+      /* REVİZE 17 — yeni paket de tip/periyot/sorumlu taşır, yoksa şema
+         kayıttan kayda değişir (VB-18 sınıfı). Periyot dönem uzunluğundan
+         türetilir; sözlükte karşılığı yoksa `null` kalır, uydurulmaz.
+         Sorumlu müşteri kartındaki sorumludur (R12 ile aynı eksen). */
+      tip:'Bakım',
+      periyot:({ 1:'Aylık', 3:'3 Aylık', 6:'6 Aylık', 12:'Yıllık' })[ay] || null,
+      sorumlu:(function(){
+        var m = (DB.customers || []).filter(function(c){ return c.kod === p.musteri; })[0];
+        return m ? (m.sorumlu || null) : null;
+      })(),
       baslangic:cfg.baslangic, bitis:bitis,
       aylikSaat:saat, kullanilan:0, kalan:saat * ay,
       tutar:tutar, durum:'Aktif',

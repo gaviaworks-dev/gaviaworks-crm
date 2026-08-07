@@ -18,6 +18,10 @@
 <script src="assets/data/org.js"></script>
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/ops.js"></script>
+<!-- GV.yenileme aktivite yazar → DB.activities work.js'te (L-34) -->
+<script src="assets/data/work.js"></script>
+<!-- GV.yenileme sözleşme kaydını da okur (L-34) -->
+<script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
 <script src="assets/js/domain.js"></script>
@@ -58,18 +62,12 @@ document.addEventListener('gv:ready', function(){
 
   var yilEkle = function(iso){ return iso ? (Number(String(iso).slice(0,4)) + 1) + String(iso).slice(4) : iso; };
 
-  /* Yenileme: dönem bir yıl uzatılır, bekleyen yenileme işareti tüketilir. */
-  var yenile  = function(p){
-    p.baslangic      = yilEkle(p.baslangic);
-    p.bitis          = yilEkle(p.bitis);
-    p.durum          = 'Aktif';
-    p.yenileme       = false;
-    p.yenilemeTarihi = null;
-  };
-  var isaretle = function(p){
-    p.yenileme       = true;
-    p.yenilemeTarihi = p.yenilemeTarihi || p.bitis;
-  };
+  /* REVİZE 17 — YENİLEME MUTASYONU ARTIK EKRANDA DEĞİL. Aynı iş sözleşme
+     detayında ikinci kez yazılıydı ve iki uygulama farklı davranıyordu (orada
+     aktivite kaydı yazılıyordu, burada yazılmıyordu). İkisi `GV.yenileme`de
+     birleşti; ekran yalnız çağırır ve `ok` değilse başarı mesajı basmaz (L-23). */
+  var yenile  = function(p){ return GV.yenileme.uzat('paket', p.kod); };
+  var isaretle = function(p){ return GV.yenileme.isaretle('paket', p.kod); };
 
   var isaretRozet = function(p){
     return p.yenileme ? '<span class="badge is-warn no-dot">Yenilenecek</span>' : '';
@@ -94,7 +92,16 @@ document.addEventListener('gv:ready', function(){
       { label:'Yeni Bakım Paketi', icon:'i-plus', cls:'btn-acc', href:'app-destek-paket-form.html' }
     ] });
 
+  /* REVİZE 13 — müşteri oturumu mu? Kapsam bildirimi buna bağlıdır. */
+  var musKapsam = !!(GV.session && GV.session.musteri);
+
   GV.list({
+    /* REVİZE 13 — müşteri kapsamı: paket kaydında müşteri doğrudan yazılı (7/7). */
+    /* REVİZE 13 — kapsam YALNIZ müşteri oturumunda bildirilir. Koşulsuz
+       bildirilseydi `ui.js` iç roller için ("kendi" · "departman" · "proje")
+       "bu ekranda süzgeç tanımlı değil" çubuğunu basardı: o kapsam borcu
+       gerçektir ama bu turun konusu değil ve 12 rolün ekranını değiştirirdi. */
+    scopeField:musKapsam ? { musteri:'musteri' } : null,
     mount:'#liste', id:'destekpaket', key:'kod', source:function(){ return DB.supportPackages; },
     exportName:'bakim-paketleri', exportTitle:'Bakım Paketleri', pageSize:10, views:['table','card'],
     search:{ placeholder:'Paket kodu, paket adı, sözleşme no veya müşteri ara',
@@ -123,7 +130,17 @@ document.addEventListener('gv:ready', function(){
       { key:'kritik', label:'Kota Kritik', icon:'i-alert', filter:kritik },
       { key:'yaklasan', label:'Yenilemesi Yaklaşan', icon:'i-hourglass', filter:yaklasan },
       { key:'dolmus', label:'Süresi Dolmuş', icon:'i-archive', filter:dolmus }
-    ],
+    ].concat(
+      /* Tipe göre sekme YALNIZ veride karşılığı olan tipler için doğar
+         (bugün 1: Bakım). Sözlüğün on tipine boş sekme açmak, olmayan hizmeti
+         varmış gibi göstermek olurdu (L-13). */
+      DB.servicePackageTypes
+        .filter(function(t){ return DB.supportPackages.some(function(p){ return p.tip === t; }); })
+        .map(function(t){
+          return { key:'tip-' + t, label:t, icon:'i-shield-check',
+                   filter:function(p){ return p.tip === t; } };
+        })
+    ),
 
     columns:[
       { key:'kod', label:'Paket', width:'16%', locked:true, cellClass:'cell-wrap',
@@ -142,6 +159,25 @@ document.addEventListener('gv:ready', function(){
         exportValue:function(p){ return p.sozlesme || ''; } },
       { key:'ad', label:'Paket adı', visible:false,
         render:function(p){ return '<span class="tag">' + esc(p.ad) + '</span>'; } },
+      /* REVİZE 17 — TİP paketin ne olduğudur, `ad` ise ekranda görünen hizmet
+         adıdır; ikisi ayrı eksende durur. Periyot dönem uzunluğudur ve
+         sözlükte karşılığı olmayan dönem (24 ay) UYDURULMAZ — ay olarak yazılır. */
+      { key:'tip', label:'Paket tipi',
+        render:function(p){ return p.tip ? '<span class="tag">' + esc(p.tip) + '</span>'
+                                         : '<span class="u-faint">—</span>'; },
+        exportValue:function(p){ return p.tip || ''; } },
+      { key:'periyot', label:'Periyot',
+        render:function(p){
+          return p.periyot
+            ? '<span class="cell-main">' + esc(p.periyot) + '</span>'
+            : '<span class="cell-main">' + donemAy(p) + ' aylık dönem</span>' +
+              '<span class="cell-sub">standart periyotlardan biri değil</span>'; },
+        exportValue:function(p){ return p.periyot || (donemAy(p) + ' ay'); } },
+      { key:'sorumlu', label:'Sorumlu',
+        render:function(p){ return p.sorumlu ? GV.user(p.sorumlu, { sm:true })
+                                             : '<span class="u-faint">Atanmamış</span>'; },
+        sortValue:function(p){ return p.sorumlu ? DB.empName(p.sorumlu) : ''; },
+        exportValue:function(p){ return p.sorumlu ? DB.empName(p.sorumlu) : ''; } },
       { key:'aylikSaat', label:'Aylık saat', cellClass:'num',
         render:function(p){ return '<span class="u-num">' + F.hours(p.aylikSaat) + '</span>'; } },
       { key:'kotaToplam', label:'Toplam kota', cellClass:'num',
@@ -205,6 +241,14 @@ document.addEventListener('gv:ready', function(){
       { key:'ad', label:'Paket adı', type:'multi',
         options:DB.supportPackages.map(function(p){ return p.ad; })
           .filter(function(v, i, s){ return s.indexOf(v) === i; }) },
+      /* REVİZE 17 — tip ve periyot süzgeci. Seçenek kümesi SÖZLÜKTEN gelir
+         (veride bugün yalnız `Bakım` var; sözlük yeni tipler için hazır). */
+      { key:'tip', label:'Paket tipi', type:'multi', options:DB.servicePackageTypes },
+      { key:'periyot', label:'Periyot', type:'multi', options:DB.servicePackagePeriods },
+      { key:'sorumlu', label:'Sorumlu', type:'select',
+        options:DB.employees.filter(function(e){
+                  return DB.supportPackages.some(function(p){ return p.sorumlu === e.kod; }); })
+                            .map(function(e){ return { value:e.kod, label:e.ad }; }) },
       { key:'durum', label:'Paket durumu', type:'multi',
         options:DB.supportPackages.map(function(p){ return p.durum; })
           .filter(function(v, i, s){ return s.indexOf(v) === i; }) },
@@ -274,7 +318,8 @@ document.addEventListener('gv:ready', function(){
                  ' olarak bir yıl uzatılacak. Kalan saat kotası devreder, bekleyen yenileme işareti kapanır.',
             okLabel:'Yenile' }).then(function(ok){
               if(!ok) return;
-              yenile(p);
+              var r = yenile(p);
+              if(!r.ok){ GV.toast('Yenilenemedi — ' + r.why, 'danger'); return; }
               GV.toast(p.kod + ' bir yıl yenilendi', 'ok');
               refresh(); }); } }
     ],
@@ -286,7 +331,8 @@ document.addEventListener('gv:ready', function(){
           if(!GV.perm.can('duzenle')){ GV.toast('Bakım paketi güncelleme yetkiniz yok.', 'danger'); return; }
           var n = 0;
           DB.supportPackages.forEach(function(p){
-            if(ids.indexOf(p.kod) !== -1 && !p.yenileme){ isaretle(p); n++; }
+            if(ids.indexOf(p.kod) === -1) return;
+            if(isaretle(p).ok) n++;                 /* yordam zaten "zaten işaretli"yi eler */
           });
           GV.toast(n ? (n + ' paket yenilemeye işaretlendi' +
                         (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt zaten işaretliydi' : ''))
