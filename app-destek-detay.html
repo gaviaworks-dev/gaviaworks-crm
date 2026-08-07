@@ -166,7 +166,10 @@ document.addEventListener('gv:ready', function(){
     return {
       gorevler: bagli(DB.tasks),
       hatalar:  bagli(DB.bugs),
-      degisim:  bagli(DB.changeRequests)
+      degisim:  bagli(DB.changeRequests),
+      /* REVİZE 10 — fırsat dönüşümü. Bağ ADAY kaydında durur
+         (`DB.leads[].destek`), ticket'ta ayna alan doğmaz (§9d). */
+      firsatlar:bagli(DB.leads)
     };
   }
 
@@ -223,7 +226,7 @@ document.addEventListener('gv:ready', function(){
     var panel = document.querySelector('[data-panel="donusum"]');
     if(panel) panel.innerHTML = donusumPaneli();
     var d = donusumleriTara();
-    var toplam = d.gorevler.length + d.hatalar.length + d.degisim.length;
+    var toplam = d.gorevler.length + d.hatalar.length + d.degisim.length + d.firsatlar.length;
     var tab = document.querySelector('#recTabs [data-tab="donusum"]');
     if(tab){
       var cnt = tab.querySelector('.gv-tab-cnt');
@@ -293,10 +296,91 @@ document.addEventListener('gv:ready', function(){
     });
     return kod;
   }
+  /* ---- REVİZE 10 — CR ve FIRSAT üreticileri ---------------------------
+     Doküman ticket'tan üç akış istiyor: görev · revizyon (CR) · satış fırsatı.
+     Görev akışı ÇALIŞIYORDU ve korundu; ikinci bir yol açılmadı, aynı modal
+     üç dala ayrıldı. Bağ her zaman DOĞAN kayıtta durur (§9d): `tasks.destek`,
+     `changeRequests.destek`, `leads.destek`.
+
+     Ön dolgu yalnız TALEPTE YAZILI olandan gelir. Ticket'ta karşılığı olmayan
+     alanlar (CR'nin süre/maliyet etkisi, fırsatın bütçesi ve puanı)
+     KULLANICIDAN alınır — tahmin uydurmak ölçüm gibi görünen bir kurgu olurdu
+     (L-13 · V-53'ün aynı ilkesi). */
+  function yeniKod(dizi, onek){
+    var max = 0;
+    (dizi || []).forEach(function(x){
+      var m = new RegExp('^' + onek + '(\\d+)$').exec(x.kod || '');
+      if(m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return onek + String(max + 1).padStart(3, '0');
+  }
+
+  function crOlustur(opt){
+    var kod = yeniKod(DB.changeRequests, 'DGS-2026-');
+    DB.changeRequests.unshift({
+      kod:kod, proje:opt.proje || null, baslik:opt.baslik,
+      talep:'Müşteri', tarih:DB.today,
+      etkiSure:opt.etkiSure, etkiMaliyet:opt.etkiMaliyet,
+      durum:'Değerlendiriliyor', kapsamIci:false, karar:null,
+      sorumlu:opt.sorumlu || t.sorumlu,
+      destek:t.kod, aktif:true
+    });
+    DB.activities.unshift({
+      kayit:t.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
+      kisi:GV.session.emp, metin:'Talepten revizyon talebi üretildi — ' + kod,
+      eski:null, yeni:kod, tone:'accent', icon:'i-edit'
+    });
+    return kod;
+  }
+
+  function firsatOlustur(opt){
+    var kod = yeniKod(DB.leads, 'LEAD-2026-');
+    var ilkAsama = (DB.pipelineStages || []).slice().sort(function(a, b){
+      return (a.sira || 0) - (b.sira || 0); })[0];
+    DB.leads.unshift({
+      kod:kod,
+      firma:musteri ? musteri.unvan : t.musteriAd,
+      yetkili:DB.contactName(t.acan),
+      tel:yetkili ? yetkili.tel : null, eposta:yetkili ? yetkili.eposta : null,
+      sektor:musteri ? musteri.sektor : null,
+      buyukluk:musteri ? musteri.buyukluk : null,
+      hizmet:opt.hizmet, ozet:opt.ozet,
+      talepTarihi:DB.today,
+      /* `DB.refTypes`'a REVİZE 10'da eklenen değer — kaynak uydurulmadı,
+         fırsat gerçekten destek talebinden doğuyor. */
+      kaynak:'Destek talebi', referans:null, yonlendiren:null,
+      sorumlu:(musteri && musteri.sorumlu) || t.sorumlu,
+      butce:opt.butce, kapanisTahmini:null,
+      oncelik:t.oncelik, puan:opt.puan, sicaklik:opt.sicaklik,
+      sonIletisim:DB.today, sonrakiAksiyon:'Talep sahibiyle kapsam görüşmesi',
+      sonrakiTarih:null,
+      asama:ilkAsama ? ilkAsama.key : 'Yeni talep',
+      musteri:t.musteri || null, kayipNedeni:null, aktif:true,
+      etiketler:['Destek talebi', t.kod],
+      notlar:'Destek talebinden üretildi: ' + t.kod + ' · ' + t.baslik,
+      destek:t.kod
+    });
+    DB.activities.unshift({
+      kayit:t.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
+      kisi:GV.session.emp, metin:'Talepten satış fırsatı üretildi — ' + kod,
+      eski:null, yeni:kod, tone:'accent', icon:'i-target'
+    });
+    return kod;
+  }
+
   function donusturModal(){
     GV.modal({
-      title:'Talebi Göreve Dönüştür', text:t.kod + ' · ' + t.musteriAd, icon:'i-tasks', size:'lg',
-      body:'<div class="field"><label for="dgBaslik">Görev başlığı</label>' +
+      title:'Talebi İşleme Dönüştür', text:t.kod + ' · ' + t.musteriAd, icon:'i-tasks', size:'lg',
+      body:
+           /* REVİZE 10 — üç dal TEK modalda. Mevcut görev akışı korunuyor;
+              ikinci bir dönüşüm yolu açılmıyor. */
+           '<div class="field"><label for="dgHedef">Ne oluşturulacak?</label><select id="dgHedef">' +
+             '<option value="gorev">Görev — çözüm için iş açılacak</option>' +
+             '<option value="cr">Revizyon talebi (CR) — kapsam değişikliği</option>' +
+             '<option value="firsat">Satış fırsatı — ücretli iş çıkabilir</option>' +
+           '</select></div>' +
+           '<div id="dgGorevAlan">' +
+           '<div class="field"><label for="dgBaslik">Görev başlığı</label>' +
              '<input type="text" id="dgBaslik" class="inp" value="' + esc(t.baslik) + '"></div>' +
            '<div class="gv-grid gv-grid-2 u-mt-4">' +
              '<div class="field"><label for="dgTur">Görev türü</label><select id="dgTur">' +
@@ -319,10 +403,110 @@ document.addEventListener('gv:ready', function(){
            GV.notice({ tone:'info', title:'Görev talebe `destek` alanıyla bağlanır',
              text:'Üretilen görevin `destek` alanına ' + t.kod + ' yazılır; bağ yazılı olduğu için ' +
                   '“Dönüşümler” sekmesinde ve görev kartında geri okunabilir. ' +
-                  'Müşteri, proje ve öncelik talep kaydından devralınır.' }),
+                  'Müşteri, proje ve öncelik talep kaydından devralınır.' }) +
+           '</div>' +
+
+           /* --- REVİZYON TALEBİ (CR) --- */
+           '<div id="dgCrAlan" hidden>' +
+             '<div class="field"><label for="dgCrBaslik">Revizyon başlığı</label>' +
+               '<input type="text" id="dgCrBaslik" class="inp" value="' + esc(t.baslik) + '"></div>' +
+             '<div class="gv-grid gv-grid-2 u-mt-4">' +
+               '<div class="field"><label for="dgCrProje">İlgili proje</label><select id="dgCrProje">' +
+                 (t.proje ? '' : '<option value="">— proje seçilmedi —</option>') +
+                 DB.projects.map(function(x){
+                   return '<option value="' + esc(x.kod) + '"' + (x.kod === t.proje ? ' selected' : '') + '>' +
+                          esc(x.ad) + '</option>'; }).join('') + '</select></div>' +
+               '<div class="field"><label for="dgCrSorumlu">Sorumlu</label><select id="dgCrSorumlu">' +
+                 DB.employees.filter(function(e){ return e.aktif !== false; }).map(function(e){
+                   return '<option value="' + esc(e.kod) + '"' + (e.kod === t.sorumlu ? ' selected' : '') + '>' +
+                          esc(e.ad) + '</option>'; }).join('') + '</select></div>' +
+               '<div class="field"><label for="dgCrSure">Süre etkisi (saat)</label>' +
+                 '<input type="number" id="dgCrSure" class="inp" min="0" step="1" placeholder="Örn. 12"></div>' +
+               '<div class="field"><label for="dgCrMaliyet">Maliyet etkisi (₺, KDV hariç)</label>' +
+                 '<input type="number" id="dgCrMaliyet" class="inp" min="0" step="1000" placeholder="Örn. 38000"></div>' +
+             '</div>' +
+             GV.notice({ tone:'warn', title:'Süre ve maliyet etkisi TALEPTE YAZILI DEĞİL',
+               text:'Destek kaydı bir revizyonun kaç saat ve kaç lira etkisi olacağını bilmiyor; ' +
+                    'iki değer sizden alınır. Tahmin üretilseydi ölçüm gibi görünen bir sayı olurdu. ' +
+                    'Kayıt “Değerlendiriliyor” durumunda açılır ve ' + t.kod + ' talebine bağlanır.' }) +
+           '</div>' +
+
+           /* --- SATIŞ FIRSATI --- */
+           '<div id="dgFirsatAlan" hidden>' +
+             '<div class="gv-grid gv-grid-2">' +
+               '<div class="field"><label for="dgFsHizmet">Hizmet</label><select id="dgFsHizmet">' +
+                 DB.services.map(function(x){ return '<option>' + esc(x) + '</option>'; }).join('') +
+               '</select></div>' +
+               '<div class="field"><label for="dgFsSicaklik">Sıcaklık</label><select id="dgFsSicaklik">' +
+                 ['Sıcak','Ilık','Soğuk'].map(function(x){ return '<option>' + esc(x) + '</option>'; }).join('') +
+               '</select></div>' +
+               '<div class="field"><label for="dgFsButce">Tahmini bütçe (₺, KDV hariç)</label>' +
+                 '<input type="number" id="dgFsButce" class="inp" min="0" step="10000" placeholder="Örn. 250000"></div>' +
+               '<div class="field"><label for="dgFsPuan">Fırsat puanı (0-100)</label>' +
+                 '<input type="number" id="dgFsPuan" class="inp" min="0" max="100" step="1" value="50"></div>' +
+             '</div>' +
+             '<div class="field u-mt-4"><label for="dgFsOzet">Fırsat özeti</label>' +
+               '<textarea id="dgFsOzet" rows="2">' + esc(t.baslik) + '</textarea></div>' +
+             GV.notice({ tone:'info', title:'Müşteri kartından devralınan alanlar',
+               text:'Firma, yetkili, sektör ve satış sorumlusu ' +
+                    (musteri ? musteri.unvan + ' kartından' : 'talep kaydından') +
+                    ' okunur; kaynak “Destek talebi” olarak yazılır ve aday ilk pipeline aşamasında açılır. ' +
+                    'Bütçe ve puan talepte yazılı olmadığı için sizden alınır.' }) +
+           '</div>',
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
-        { label:'Görev Oluştur', cls:'btn-acc', onClick:function(close, el){
+        { label:'Oluştur', cls:'btn-acc', onClick:function(close, el){
+            var hedef = el.querySelector('#dgHedef').value;
+
+            if(hedef === 'cr'){
+              var crBaslik = el.querySelector('#dgCrBaslik').value.trim();
+              var crProje  = el.querySelector('#dgCrProje').value;
+              var crSure   = parseInt(el.querySelector('#dgCrSure').value, 10);
+              var crMal    = parseInt(el.querySelector('#dgCrMaliyet').value, 10);
+              var eksik = [];
+              if(!crBaslik) eksik.push('Revizyon başlığı');
+              if(!crProje) eksik.push('İlgili proje');
+              if(isNaN(crSure) || crSure < 0) eksik.push('Süre etkisi');
+              if(isNaN(crMal) || crMal < 0) eksik.push('Maliyet etkisi');
+              if(eksik.length){ GV.toast('Eksik alan: ' + eksik.join(' · '), 'warn'); return false; }
+              var crKod = crOlustur({ baslik:crBaslik, proje:crProje, etkiSure:crSure,
+                                      etkiMaliyet:crMal, sorumlu:el.querySelector('#dgCrSorumlu').value });
+              donusumYenile();
+              GV.result({ tone:'ok', title:'Revizyon talebi oluşturuldu',
+                text:crKod + ' “Değerlendiriliyor” durumunda açıldı ve ' + t.kod + ' talebine bağlandı.',
+                actions:[
+                  { label:'Revizyonu aç', cls:'btn-acc', onClick:function(){
+                      location.href = 'app-proje-degisiklik-detay.html?id=' + crKod; } },
+                  { label:'Dönüşümleri gör', cls:'btn-line', onClick:function(){
+                      if(tabsApi) tabsApi.activate('donusum', true); } }
+                ] });
+              return;
+            }
+
+            if(hedef === 'firsat'){
+              var fsButce = parseInt(el.querySelector('#dgFsButce').value, 10);
+              var fsPuan  = parseInt(el.querySelector('#dgFsPuan').value, 10);
+              var fsOzet  = el.querySelector('#dgFsOzet').value.trim();
+              var eksik2 = [];
+              if(isNaN(fsButce) || fsButce <= 0) eksik2.push('Tahmini bütçe');
+              if(isNaN(fsPuan) || fsPuan < 0 || fsPuan > 100) eksik2.push('Fırsat puanı');
+              if(!fsOzet) eksik2.push('Fırsat özeti');
+              if(eksik2.length){ GV.toast('Eksik alan: ' + eksik2.join(' · '), 'warn'); return false; }
+              var fsKod = firsatOlustur({ hizmet:el.querySelector('#dgFsHizmet').value,
+                                          sicaklik:el.querySelector('#dgFsSicaklik').value,
+                                          butce:fsButce, puan:fsPuan, ozet:fsOzet });
+              donusumYenile();
+              GV.result({ tone:'ok', title:'Satış fırsatı oluşturuldu',
+                text:fsKod + ' ilk pipeline aşamasında açıldı · kaynak “Destek talebi” · ' + t.kod + ' bağlandı.',
+                actions:[
+                  { label:'Fırsatı aç', cls:'btn-acc', onClick:function(){
+                      location.href = 'app-lead-detay.html?id=' + fsKod; } },
+                  { label:'Dönüşümleri gör', cls:'btn-line', onClick:function(){
+                      if(tabsApi) tabsApi.activate('donusum', true); } }
+                ] });
+              return;
+            }
+
             var baslik = el.querySelector('#dgBaslik').value.trim();
             if(!baslik){ GV.toast('Görev başlığı boş bırakılamaz', 'warn'); return false; }
             var sureDeger = parseInt(el.querySelector('#dgSure').value, 10);
@@ -346,6 +530,18 @@ document.addEventListener('gv:ready', function(){
           } }
       ]
     });
+
+    /* Seçime göre yalnız ilgili alan kümesi görünür — kullanıcı üç formu
+       birden görmez (talimat: gereksiz form alanı gösterme). */
+    var hedefSec = document.getElementById('dgHedef');
+    if(hedefSec) hedefSec.addEventListener('change', function(){
+      var g = document.getElementById('dgGorevAlan');
+      var c = document.getElementById('dgCrAlan');
+      var f = document.getElementById('dgFirsatAlan');
+      if(g) g.hidden = hedefSec.value !== 'gorev';
+      if(c) c.hidden = hedefSec.value !== 'cr';
+      if(f) f.hidden = hedefSec.value !== 'firsat';
+    });
   }
 
   /* =================================================================
@@ -356,7 +552,7 @@ document.addEventListener('gv:ready', function(){
     { label:'SLA takibi',     icon:'i-hourglass', href:'app-destek-sla.html' }
   ];
   if(canEkle){
-    actions.push({ label:'Göreve dönüştür', icon:'i-tasks', cls:'btn-acc', run:donusturModal });
+    actions.push({ label:'İşleme Dönüştür', icon:'i-tasks', cls:'btn-acc', run:donusturModal });
   }
 
   GV.pageHead({
@@ -791,11 +987,11 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   function donusumPaneli(){
     var d = donusumleriTara();
-    var toplam = d.gorevler.length + d.hatalar.length + d.degisim.length;
+    var toplam = d.gorevler.length + d.hatalar.length + d.degisim.length + d.firsatlar.length;
     if(!toplam){
       return '<div class="gc-body flush">' + GV.empty({
         icon:'i-refresh', title:'Bu talepten üretilmiş kayıt yok',
-        desc:'Hiçbir görev, hata veya değişiklik talebinin `destek` alanı ' + t.kod + ' kodunu göstermiyor. ' +
+        desc:'Hiçbir görev, hata, değişiklik talebi veya satış fırsatının `destek` alanı ' + t.kod + ' kodunu göstermiyor. ' +
              'Kullanım sorusu ve bilgi talebi gibi kategoriler zaten kayıt doğurmaz; hata kategorisindeki ' +
              'bir talepte bu boşluk dönüşümün henüz yapılmadığı anlamına gelir.',
         action:canEkle
@@ -862,6 +1058,25 @@ document.addEventListener('gv:ready', function(){
         sayac('<b>' + d.degisim.length + '</b> değişiklik talebi',
           '<a class="btn btn-line btn-sm" href="app-proje-degisiklik.html">' + ico('i-refresh','ic-sm') +
           ' Değişiklik talepleri</a>') +
+        '</div>';
+    }
+    if(d.firsatlar.length){
+      /* REVİZE 10 — talepten doğan satış fırsatları. Bağ `DB.leads[].destek`te. */
+      out += '<div class="gc-body flush">' +
+        tbl('<th>Fırsat</th><th>Hizmet</th><th>Aşama</th><th>Sorumlu</th>' +
+            '<th class="num">Bütçe (KDV hariç)</th><th>Sıcaklık</th>',
+          d.firsatlar.map(function(l){
+            return '<tr>' +
+              '<td class="cell-wrap"><a class="cell-main" href="app-lead-detay.html?id=' + l.kod + '">' +
+                esc(l.firma) + '</a><span class="cell-code">' + esc(l.kod) + '</span></td>' +
+              '<td><span class="tag">' + esc(l.hizmet) + '</span></td>' +
+              '<td>' + GV.badge(l.asama) + '</td>' +
+              '<td>' + GV.user(l.sorumlu, { sm:true }) + '</td>' +
+              '<td class="num">' + para(l.butce) + '</td>' +
+              '<td>' + GV.badge(l.sicaklik) + '</td></tr>';
+          }).join('')) +
+        sayac('<b>' + d.firsatlar.length + '</b> satış fırsatı bu talepten doğdu',
+          '<a class="btn btn-line btn-sm" href="app-lead.html">' + ico('i-target','ic-sm') + ' Fırsat listesi</a>') +
         '</div>';
     }
     return out;
