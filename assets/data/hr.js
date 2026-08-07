@@ -45,15 +45,15 @@ DB.timelogs = [
   { kod:'ZMN-9003', personel:'EMP-007', tarih:'2026-08-02', gorev:'GRV-2026-103', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
     sure:6, faturalanabilir:true, aciklama:'Model metrik hesaplaması', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9004', personel:'EMP-007', tarih:'2026-07-31', gorev:'GRV-2026-103', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
-    sure:3, faturalanabilir:true, aciklama:'Test kümesi hazırlığı', onay:'Onaylandı', aktif:true },
+    sure:3, faturalanabilir:true, aciklama:'Test kümesi hazırlığı', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9005', personel:'EMP-006', tarih:'2026-08-01', gorev:'GRV-2026-104', proje:'PRJ-2026-002', musteri:'MUS-2026-011',
     sure:7, faturalanabilir:true, aciklama:'Başvuru listesi bileşeni', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9006', personel:'EMP-006', tarih:'2026-07-31', gorev:'GRV-2026-108', proje:'PRJ-2026-005', musteri:'MUS-2026-007',
-    sure:5, faturalanabilir:true, aciklama:'Rezervasyon takvimi', onay:'Onaylandı', aktif:true },
+    sure:5, faturalanabilir:true, aciklama:'Rezervasyon takvimi', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9007', personel:'EMP-005', tarih:'2026-08-01', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
     sure:3, faturalanabilir:true, aciklama:'Logo API sözleşmesi', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9008', personel:'EMP-005', tarih:'2026-07-30', gorev:'GRV-2026-105', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
-    sure:8, faturalanabilir:true, aciklama:'Senkronizasyon servisi taslağı', onay:'Onaylandı', aktif:true },
+    sure:8, faturalanabilir:true, aciklama:'Senkronizasyon servisi taslağı', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9009', personel:'EMP-009', tarih:'2026-07-31', gorev:'GRV-2026-113', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
     sure:8, faturalanabilir:true, aciklama:'Regresyon test koşumu', onay:'Onaylandı', aktif:true },
   { kod:'ZMN-9010', personel:'EMP-004', tarih:'2026-08-01', gorev:'GRV-2026-102', proje:'PRJ-2026-001', musteri:'MUS-2024-002',
@@ -149,7 +149,18 @@ DB.timelogs = [
      `onay` ekseni de uydurulmadı: tamamlanmış/arşivlenmiş görevin emeği
      onaylanmıştır, süren görevinki onay bekler. `faturalanabilir` görevin
      kendi `faturalanabilir` alanından okundu — projesiz iç işler false. */
-  { kod:'ZMN-9046', personel:'EMP-006', tarih:'2026-07-28', gorev:'GRV-2026-107', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
+  /* ⚠️ TARİH SEÇİMİ HAFTALIK DEFTERE BAĞLIDIR (2026-08-07 düzeltmesi).
+     ZMN-9046 ve ZMN-9050 ilk yazımda 2026-07-28 / 2026-07-27 tarihliydi ve
+     ikisi de **2026-W31 haftasının içine** düştü. O hafta EMP-006 için bir
+     timesheet taşıyor (TSH-2026-031, `toplam:39`); 31 saatlik iki toplu
+     aktarım eklenince haftanın defter toplamı 70'e çıktı ve timesheet
+     bildirimiyle çeliştir oldu. Kayıtlar kaynak görevlerinin kendi tarih
+     aralığı içinde, haftalık defterin dışına alındı:
+     GRV-2026-107 → 07-25 (görev penceresi 07-25…07-30)
+     GRV-2026-121 → 07-24 (görev penceresi 07-21…07-29)
+     Kural: türetilmiş toplu aktarım kaydı, kapsayan bir timesheet haftasına
+     yazılmaz — yoksa haftalık bildirim ile satır kırılımı ayrışır. */
+  { kod:'ZMN-9046', personel:'EMP-006', tarih:'2026-07-25', gorev:'GRV-2026-107', proje:'PRJ-2026-006', musteri:'MUS-2026-010',
     sure:18, faturalanabilir:false, aciklama:'GRV-2026-107 revizyon zinciri — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
   { kod:'ZMN-9047', personel:'EMP-003', tarih:'2026-08-01', gorev:'GRV-2026-116', proje:null, musteri:null,
     sure:2, faturalanabilir:false, aciklama:'GRV-2026-116 teknik değerlendirme — görev kaydından aktarıldı', onay:'Bekliyor', aktif:true },
@@ -157,7 +168,7 @@ DB.timelogs = [
     sure:9, faturalanabilir:true, aciklama:'GRV-2026-118 push bildirim şablonları — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
   { kod:'ZMN-9049', personel:'EMP-010', tarih:'2026-07-24', gorev:'GRV-2026-119', proje:'PRJ-2026-004', musteri:'MUS-2026-009',
     sure:5, faturalanabilir:true, aciklama:'GRV-2026-119 — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
-  { kod:'ZMN-9050', personel:'EMP-006', tarih:'2026-07-27', gorev:'GRV-2026-121', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
+  { kod:'ZMN-9050', personel:'EMP-006', tarih:'2026-07-24', gorev:'GRV-2026-121', proje:'PRJ-2026-003', musteri:'MUS-2025-005',
     sure:13, faturalanabilir:true, aciklama:'GRV-2026-121 — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },
   { kod:'ZMN-9051', personel:'EMP-010', tarih:'2026-02-20', gorev:'GRV-2026-124', proje:null, musteri:null,
     sure:9, faturalanabilir:false, aciklama:'GRV-2026-124 arşiv temizliği — görev kaydından aktarıldı', onay:'Onaylandı', aktif:true },

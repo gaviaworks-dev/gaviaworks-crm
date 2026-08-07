@@ -21,6 +21,7 @@
 <script src="assets/data/hr.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ME = GV.session.emp;
@@ -47,12 +48,10 @@ document.addEventListener('gv:ready', function(){
   function bekliyor(t){ return t.durum === 'Onay bekliyor'; }
   function sonuclanmis(t){ return t.durum === 'Onaylandı'; }
 
-  /* Timesheet'in satır kırılımı: aynı personelin dönem aralığındaki zaman kayıtları */
-  function satirlar(t){
-    return DB.timelogs.filter(function(l){
-      return l.personel === t.personel && l.tarih >= t.baslangic && l.tarih <= t.bitis;
-    }).sort(function(a, b){ return a.tarih < b.tarih ? -1 : a.tarih > b.tarih ? 1 : 0; });
-  }
+  /* Timesheet'in satır kırılımı — kapsam tanımı `GV.zaman.kayitlar`da tek
+     yerde durur. Onay yordamı da aynı tanımı kullandığı için ekranda görünen
+     satırlar ile onaylanan satırlar bir daha ayrışamaz. */
+  function satirlar(t){ return GV.zaman.kayitlar(t); }
   function satirToplam(rows){ return rows.reduce(function(s, l){ return s + l.sure; }, 0); }
 
   function empAd(k){ return DB.empName(k) || k || '—'; }
@@ -120,23 +119,44 @@ document.addEventListener('gv:ready', function(){
         { label:'İade Et', cls:'btn-acc', onClick:function(close, el){
             var not = el.querySelector('#tsIade').value.trim();
             if(!not){ GV.toast('İade gerekçesi zorunludur', 'danger'); return false; }
+            /* İade de tek yordamdan geçer: onaylı bir timesheet iade edilirse
+               altındaki zaman kayıtlarının onayı DA geri alınır. Ekran kendi
+               yazımını yapsaydı, geri alınan haftanın satırları onaylı kalır
+               ve proje "gerçekleşen süre"si iade edilmiş emeği saymayı
+               sürdürürdü. */
+            var geri = 0;
             kayitlar.forEach(function(t){
-              t.durum = 'Revize bekliyor';
-              t.iadeGerekce = not;
-              t.iadeTarihi = DB.today;
-              t.iadeEden = ME;
+              var r = GV.zaman.iade(t.kod, not);
+              if(r && r.ok) geri += r.geriAlinan;
             });
-            GV.toast(kayitlar.length === 1
+            GV.toast((kayitlar.length === 1
               ? kayitlar[0].kod + ' iade edildi · ' + empAd(kayitlar[0].personel) + ' bilgilendirildi'
-              : kayitlar.length + ' timesheet iade edildi · ilgili personel bilgilendirildi', 'ok');
+              : kayitlar.length + ' timesheet iade edildi · ilgili personel bilgilendirildi') +
+              (geri ? ' · ' + geri + ' zaman kaydının onayı geri alındı' : ''), 'ok');
             if(sonra) sonra();
           } }] });
   }
 
-  function onayla(t){
-    t.durum = 'Onaylandı';
-    t.onaylayan = ME;
-    t.onayTarihi = DB.today;
+  /* REVİZE 03 — haftalık onay artık ALTTAKİ ZAMAN KAYITLARINI DA onaylar.
+     Eskiden burada yalnız `t.durum` yazılıyordu; `DB.timelogs[].onay`
+     dokunulmadan kalıyordu ve "onaylı saat" iki farklı şey demek oluyordu.
+     Mutasyon `GV.zaman.onayla`ya taşındı; ekran yalnız çağırır ve kaç satırın
+     onaylandığını söyler. Dönüş değeri kullanıcıya raporlanır — sessizce
+     "onaylandı" demek, kaç satırın kapsandığını gizlerdi. */
+  function onayla(t){ return GV.zaman.onayla(t.kod); }
+
+  function onaySonuc(t, r){
+    if(!r || !r.ok){
+      GV.toast(r && r.why === 'yetki' ? 'Timesheet onaylama yetkiniz yok.'
+             : r && r.why === 'zaten onaylı' ? 'Bu timesheet zaten onaylı.'
+             : 'Onaylanamadı: ' + (r ? r.why : 'bilinmeyen hata'),
+             r && r.why === 'zaten onaylı' ? 'info' : 'danger');
+      return false;
+    }
+    GV.toast(t.kod + ' onaylandı · ' + F.hours(t.toplam) +
+             (r.onaylanan ? ' · ' + r.onaylanan + ' zaman kaydı da onaylandı'
+                          : ' · onaylanacak yeni zaman kaydı yoktu'), 'ok');
+    return true;
   }
 
   /* =================================================================
@@ -174,7 +194,7 @@ document.addEventListener('gv:ready', function(){
     var tablo;
     if(rows.length){
       tablo = '<div class="gv-tablewrap"><table class="gtable"><thead><tr>' +
-        '<th>Tarih</th><th>Proje</th><th>Görev</th><th>Süre</th><th>Faturalandırma</th><th>Açıklama</th>' +
+        '<th>Tarih</th><th>Proje</th><th>Görev</th><th>Süre</th><th>Faturalandırma</th><th>Onay</th><th>Açıklama</th>' +
         '</tr></thead><tbody>' +
         rows.map(function(l){
           return '<tr>' +
@@ -189,6 +209,10 @@ document.addEventListener('gv:ready', function(){
             '<td>' + (l.faturalanabilir
               ? '<span class="badge is-ok no-dot">Faturalanabilir</span>'
               : '<span class="tag">İç iş</span>') + '</td>' +
+            /* REVİZE 03 — satırın kendi onayı da görünür: haftalık onay
+               basıldığında bu kolonun değişmesi, iki eksenin tek eksene
+               indiğinin ekrandaki kanıtıdır. */
+            '<td>' + GV.badge(l.onay) + '</td>' +
             '<td class="cell-wrap">' + esc(l.aciklama) + '</td>' +
           '</tr>';
         }).join('') + '</tbody></table></div>';
@@ -224,7 +248,7 @@ document.addEventListener('gv:ready', function(){
       acts.push({ label:'İade Et', cls:'btn-line', close:false,
         onClick:function(close){ close(); iadeModal([t], refresh); } });
       acts.push({ label:'Onayla', cls:'btn-acc',
-        onClick:function(){ onayla(t); GV.toast(t.kod + ' onaylandı', 'ok'); if(refresh) refresh(); } });
+        onClick:function(){ onaySonuc(t, onayla(t)); if(refresh) refresh(); } });
     }
 
     GV.drawer({
@@ -260,8 +284,7 @@ document.addEventListener('gv:ready', function(){
         okLabel:'Onayla'
       }).then(function(ok){
         if(!ok) return;
-        onayla(t);
-        GV.toast(t.kod + ' onaylandı · ' + F.hours(t.toplam), 'ok');
+        onaySonuc(t, onayla(t));
         refresh();
       });
     } });
@@ -287,10 +310,14 @@ document.addEventListener('gv:ready', function(){
     bulk.push({ key:'onayla', label:'Seçilenleri onayla', icon:'i-check',
       confirm:'Seçili {n} timesheet onaylanacak. Zaten onaylı kayıtlar atlanır.',
       run:function(ids){
-        var hedef = secilenler(ids), n = 0, atlanan = 0;
-        hedef.forEach(function(t){ if(sonuclanmis(t)){ atlanan++; } else { onayla(t); n++; } });
+        var hedef = secilenler(ids), n = 0, atlanan = 0, satir = 0;
+        hedef.forEach(function(t){
+          var r = onayla(t);
+          if(r && r.ok){ n++; satir += r.onaylanan; } else { atlanan++; }
+        });
         GV.toast(n
-          ? n + ' onaylandı' + (atlanan ? ' · ' + atlanan + ' kayıt zaten onaylıydı' : '')
+          ? n + ' timesheet onaylandı · ' + satir + ' zaman kaydı da onaylandı' +
+            (atlanan ? ' · ' + atlanan + ' kayıt atlandı' : '')
           : 'Seçili kayıtların hepsi zaten onaylıydı', n ? 'ok' : 'warn');
       } });
 

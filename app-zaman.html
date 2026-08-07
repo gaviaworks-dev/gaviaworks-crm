@@ -21,9 +21,22 @@
 <script src="assets/data/hr.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, me = GV.session.emp;
+
+  /* `GV.zaman.*` reddini kullanıcı diline çevirir — ekran kendi kuralını
+     yeniden yazmaz, yordamın gerekçesini gösterir. */
+  function onayHata(r, x){
+    if(r.why === 'yetki') return 'Zaman kaydı onaylama yetkiniz yok.';
+    if(r.why === 'zaten onaylı') return 'Bu kayıt zaten onaylı.';
+    if(r.why === 'haftalık onaya bağlı')
+      return r.hafta + ' haftası ' + r.timesheet + ' timesheet\'ine bağlı; ' +
+             'satır tek başına onaylanamaz — Timesheet Onayı ekranından onaylayın.';
+    return 'Onaylanamadı: ' + r.why;
+  }
+
   GV.pageHead({ eyebrow:'İnsan Kaynakları', title:'Zaman Kayıtları',
     actions:[{ label:'Timesheet Onayı', icon:'i-clipboard-check', href:'app-zaman-onay.html' },
              { label:'Zamanlayıcı', icon:'i-timer', cls:'btn-line', id:'btnTimer' },
@@ -87,13 +100,39 @@ document.addEventListener('gv:ready', function(){
         '<div class="gv-mrow-code">' + F.date(x.tarih) + ' · ' + esc(DB.empName(x.personel)) + '</div>' +
         '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.onay) + '</span></div>';
     },
+    /* REVİZE 03 — satır onayı artık `GV.zaman.onaylaKayit`ten geçer.
+       Ekran kendi `x.onay = 'Onaylandı'` yazımını yapıyordu; haftalık
+       timesheet onayı (`app-zaman-onay.html`) ise yalnız `durum` yazıyordu.
+       İki eksen birbirinden habersizdi ve "onaylı saat" iki farklı şey
+       demekti. Tek merci haftalık defterdir: kapsayan timesheet onay
+       bekliyorsa yordam reddeder ve nereden onaylanacağını söyler. */
     rowActions:[
       { key:'onayla', icon:'i-check', label:'Onayla', run:function(x, refresh){
-          if(x.onay === 'Onaylandı'){ GV.toast('Bu kayıt zaten onaylı.', 'info'); return; }
-          if(!GV.perm.can('onay')){ GV.toast('Zaman kaydı onaylama yetkiniz yok.', 'danger'); return; }
-          x.onay = 'Onaylandı'; GV.toast(F.hours(x.sure) + ' onaylandı', 'ok'); refresh(); } }
+          var r = GV.zaman.onaylaKayit(x.kod);
+          if(r.ok){ GV.toast(F.hours(x.sure) + ' onaylandı', 'ok'); refresh(); return; }
+          GV.toast(onayHata(r, x), r.why === 'zaten onaylı' ? 'info' : 'danger'); } }
     ],
-    bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
+    bulk:[
+      { key:'onay', label:'Toplu onayla', icon:'i-check',
+        confirm:'Seçili {n} zaman kaydı onaylanacak. Haftalık timesheet onayına bağlı satırlar atlanır.',
+        run:function(ids){
+          var n = 0, atlanan = 0, haftaya = 0;
+          ids.forEach(function(k){
+            var r = GV.zaman.onaylaKayit(k);
+            if(r.ok) n++;
+            else if(r.why === 'haftalık onaya bağlı') haftaya++;
+            else atlanan++;
+          });
+          GV.toast(n
+            ? n + ' zaman kaydı onaylandı' +
+              (haftaya ? ' · ' + haftaya + ' satır haftalık timesheet onayını bekliyor' : '') +
+              (atlanan ? ' · ' + atlanan + ' kayıt atlandı' : '')
+            : haftaya
+              ? 'Seçili satırların ' + haftaya + ' tanesi haftalık timesheet onayına bağlı — Timesheet Onayı ekranından onaylayın'
+              : 'Seçili kayıtların hepsi zaten onaylıydı',
+            n ? 'ok' : 'warn');
+        } },
+      { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
     emptyState:{ icon:'i-timer', title:'Bu görünümde zaman kaydı yok',
       desc:'Görev bazlı süre girişi proje maliyetini ve faturalandırmayı besler.' }
   });

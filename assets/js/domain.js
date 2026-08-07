@@ -349,7 +349,148 @@
     }
   };
 
+  /* ===================================================================
+     ZAMAN — tek onay ekseni (REVİZE 03)
+
+     Ölçüldü: "onaylı zaman kaydı" bu depoda İKİ AYRI ŞEY demekti.
+     · `DB.timelogs[].onay`      — satır onayı (`app-zaman.html`)
+     · `DB.timesheets[].durum`   — haftalık onay (`app-zaman-onay.html`)
+     İkisi birbirine bağlı değildi: haftalık timesheet onaylanınca altındaki
+     satırların `onay` alanı DEĞİŞMİYORDU. Dört kayıt tam bu yüzden kendi
+     haftalık defteriyle çelişiyordu (satır "Onaylandı", haftası "Onay
+     bekliyor"). REVİZE 03 "gerçekleşen süre onaylanmış timesheet
+     kayıtlarından gelsin" diyor — hangi eksende olduğu belirsizken o cümle
+     iki farklı sayı üretir.
+
+     KARAR — haftalık timesheet, kapsadığı satırların ONAY MERCİİDİR:
+     · Bir satırı kapsayan onaylı timesheet varsa satır da onaylıdır.
+     · Timesheet iade edilirse kapsadığı satırların onayı da geri alınır.
+     · Kapsayan timesheet onay bekliyorsa satır TEK BAŞINA onaylanamaz —
+       yordam reddeder ve nereden onaylanacağını söyler. (Yarım yol açık
+       bırakmak iki eksenli hâle geri dönmek olurdu.)
+     · Hiçbir timesheet kapsamıyorsa satır kendi başına onaylanabilir;
+       bu depoda haftalık defter yalnız 2026-W31'i kapsıyor.
+     =================================================================== */
+  var Zaman = {
+    /* Satırı kapsayan haftalık timesheet — yoksa null */
+    timesheetOf:function(l){
+      if(!window.DB || !DB.timesheets || !l) return null;
+      return DB.timesheets.filter(function(t){
+        return t.personel === l.personel && l.tarih >= t.baslangic && l.tarih <= t.bitis;
+      })[0] || null;
+    },
+
+    /* Timesheet'in kapsadığı zaman kayıtları — kırılım da bu yordamdan okunur */
+    kayitlar:function(ts){
+      if(!window.DB || !DB.timelogs || !ts) return [];
+      return DB.timelogs.filter(function(l){
+        return l.personel === ts.personel && l.tarih >= ts.baslangic && l.tarih <= ts.bitis;
+      }).sort(function(a, b){ return a.tarih < b.tarih ? -1 : a.tarih > b.tarih ? 1 : 0; });
+    },
+
+    /* HAFTALIK ONAY — timesheet + kapsadığı her satır aynı işlemde onaylanır */
+    onayla:function(kod, tarih){
+      if(!window.DB) return null;
+      if(!can('onay')) return { ok:false, why:'yetki' };
+      var ts = DB.timesheets.filter(function(x){ return x.kod === kod; })[0];
+      if(!ts) return { ok:false, why:'kayıt yok' };
+      if(ts.durum === 'Onaylandı') return { ok:false, why:'zaten onaylı' };
+      var eski = ts.durum, t = tarih || DB.today;
+      ts.durum = 'Onaylandı'; ts.onaylayan = kim() || ts.onaylayan; ts.onayTarihi = t;
+      var satir = Zaman.kayitlar(ts), n = 0, saat = 0;
+      satir.forEach(function(l){
+        if(l.onay === 'Onaylandı') return;
+        l.onay = 'Onaylandı'; n++; saat += l.sure;
+      });
+      log(ts.kod, 'Haftalık timesheet onaylandı' +
+          (n ? ' — altındaki ' + n + ' zaman kaydı da onaylandı' : ''),
+          eski, 'Onaylandı', 'ok', 'i-check-circle');
+      return { ok:true, timesheet:ts, satir:satir.length, onaylanan:n, saat:saat };
+    },
+
+    /* İADE — haftalık onay geri alınırsa kapsadığı satırların onayı da geri alınır */
+    iade:function(kod, gerekce){
+      if(!window.DB) return null;
+      if(!can('onay')) return { ok:false, why:'yetki' };
+      if(!gerekce) return { ok:false, why:'gerekçe zorunlu' };
+      var ts = DB.timesheets.filter(function(x){ return x.kod === kod; })[0];
+      if(!ts) return { ok:false, why:'kayıt yok' };
+      if(ts.durum === 'Revize bekliyor') return { ok:false, why:'zaten iade edilmiş' };
+      var eski = ts.durum;
+      ts.durum = 'Revize bekliyor'; ts.iadeGerekce = gerekce;
+      ts.iadeTarihi = DB.today; ts.iadeEden = kim();
+      var n = 0;
+      Zaman.kayitlar(ts).forEach(function(l){
+        if(l.onay !== 'Onaylandı') return;
+        l.onay = 'Bekliyor'; n++;
+      });
+      log(ts.kod, 'Timesheet iade edildi — ' + gerekce +
+          (n ? ' · altındaki ' + n + ' zaman kaydının onayı geri alındı' : ''),
+          eski, 'Revize bekliyor', 'warn', 'i-refresh');
+      return { ok:true, timesheet:ts, geriAlinan:n };
+    },
+
+    /* SATIR ONAYI — kapsayan haftalık defter varsa ONA bağlıdır */
+    onaylaKayit:function(kod){
+      if(!window.DB) return null;
+      if(!can('onay')) return { ok:false, why:'yetki' };
+      var l = DB.timelogs.filter(function(x){ return x.kod === kod; })[0];
+      if(!l) return { ok:false, why:'kayıt yok' };
+      if(l.onay === 'Onaylandı') return { ok:false, why:'zaten onaylı' };
+      var ts = Zaman.timesheetOf(l);
+      if(ts && ts.durum !== 'Onaylandı')
+        return { ok:false, why:'haftalık onaya bağlı', timesheet:ts.kod, hafta:ts.hafta };
+      l.onay = 'Onaylandı';
+      log(l.kod, 'Zaman kaydı onaylandı' + (ts ? ' (' + ts.kod + ' haftası onaylı)' : ''),
+          'Bekliyor', 'Onaylandı', 'ok', 'i-check-circle');
+      return { ok:true, kayit:l, timesheet:ts };
+    }
+  };
+
+  /* ===================================================================
+     PROJE — süre zinciri (REVİZE 03)
+
+     "Harcanan süre" beş oturum boyunca `DB.projects[].harcananSure`
+     alanında ELLE YAZILI bir sayıydı; 9.125 saatin ~8.900'ünü hiçbir kayıt
+     desteklemiyordu (V-44). Alan kaldırıldı; üç değer de burada türetilir.
+
+     · `planlanan`      — projenin `tahminiSure`si, yoksa Σ görev tahmini
+     · `gerceklesen`    — Σ ONAYLI zaman kaydı (dokümanın istediği eksen)
+     · `faturalanabilir`— Σ onaylı **ve** faturalanabilir kayıt
+     · `tum`            — onaysızlar dahil; ekran "onay bekleyen" farkını
+                          bu ikisinden gösterir, ayrı bir alan tutmaz
+
+     `kayit === 0` olan projede ekran **sıfır basmaz**: zaman defteri o
+     projeyi kapsamıyorsa doğru cümle "0 saat çalışıldı" değil "defterde
+     kayıt yok"tur (L-13). `kapsam` bayrağı bunu söyler.
+     =================================================================== */
+  var Proje = {
+    sure:function(kod){
+      var bos = { planlanan:0, gerceklesen:0, faturalanabilir:0, tum:0, kayit:0, kapsam:false };
+      if(!window.DB || !DB.projects) return bos;
+      var p = DB.projects.filter(function(x){ return x.kod === kod; })[0];
+      if(!p) return bos;
+      var ls = (DB.timelogs || []).filter(function(l){ return l.proje === kod; });
+      var onayli = ls.filter(function(l){ return l.onay === 'Onaylandı'; });
+      var planlanan = p.tahminiSure || (DB.tasks || [])
+        .filter(function(t){ return t.proje === kod; })
+        .reduce(function(s, t){ return s + (t.tahminiSure || 0); }, 0);
+      var yuvarla = function(n){ return Math.round(n * 100) / 100; };
+      return {
+        planlanan:planlanan,
+        gerceklesen:yuvarla(onayli.reduce(function(s, l){ return s + l.sure; }, 0)),
+        faturalanabilir:yuvarla(onayli.filter(function(l){ return l.faturalanabilir; })
+          .reduce(function(s, l){ return s + l.sure; }, 0)),
+        tum:yuvarla(ls.reduce(function(s, l){ return s + l.sure; }, 0)),
+        kayit:ls.length,
+        kapsam:ls.length > 0
+      };
+    }
+  };
+
   GV.fin = Fin;
   GV.delivery = Delivery;
   GV.task = Task;
+  GV.zaman = Zaman;
+  GV.proje = Proje;
 })();
