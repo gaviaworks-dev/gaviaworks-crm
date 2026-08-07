@@ -13,7 +13,7 @@
 **`plan.md`'ye dokunulmaz.** O defter 295/295 ile kapandı; revize turunun maddeleri
 oraya eklenmez, yüzdesi bozulmaz.
 
-**Turun durumu (15. oturum sonu, 2026-08-07):**
+**Turun durumu (16. oturum sonu, 2026-08-07):**
 
 | Adım | Durum |
 |---|---|
@@ -31,9 +31,14 @@ oraya eklenmez, yüzdesi bozulmaz.
 | **FAZ 2 · R09** ticket detayları | ✅ **TAMAM** (7/7) |
 | **FAZ 2 · R10** ticket → görev / CR / fırsat | ✅ **TAMAM** (6/6) |
 | **FAZ 2** | ✅ **KAPANDI** |
+| **FAZ 3 · R11** proje kaynağı | ✅ **TAMAM** (7/7 · canon eksen 35) |
+| **FAZ 3 · R12** sözleşme sorumlusu | ✅ **TAMAM** (6/6 · canon eksen 24c) |
+| **FAZ 3 · R13** müşteri portalı | ✅ **TAMAM** (11/11 · yeni eksen `portal.js`) |
+| **FAZ 3 · R17** hizmet paketi / abonelik | ✅ **TAMAM** (7/7 · canon eksen 36) |
+| **FAZ 3** | ✅ **KAPANDI** |
 | **Ölçüm ekseni: `tasks/qa/dep.js`** | ✅ yeni — L-34'ün (yordam ↔ koleksiyon bağımlılığı) tarama karşılığı |
-| İşaretli alt madde | **74 / 138** |
-| **Sıradaki: FAZ 3** — R11 · R12 · R13 | ⬜ açık (65 alt madde · FAZ 3 + FAZ 4) |
+| İşaretli alt madde | **105 / 138** |
+| **Sıradaki: FAZ 4** — R14 · R15 · R16 · R18 · R19 · R20 | ⬜ açık (33 alt madde) |
 
 > **İLERLEME ARTIK MEKANİK ÖLÇÜLÜYOR.** `revize-plan.md`'deki 138 alt maddenin
 > kaçının bittiği damgadan değil kutudan okunur:

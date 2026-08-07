@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **87** — FAZ 1 · FAZ 2 kapandı · **R11 7/7** · **R12 6/6** |
-| Kalan | 51 (R13 · R17 · FAZ 4) |
+| İşaretli | **105** — FAZ 1 · FAZ 2 · **FAZ 3 KAPANDI** |
+| Kalan | 33 (FAZ 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -102,11 +102,11 @@ belleğini ~70 MB'a indirdi; `tabs.js` ve `act.js` TimeoutError'la öldü.)
 | R10 | Ticket → görev / CR / fırsat | 2 | **✅ TAMAM** | üç dal tek modalda · `leads[].destek` açıldı · canon eksen 34 |
 | R11 | Proje kaynağı | 3 | **✅ TAMAM** | `DB.projectSources` açıldı · `kaynak` 14/14 · koşullu sözleşme seçici (`GV.form` `showIf`) · canon eksen 35 |
 | R12 | Sözleşme sorumlusu | 3 | **✅ TAMAM** | `contracts[].sorumlu` 7/7 · türetme tek yordamda · yenileme bildirimi kişiye · canon eksen 24c |
-| R13 | Müşteri portalı | 3 | 🔴 | oturumda müşteri kimliği yok → `EMP-001`'e düşüyor; **6 ölçülmüş sızıntı** |
+| R13 | Müşteri portalı | 3 | **✅ TAMAM** | oturum `DB.contacts`'tan · 12 ekran kapalı · 8 ekran kapsamlı · `GV.guardRecord` · yeni eksen `portal.js` TEMİZ |
 | R14 | Pipeline gruplama | 4 | 🟡 | 13 kanban kolonunun **5'i boş**; `sira` bölüntüsü kalıbı aynı dosyada zaten var |
 | R15 | Departman ve uzmanlık | 4 | ⬜ | 16 personel için **21 departman**; 7'si boş, 5'i uzmanlık, 2'si çalışma tipi |
 | R16 | Freelancer çalışma tipi | 4 | 🟡 | `calismaTuru` **mesai** ekseni; istihdam ilişkisi 4 alana dağılmış |
-| R17 | Hizmet paketi / abonelik | 3 | 🟡 | 9 alanın 5'i tam; `tip`/`periyot`/`sorumlu` yok; abonelik kavramı repoda yok |
+| R17 | Hizmet paketi / abonelik | 3 | **✅ TAMAM** | 10 tipli sözlük · `tip`/`periyot`/`sorumlu` 7/7 · yenileme tek yordamda · canon eksen 36 |
 | R18 | Opsiyonel modüller | 4 | ⬜ | modül anahtarı yok; **ama gizleme mekaniği hazır** (11 madde `roles:` ile gizli) |
 | R19 | Araç sayfaları | 4 | 🟢 | **yedi alanın yedisi zaten araç detayında tab**; iş yalnız menüde |
 | R20 | Rapor gruplama | 4 | 🟡 | gruplama kategori sayfalarında **zaten var**; ihlal yalnız `app-rapor.html`'de (99 çip tek ekranda) |
@@ -1099,7 +1099,22 @@ Konsol temiz.
 
 # FAZ 3 — TİCARİ VE MÜŞTERİ
 
-> **SIRADAKİ FAZ.** Madde sırası: **R11 → R12 → R13 → R17**.
+> **FAZ 3 KAPANDI — R11 ✅ · R12 ✅ · R13 ✅ · R17 ✅ (2026-08-07, 16. oturum).**
+> Kapanışta `canon.js` **4.299 kontrol · TEMİZ** (faz başında 4.027 · 34 eksen →
+> şimdi **37 eksen**: **35** proje kaynağı · **24c** sözleşme sorumlusu ·
+> **36** hizmet paketi tipi/periyodu). Üçü de bilinçli bozulmuş bir kopyayla,
+> olumlu **ve 5–8 ayrı olumsuz** vakayla sınandı (L-24 · L-26 · L-35).
+>
+> Yeni tarama ekseni: **`tasks/qa/portal.js`** — müşteri portalı sızıntı
+> taraması. İki personayla koşuldu, ikisi de **TEMİZ**; ilk koşum
+> **124 sızıntı / 7 ekran** bulmuştu.
+>
+> Ortak katman kazancı: `GV.form` `showIf` + işlev `required` · `GV.list`
+> kapsam eşlemesi **yordam** olabiliyor · `GV.guardRecord` (detay ekranı kayıt
+> sahipliği) · `SCREEN_DENY` (ekran yasak listesi, dosya adı ekseni dahil) ·
+> `GV.yenileme` (sözleşme + paket yenilemesi tek yordamda).
+
+> **ESKİ PLAN NOTU (kayıt olarak kalsın).** Madde sırası: **R11 → R12 → R13 → R17**.
 > Paralelleştirme (§0'daki tablo): **R11 · R12 · R17 lead'in**, **R13 ajana
 > verilebilir** (kendi ekranları var) — ama R13'ün `permMatrix` ve
 > `buildSession` düzeltmeleri **ortak katmandadır ve lead'e aittir**.
@@ -1263,9 +1278,55 @@ sonraki müşteri değişiminde **ezilmiyor** · düzenlemede kayıttan geliyor.
 
 ---
 
-## R13 · Müşteri portalını geliştir
+## R13 · Müşteri portalını geliştir · ✅ TAMAM
 
-**DURUM: 🔴 kısmen — rol ve ekranlar var ama KAPSAM YOK; ölçülen altı sızıntı**
+**KAPANDI (2026-08-07, 16. oturum)** — 11/11 alt madde. Altı ölçülmüş sızıntının
+altısı da kapandı ve kapanış **kalıcı bir tarama eksenine** bağlandı:
+`tasks/qa/portal.js`.
+
+**Kök neden kapandı:** oturumda müşteri kimliği yoktu. `buildMusteriSession`
+kimliği `DB.contacts`'tan kuruyor (`emp:null`, `musteri:'MUS-*'`,
+`kontak:'YTK-*'`); `permMatrix.musteri.gor` `'kendi'` → **`'musteri'`** oldu ve
+`GV.list`in beş oturumdur **ölü kod** olan müşteri dalı canlandı. Giriş
+ekranına iki müşteri personası geldi (uydurma kişi yok — birincil yetkili olan
+ve şirketinin gerçek kaydı bulunan `DB.contacts` kayıtları).
+
+**Ekran yasak listesi (`SCREEN_DENY`) açıldı.** `SCREEN_PERM` beyaz listedir;
+tek bir rolü dışarıda bırakmak için kalan 26 rolü yazmak gerekirdi ve o liste
+ilk yeni rolde eskirdi. Yasak listesi ters yönden çalışır, **menü gizlemesi ile
+doğrudan adres kapısı tek kaynaktan** beslenir. Müşteriye kapalı 9 ekran
+(görevlerim · günlük özet · bildirimler · duyurular · SLA · sprint · test ·
+hata · değişiklik) + **3 iç form** (proje · teslim · bakım paketi). Formlar
+`data-screen` anahtarını listeleriyle paylaştığı için **dosya adı ekseninde**
+yasaklandı — anahtarla kapatmak müşterinin proje listesini de kapatırdı.
+
+**Kayıt sahipliği kapısı ortak katmanda:** `GV.guardRecord`. Liste kapsamlıyken
+detayın ham `?id=` okuması kapsamın arka kapısıdır; 26 detay ekranı aynı cümleyi
+26 kez yazmasın diye kural bileşende. Yetkisiz ekran **ziyaretçinin kendi
+yazmadığı** bir kodu yankılamaz — ekranın kendi varsayılanına (`DB.x[0]`)
+düşmüş kodu basmak yabancı kaydın numarasını sızdırmak olurdu.
+
+**Ölçüm (`portal.js`, iki persona · tek tek koşuldu):**
+
+| | YTK-001 · Deniz Lojistik | YTK-003 · Vitalis |
+|---|---|---|
+| Taranan ekran | 142 (açık **18** · 403 **124**) | 142 (açık 18 · 403 124) |
+| Yabancı iz | 109 ayrı iz · **1.962** iz×ekran kontrolü | 108 iz · **1.944** kontrol |
+| Basılan içerik | **115 satır/kart** · 2 detay kaydı | **264 satır/kart** · 4 detay kaydı |
+| Doğrudan adres | 2 yabancı kayıt denendi · **açılan 0** | 2 denendi · açılan 0 |
+| Konsol hatası | 0 | 0 |
+| Sonuç | **TEMİZ** | **TEMİZ** |
+
+> İlk koşum **124 sızıntı / 7 ekran** buldu — düzeltmeden önce ölçülmüş
+> hâlidir ve iki sınıftı: (a) üç iç formun seçim kutuları bütün müşterileri ve
+> bütün projeleri listeliyordu (106 iz), (b) üç detay ekranı `?id=` yokken
+> sessizce `DB.<koleksiyon>[0]`'a düşüyordu (L-19'un detay ekranındaki ikizi).
+> **"Basılan içerik" sayısı raporda ayrı durur**: temiz sonucun boş ekrandan
+> değil doğru süzgeçten geldiğini ayırt eden sayı odur (L-19 · L-27).
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🔴 kısmen — rol ve ekranlar var ama KAPSAM YOK; ölçülen altı sızıntı**
 
 Ölçüm:
 
@@ -1295,32 +1356,34 @@ sonraki müşteri değişiminde **ezilmiyor** · düzenlemede kayıttan geliyor.
 bölümlerindeki hiçbir ekran `SCREEN_PERM`'de değil — açık her ekran koleksiyonunun
 tamamını basıyor.
 
+</details>
+
 **Yapılacaklar**
 
-- [ ] `DB.permMatrix.musteri.gor` → `'musteri'`, `rapor` → `'musteri'`
-- [ ] `buildSession`'a **müşteri ekseni**: rol `musteri` ise kimlik bir
+- [x] `DB.permMatrix.musteri.gor` → `'musteri'`, `rapor` → `'musteri'`
+- [x] `buildSession`'a **müşteri ekseni**: rol `musteri` ise kimlik bir
       `DB.contacts` kaydından kurulur (`{ contact, musteri, ad, eposta }`),
       `emp` **null** kalır. Personel gibi davranmayı bitirir.
-- [ ] `login.js`'e müşteri personası (var olan `DB.contacts` kayıtlarından —
+- [x] `login.js`'e müşteri personası (var olan `DB.contacts` kayıtlarından —
       uydurma kişi yok)
-- [ ] `GV.perm.scope('gor')==='musteri'` iken `me.emp`'e bakan her yer düzeltilsin;
+- [x] `GV.perm.scope('gor')==='musteri'` iken `me.emp`'e bakan her yer düzeltilsin;
       `emp` null ise kişisel bloklar **basılmasın** (`app-panel-ozet` timesheet bloğu)
-- [ ] Ulaşılan 18 ekrandan veri basanların hepsine `scopeField:{ musteri:'musteri' }`
+- [x] Ulaşılan 18 ekrandan veri basanların hepsine `scopeField:{ musteri:'musteri' }`
       (`app-destek` · `app-dokuman` · `app-destek-paket` · `app-destek-memnuniyet`)
-- [ ] `app-ajanda.html` · `app-panel-onaylar.html` · `app-panel-duyurular.html` ·
+- [x] `app-ajanda.html` · `app-panel-onaylar.html` · `app-panel-duyurular.html` ·
       `dashboard.js` `dashMusteri` — kapsam süzgeci **veya** `SCREEN_PERM` kapısı.
       Kapsamı olmayan bir ekran müşteriye açık bırakılmaz
-- [ ] `app-destek-detay.html` kayıt sahipliği kontrolü: `?id=`'nin müşterisi
+- [x] `app-destek-detay.html` kayıt sahipliği kontrolü: `?id=`'nin müşterisi
       oturumun müşterisi değilse 403 durumu
-- [ ] `dashMusteri` (`dashboard.js:680-696`) sabit `1` değerleri **türetilsin**:
+- [x] `dashMusteri` (`dashboard.js:680-696`) sabit `1` değerleri **türetilsin**:
       aktif projelerim · bekleyen onaylarım · son teslimatlarım · açık taleplerim ·
       yaklaşan toplantılarım — beşi de kapsamlı
-- [ ] `proje` bölümü müşteri rolüne **kapsamlı** açılsın (`SEC_BY_ROLE.musteri`);
+- [x] `proje` bölümü müşteri rolüne **kapsamlı** açılsın (`SEC_BY_ROLE.musteri`);
       "Projelerim" dokümanın istediği tek yeni erişimdir ve **yeni ekran açmaz** —
       var olan `app-proje` / `app-proje-milestone` / `app-proje-teslim` kapsamlanır
-- [ ] `finans` bölümü **açılmaz**; talimat "yetki verilmişse" diyor ve bugün o yetkiyi
+- [x] `finans` bölümü **açılmadı**; talimat "yetki verilmişse" diyor ve bugün o yetkiyi
       ifade eden bir eksen yok. → **V2'ye bağlı** (aşağıya bakınız)
-- [ ] `canon.js` eksen 30: "müşteri rolünün ulaşabildiği her liste ekranı bir
+- [x] Kalıcı eksen **`tasks/qa/portal.js`** (canon'a değil ayrı tarayıcı eksenine bağlandı — sızıntı veri değil EKRAN sorusudur): "müşteri rolünün ulaşabildiği her liste ekranı bir
       `scopeField.musteri` bildirir" — sızıntı bir daha sessizce doğmasın
 
 **V2'ye bağlı kalan parça (tek madde):**
@@ -1333,9 +1396,52 @@ tamamını basıyor.
 
 ---
 
-## R17 · Bakım paketini hizmet paketi / abonelik mantığına genişlet
+## R17 · Bakım paketini hizmet paketi / abonelik mantığına genişlet · ✅ TAMAM
 
-**DURUM: 🟡 kısmen — 9 alanın 5'i tam, 1'i kısmi, 1'i seyrek, 2'si YOK; `tip` yok**
+**KAPANDI (2026-08-07, 16. oturum)** — 7/7 alt madde. `DB.servicePackageTypes`
+(dokümanın **10 tipi**) ve `DB.servicePackagePeriods` açıldı; `tip` · `periyot` ·
+`sorumlu` **7/7 kayıtta** tanımlı. Kilit: `canon.js` eksen **36**, altı olumsuz
+vakayla sınandı.
+
+**İki eksen tek alana sıkıştırılmadı:** `ad` hizmet adıdır (`Kurumsal Bakım`),
+`tip` paketin ne olduğudur (`Bakım`). Eksen 36c `tip` alanına paket ADI
+sözlüğünden bir değer yazılmasını **yasaklıyor** — VB-20'nin hatası bir daha
+doğmasın diye.
+
+**Periyot türetildi, uydurulmadı:** dönem uzunluğundan (gün düzeltmeli ay
+sayımı, kota formülüyle aynı) 6/7 kayıtta çıktı; **BKP-003'ün 24 aylık dönemi
+sözlükte yok ve alan boş bırakıldı** (→ **V-57**), liste kolonu dönemi ay olarak
+yazıyor. Eksen 36d iki yönü birden kilitler: dolu periyot dönemle çelişemez,
+**boş periyot da türetilebilir bir dönemi gizleyemez**.
+
+**Yenileme iki yerden tek yordama indi (talimatın "aynı özelliği iki yerde
+kurma" kuralı):** `GV.yenileme.uzat/onizleme/isaretle`. İki uygulama **farklı
+davranıyordu** — sözleşme detayı aktivite yazıyordu, paket ekranı yazmıyordu;
+aynı işlem bir kayıtta hareket geçmişine giriyor, diğerinde kayboluyordu.
+Alan politikası türe göre yazılı: sözleşmede `baslangic` **değişmez** (imza
+dönemi geçmiştir), pakette iki uç birlikte kayar (ay sayısı ve
+`kullanilan + kalan = aylikSaat × ay` kota sözleşmesi korunur).
+
+> ⚠️ **`dep.js` bu turda bir hatayı yayına çıkmadan yakaladı:**
+> `app-sozlesme-detay.html` **`domain.js`'i hiç yüklemiyordu** — `GV.yenileme`
+> `undefined` olurdu ve hata **tıklama anında** çıkardı (L-32). Ayrıca iki ekran
+> yordamın okuduğu veri dosyalarını eksik yüklüyordu (L-34). Üçü de kapandı;
+> §6b tablosuna `GV.yenileme.*` satırı girdi.
+
+**Sözleşme bağı 1/7'de KALDI (→ V-58):** kalan altı paketin müşterisiyle tarih
+aralığı kesişen sözleşmeler var ama hepsi **geliştirme** sözleşmesi; defterdeki
+tek bakım sözleşmesi zaten bağlı. Tarih yakınlığı bağ değildir (L-13 · V-52).
+
+**Tarayıcı doğrulaması** (`r17.js`, scratchpad · 13 ölçüm, konsol hatası 0):
+üç kolon basılıyor · tipe göre sekme veriden doğuyor (`Bakım 7`) · sözlük dışı
+dönem ay olarak yazılıyor · paket yenilemesi dönemi bir yıl kaydırıyor, işareti
+tüketiyor, **aktivite yazıyor (eskiden yazmıyordu)** ve kotayı koruyor ·
+sözleşme yenilemesinde **başlangıç değişmiyor**, bitiş ve yenileme tarihi
+kayıyor.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 kısmen — 9 alanın 5'i tam, 1'i kısmi, 1'i seyrek, 2'si YOK; `tip` yok**
 
 Ölçüm (`DB.supportPackages`, 7 kayıt, 14 alan):
 
@@ -1363,23 +1469,25 @@ tamamını basıyor.
 - `app-destek-paket.html` `GV.list`'i **tam sözleşmeyle** kullanıyor
   (5 KPI · 5 sekme · 16 kolon · 7 süzgeç · 4 satır aksiyonu · 2 toplu işlem).
 
+</details>
+
 **Yapılacaklar**
 
-- [ ] `DB.servicePackageTypes` sözlüğü — dokümanın 10 tipi. Mevcut 7 kayıt
+- [x] `DB.servicePackageTypes` sözlüğü — dokümanın 10 tipi. Mevcut 7 kayıt
       `Bakım` tipini alır (**gerçekleri budur**, uydurma tip atanmaz)
-- [ ] `DB.supportPackages[].tip` · `.periyot` (`Aylık · 3 Aylık · 6 Aylık · Yıllık`,
+- [x] `DB.supportPackages[].tip` · `.periyot` (`Aylık · 3 Aylık · 6 Aylık · Yıllık`,
       var olan `donemAy()` hesabından türetilir) · `.sorumlu` (müşteri sorumlusundan)
-- [ ] `ad` alanı **hizmet adı** olarak kalır; tip ayrı eksende — ikisi tek alana
+- [x] `ad` alanı **hizmet adı** olarak kaldı; tip ayrı eksende — ikisi tek alana
       sıkıştırılmaz (VB-20'nin hatası)
-- [ ] Ekran adı / menü etiketi **değişmez** — talimat yeni modül istemiyor.
+- [x] Ekran adı / menü etiketi **değişmedi** — talimat yeni modül istemiyor.
       Liste `tip` kolonu + süzgeci kazanır, sekmeler tipe göre gruplanır
-- [ ] Sözleşme bağı güçlendirilsin: `sozlesme` 1/7 → gerçek sözleşmesi olan
+- [x] Sözleşme bağı ölçüldü ve **1/7'de kaldı** (V-58): `sozlesme` 1/7 → gerçek sözleşmesi olan
       paketlerde doldurulur (müşteri + tarih kesişiminden türetilir, kaynağı yazılır)
-- [ ] Yenileme akışı **yeniden kurulmaz** — bugünkü `yenile()` yordamı korunur;
+- [x] Yenileme akışı **yeniden kurulmadı** — bugünkü `yenile()` yordamı korunur;
       yalnız sözleşme yenilemesiyle ortak `domain.js` yordamına taşınır
       (iki alt sistem aynı işi iki yerde yapıyor — talimatın "aynı özelliği iki
       yerde kurma" kuralı bunu **birleştirmeyi** gerektiriyor)
-- [ ] `canon.js` eksen: "`periyot` ile `baslangic`/`bitis` aralığı çelişmez"
+- [x] `canon.js` **eksen 36**: "`periyot` ile `baslangic`/`bitis` aralığı çelişmez" + tip sözlükten + `ad` ile `tip` ayrı eksende + sorumlu KOD + kota sözleşmesi
 
 ---
 
