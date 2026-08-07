@@ -1107,7 +1107,13 @@
       GV.counters = c;
       renderRail(activeSec, c);
       renderMenu(activeSec, activeScreen, c);
-      wireNav();
+      /* ⚠️ `wireNav()` BURADA ÇAĞRILMAZ. Rail ve menü içeriği yeniden çizilir
+         ama `wireNav`ın bağlandığı düğümler (burger · overlay · divider) shell
+         İSKELETİNDEDİR ve yerinde kalır; dinleyicileri de öyle. Çağırmak
+         `document` keydown ve `window` resize dinleyicilerini her tazelemede
+         yeniden bağlardı — ölçüldü: 30 detay ekranında `GV.refresh()` başına
+         **+3 net dinleyici** (L-16'nın tam olarak yasakladığı birikme;
+         `listen.js` bunu yakaladı). */
     };
 
     renderRail(activeSec, cnt);
