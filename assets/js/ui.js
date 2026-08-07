@@ -138,12 +138,17 @@
     /* test türleri — DB.tests[].tur (app-proje-test.html) */
     'Regresyon':'info', 'Fonksiyonel':'accent', 'Performans':'purple',
     'Duman':'warn', 'Kabul':'ok',
-    /* görev durumları — PROMPT.md §12 (19 durum) */
-    'Taslak':'neutral', 'Havuzda':'info', 'Atama bekliyor':'warn', 'Atandı':'info',
-    'Kabul bekliyor':'warn', 'Planlandı':'info', 'Başlanmadı':'neutral', 'Devam ediyor':'accent',
-    'Bilgi bekliyor':'warn', 'Müşteri bekleniyor':'warn', 'Departman bekleniyor':'warn',
-    'Engellendi':'danger', 'Kontrol bekliyor':'purple', 'Revize bekliyor':'warn', 'Revizede':'warn',
-    'Onay bekliyor':'purple', 'Tamamlandı':'ok', 'İptal edildi':'neutral', 'Arşivlendi':'neutral',
+    /* görev durumları — REVİZE 01: sözlük 19'dan 10'a indi.
+       Çıkan yedi anahtar buradan da alındı; ÜÇÜ KALDI çünkü BAŞKA modüller
+       kullanıyor: `Taslak` teklif ve satın almada, `Planlandı` taksit · sprint ·
+       teslim · eğitimde, `Müşteri bekleniyor` destek talebinde. Bu harita
+       modüller arası düz bir isim alanıdır — bir değeri silerken onu kullanan
+       her koleksiyon aranır (ölçüldü, `assets/data/*.js`). */
+    'Havuzda':'info', 'Atandı':'info', 'Devam ediyor':'accent', 'Kontrolde':'purple',
+    'Revizede':'warn', 'Onay bekliyor':'purple', 'Tamamlandı':'ok',
+    'Engellendi':'danger', 'İptal edildi':'neutral', 'Arşivlendi':'neutral',
+    /* başka modüllerin de kullandığı ortak durum adları */
+    'Taslak':'neutral', 'Planlandı':'info', 'Müşteri bekleniyor':'warn',
     /* satış aşamaları — §8.2 (15 aşama) */
     'Yeni talep':'info', 'İlk iletişim':'info', 'Ön görüşme':'info', 'İhtiyaç analizi':'accent',
     'Teknik değerlendirme':'accent', 'Ön analiz hazırlanıyor':'accent', 'Fiyatlandırma':'purple',

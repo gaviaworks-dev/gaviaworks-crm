@@ -333,8 +333,11 @@
     var codes = proj.map(function(p){ return p.kod; });
     var tasks = DB.tasks.filter(function(t){ return !t.proje || codes.indexOf(t.proje) !== -1; });
     var blocked = tasks.filter(function(t){ return t.durum === 'Engellendi'; });
-    var control = tasks.filter(function(t){ return t.durum === 'Kontrol bekliyor'; });
-    var waitCust = tasks.filter(function(t){ return t.durum === 'Müşteri bekleniyor' || t.durum === 'Bilgi bekliyor'; });
+    var control = tasks.filter(function(t){ return t.durum === 'Kontrolde'; });
+    /* REVİZE 01 — bekleme artık DURUM değil, ayrı eksen. Eskiden iki durum
+       değerine bakılıyordu ve o değerler veride HİÇ kullanılmadığı için bu
+       sayaç her zaman sıfırdı; şimdi gerçek bekleme kayıtlarını sayıyor. */
+    var waitCust = tasks.filter(function(t){ return !!t.beklemeNedeni; });
     var deptReq = DB.deptRequests.filter(function(r){ return r.durum !== 'Tamamlandı'; });
     var upcoming = DB.milestones.filter(function(m){ return codes.indexOf(m.proje) !== -1 && m.durum !== 'Tamamlandı'; })
       .sort(function(a,b){ return a.tarih.localeCompare(b.tarih); });
@@ -351,7 +354,7 @@
       { label:'Engellenen görev', value:blocked.length, icon:'i-lock', tone:'danger', href:'app-gorev.html?t=engel' }
     ]) + kpiGrid([
       { label:'Kontrol bekleyen', value:control.length, icon:'i-clipboard-check', tone:'purple', href:'app-gorev.html?t=kontrol' },
-      { label:'Müşteriden bilgi bekleyen', value:waitCust.length, icon:'i-hourglass', tone:'warn', href:'app-gorev.html' },
+      { label:'Beklemedeki görev', value:waitCust.length, icon:'i-hourglass', tone:'warn', href:'app-gorev.html' },
       { label:'Departmanlar arası talep', value:deptReq.length, icon:'i-arrow-right', tone:'info', href:'app-istalebi.html' },
       { label:'Personel iş yükü', value:'%' + Math.round(DB.capacity.reduce(function(a,c){ return a + c.doluluk; }, 0) / DB.capacity.length),
         icon:'i-users', href:'app-kapasite.html',

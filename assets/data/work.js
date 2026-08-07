@@ -6,11 +6,24 @@
    ===================================================================== */
 window.DB = window.DB || {};
 
-/* ---- Görev sözlükleri (PROMPT.md §12) -------------------------------- */
-DB.taskStatuses = ['Taslak','Havuzda','Atama bekliyor','Atandı','Kabul bekliyor','Planlandı',
-  'Başlanmadı','Devam ediyor','Bilgi bekliyor','Müşteri bekleniyor','Departman bekleniyor',
-  'Engellendi','Kontrol bekliyor','Revize bekliyor','Revizede','Onay bekliyor','Tamamlandı',
-  'İptal edildi','Arşivlendi'];
+/* ---- Görev sözlükleri (PROMPT.md §12 · REVİZE 01) --------------------
+   Sözlük 19 değerliydi ve 8'i hiçbir kayıtta geçmiyordu. Üç değer
+   (`Bilgi bekliyor` · `Müşteri bekleniyor` · `Departman bekleniyor`) durum
+   değil BEKLEME NEDENİ anlatıyordu: bir görev "devam ediyor" olmayı sürdürür,
+   yalnız bir şeyi bekler. İkisini tek eksene sıkıştırmak, kullanıcıyı görevin
+   nerede olduğu ile neyi beklediği arasında seçim yapmaya zorluyordu.
+   Ayrıca dört değer ikizini taşıyordu (`Atama bekliyor`≈`Havuzda`,
+   `Başlanmadı`/`Planlandı`/`Kabul bekliyor`≈`Atandı`).
+   Sözlük 10 değere indi; bekleme ayrı eksene çıktı. Taşınan dört kaydın
+   dördü de `DB.activities`'e eski→yeni ile yazıldı. */
+DB.taskStatuses = ['Havuzda','Atandı','Devam ediyor','Kontrolde','Revizede',
+  'Onay bekliyor','Tamamlandı','Engellendi','İptal edildi','Arşivlendi'];
+
+/* Bekleme nedeni DURUMDAN BAĞIMSIZ ikinci eksendir (REVİZE 01).
+   `null` = beklemiyor. Bir görev aynı anda hem "Devam ediyor" hem
+   "Müşteri bekleniyor" olabilir — eski sözlükte olamıyordu. */
+DB.taskWaitReasons = ['Müşteri','Departman','Bilgi','Dosya','Teknik Karar',
+  'Yönetici Onayı','Diğer'];
 
 DB.taskTypes = ['Genel görev','Müşteri görevi','Proje görevi','Satış görevi','Ön analiz görevi',
   'Tasarım görevi','Yazılım geliştirme görevi','Test görevi','Hata','Revizyon','Destek talebi',
@@ -36,18 +49,52 @@ DB.bugStatuses     = ['Açık','Devam ediyor','Kapandı'];
 DB.reproLevels     = ['Her zaman','Bazen','Nadiren','Tekrarlanamadı'];
 DB.testResults     = ['Başarılı','Kısmi','Başarısız'];
 
-/* Durum geçiş kuralları — yetki + zorunlu alan + bildirim */
+/* Durum geçiş kuralları — yetki + zorunlu alan + bildirim (REVİZE 02)
+   ─────────────────────────────────────────────────────────────────────
+   `next`     : bu durumdan gidilebilecek durumlar. Listede olmayan hedef REDDEDİLİR.
+   `yetki`    : geçişi yapabilecek kişiler. **Rol anahtarı DEĞİL, İLİŞKİ anahtarı**
+                olabilir (`sorumlu` · `kontrolEden` · `onaylayan` · `veren`) — bu,
+                "bu görevin sorumlusu" demektir, "sorumlu rolündeki herkes" değil.
+                `GV.task.transition` ikisini de çözer.
+   `zorunlu`  : geçiş öncesi DOLU olması gereken görev alanları.
+   `etiket`   : aksiyon butonunun yazısı. Kullanıcıya uzun statü dropdown'ı
+                gösterilmez; yapılabilecek işlem butondur (REVİZE 02).
+   `tone`     : buton sınıfı.
+
+   Sözlük 19'dan 10'a inince geçiş tablosu da yeniden yazıldı. Üç düzeltme:
+   · `Kontrolde` için zorunlu alan `ciktiLink`ti — **hiçbir görevde böyle bir alan
+     yok**, yani kural hiç uygulanamazdı. Gerçek alan `teslimEdilenCikti`.
+   · `Kontrolde → Onay bekliyor` mu yoksa doğrudan `Tamamlandı` mı olacağı artık
+     görevin `onayGerekli` bayrağından okunur; ikisi de listede duruyor ama
+     `GV.task.nextSteps` yalnız geçerli olanı buton yapar.
+   · Her durumdan `İptal edildi` çıkışı var; eskiden yalnız ikisinden vardı ve
+     kullanıcı iptal etmek için dropdown'a düşüyordu.                          */
 DB.taskTransitions = {
-  'Havuzda':        { next:['Atandı','İptal edildi'],                       yetki:['pm','takimlideri','depmudur','sahip','operasyon'], zorunlu:['sorumlu'],       bildirim:['sorumlu'] },
-  'Atandı':         { next:['Kabul bekliyor','Devam ediyor','Engellendi'],   yetki:['sorumlu','pm'],                                    zorunlu:[],                bildirim:['veren'] },
-  'Kabul bekliyor': { next:['Devam ediyor','Havuzda'],                       yetki:['sorumlu'],                                         zorunlu:[],                bildirim:['veren'] },
-  'Devam ediyor':   { next:['Kontrol bekliyor','Engellendi','Bilgi bekliyor','Müşteri bekleniyor'], yetki:['sorumlu'],                  zorunlu:['gercekSure'],    bildirim:['veren','kontrol'] },
-  'Kontrol bekliyor':{ next:['Revize bekliyor','Onay bekliyor','Tamamlandı'], yetki:['kontrolEden','pm'],                               zorunlu:['ciktiLink'],     bildirim:['sorumlu'] },
-  'Revize bekliyor':{ next:['Revizede'],                                     yetki:['sorumlu'],                                         zorunlu:['revizeNot'],     bildirim:['sorumlu'] },
-  'Revizede':       { next:['Kontrol bekliyor'],                             yetki:['sorumlu'],                                         zorunlu:[],                bildirim:['kontrol'] },
-  'Onay bekliyor':  { next:['Tamamlandı','Revize bekliyor'],                 yetki:['onaylayan','pm','sahip'],                          zorunlu:[],                bildirim:['sorumlu','veren'] },
-  'Engellendi':     { next:['Devam ediyor','İptal edildi'],                  yetki:['sorumlu','pm'],                                    zorunlu:['engelNedeni'],   bildirim:['veren','pm'] },
-  'Tamamlandı':     { next:['Arşivlendi','Revize bekliyor'],                 yetki:['pm','sahip'],                                      zorunlu:[],                bildirim:['veren','izleyiciler'] }
+  'Havuzda':      { next:['Atandı','İptal edildi'],                  yetki:['pm','takimlideri','depmudur','sahip','operasyon'], zorunlu:['sorumlu'],              bildirim:['sorumlu'],            etiket:'Ata',              tone:'btn-acc' },
+  'Atandı':       { next:['Devam ediyor','Engellendi','İptal edildi'], yetki:['sorumlu','pm'],                                  zorunlu:[],                       bildirim:['veren'],              etiket:'Çalışmaya Başla',  tone:'btn-acc' },
+  'Devam ediyor': { next:['Kontrolde','Engellendi','İptal edildi'],   yetki:['sorumlu'],                                        zorunlu:[],                       bildirim:['veren','kontrolEden'], etiket:'Kontrole Gönder',  tone:'btn-acc' },
+  'Kontrolde':    { next:['Revizede','Onay bekliyor','Tamamlandı'],   yetki:['kontrolEden','pm'],                               zorunlu:['teslimEdilenCikti'],    bildirim:['sorumlu'],            etiket:'Onayla',           tone:'btn-ok' },
+  'Revizede':     { next:['Kontrolde','İptal edildi'],                yetki:['sorumlu'],                                        zorunlu:[],                       bildirim:['kontrolEden'],        etiket:'Kontrole Gönder',  tone:'btn-acc' },
+  'Onay bekliyor':{ next:['Tamamlandı','Revizede'],                   yetki:['onaylayan','pm','sahip'],                         zorunlu:[],                       bildirim:['sorumlu','veren'],    etiket:'Tamamla',          tone:'btn-ok' },
+  'Engellendi':   { next:['Devam ediyor','İptal edildi'],             yetki:['sorumlu','pm'],                                   zorunlu:['engelNedeni'],          bildirim:['veren','pm'],         etiket:'Engeli Kaldır',    tone:'btn-acc' },
+  'Tamamlandı':   { next:['Arşivlendi','Revizede'],                   yetki:['pm','sahip'],                                     zorunlu:[],                       bildirim:['veren','izleyiciler'], etiket:'Arşivle',         tone:'btn-line' },
+  'İptal edildi': { next:['Arşivlendi'],                              yetki:['pm','sahip','operasyon'],                         zorunlu:[],                       bildirim:['veren'],              etiket:'Arşivle',          tone:'btn-line' },
+  'Arşivlendi':   { next:[],                                          yetki:[],                                                 zorunlu:[],                       bildirim:[],                     etiket:null,               tone:null }
+};
+
+/* Hedef durum başına buton yazısı — kaynak durumdan bağımsız okunur.
+   `taskTransitions[x].etiket` "bu durumdan çıkışın ANA yolu" içindir;
+   ikincil çıkışlar (Engelle · Revizeye Gönder · İptal Et) buradan gelir. */
+DB.taskActionLabels = {
+  'Atandı':        'Ata',
+  'Devam ediyor':  'Çalışmaya Başla',
+  'Kontrolde':     'Kontrole Gönder',
+  'Revizede':      'Revizeye Gönder',
+  'Onay bekliyor': 'Onaya Gönder',
+  'Tamamlandı':    'Tamamla',
+  'Engellendi':    'Engellendi İşaretle',
+  'İptal edildi':  'İptal Et',
+  'Arşivlendi':    'Arşivle'
 };
 
 /* ---- Projeler (PROMPT.md §11) ----------------------------------------- */
@@ -304,7 +351,7 @@ DB.tasks = [
     proje:'PRJ-2026-001', modul:null, sprint:'SPR-2026-018', musteri:'MUS-2024-002', dep:'DEP-06',
     olusturan:'EMP-003', veren:'EMP-003', sorumlu:'EMP-004', yardimci:[], izleyiciler:['EMP-008'],
     kontrolEden:'EMP-003', onaylayan:'EMP-003', oncelik:'Yüksek', etki:'Orta', aciliyet:'Yüksek', destek:null,
-    durum:'Kontrol bekliyor', baslangic:'2026-07-29', termin:'2026-08-02', tamamlanma:null,
+    durum:'Kontrolde', baslangic:'2026-07-29', termin:'2026-08-02', tamamlanma:null,
     tahminiSure:6, gercekSure:5, faturalanabilir:5, ilerleme:100, revizyon:1, yenidenAcilma:0,
     aciklama:'6.7" ve 6.1" ekran görüntüleri, TR ve EN yayın notları.',
     amac:'Store başvurusunun eksiksiz gönderilmesi', kabulKriteri:'Apple ölçü şartlarına uygun 8 görsel',
@@ -336,6 +383,7 @@ DB.tasks = [
     aciklama:'Logo tarafındaki stok hareketlerinin 15 dakikada bir çekilmesi.',
     amac:'Stok verisinin tek kaynaktan yönetilmesi', kabulKriteri:'Fark raporu sıfır olmalı',
     beklenenCikti:'Servis + izleme paneli', engelNedeni:'Müşteri Logo API test hesabını hâlâ açmadı',
+    beklemeNedeni:'Müşteri', beklemeNotu:'Logo API test hesabı talebi 22 Temmuz\'da iletildi',
     etiketler:['Entegrasyon','Engelli'], aktif:true },
   { kod:'GRV-2026-106', baslik:'Rapor merkezi ekran tasarımları', tur:'Tasarım görevi',
     proje:'PRJ-2026-003', modul:'MOD-012', sprint:'SPR-2026-021', musteri:'MUS-2025-005', dep:'DEP-06',
@@ -350,11 +398,12 @@ DB.tasks = [
     proje:'PRJ-2026-006', modul:'MOD-015', sprint:'SPR-2026-023', musteri:'MUS-2026-010', dep:'DEP-07',
     olusturan:'EMP-013', veren:'EMP-003', sorumlu:'EMP-006', yardimci:[], izleyiciler:['EMP-001','EMP-002'],
     kontrolEden:'EMP-003', onaylayan:'EMP-001', oncelik:'Kritik', etki:'Yüksek', aciliyet:'Yüksek', destek:null,
-    durum:'Revize bekliyor', baslangic:'2026-07-25', termin:'2026-07-30', tamamlanma:null,
+    durum:'Revizede', baslangic:'2026-07-25', termin:'2026-07-30', tamamlanma:null,
     tahminiSure:12, gercekSure:18, faturalanabilir:0, ilerleme:60, revizyon:7, yenidenAcilma:3,
     aciklama:'Müşteri randevu adımlarının sırasını yeniden değiştirmek istiyor.',
     amac:'Müşteri onayının alınması', kabulKriteri:'Müşteri yazılı onayı',
     beklenenCikti:'Güncellenmiş akış', revizeNot:'Kapsam dışı — ek teklif gerekiyor',
+    beklemeNedeni:'Müşteri', beklemeNotu:'Ek teklif kararı müşteride',
     gecikmeNedeni:'Kapsam dışı revizyon zinciri', etiketler:['Revizyon','Kapsam dışı','Eskalasyon'], aktif:true },
   { kod:'GRV-2026-108', baslik:'Nova rezervasyon takvimi bileşeni', tur:'Yazılım geliştirme görevi',
     proje:'PRJ-2026-005', modul:'MOD-013', sprint:'SPR-2026-022', musteri:'MUS-2026-007', dep:'DEP-07',
@@ -441,7 +490,7 @@ DB.tasks = [
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-18',
     olusturan:'EMP-002', veren:'EMP-002', sorumlu:'EMP-015', yardimci:[], izleyiciler:[],
     kontrolEden:'EMP-002', onaylayan:'EMP-002', oncelik:'Düşük', etki:'Düşük', aciliyet:'Düşük', destek:null,
-    durum:'Kabul bekliyor', baslangic:null, termin:'2026-08-15', tamamlanma:null,
+    durum:'Atandı', baslangic:null, termin:'2026-08-15', tamamlanma:null,
     tahminiSure:10, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'4 yeni vaka çalışması görseli ve düzeni.',
     amac:'Web sitesi dönüşüm oranının artırılması', kabulKriteri:'4 görsel + düzen',
@@ -495,7 +544,7 @@ DB.tasks = [
     proje:null, modul:null, sprint:null, musteri:null, dep:'DEP-14',
     olusturan:'EMP-011', veren:'EMP-001', sorumlu:'EMP-011', yardimci:[], izleyiciler:['EMP-001'],
     kontrolEden:'EMP-001', onaylayan:'EMP-001', oncelik:'Orta', etki:'Orta', aciliyet:'Orta', destek:null,
-    durum:'Planlandı', baslangic:'2026-08-10', termin:'2026-08-24', tamamlanma:null,
+    durum:'Atandı', baslangic:'2026-08-10', termin:'2026-08-24', tamamlanma:null,
     tahminiSure:12, gercekSure:0, faturalanabilir:0, ilerleme:0, revizyon:0, yenidenAcilma:0,
     aciklama:'Hedef belirleme ve öz değerlendirme formlarının açılması.',
     amac:'Performans döneminin zamanında başlaması', kabulKriteri:'Tüm personel formu açık',
@@ -817,6 +866,14 @@ DB.approvals = [
 
 /* ---- Aktivite kayıtları (log — eski/yeni değer) ------------------------ */
 DB.activities = [
+  /* REVİZE 01 — durum sözlüğü 19'dan 10'a indi (2026-08-07).
+     Dört kaydın durumu taşındı; taşıma bir işlemdir, sessizce yapılmaz. */
+  { kayit:'GRV-2026-102', tarih:'2026-08-03T09:00', kisi:'EMP-001', metin:'Durum sözlüğü sadeleştirildi — durum karşılığına taşındı', eski:'Kontrol bekliyor', yeni:'Kontrolde', tone:'info', icon:'i-refresh' },
+  { kayit:'GRV-2026-107', tarih:'2026-08-03T09:00', kisi:'EMP-001', metin:'Durum sözlüğü sadeleştirildi — "Revize bekliyor" ile "Revizede" tek durumda birleşti', eski:'Revize bekliyor', yeni:'Revizede', tone:'info', icon:'i-refresh' },
+  { kayit:'GRV-2026-107', tarih:'2026-08-03T09:01', kisi:'EMP-001', metin:'Bekleme nedeni ayrı eksene taşındı (revizyon notundan)', eski:null, yeni:'Müşteri', tone:'warn', icon:'i-clock' },
+  { kayit:'GRV-2026-117', tarih:'2026-08-03T09:00', kisi:'EMP-001', metin:'Durum sözlüğü sadeleştirildi — "Kabul bekliyor" ayrı durum olmaktan çıktı', eski:'Kabul bekliyor', yeni:'Atandı', tone:'info', icon:'i-refresh' },
+  { kayit:'GRV-2026-123', tarih:'2026-08-03T09:00', kisi:'EMP-001', metin:'Durum sözlüğü sadeleştirildi — "Planlandı" ayrı durum olmaktan çıktı', eski:'Planlandı', yeni:'Atandı', tone:'info', icon:'i-refresh' },
+  { kayit:'GRV-2026-105', tarih:'2026-08-03T09:01', kisi:'EMP-001', metin:'Bekleme nedeni ayrı eksene taşındı (engel nedeninden)', eski:null, yeni:'Müşteri', tone:'warn', icon:'i-clock' },
   { kayit:'GRV-2026-101', tarih:'2026-08-02T16:20', kisi:'EMP-008', metin:'İlerleme güncellendi', eski:'%45', yeni:'%70', tone:'accent', icon:'i-activity' },
   { kayit:'GRV-2026-101', tarih:'2026-08-01T09:05', kisi:'EMP-009', metin:'Hata yeniden açıldı — düzeltme doğrulanamadı', eski:'Kontrol bekliyor', yeni:'Devam ediyor', tone:'danger', icon:'i-refresh' },
   { kayit:'GRV-2026-101', tarih:'2026-07-30T11:40', kisi:'EMP-003', metin:'Görev atandı', eski:'Havuzda', yeni:'Atandı', tone:'info', icon:'i-user-check' },
