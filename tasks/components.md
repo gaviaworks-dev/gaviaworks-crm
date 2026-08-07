@@ -353,6 +353,8 @@ GV.report({
 | `GV.proje.sure(kod)` | `{ planlanan, gerceklesen, faturalanabilir, tum, kayit, kapsam }` — `gerceklesen` = Σ **onaylı** zaman kaydı · `faturalanabilir` = Σ onaylı **ve** billable · `planlanan` = proje `tahminiSure`, yoksa Σ görev tahmini | `DB.projects[].harcananSure` elle yazılı bir sayıydı (14 kayıtta 9.125 saat, ~8.900'ü dayanaksız) ve **kaldırıldı**. Türetilebilen sayaç veriye yazılmaz (L-08) |
 
 | `GV.proje.maliyet(kod)` | `{ personel, disKaynak, satinAlma, diger, toplam, gelir, brutKar, karlilikYuzde, kapsam, saat, maliyetsizPersonel }` — dört kalem ayrı ayrı türetilir | `DB.projects[].gerceklesenMaliyet` 14 kayıtta elle yazılı TEK bir rakamdı; hangi kalemden oluştuğu hiçbir yerde yazılı değildi ve proje detayı bunu iki sekmede "örtüşmeyebilir" uyarısıyla itiraf ediyordu. Alan **kaldırıldı** |
+| `GV.proje.acik(p)` · `.bitti(p)` · `.kapali(p)` · `.arsivli(p)` · `.geciken(p)` | Proje durum ekseninin **tek tanımı**. `bitti` = işi teslim edilmiş (`durum ∈ teslimDurumlari` ‖ `gercekBitis` ‖ `%100`) · `kapali` = kaydı kapanmış (`Tamamlandı`/`İptal Edildi`) · `arsivli` = defterden çekilmiş · `acik` = `!bitti && !arsivli` · `geciken` = `acik && planlananBitis < DB.today`. Kod da kayıt da kabul eder | "Bu proje devam ediyor mu?" cümlesi **yedi ekranda** ayrı ayrı yazılıydı (`p.durum !== 'Teslim' && !p.arsiv`) ve REVİZE 05 durum sözlüğünü değiştirince yedisi birden **sessizce boş liste** üretirdi — sekmesi boşalan liste hata vermez (REVİZE 05) |
+| `GV.proje.kapaliDurumlar` · `.teslimDurumlari` | `['Tamamlandı','İptal Edildi']` · `['Teslim Sürecinde','Tamamlandı']` | Form doğrulamaları ve rapor süzgeçleri kümeyi elle yazmasın diye dışarı açık |
 | `GV.hr.icMaliyet(kod)` | `{ saat, kaynak, formul }` — `maas > 0` ise `maas × DB.company.isverenMaliyetKatsayisi ÷ DB.company.aylikCalismaSaati`, `saatlikUcret > 0` ise doğrudan o | Yeni alan **açılmadı** (V-46): içerik tamamen türetilebilir. `maas` XOR `saatlikUcret` sözleşmesi bozulmadı; iki girdi `DB.company`'de yazılı sabittir (VB-19) |
 | `GV.hr.disKaynak(kod)` | İstihdam ilişkisi dış kaynak mı — `sozlesme === 'Hizmet sözleşmesi'` | R16 bu ekseni `calismaTipi` olarak resmîleştirecek; o zamana kadar **tek yer burasıdır**, ekranlar kendi kuralını yazmaz |
 
@@ -368,6 +370,7 @@ GV.report({
 > | `GV.task.*` | `work.js` (`tasks` · `taskTransitions` · `taskStatuses` · `taskWaitReasons` · `priorities` · `activities`) · `org.js` (`employees`) |
 > | `GV.zaman.*` | `hr.js` (`timelogs` · `timesheets`) |
 > | `GV.proje.sure` | `work.js` (`projects` · `tasks`) · `hr.js` (`timelogs`) |
+> | `GV.proje.acik` · `GV.proje.bitti` · `GV.proje.kapali` · `GV.proje.arsivli` · `GV.proje.geciken` · `GV.proje.kayit` · `GV.proje.kapaliDurumlar` · `GV.proje.teslimDurumlari` | `work.js` (`projects`) |
 > | `GV.proje.maliyet` | `work.js` (`projects`) · `hr.js` (`timelogs`) · `org.js` (`employees` · `company`) · **`ops.js` (`purchases`)** |
 > | `GV.hr.*` | `org.js` (`employees` · `company`) |
 

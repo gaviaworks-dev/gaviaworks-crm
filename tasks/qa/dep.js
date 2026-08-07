@@ -58,19 +58,26 @@ for (let i = hdr + 1; i < cmpSrc.length; i++) {
   const l = cmpSrc[i];
   if (!/^>?\s*\|/.test(l)) break;                       // tablo bitti
   if (/^>?\s*\|[\s|:-]+\|\s*$/.test(l)) continue;       // ayraç satırı
-  const m = /^>?\s*\|\s*`([^`]+)`\s*\|([\s\S]*)$/.exec(l);
-  if (!m) continue;
-  const desen = m[1].trim();
-  const dosyalar = [...m[2].matchAll(/`([a-z0-9_]+\.js)`/g)].map(x => x[1]);
+  /* Bir satır BİRDEN ÇOK yordam adı taşıyabilir (`GV.proje.acik` ·
+     `GV.proje.bitti` …) — aynı bağımlılığa sahip yordamları tek satırda
+     toplamak tabloyu okunur tutuyor; her adı ayrı satıra yazmak sözleşmeyi
+     yedi satır `work.js (projects)` tekrarına çevirirdi. */
+  const cells = l.replace(/^>?\s*\|/, '').split('|');
+  if (cells.length < 2) continue;
+  const desenler = [...cells[0].matchAll(/`(GV\.[A-Za-z0-9_.*]+)`/g)].map(x => x[1]);
+  if (!desenler.length) continue;
+  const dosyalar = [...cells.slice(1).join('|').matchAll(/`([a-z0-9_]+\.js)`/g)].map(x => x[1]);
   /* Bağımlılığı OLMAYAN yordam da tabloya yazılır (`—`): "veri okumaz" ile
      "tabloya yazılmadı" ayrı şeylerdir ve ikincisi ölçülemeyen bir boşluktur.
      Satırı olmayan yordam ihlal sayılır, sessizce geçmez. */
-  if (!dosyalar.length && !/—/.test(m[2])) continue;
-  const esc = desen.replace(/\./g, '\\.');
-  const re = desen.endsWith('.*')
-    ? new RegExp(esc.replace(/\\\.\*$/, '\\.[A-Za-z]'))  // GV.task.<herhangi>
-    : new RegExp(esc + '\\b');
-  CONTRACT.push({ desen, re, dosyalar: new Set(dosyalar) });
+  if (!dosyalar.length && !/—/.test(cells.slice(1).join('|'))) continue;
+  for (const desen of desenler) {
+    const esc = desen.replace(/\./g, '\\.');
+    const re = desen.endsWith('.*')
+      ? new RegExp(esc.replace(/\\\.\*$/, '\\.[A-Za-z]'))  // GV.task.<herhangi>
+      : new RegExp(esc + '\\b');
+    CONTRACT.push({ desen, re, dosyalar: new Set(dosyalar) });
+  }
 }
 if (CONTRACT.length < 5)
   throw new Error('dep: bağımlılık tablosundan yalnız ' + CONTRACT.length +

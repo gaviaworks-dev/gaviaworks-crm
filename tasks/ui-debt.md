@@ -1204,6 +1204,29 @@ ekseni girecek. Bu eksen bugün var olmadığı için hata beş oturum boyunca g
 ---
 
 ## VB-20 · Proje kaydında iki eksen çakışması: `aktif`/`arsiv` ve `faz`/durum
+### ✅ KAPANDI — 15. oturum (REVİZE 05)
+
+**Ne yapıldı:** Üç kusurun üçü de kapandı.
+1. **`aktif` alanı projeden KALDIRILDI** (→ V-49). 14 kaydın 14'ünde `true`
+   yazıyordu, yani ikinci arşiv ekseni hiç kullanılmıyor ama çelişebiliyordu.
+   Form anahtarı ve "Kayıt durumu" anahtarı silindi; arşiv tek eksende.
+2. **`faz` alanındaki durum kelimesi taşındı.** 7 kayıtta `faz:'Tamamlandı'`
+   vardı; durum `Tamamlandı`ya taşındı, faz **boş bırakıldı** — kanıt yok,
+   uydurulmadı (→ V-48). `durum` sözlüğündeki iki faz kelimesi de karşılığına
+   gitti: `Geliştirme → Aktif`, `Test → Kontrol / Test`.
+3. **Sözlükler açıldı ve ayrıldı:** `DB.projectStatuses` (7 değer) ·
+   `DB.projectPhases` (7 değer, `Tamamlandı` **yok**) · yeni `DB.moduleStatuses`
+   (modül ekseni proje durum sözlüğünden çıkan kelimeleri sürdürüyor — L-33).
+
+**Kilit:** `canon.js` **eksen 29** — iki sözlüğün kesişimi boş olmalı · faz bir
+durum kelimesi taşımamalı · kapanmış projede faz olmamalı · `gercekBitis` ↔
+%100 ↔ teslim durumu üçlüsü çelişmemeli · `aktif` alanı geri doğmamalı ·
+modül durumu kendi sözlüğünden olmalı. Altı olumsuz vakayla sınandı (L-35).
+
+**Kapanmayan tek parça:** "sözleşmesiz sözleşme bedeli" ek bulgusu — R11'e ait
+(proje kaynağı ekseni açılınca kapanacak).
+
+<details><summary>Özgün kayıt</summary>
 
 **Nerede:** `assets/data/work.js` → `DB.projects`.
 
@@ -1228,6 +1251,8 @@ netleştirilecek ve `GV.list` kuralı components.md'ye yazılacak · `faz` değe
 düzeltilecek · `DB.projectStatuses` / `DB.projectPhases` / `DB.healthLevels` sözlükleri açılacak ·
 iki sözleşmesiz projeye ya sözleşme yazılacak ya bedelleri kaldırılacak.
 `canon.js`'e "sözleşme bedeli olan projenin sözleşmesi vardır ve net eşittir" ekseni girecek.
+
+</details>
 
 ---
 

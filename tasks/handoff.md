@@ -13,7 +13,7 @@
 **`plan.md`'ye dokunulmaz.** O defter 295/295 ile kapandı; revize turunun maddeleri
 oraya eklenmez, yüzdesi bozulmaz.
 
-**Turun durumu (14. oturum sonu, 2026-08-07):**
+**Turun durumu (15. oturum sonu, 2026-08-07):**
 
 | Adım | Durum |
 |---|---|
@@ -23,8 +23,11 @@ oraya eklenmez, yüzdesi bozulmaz.
 | **FAZ 1 · R02** görev geçiş algoritması | ✅ **TAMAM** (7/7 + kuyruk 2/2) |
 | **FAZ 1 · R03** timesheet → gerçekleşen süre | ✅ **TAMAM** (8/8 · görev **ve** proje ucu) |
 | **FAZ 1 · R04** timesheet + gider → gerçek maliyet | ✅ **TAMAM** (9/9) |
-| **FAZ 1** | ✅ **KAPANDI** — 34 / 138 alt madde |
-| FAZ 2 · 3 · 4 | ⬜ açık — ölçümleri plana yazılı, uygulama başlamadı (104 alt madde) |
+| **FAZ 1** | ✅ **KAPANDI** |
+| **FAZ 2 · R05** proje durumu / faz ayrımı | ✅ **TAMAM** (7/7 · VB-20 kapandı) |
+| **Ölçüm ekseni: `tasks/qa/dep.js`** | ✅ yeni — L-34'ün (yordam ↔ koleksiyon bağımlılığı) tarama karşılığı |
+| İşaretli alt madde | **41 / 138** |
+| FAZ 2'nin kalanı (R06…R10) · FAZ 3 · 4 | ⬜ açık — ölçümleri plana yazılı (97 alt madde) |
 
 > **İLERLEME ARTIK MEKANİK ÖLÇÜLÜYOR.** `revize-plan.md`'deki 138 alt maddenin
 > kaçının bittiği damgadan değil kutudan okunur:
@@ -64,19 +67,52 @@ tamamen türetilebilir olduğu için `GV.hr.icMaliyet()` hesaplıyor, iki girdi
 Dış kaynak kalemi **0 ₺** ve bu dürüst bir sıfırdır (→ **V-47**): hizmet
 sözleşmeli tek personelin projeye bağlı zaman kaydı yok.
 
+### 15. oturumda kapanan iki şey
+
+**1. `dep.js` — L-34 artık ölçülüyor.** Üç tekrardan sonra (L-12 · L-32 · L-34)
+el denetimi bırakıldı. Script sözleşmeyi **`components.md` §6b'den okur** (ikinci
+kopya tutmaz), hedef listesini `qa-lib`ten alır, çağrıyı **yüklenen ortak js
+dosyası üzerinden de** izler (`app-panel` → `dashboard.js` → `GV.proje.maliyet`).
+Üç sınıf ihlal: veri dosyası yüklenmiyor · `domain.js` yüklenmiyor · yordamın
+§6b'de satırı yok. İlk koşum **142 ekran · 24 çağıran ekran · 46 çağrı**;
+tek ihlal `GV.delivery.kararlar`ın eksik sözleşme satırıydı, aynı turda kapandı.
+Araç beş olumsuz vakayla sınandı ve **kendi ilk hükmünde yanıldı**: yorum
+bloklarındaki yordam adlarını çağrı sayıyordu (üç sahte ihlal) — artık yorumdan
+arınmış kaynağı okuyor.
+
+**2. R05 — durum ile faz ayrıldı, VB-20 kapandı.** Sözlük 5 → 7 değer; faz
+sözlüğünden `Tamamlandı` çıktı; 12 kayıt taşındı; `aktif` alanı projeden
+kalktı (arşiv tek eksen); **kapanmış 7 projeye faz uydurulmadı** (V-48).
+Yeni `DB.moduleStatuses` — proje durum sözlüğünden çıkan üç kelime **modül
+ekseninde yaşıyor** (L-33). "Bu proje devam ediyor mu?" cümlesi yedi ekranda
+ayrı ayrı yazılıydı; `GV.proje.acik/bitti/kapali/arsivli/geciken` olarak
+`domain.js`'e alındı.
+
+> ⚠️ **`canon.js` VERİ KÖKÜNÜ SABİT YOLLA TUTUYORDU → L-35.** Eksen 29'un altı
+> olumsuz vakası da ilk denemede "TEMİZ" döndü, çünkü script bozulmuş kopyayı
+> değil **gerçek repoyu** okuyordu. Yani "bozulmuş kopyayla sına" protokolü bu
+> araçta hiç çalışmamıştı. Kök artık `qa-lib.repoRoot()`ten geliyor (`GV_REPO`
+> ile geçersiz kılınabilir) ve altı vakanın altısı da yakalanıyor.
+
 ### Sıradaki oturum ne yapacak
 
-**FAZ 1 kapandı.** Sıradaki iş **FAZ 2**: R05 (proje durumu / faz ayrımı) →
-R06 (milestone / ödeme ayrımı) → R07 (proje kapanış kontrolü) → R08 (proje →
-bakım geçişi) → R09 (ticket detayları) → R10 (ticket → görev / CR / fırsat).
-Sırayı `revize-plan.md` belirler; **her alt madde bitince aynı turn içinde
-işaretlenir**.
+**FAZ 1 ve R05 kapandı.** Sıradaki iş **R06** (milestone / ödeme ayrımı) →
+R07 (proje kapanış kontrolü) → R08 (proje → bakım geçişi) → R09 (ticket
+detayları) → R10 (ticket → görev / CR / fırsat). Sırayı `revize-plan.md`
+belirler; **her alt madde bitince aynı turn içinde işaretlenir**.
 
-R05 için hazır not: `faz:'Tamamlandı'` 14 projenin **7'sinde** var ve doküman bunu
-ismen yasaklıyor; `durum` sözlüğü de faz kelimeleri (`Geliştirme` · `Test`)
-taşıyor. VB-20 olarak zaten kayıtlı. R05'in ton haritası ve süzgeç kümesi
-dokunuşu **L-33'ün kapsamına girer**: bir durum adını silmeden önce o adı
-kullanan **her koleksiyon** aranır (`grep "'<değer>'" assets/data/*.js`).
+R06 için hazır not: karar **plana yazılı** — `DB.milestones` ödeme planı
+taksiti olarak KALIR, milestone ekseni için ayrı ve küçük `DB.projectMilestones`
+açılır, bağ ödeme kaydında durur (§9d). Koleksiyonu ikiye bölmek 25+ tüketici
+ekranı, `domain.js`'teki `senkronTaksit`'i ve üç canon eksenini kırardı.
+R07 kapanış akışının hedefi **PRJ-2026-004**'tür: durumu artık
+`Teslim Sürecinde` — işi bitmiş, defteri kapanmamış tek proje.
+
+L-33 bu turda ikinci kez işe yaradı: proje durum sözlüğünden çıkan
+`Planlama` · `Geliştirme` · `Test` kelimeleri **`DB.projectModules[].durum`
+içinde yaşıyordu**; ton haritasından silinseler 15 modül rozeti griye
+düşerdi. Bir durum adını silmeden önce o adı kullanan **her koleksiyon**
+aranır (`grep "'<değer>'" assets/data/*.js`).
 
 ### Bu turda öğrenilen, tekrar etmemesi gereken dört şey
 

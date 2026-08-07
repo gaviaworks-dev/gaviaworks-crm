@@ -16,8 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **34** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 |
-| Kalan | 104 (FAZ 2 · 3 · 4) |
+| İşaretli | **41** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 · **R05 7/7** |
+| Kalan | 97 (FAZ 2'nin kalanı · FAZ 3 · 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -77,7 +77,7 @@ Bu turun kendi çalışma kuralları:
 | R02 | Görev geçiş algoritması | 1 | **✅ TAMAM** | tablo artık uygulanıyor; dropdown yerine aksiyon butonu; `GV.task` tek mutasyon noktası |
 | R03 | Timesheet → gerçekleşen süre | 1 | **✅ TAMAM** | `harcananSure` kaldırıldı; defter 53 → 131 satır (modül ilerlemesinden türetildi); canon eksen 26 + 27 |
 | R04 | Timesheet + gider → gerçek maliyet | 1 | **✅ TAMAM** | `gerceklesenMaliyet` kaldırıldı; dört kalem `GV.proje.maliyet`'te türetiliyor; canon eksen 28 |
-| R05 | Proje durumu / faz ayrımı | 2 | 🟡 | 14 projenin **7'sinde** `faz:'Tamamlandı'`; VB-20 olarak zaten kayıtlı |
+| R05 | Proje durumu / faz ayrımı | 2 | **✅ TAMAM** | sözlük 5 → 7 · faz sözlüğünden `Tamamlandı` çıktı · 12 kayıt taşındı · canon eksen 29 |
 | R06 | Milestone / ödeme ayrımı | 2 | ⬜ | tek koleksiyon (`DB.milestones`), 10 alanın 4'ü ödeme; `sorumlu`/`aciklama`/`teslimat` yok |
 | R07 | Proje kapanış kontrolü | 2 | ⬜ | kapanış aksiyonu yok; ekran **hiç mutasyon yapmıyor**; 8 kontrolün 5'i ölçülebilir |
 | R08 | Proje → bakım geçişi | 2 | ⬜ | proje ↔ paket bağı **iki yönde de yok**; hiçbir projenin paketi yok |
@@ -511,9 +511,38 @@ tam değil.
 
 # FAZ 2 — OPERASYON
 
-## R05 · Proje durumu ve proje fazını ayır
+## R05 · Proje durumu ve proje fazını ayır · ✅ TAMAM
 
-**DURUM: 🟡 kısmen — iki eksen çakışıyor, kapanış turunda VB-20 olarak zaten kayıtlı**
+**KAPANDI (2026-08-07, 15. oturum)** — iki eksen ayrıldı, VB-20 kapandı.
+
+Yapılanlar: `DB.projectStatuses` **5 → 7 değer** (doküman kümesi) ·
+`DB.projectPhases`ten `Tamamlandı` **çıktı**, küme iki aileye açıldı
+(`Analiz · Tasarım · Geliştirme · Test` + `Faz 1/2/3`) · yeni
+`DB.moduleStatuses` — proje durum sözlüğünden çıkan üç kelime **modül
+ekseninde yaşamayı sürdürüyor** (L-33: bir adı silmeden önce onu kullanan
+her koleksiyon aranır; 15 modülün 15'i o kelimeleri taşıyor) · 12 kaydın
+durumu taşındı (`Geliştirme → Aktif` ×4 · `Test → Kontrol / Test` ×1 ·
+`Teslim → Tamamlandı` ×7 arşivli · `Teslim → Teslim Sürecinde` ×1) ·
+7 kaydın `faz:'Tamamlandı'`sı **boşaltıldı**, uydurma değer yazılmadı (V-48) ·
+`aktif` alanı proje kaydından **kaldırıldı**, arşiv tek eksen (V-49).
+
+**Kök nedenden çözüm:** "bu proje devam ediyor mu?" cümlesi **yedi ekranda**
+ayrı ayrı yazılıydı (`p.durum !== 'Teslim' && !p.arsiv`); sözlük değişince
+yedisi birden **sessizce boş liste** üretirdi. Tanım `GV.proje.acik` ·
+`bitti` · `kapali` · `arsivli` · `geciken` olarak `domain.js`'e alındı,
+yedi ekran onu çağırıyor. Ton haritası, kanban kolonları, liste sekmeleri,
+form doğrulamaları ve rapor süzgeci **sözlükten** besleniyor — elle yazılı
+durum listesi kalmadı (`app-rapor-proje.html` kümeyi kayıtlardan türetiyordu,
+o da sözlüğe bağlandı).
+
+**Kilit:** `canon.js` **eksen 29** (yedi kontrol grubu) — altı olumsuz vakayla
+sınandı. Sınama sırasında `canon.js`'in **veri kökünü sabit yolla tuttuğu**
+ortaya çıktı: bozulmuş kopya hiç okunmuyordu, altı olumsuz vakanın altısı da
+yanlışlıkla "TEMİZ" dönmüştü. Kök `qa-lib.repoRoot()`e bağlandı → **L-35**.
+
+<details><summary>Turun başındaki tam ölçüm</summary>
+
+**DURUM (ölçüm anı): 🟡 kısmen — iki eksen çakışıyor, kapanış turunda VB-20 olarak zaten kayıtlı**
 
 Ölçüm (14 proje):
 
@@ -536,22 +565,33 @@ tam değil.
 
 **Yapılacaklar**
 
-- [ ] `DB.projectStatuses` → 7 değer (doküman kümesi)
-- [ ] `DB.projectPhases` → `Tamamlandı` **çıkar**; faz kümesi `Analiz · Tasarım ·
-      Geliştirme · Test` + `Faz 1/2/3` serbest ekseni
-- [ ] `faz:'Tamamlandı'` olan 7 kaydın fazı gerçek fazına, durumu `Tamamlandı`ya
-      taşınsın — taşıma **var olan `durum`/`gercekBitis` alanlarından türetilir**
-- [ ] `durum:'Geliştirme'|'Test'` olan 5 kayıt: durum `Aktif`/`Kontrol / Test`,
-      faz `Geliştirme`/`Test`
-- [ ] Ton haritası, süzgeç kümeleri, kanban kolonları, dashboard sayaçları yeni
-      sözlükten beslensin — **hiçbir ekranda elle yazılı liste kalmasın**
-- [ ] `canon.js` **eksen 27**: "`faz` değeri `durum` sözlüğünden bir kelime
-      taşımaz" (iki ekseni bir daha karıştırmayı imkânsız kılar)
-- [ ] VB-20'nin `aktif`/`arsiv` ikinci yarısı da aynı turda kapansın
+</details>
 
-**Dokunulacak dosyalar:** `assets/data/work.js` · `app-proje.html` ·
+**Yapılacaklar**
+
+- [x] `DB.projectStatuses` → 7 değer (doküman kümesi)
+- [x] `DB.projectPhases` → `Tamamlandı` **çıkar**; faz kümesi `Analiz · Tasarım ·
+      Geliştirme · Test` + `Faz 1/2/3` serbest ekseni
+- [x] `faz:'Tamamlandı'` olan 7 kaydın fazı gerçek fazına, durumu `Tamamlandı`ya
+      taşınsın — **fazı boş bırakıldı**: o 7 projenin ne modülü ne görevi ne
+      sprinti var, gerçek fazları türetilebilir bir bilgi değil (V-48 · L-13)
+- [x] `durum:'Geliştirme'|'Test'` olan 5 kayıt: durum `Aktif`/`Kontrol / Test`
+      — **fazına dokunulmadı**: `Faz 1` beyan edilmiş gerçek bir değer ve durum
+      kelimesinin faz ekseninde ezilmesine gerek yok (gerekçe V-48)
+- [x] Ton haritası, süzgeç kümeleri, kanban kolonları, dashboard sayaçları yeni
+      sözlükten beslensin — **hiçbir ekranda elle yazılı liste kalmasın**
+- [x] `canon.js` **eksen 29**: "`faz` değeri `durum` sözlüğünden bir kelime
+      taşımaz" (iki ekseni bir daha karıştırmayı imkânsız kılar) — eksen
+      numarası 27/28 dolu olduğu için **29** oldu
+- [x] VB-20'nin `aktif`/`arsiv` ikinci yarısı da aynı turda kapansın (V-49)
+
+**Dokunulan dosyalar:** `assets/data/work.js` · `assets/js/domain.js` ·
+`assets/js/ui.js` · `assets/js/dashboard.js` · `app-proje.html` ·
 `app-proje-detay.html` · `app-proje-form.html` · `app-rapor-proje.html` ·
-`assets/js/dashboard.js` · `tasks/qa/canon.js` · `tasks/ui-debt.md` (VB-20 kapanışı)
+`app-rapor-finans.html` · `app-rapor-musteri.html` · `app-butce.html` ·
+`app-panel-yonetici.html` · `app-musteri-form.html` ·
+`app-musteri-yetkili-form.html` · `tasks/qa/canon.js` · `tasks/qa/dep.js` ·
+`tasks/components.md` · `tasks/ui-debt.md` (VB-20 kapanışı)
 
 ## R06 · Milestone ve ödeme planını ayır
 

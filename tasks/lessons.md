@@ -511,3 +511,30 @@ Araç beş olumsuz vakayla sınandı (L-24) ve **kendi ilk hükmünde yanıldı*
 yordam adlarını çağrı sayıp üç sahte ihlal üretti (L-26'nın "bu hüküm hangi
 **sağlıklı** davranışı ihlal gösterir?" sorusu). Tarama artık yorumdan arınmış
 kaynağı okuyor.
+
+## L-35 · Ölçüm aracının VERİ KÖKÜ de düzeneğin parçasıdır
+
+**Olay:** REVİZE 05'in `canon.js` eksen 29'u yazıldı ve L-24 protokolü gereği
+scratchpad'deki kopyada **altı olumsuz vakayla** sınandı: faz alanına durum
+kelimesi kondu, iki sözlüğe ortak kelime eklendi, silinmiş `aktif` alanı geri
+kondu, ilerleme ile durum çeliştirildi, modül durumu sözlük dışına çıkarıldı,
+proje durumu sözlük dışına çıkarıldı. **Altısı da "TEMİZ" döndü.**
+
+**Neden:** `canon.js` veri kökünü **sabit mutlak yolla** tutuyordu
+(`const R = '/Users/.../assets/data/'`). Kopyadaki veri bozulsa da script
+**gerçek repoyu** okuyordu. Yani "bozulmuş kopyayla sınama" protokolü bu araçta
+hiçbir zaman çalışmamıştı; önceki turlarda geçtiği sanılan olumsuz vakalar da
+aslında gerçek repo verisini ölçüyordu (o turlarda bozma işlemi repo dosyasına
+uygulandığı için sonuç tesadüfen doğru çıkmıştı).
+
+**Yakalayan şey:** olumsuz vakanın **hepsinin birden** geçmesi. Bir vaka geçse
+"hüküm dar" denirdi; altısının altısı geçince şüphe hükümden düzeneğe kaydı.
+
+**Kural:** (a) Bir tarama script'i **hangi kaynağı okuduğunu kendi içine
+gömmez** — kök `qa-lib.repoRoot()`ten gelir, `GV_REPO` ile geçersiz kılınabilir
+(L-24 zaten hedef listesi için bunu söylüyordu; kural **veri kaynağı** için de
+geçerlidir). (b) Olumsuz vaka kurulurken önce **olumsuzluğun araca ulaştığı**
+doğrulanır: bozulan dosyayı gerçekten okuduğunu gösteren en az bir vaka
+başarısız olmalıdır. (c) L-17 · L-24 · L-26 · L-27 · L-29 ile aynı aile:
+**araç da ölçülür** — ve bu kez ölçülmesi gereken şey aracın hükmü değil,
+**neye baktığıydı**.

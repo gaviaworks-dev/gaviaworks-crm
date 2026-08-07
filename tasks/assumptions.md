@@ -664,3 +664,40 @@ ekran bunun bir **ölçüm değil kaynak boşluğu** olduğunu yazıyla söyler 
 proje kârlılığı **%100** çıkıyordu; bu, ölçülmemişi ölçülmüş göstermenin en
 pahalı hâliydi. `GV.proje.maliyet` artık `brutKar` ve `karlilikYuzde` alanlarını
 `null` döndürüyor ve ekran "ölçülemiyor" diyor.
+---
+
+## V-48 · Kapanmış 7 projenin fazı UYDURULMADI — `faz:null`
+
+**Karar:** REVİZE 05 iki ekseni ayırırken `faz:'Tamamlandı'` taşıyan 7 kaydın
+**durumu** `Tamamlandı`ya taşındı, **fazı boş bırakıldı** (`faz:null`).
+
+**Neden boş:** o 7 projenin **ne modülü, ne görevi, ne sprinti, ne teslim kaydı
+var** — hangi fazda bittikleri türetilebilir bir bilgi değil. Kalan 7 projenin
+taşıdığı `Faz 1` değerini oraya kopyalamak, ölçülmemiş bir şeyi ölçülmüş
+göstermek olurdu (L-13). Faz alanı **zorunlu olmaktan çıkarıldı**; ekranlar boş
+fazı "—" basar, `canon.js` eksen 29d ise tersini kilitler: **kapanmış projede
+faz olmamalıdır**, çünkü faz yürüyen işin nerede olduğunu söyler.
+
+**Plandan sapma — 5 kaydın fazına DOKUNULMADI.** `revize-plan.md` R05'in dördüncü
+alt maddesi "durum `Geliştirme`/`Test` olan 5 kaydın **fazı** `Geliştirme`/`Test`
+olsun" diyordu. Uygulanmadı: o kayıtların `faz` alanında **gerçek bir beyan**
+duruyor (`Faz 1`) ve durum kelimesinin faz ekseninde zaten bir karşılığı var —
+`Geliştirme → Aktif`, `Test → Kontrol / Test`. Yani kelime doğru eksene taşınmak
+için fazın üstüne yazılmak zorunda değildi. Beyan edilmiş veriyi türetilmiş
+veriyle ezmek, R03/R04'te kaldırdığımız "elle yazılmış sayı" hatasının tersi
+yönde aynı hatasıdır.
+
+---
+
+## V-49 · Proje kaydında `aktif` alanı KALDIRILDI — arşiv tek eksen
+
+**Karar:** VB-20'nin ikinci yarısı proje ucunda kapandı. 14 kaydın 14'ünde
+`aktif:true` yazıyordu, yani eksen **hiç kullanılmıyordu**; buna karşılık
+`GV.list` `arsiv === true || aktif === false` diyerek ikisini de arşiv sayıyor
+ve iki alanın **çelişmesi mümkündü**. Alan projeden kalktı, form anahtarı ve
+"Kayıt durumu" anahtarı silindi, `canon.js` eksen 29f ikinci eksenin geri
+doğmasını yasakladı.
+
+**Kapsam:** yalnız `DB.projects`. `aktif` alanı 12 personelde, 21 departmanda,
+12 müşteride ve 14 yetkilide **gerçekten kullanılıyor** (pasif kayıtlar var) —
+oralarda eksen anlamlıdır ve dokunulmadı. `GV.list`'in kuralı da değişmedi.
