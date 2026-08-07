@@ -2,8 +2,14 @@
    Önceki oturumun canon2 / canon3 / ref script'lerinin yerini alır, üstüne
    destek modülünün (SLA · bakım paketi · memnuniyet anketi) kontrollerini ekler.
    Kullanım: node canon.js */
-const fs = require('fs'), vm = require('vm');
-const R = '/Users/gaviaworks/Developer/Projects/gaviaworks-crm/assets/data/';
+const fs = require('fs'), vm = require('vm'), path = require('path');
+/* Veri kökü SABİT DEĞİL — `qa-lib.repoRoot()`ten gelir (L-24). Sabit yol iki
+   ders birden kırıyordu: (a) hangi repo okunduğu script'e gömülüydü, (b)
+   "bilinçli bozulmuş bir kopyayla sına" protokolü (L-24 · L-26) HİÇ
+   ÇALIŞMIYORDU — scratchpad kopyasındaki veri bozulsa bile canon gerçek
+   repoyu okuyup "TEMİZ" diyordu. REVİZE 05 ekseninin beş olumsuz vakası da
+   ilk denemede yanlışlıkla geçti; yakalayan şey buydu. */
+const R = path.join(require('./qa-lib').repoRoot(), 'assets/data') + '/';
 const ctx = {}; ctx.window = ctx; vm.createContext(ctx);
 for (const f of ['org.js', 'crm.js', 'work.js', 'ops.js', 'hr.js', 'misc.js'])
   vm.runInContext(fs.readFileSync(R + f, 'utf8'), ctx, { filename: f });
@@ -24,9 +30,12 @@ DB.customers.forEach(c => {
   say(bekleyen === c.bekleyenTahsilat,
       c.kod + ' bekleyenTahsilat kart=' + money(c.bekleyenTahsilat) + ' tahsilat=' + money(bekleyen));
 
-  // 'Teslim' aşaması bitmiş proje sayılır; projeSayisi ömür boyu sayaçtır (handoff §1.4).
+  // Aktif proje = işi teslim edilmemiş proje. REVİZE 05'ten sonra "teslim edilmiş"
+  // iki durumdur (`Teslim Sürecinde` · `Tamamlandı`); `Askıda` duran ama BİTMEMİŞ
+  // projedir ve müşteri kartında aktif sayılmayı sürdürür (eski liste onu da kapalı
+  // sayıyordu — 0 kayıtta olduğu için fark etmemişti).
   const aktif = DB.projects.filter(p => p.musteri === c.kod &&
-    ['Teslim', 'Tamamlandı', 'İptal', 'Askıda'].indexOf(p.durum) === -1).length;
+    ['Teslim Sürecinde', 'Tamamlandı', 'İptal Edildi', 'Askıda'].indexOf(p.durum) === -1).length;
   say(aktif === c.aktifProje, c.kod + ' aktifProje kart=' + c.aktifProje + ' proje=' + aktif);
 });
 
@@ -918,6 +927,71 @@ head('28) Proje maliyet zinciri (REVİZE 04)');
     DB.employees.filter(e => (e.maas || 0) > 0).length + "'i maaş, " +
     DB.employees.filter(e => (e.saatlikUcret || 0) > 0).length + "'i saat ücreti · " +
     'personel maliyeti ölçülebilen proje: ' + olculen + ' / ' + DB.projects.length);
+}
+
+/* ---------- 29. PROJE DURUMU ↔ PROJE FAZI: İKİ AYRI EKSEN (REVİZE 05) ----------
+   `durum` projenin hangi HALDE olduğunu, `faz` hangi BÖLÜMÜNDE olduğunu söyler.
+   Turun başında ikisi birbirinin içine akıyordu: 14 projenin 7'sinde
+   `faz:'Tamamlandı'` (bir durum kelimesi) ve `durum` sözlüğünde `Geliştirme`
+   ile `Test` (iki faz kelimesi) vardı. Bu eksen o karışmayı bir daha
+   IMKÂNSIZ kılar — ada göre değil, SÖZLÜK KESİŞİMİNE göre ölçer, yani yarın
+   sözlüğe eklenen yeni bir kelime de aynı kurala tabidir. */
+head('29) Proje durumu ↔ proje fazı (REVİZE 05)');
+{
+  const D = DB.projectStatuses, F = DB.projectPhases;
+
+  /* 29a. İki sözlüğün ortak kelimesi olmamalı — ayrım ancak böyle korunur. */
+  const kesisim = D.filter(d => F.indexOf(d) !== -1);
+  say(kesisim.length === 0,
+    'durum ve faz sözlükleri ortak kelime taşıyor: ' + kesisim.join(', '));
+
+  /* 29b. `Tamamlandı` faz sözlüğünde OLAMAZ — doküman ismen yasaklıyor. */
+  say(F.indexOf('Tamamlandı') === -1, "'Tamamlandı' faz sözlüğünde — doküman ismen yasaklıyor");
+
+  /* 29c. Her kaydın durumu sözlükten; fazı ya sözlükten ya BOŞ. */
+  DB.projects.forEach(p => {
+    say(D.indexOf(p.durum) !== -1, p.kod + ' durum=' + p.durum + ' sözlükte yok');
+    say(p.faz == null || F.indexOf(p.faz) !== -1, p.kod + ' faz=' + p.faz + ' sözlükte yok');
+    say(!p.faz || D.indexOf(p.faz) === -1, p.kod + ' faz alanı bir DURUM kelimesi taşıyor: ' + p.faz);
+  });
+
+  /* 29d. Kapanmış proje faz taşımaz; faz yürüyen işin nerede olduğunu söyler. */
+  const KAPALI = ['Tamamlandı', 'İptal Edildi'];
+  DB.projects.filter(p => KAPALI.indexOf(p.durum) !== -1).forEach(p => {
+    say(!p.faz, p.kod + ' kapanmış ama faz taşıyor: ' + p.faz);
+  });
+
+  /* 29e. Teslim ekseni: `gercekBitis` ⟺ ilerleme %100 ⟺ teslim durumu.
+     Üçü birbirinin kanıtıdır; biri ötekiyle çelişirse ekranlar farklı cevap verir. */
+  const TESLIM = ['Teslim Sürecinde', 'Tamamlandı'];
+  DB.projects.forEach(p => {
+    const t = TESLIM.indexOf(p.durum) !== -1;
+    say(t === !!p.gercekBitis,
+      p.kod + ' durum=' + p.durum + ' ↔ gercekBitis=' + (p.gercekBitis || 'yok') + ' çelişiyor');
+    say(t === (p.ilerleme === 100),
+      p.kod + ' durum=' + p.durum + ' ↔ ilerleme=%' + p.ilerleme + ' çelişiyor');
+  });
+
+  /* 29f. ARŞİV TEK EKSEN (VB-20). `aktif` alanı proje kaydında artık YOKTUR;
+     ikinci bir arşiv ekseni doğarsa hangisinin kazandığı yine belirsizleşir. */
+  DB.projects.forEach(p => {
+    say(!('aktif' in p), p.kod + " ikinci arşiv ekseni geri doğmuş: 'aktif' alanı var");
+    say(p.arsiv !== true || KAPALI.indexOf(p.durum) !== -1,
+      p.kod + ' arşivli ama durumu kapanmış değil: ' + p.durum);
+  });
+
+  /* 29g. Modül durumu AYRI eksendir ve kendi sözlüğünü taşır (L-33). Proje
+     durum sözlüğünden çıkan kelimeler burada yaşamayı sürdürüyor. */
+  DB.projectModules.forEach(m => {
+    say(DB.moduleStatuses.indexOf(m.durum) !== -1,
+      m.kod + ' modül durumu sözlükte yok: ' + m.durum);
+  });
+
+  const dagilim = {};
+  DB.projects.forEach(p => { dagilim[p.durum] = (dagilim[p.durum] || 0) + 1; });
+  console.log('  · durum dağılımı: ' + Object.keys(dagilim).map(k => k + ' ' + dagilim[k]).join(' · '));
+  console.log('  · faz kaydı olan proje: ' + DB.projects.filter(p => p.faz).length + ' / ' +
+    DB.projects.length + ' (kapanmış 7 kayıtta faz yok — uydurulmadı)');
 }
 
 console.log('\n' + (bad === 0
