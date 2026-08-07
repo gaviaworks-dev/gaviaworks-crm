@@ -1,4 +1,34 @@
-# Handoff — GaviaWorks CRM · **PROJE KAPANDI**
+# Handoff — GaviaWorks CRM
+
+## 🔵 AÇIK TUR — REVİZE TURU (13. oturum, 2026-08-07'de başladı)
+
+İlk kapsam (`plan.md`, 295/295) **kapandı ve kapalı kalıyor**. Beyar 2026-08-07'de
+**ayrı bir revize turu** açtı; bu tur kendi defterinde yürür:
+
+| Dosya | Rolü |
+|---|---|
+| `tasks/revize-talimati.md` | **Bu turun tek doğruluk kaynağı** — Beyar'ın 20 maddelik talimatı, dört faz |
+| `tasks/revize-plan.md` | Bu turun defteri — 20 maddenin **ölçülmüş** durumu, karar kayıtları, yapılacaklar |
+
+**`plan.md`'ye dokunulmaz.** O defter 295/295 ile kapandı; revize turunun maddeleri
+oraya eklenmez, yüzdesi bozulmaz.
+
+**Turun durumu:** Adım 0 (talimatın repoya alınması) ve Adım 1 (ölçüm + defter) bitti.
+20 maddenin 20'si ölçüldü: 6'sı hiç yok · 13'ü kısmen · 1'i neredeyse hazır.
+Sıradaki iş **FAZ 1** (R01–R04). Ayrıntı `revize-plan.md`'de.
+
+> ⚠️ **`docs/G-veri-modeli.md` BAYAT** — tek commit'te yazıldı, sonra veri büyüdü.
+> `projects n=8` diyor, gerçek **14**; `tasks n=25` diyor, gerçek **26**;
+> `activities n=8` diyor, gerçek **192**. **Ölçüm kaynağı canlı veridir.**
+
+> ⚠️ **V2-03 ("`musteri` kapsamı backend ister") ölçümle yanlışlandı.** `GV.list`
+> `musteri` kapsamını zaten uyguluyor (`ui.js:600`); eksik olan `permMatrix.musteri.gor`
+> değeri ve `buildSession`'daki müşteri alanı — ikisi de arayüz tarafı.
+> Bu turda kapatılacak (gerekçe `revize-plan.md` §G-2).
+
+---
+
+## İlk kapsamın kapanış kaydı
 
 **Güncelleme:** 2026-08-06, **12. oturum sonu** · dal `main` · çalışma ağacı temiz, her şey push edildi.
 
@@ -9,9 +39,9 @@
 | **Tarama** | 19 eksenin 19'u temiz · 142 ekran · 710 rol yüklemesi · 2.588 canonical kontrol |
 | **Kapanış raporu** | `docs/N-kapanis-raporu.md` — güncel, 12. oturum verileriyle |
 
-> **Yapılacak iş kalmadı.** Bu dosya artık bir "sıradaki oturum" tarifi değil,
-> **projenin nasıl koşulacağını ve nerede durduğunu** anlatan bir kapanış belgesidir.
-> Yeni bir oturum başlarsa: önce `docs/N-kapanis-raporu.md` okunur, sonra bu dosya.
+> Bu bölüm **ilk kapsamın** kapanış belgesidir: projenin nasıl koşulacağını,
+> tarama setinin nasıl çalıştırılacağını ve nerede durduğunu anlatır.
+> Revize turunda da geçerlidir — aşağıdaki bütün kurallar aynen uygulanır.
 
 ---
 
