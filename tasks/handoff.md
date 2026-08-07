@@ -179,23 +179,106 @@ mutlak yolla tutuyordu; "bozulmuş kopyayla sına" protokolü o araçta **hiç
 
 ### Sıradaki oturum ne yapacak
 
-**FAZ 1 ve FAZ 2 KAPANDI.** Sıradaki iş **FAZ 3**: R11 (proje kaynağı) →
-R12 (sözleşme sorumlusu) → R13 (müşteri portalı). Sırayı `revize-plan.md`
-belirler; **her alt madde bitince aynı turn içinde işaretlenir**.
+**FAZ 1 ve FAZ 2 KAPANDI.** Kalan **65 alt madde** iki fazda; sıra aşağıdaki
+tablodadır ve `revize-plan.md`'deki madde sırasıyla birebir aynıdır.
+**Her alt madde bitince aynı turn içinde işaretlenir**; ilerleme damgadan değil
+kutudan okunur:
 
-**Paralelleştirme (Beyar, 15. oturum · `revize-plan.md` §0'da tablo):**
-FAZ 3'te **R13 ajana verilebilir** (kendi ekranları var), R11 ve R12 lead'in
-(veri katmanına dokunuyorlar). FAZ 4'te **dörtlü dalga**: R14 · R19 · R20
-aynı anda ajanlara; R15 · R16 · R18 lead'in (veri ve ayar ekranını paylaşıyorlar).
-Ajan tek ekran yazar, ortak katmana dokunmaz, canon eksenine dokunmaz, commit
-atmaz. **Tarayıcı taramaları dalga bitince topluca koşar**, ajan başına değil.
+```bash
+echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks/revize-plan.md)"
+```
 
-**R11 için hazır not:** `944a594` sözleşmeden proje başlatmayı zaten kurmuş
-(ön dolgu 5 alan, üç bilgilendirme durumu, tek yönlü bağ). Eksik olan `kaynak`
-alanı ve formdaki sözleşme seçici. R05'in `DB.projectStatuses` kalıbı örnek
-alınabilir. `canon.js` ekseni "kaynak = Müşteri Sözleşmesi olan projenin
-`DB.contracts` içinde onu gösteren kaydı vardır" — VB-20'nin "sözleşmesiz
-sözleşme bedeli" ek bulgusunu da kapatır (iki proje: PRJ-2026-007 · PRJ-2025-008).
+#### FAZ 3 — TİCARİ VE MÜŞTERİ (sıra: R11 → R12 → R13)
+
+| # | Madde | Kim | Turun başındaki ölçüm (plana yazılı) |
+|---|---|---|---|
+| **R11** | Proje kaynağı | **lead** | 🟡 yarısı hazır — `944a594` sözleşmeden proje başlatmayı kurmuş; `kaynak` alanı ve sözleşme seçici YOK |
+| **R12** | Sözleşme sorumlusu | **lead** | ⬜ sözleşmede **hiç kişi alanı yok**; ekran bunu `GV.notice` ile itiraf ediyor |
+| **R13** | Müşteri portalı | **AJANA VERİLEBİLİR** | 🔴 rol ve ekran var, **kapsam yok**; 6 ölçülmüş sızıntı |
+| **R17** | Hizmet paketi / abonelik | **lead** | 🟡 9 alanın 5'i tam; `tip`/`periyot`/`sorumlu` yok |
+
+> Dosyadaki satır sırası: R11 `revize-plan.md:1108` · R12 `:1150` · R13 `:1182` ·
+> R17 `:1252`.
+
+#### FAZ 4 — SADELEŞTİRME (sıra: R14 → R15 → R16 → R18 → R19 → R20)
+
+> Dosyadaki satır sırası: R14 `:1310` · R15 `:1344` · R16 `:1406` ·
+> R18 `:1439` · R19 `:1478` · R20 `:1522`.
+
+| # | Madde | Kim | Turun başındaki ölçüm |
+|---|---|---|---|
+| **R14** | Pipeline gruplama | **AJAN (dalga)** | 🟡 13 kanban kolonunun **5'i boş**; `sira` bölüntüsü kalıbı aynı dosyada var |
+| **R15** | Departman ve uzmanlık | **lead** | ⬜ 16 personel için **21 departman**; 7'si boş, 5'i uzmanlık, 2'si çalışma tipi |
+| **R16** | Freelancer çalışma tipi | **lead** | 🟡 `calismaTuru` **mesai** ekseni; istihdam ilişkisi 4 alana dağılmış |
+| **R18** | Opsiyonel modüller | **lead** | ⬜ modül anahtarı yok, **ama gizleme mekaniği hazır** (11 madde `roles:` ile gizli) |
+| **R19** | Araç sayfaları | **AJAN (dalga)** | 🟢 **yedi alanın yedisi zaten araç detayında tab**; iş yalnız menüde |
+| **R20** | Rapor gruplama | **AJAN (dalga)** | 🟡 gruplama kategori sayfalarında zaten var; ihlal yalnız `app-rapor.html`'de (99 çip tek ekranda) |
+
+> **R17 (hizmet paketi / abonelik) FAZ 3'ün son maddesidir** — dosyada
+> `revize-plan.md:1252`, R13'ten hemen sonra, FAZ 4 başlığından önce.
+> 🟡 9 alanın 5'i tam; `tip`/`periyot`/`sorumlu` yok, abonelik kavramı repoda
+> yok. **Lead'in** — `DB.supportPackages`'a dokunuyor ve R08 o koleksiyona
+> `proje` FK'sı ile `DB.supportPackageTypes` sözlüğünü yeni ekledi.
+
+#### Paralelleştirme tablosu (Beyar, 15. oturum · `revize-plan.md` §0'da da var)
+
+| Faz | Lead (tek başına) | Ajana verilebilir | Gerekçe |
+|---|---|---|---|
+| FAZ 3 | R11 · R12 | **R13** | R11/R12 veri katmanına dokunuyor; R13'ün **kendi ekranları** var |
+| FAZ 4 | R15 · R16 · R18 | **DÖRTLÜ DALGA: R14 · R19 · R20** | Üçü ayrı ekran kümesi, ortak katmana dokunmuyor; R15/R16/R18 **veri ve ayar ekranını paylaşıyor** |
+
+**Ajan kuralı:** tek ekran yazar · ortak katmana (`ui.js` · `shell.js` ·
+`domain.js` · `tokens.css` · `assets/data/*`) **dokunmaz** · `canon.js`'e eksen
+**eklemez** · commit atmaz · defter yazmaz. Eksen ihtiyacını **lead'e rapor
+eder**, ekseni lead yazar. Doğrulama ve commit lead'indir. En fazla **dört ajan**
+(L-20). **Tarayıcı taramaları dalga bitince topluca koşar** — ajan başına değil,
+ve **tek tek** (yukarıdaki süre uyarısı).
+
+#### R11 için hazır not — ölçüm yapılmış, kod okunmuş
+
+- `944a594` (2 dosya, +87/−5) **sözleşmeden proje başlatmayı zaten kurmuş**:
+  `app-sozlesme-detay.html:206-215` sözleşmenin projesi varsa *Projeyi aç*,
+  yoksa *Projeyi başlat* → `app-proje-form.html?sozlesme=<kod>`; form `?sozlesme=`
+  okuyor (`:133`), **5 alan ön dolduruluyor** (`ad` · `musteri` · `baslangic` ·
+  `planlananBitis` · `sozlesmeTutari`), üç bilgilendirme durumu var (`:409-437`),
+  kaydederken tek yönlü bağ `kaynakSozlesme.proje = kod` yazılıyor (§9d).
+- **Eksik olan iki şey:** `DB.projects[].kaynak` alanı ve formda **sözleşme
+  seçici** (`key:'sozlesme'` → 0 sonuç; sözleşme yalnız URL'den gelebiliyor).
+- `DB.projectSources` sözlüğü **R05'in `DB.projectStatuses` kalıbıyla** açılır:
+  `Müşteri Sözleşmesi · İç Proje · Satış Öncesi / PoC · Bakım / Destek · Diğer`.
+- **Uydurma yok:** sözleşmesi olan 6 proje → `Müşteri Sözleşmesi`; kalan 8'in
+  kaynağı `sozlesmeTutari`/`musteri` ilişkisinden türetilir ve gerekçesi
+  aktiviteye yazılır. `kaynak` müşteride ve adayda **var ama o SATIŞ kaynağı
+  eksenidir** (`DB.refTypes`, artık 18 değer) — proje kaynağı değildir,
+  karıştırılmaz.
+- **Yeni canon ekseni 35** olur (29…34 dolu): *"`kaynak === 'Müşteri Sözleşmesi'`
+  olan projenin `DB.contracts` içinde onu gösteren bir kaydı vardır"*. Bu eksen
+  VB-20'nin **"sözleşmesiz sözleşme bedeli"** ek bulgusunu da kapatır:
+  **PRJ-2026-007** (336.000) ve **PRJ-2025-008** (960.000) `sozlesmeTutari`
+  taşıyor ama onları gösteren sözleşme kaydı **yok** — ikisine ya sözleşme
+  yazılır ya bedelleri kalkar, karar aynı turda verilir.
+- ⚠️ Eksen yazıldıktan sonra **bilinçli bozulmuş kopyayla sınanır** (L-24 · L-26)
+  ve **bozmanın araca ulaştığı doğrulanır** (L-35): `GV_REPO=<kopya>` ver,
+  en az bir vaka **başarısız olmalı**, yoksa düzenek kurulmamıştır.
+
+#### R12 için hazır not
+
+`DB.contracts`'te kişi tipinde **tek alan yok**; `app-sozlesme-detay.html:320-332`
+bunu `GV.notice` ile itiraf ediyor ve dört kişiyi türetip **salt okunur** basıyor.
+Değer uydurulmaz: bugün ekranın türettiği sıra korunur — `customers.sorumlu`
+(12/12 dolu), proje varsa `projects.musteriSorumlu` tercih edilir.
+`DB.projects[].pm` **14/14'ü EMP-003**, yani tek değerli eksen — sorumlu kaynağı
+olarak kullanılmaz.
+
+#### R13 için hazır not (ajana verilecek madde)
+
+**V2-03 ölçümle yanlışlandı:** `GV.list` `musteri` kapsamını **zaten uyguluyor**
+(`ui.js:600`). Eksik olan iki şey de arayüz tarafında: (1)
+`DB.permMatrix.musteri.gor` bugün `'kendi'` (`org.js:112`), doğrusu `'musteri'`;
+(2) `buildSession` (`shell.js:234`) yalnız `DB.employees`'ten kuruluyor, oturumda
+`musteri` alanı yok. `DB.contacts` (14 müşteri yetkilisi) müşteri kimliğinin
+gerçek kaynağıdır. ⚠️ **Bu iki düzeltme ORTAK KATMANDADIR — ajana verilmez,
+lead yazar**; ajan yalnız portalın **kendi ekranlarını** yazar.
 
 <details><summary>R09'un kapanmış uyarısı (kayıt olarak kalsın)</summary>
 
@@ -323,7 +406,8 @@ http://127.0.0.1:8791/app-gorev-detay.html?id=GRV-2026-101&role=sahip
 
 ## 2. Tarama seti nasıl çalıştırılır
 
-19 script `tasks/qa/` içinde **repoda izleniyor**. Yeniden yazma — kopyala.
+**20 script** `tasks/qa/` içinde **repoda izleniyor**. Yeniden yazma — kopyala.
+(19 + 15. oturumda eklenen **`dep.js`**.)
 
 ```bash
 SP=<scratchpad>                       # geçici çalışma dizini
@@ -337,7 +421,7 @@ ThreadingHTTPServer(('127.0.0.1',8791), SimpleHTTPRequestHandler).serve_forever(
 
 cd $SP/qa-run
 node rec.js                    # ÖNCE BU — qa-targets.json (62 hedef) · L-19
-node canon.js; node dbref.js; node links.js          # playwright GEREKMEZ
+node canon.js; node dbref.js; node links.js; node dep.js   # playwright GEREKMEZ
 node esc.js; node tabs.js; node mut.js; node listen.js
 node akt.js; node bag.js; node pers.js
 node swtest.js; node grip-qa.js; node ctl.js; node xport.js; node act.js
@@ -345,8 +429,27 @@ node qa.js "$(ls <repo>/app-*.html | xargs -n1 basename | tr '\n' ',')"
 node gate.js
 ```
 
-**Süre:** `act.js` ~5 dk · `qa.js` ~4 dk · `ctl.js` ~4 dk · `gate.js` ~3 dk
-(dördü paralel koşarsa toplam ~5 dk; tek tek ~16 dk).
+**Süre — 15. oturumda ölçüldü, eski kestirim TUTMUYOR:**
+
+| Script | Defterdeki eski kestirim | **15. oturumda ölçülen** |
+|---|---|---|
+| `qa.js` (142 ekran × 3 kırılım) | ~4 dk | **~25 dk** |
+| `gate.js` (710 sayfa yüklemesi) | ~3 dk | ~8 dk |
+| `act.js` (213 aksiyon) | ~5 dk | ~6 dk |
+| `tabs.js` (224 tıklama) | — | ~3 dk |
+| `canon.js` · `dbref.js` · `links.js` · `dep.js` | — | **saniyeler** (playwright yok) |
+
+> ⚠️ **DÖRDÜNÜ ART ARDA BAŞLATMA.** 15. oturumda `gate → qa → tabs → act`
+> zinciri makinenin boş belleğini **~70 MB**'a indirdi; `qa.js` 25 dakika sürdü,
+> `tabs.js` ve `act.js` `page.goto` **TimeoutError**'ıyla öldü ve aynı doygunluk
+> **Claude Code'un API bağlantısını da düşürdü** ("unable to connect to API").
+> Playwright taramaları **tek tek** koşulur; sırası gelen bitmeden sonraki
+> başlatılmaz. Koşum bitince `pgrep -f Chromium | xargs -r kill` ile artıklar
+> temizlenir.
+>
+> Kısa yol: değişen ekran azsa `qa.js`'e **hedef listesi ver**
+> (`node qa.js "app-destek.html,app-destek-detay.html?id=DST-2026-122"`) —
+> tam süpürme yalnız faz kapanışında gerekir.
 
 ### Koşarken üç kural — üçü de acıyla öğrenildi
 
