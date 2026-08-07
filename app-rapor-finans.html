@@ -21,7 +21,10 @@
 <script src="assets/data/hr.js"></script>
 <!-- ops.js = DB.purchases. `GV.proje.maliyet` satın alma kalemini buradan
      okur; dosya yüklenmezse kalem sessizce 0 kalırdı (ölçüm değil, eksik
-     kaynak olurdu). hr.js = DB.timelogs, personel/dış kaynak kalemi. -->
+     kaynak olurdu). hr.js = DB.timelogs, personel/dış kaynak kalemi.
+     REVİZE 20 — ops.js ayrıca DB.supportPackages + DB.servicePackagePeriods
+     (Tekrarlayan Gelir raporu), misc.js ise DB.contracts (Sözleşme Yaklaşan
+     Bitişler raporu) kaynağıdır; ikisi de zaten yüklüydü (L-12). -->
 <script src="assets/data/ops.js"></script>
 <script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
@@ -38,7 +41,7 @@ document.addEventListener('gv:ready', function(){
 
   GV.pageHead({
     eyebrow:'Raporlar', title:'Satış ve Finans Raporları',
-    sub:'16 rapor · satış hunisi, performans, proje finansı ve nakit ekseni · referans tarih ' + F.date(TODAY),
+    sub:'18 rapor · satış hunisi, performans, proje finansı, nakit ve sözleşme ekseni · referans tarih ' + F.date(TODAY),
     actions:[
       { label:'Teklifler', icon:'i-quote', href:'app-teklif.html' },
       { label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
@@ -445,6 +448,93 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
+     5B. TEKRARLAYAN GELİR VE SÖZLEŞME TÜRETMELERİ (REVİZE 20)
+     ================================================================= */
+  /* Dönem uzunluğu (ay) — `app-destek-paket.html`'deki `donemAy` ile BİREBİR
+     aynı gün düzeltmeli ay sayımıdır. Formül oradan alındı, yeniden
+     uydurulmadı: iki ekran farklı sayarsa aynı paketin yıllık geliri iki
+     yerde farklı çıkar ve canonical değer disiplini kırılır. */
+  function donemAy(p){
+    if(!p.baslangic || !p.bitis) return 12;
+    var a = String(p.baslangic).slice(0, 10).split('-'), b = String(p.bitis).slice(0, 10).split('-');
+    var m = (Number(b[0]) - Number(a[0])) * 12 + (Number(b[1]) - Number(a[1])) + (Number(b[2]) >= Number(a[2]) ? 1 : 0);
+    return m > 0 ? m : 12;
+  }
+  /* Dönem bedeli 12 aya normalize edilir — 6 aylık paketle 24 aylık paket
+     ancak böyle yan yana konabilir. `app-destek-paket.html` "Yıllık paket
+     geliri" KPI'si de bu değeri toplar; iki ekran aynı sayıyı vermelidir. */
+  function yillikGelir(p){ var m = donemAy(p); return Math.round((p.tutar || 0) / m * 12); }
+
+  /* Periyot `DB.servicePackagePeriods` sözlüğüne bağlıdır. BKP-003'ün dönemi
+     24 aydır ve sözlükte karşılığı yoktur → kayıtta `periyot:null`. Burada
+     `Yıllık` SAYILMAZ: iki yıllık bir paketi yıllık göstermek olurdu. Rapor
+     bunu ayrı bir değer olarak yazar ve dönemi ay cinsinden bildirir. */
+  var PERIYOT_DISI = 'Sözlük dışı dönem';
+  function periyotAd(p){ return p.periyot || PERIYOT_DISI; }
+  function periyotSozlukte(p){ return !!p.periyot && DB.servicePackagePeriods.indexOf(p.periyot) !== -1; }
+
+  function paketRow(p){
+    var ayAdet = donemAy(p), yil = yillikGelir(p);
+    return {
+      kod:p.kod, ad:p.ad, tip:p.tip || '—',
+      musteri:p.musteri, musteriAd:cName(p.musteri),
+      periyot:periyotAd(p), sozlukte:periyotSozlukte(p), donemAy:ayAdet,
+      sorumlu:p.sorumlu, sorumluAd:empAd(p.sorumlu),
+      donemBedeli:p.tutar || 0, yillik:yil, aylik:Math.round(yil / 12),
+      baslangic:p.baslangic, bitis:p.bitis, durum:p.durum,
+      kalanGun:p.bitis ? F.days(p.bitis) : null,
+      sozlesme:p.sozlesme,
+      yenileme:p.yenileme ? 'Otomatik yenileme' : 'Yenileme kaydı yok',
+      yenilemeTarihi:p.yenilemeTarihi
+    };
+  }
+  function basePaketler(f){
+    return DB.supportPackages.filter(function(p){
+      return tarihOK(f, p.bitis) && musteriOK(f, p.musteri) &&
+             projeOK(f, p.proje, p.musteri) && kisiOK(f, [p.sorumlu]) && durumOK(f, p.durum);
+    });
+  }
+
+  /* Sözleşme bitiş eşikleri — dokümanın istediği 60/30/15/7 gün bantları.
+     Süresi geçmiş sözleşme AYRI banttır: ona "7 gün kaldı" demek yanlış olur. */
+  var ESIKLER = [7, 15, 30, 60];
+  function esikBandi(g){
+    if(g == null) return 'Bitiş tarihi yok';
+    if(g < 0) return 'Süresi doldu';
+    for(var i = 0; i < ESIKLER.length; i++) if(g <= ESIKLER[i]) return ESIKLER[i] + ' gün içinde';
+    return '60 günden uzak';
+  }
+  function esikTon(g){
+    if(g == null) return 'is-neutral';
+    if(g < 0) return 'is-danger';
+    if(g <= 15) return 'is-danger';
+    if(g <= 30) return 'is-warn';
+    if(g <= 60) return 'is-info';
+    return 'is-neutral';
+  }
+  function sozlesmeRow(s){
+    var g = s.bitis ? F.days(s.bitis) : null;
+    return {
+      kod:s.kod, ad:s.ad, musteri:s.musteri, musteriAd:s.musteriAd, musteriKisa:cName(s.musteri),
+      proje:s.proje, projeAd:s.proje ? pName(s.proje) : '—',
+      sorumlu:s.sorumlu, sorumluAd:empAd(s.sorumlu),
+      imzaTarihi:s.imzaTarihi, baslangic:s.baslangic, bitis:s.bitis,
+      kalanGun:g, band:esikBandi(g), durum:s.durum,
+      /* `tutar` KDV HARİÇ nettir (misc.js para konvansiyonu); brüt bedel
+         `toplam` alanında ayrıca taşınır, ikisi karıştırılmaz. */
+      tutar:s.tutar || 0, toplam:s.toplam || 0,
+      yenileme:s.yenileme ? 'Otomatik yenileme' : 'Yenileme kaydı yok',
+      yenilemeTarihi:s.yenilemeTarihi || null, odemePlani:s.odemePlani, garanti:s.garanti
+    };
+  }
+  function baseContracts(f){
+    return DB.contracts.filter(function(s){
+      return tarihOK(f, s.bitis) && musteriOK(f, s.musteri) &&
+             projeOK(f, s.proje, s.musteri) && kisiOK(f, [s.sorumlu]) && durumOK(f, s.durum);
+    });
+  }
+
+  /* =================================================================
      6. FİLTRE SEÇENEKLERİ
      ================================================================= */
   var TEMSILCILER = uniq(
@@ -453,6 +543,10 @@ document.addEventListener('gv:ready', function(){
       .concat(DB.customers.map(function(c){ return c.sorumlu; }))
       .concat(DB.projects.map(function(p){ return p.pm; }))
       .concat(DB.payments.map(function(t){ return t.sorumlu; }))
+      /* REVİZE 20 — sözleşme ve bakım paketi sorumluları da süzgece girer;
+         aksi hâlde iki yeni rapor filtrelenemeyen bir kişi ekseni taşırdı. */
+      .concat(DB.contracts.map(function(s){ return s.sorumlu; }))
+      .concat(DB.supportPackages.map(function(p){ return p.sorumlu; }))
   ).sort(function(a, b){ return empAd(a).localeCompare(empAd(b), 'tr'); });
 
   var DURUMLAR = uniq(
@@ -462,6 +556,8 @@ document.addEventListener('gv:ready', function(){
       .concat(DB.customers.map(function(c){ return c.durum; }))
       .concat(DB.invoices.map(function(i){ return i.durum; }))
       .concat(DB.payments.map(function(t){ return t.durum; }))
+      .concat(DB.contracts.map(function(s){ return s.durum; }))
+      .concat(DB.supportPackages.map(function(p){ return p.durum; }))
   );
 
   /* =================================================================
@@ -1895,7 +1991,208 @@ document.addEventListener('gv:ready', function(){
             GV.badge(x.tip, x.tip === 'Gerçekleşen' ? 'is-ok' : x.tip === 'Referans ay' ? 'is-accent' : 'is-info') +
             (x.riskli ? GV.badge('Riskli ' + F.moneyK(x.riskli), 'is-danger') : ''));
         },
-        emptyState:bos('Nakit akış dönemi yok', 'Seçilen kapsamda tahsilat ya da beklenen giriş kaydı bulunmuyor.', 'i-trend-up') }) }
+        emptyState:bos('Nakit akış dönemi yok', 'Seçilen kapsamda tahsilat ya da beklenen giriş kaydı bulunmuyor.', 'i-trend-up') }) },
+
+    /* ============================================================
+       17 · TEKRARLAYAN GELİR   (REVİZE 20)
+       Kaynak: DB.supportPackages. Dönem bedeli 12 aya normalize edilir;
+       formül app-destek-paket.html ile birebir aynıdır (§5B).
+       ============================================================ */
+    { key:'tekrarlayan', label:'Tekrarlayan gelir', icon:'i-refresh', group:'Nakit',
+      title:'Tekrarlayan Gelir',
+      desc:'Bakım ve servis paketlerinden gelen abonelik geliri. Dönem bedeli (KDV hariç) paketin gerçek dönem uzunluğuna bölünüp 12 ile çarpılarak yıllığa normalize edilir — 6 aylık paketle 24 aylık paket ancak böyle karşılaştırılabilir. Toplam yıllık tekrarlayan gelir, app-destek-paket.html ekranındaki “Yıllık paket geliri” değeriyle birebir aynıdır.',
+      rows:function(f){ return basePaketler(f).map(paketRow); },
+      kpis:[
+        { label:'Yıllık tekrarlayan gelir', icon:'i-wallet', tone:'purple', format:F.moneyK,
+          calc:function(r){ return sum(r, function(x){ return x.yillik; }); },
+          meta:function(r){ return ico('i-refresh','ic-sm') + ' ' + F.num(r.length) +
+            ' paket · dönem bedeli 12 aya normalize edildi'; },
+          metaTone:'flat' },
+        { label:'Aylık tekrarlayan gelir', icon:'i-chart-bar', tone:'info', format:F.moneyK,
+          calc:function(r){ return Math.round(sum(r, function(x){ return x.yillik; }) / 12); } },
+        { label:'Aktif paket', icon:'i-shield-check', tone:'ok',
+          calc:function(r){ return r.filter(function(x){
+            return x.durum === 'Aktif' && (x.kalanGun == null || x.kalanGun >= 0); }).length; } },
+        /* Sözlük dışı dönem bir ölçüm değil, veri sözlüğündeki boşluktur —
+           gizlenmez, sayılır ve raporun yüzünde durur. */
+        { label:'Sözlük dışı dönem', icon:'i-alert', tone:'warn',
+          calc:function(r){ return r.filter(function(x){ return !x.sozlukte; }).length; },
+          meta:function(r){
+            var d = r.filter(function(x){ return !x.sozlukte; });
+            return d.length
+              ? ico('i-info','ic-sm') + ' ' + d.map(function(x){ return x.kod + ' · ' + x.donemAy + ' ay'; }).join(' · ')
+              : ico('i-check-circle','ic-sm') + ' tüm paketler sözlükteki bir periyoda oturuyor'; },
+          metaTone:'flat' }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return b.yillik - a.yillik; }).map(function(x){
+          return { label:kisaAd(x.musteriAd, 12), value:x.yillik, value2:x.donemBedeli }; });
+        var pm = {}, order = [];
+        r.forEach(function(x){
+          if(!(x.periyot in pm)){ pm[x.periyot] = 0; order.push(x.periyot); }
+          pm[x.periyot] += x.yillik;
+        });
+        var don = order.map(function(k){ return { label:k, value:bin(pm[k]) }; });
+        return [
+          { title:'Müşteri bazlı yıllık tekrarlayan gelir', sub:'koyu sütun 12 aya normalize yıllık gelir · açık sütun dönem bedeli',
+            wide:true, html:GV.chart.bar(bar, { money:true }),
+            legend:[{ label:'Yıllık tekrarlayan gelir (bin ₺)', value:bin(sum(r, function(x){ return x.yillik; })) },
+                    { label:'Dönem bedeli (bin ₺)', value:bin(sum(r, function(x){ return x.donemBedeli; })) }] },
+          { title:'Periyoda göre yıllık gelir', sub:'bin ₺ · sözlük dışı dönem ayrı dilimdir',
+            html:GV.chart.donut(don, { center:F.moneyK(sum(r, function(x){ return x.yillik; })), centerSub:'yıllık' }),
+            legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-tekrarlayan-gelir', exportTitle:'Tekrarlayan Gelir Raporu',
+        defaultSort:'yillik', pageSize:25,
+        search:{ placeholder:'Paket kodu, paket adı, müşteri, tip veya sorumlu ara',
+                 fields:['kod','ad','tip','musteriAd','sorumluAd','periyot','durum'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm paketler', icon:'i-list', filter:function(){ return true; } },
+          { key:'aktif', label:'Aktif olanlar', icon:'i-shield-check',
+            filter:function(x){ return x.durum === 'Aktif' && (x.kalanGun == null || x.kalanGun >= 0); } },
+          { key:'yenilenecek', label:'Yenilenecek işaretli', icon:'i-refresh',
+            filter:function(x){ return x.yenileme === 'Otomatik yenileme'; } },
+          { key:'disi', label:'Sözlük dışı dönem', icon:'i-alert', filter:function(x){ return !x.sozlukte; } }
+        ],
+        columns:[
+          { key:'kod', label:'Paket', width:'18%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.ad; },
+            render:function(x){ return linkCell('app-destek-paket.html', x.kod) + sub(esc(x.ad)); } },
+          { key:'musteriAd', label:'Müşteri',
+            render:function(x){ return linkCell('app-musteri.html', x.musteriAd) +
+              '<span class="cell-code">' + esc(x.musteri) + '</span>'; } },
+          { key:'tip', label:'Paket tipi', render:function(x){ return GV.badge(x.tip, 'is-info'); } },
+          /* Sözlükte karşılığı olmayan dönem `Yıllık` sayılmaz; etiketin altında
+             gerçek dönem uzunluğu ay olarak yazılır. */
+          { key:'periyot', label:'Periyot',
+            exportValue:function(x){ return x.periyot + ' (' + x.donemAy + ' ay)'; },
+            render:function(x){ return GV.badge(x.periyot, x.sozlukte ? 'is-neutral' : 'is-warn') +
+              sub(x.donemAy + ' ay'); } },
+          colKisi('sorumlu', 'Sorumlu'),
+          colMoney('donemBedeli', 'Dönem bedeli (KDV hariç)', { sub:function(x){ return x.donemAy + ' aylık dönem'; } }),
+          colMoney('yillik', 'Yıllık gelir (12 aya normalize)'),
+          colMoney('aylik', 'Aylık gelir', { visible:false }),
+          colDate('baslangic', 'Başlangıç', { plain:true, visible:false }),
+          colDate('bitis', 'Bitiş', { done:function(x){ return x.kalanGun != null && x.kalanGun < 0; } }),
+          { key:'yenileme', label:'Yenileme', visible:false,
+            render:function(x){ return GV.badge(x.yenileme,
+              x.yenileme === 'Otomatik yenileme' ? 'is-ok' : 'is-neutral'); } },
+          colDurum('durum', 'Durum')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-destek-paket.html', x.kod) + mny(x.yillik),
+            esc(x.musteriAd) + ' · ' + esc(x.ad),
+            [ico('i-user','ic-sm') + esc(x.sorumluAd),
+             ico('i-wallet','ic-sm') + F.moneyK(x.donemBedeli) + ' / ' + x.donemAy + ' ay',
+             ico('i-calendar','ic-sm') + F.dateShort(x.bitis)],
+            GV.badge(x.periyot, x.sozlukte ? 'is-neutral' : 'is-warn') + GV.badge(x.durum));
+        },
+        emptyState:bos('Tekrarlayan gelir kaydı yok',
+          'Seçilen kapsamda bakım ya da servis paketi bulunmuyor.', 'i-refresh') }) },
+
+    /* ============================================================
+       18 · SÖZLEŞME YAKLAŞAN BİTİŞLER   (REVİZE 20)
+       Kaynak: DB.contracts. Bantlar 60/30/15/7 gün; süresi geçmiş
+       sözleşme ayrı banttır.
+       ============================================================ */
+    { key:'sozlesmebitis', label:'Sözleşme yaklaşan bitişler', icon:'i-file-check', group:'Sözleşmeler',
+      title:'Sözleşme Yaklaşan Bitişler',
+      desc:'Bitiş tarihi yaklaşan sözleşmeler; kalan güne göre 7 / 15 / 30 / 60 gün bantlarına ayrılır ve en yakın bitiş en üstte listelenir. Bedel KDV hariç nettir (misc.js para konvansiyonu). Süresi geçmiş sözleşmeler ayrı bantta gösterilir — onlara “kaç gün kaldı” denmez.',
+      rows:function(f){ return baseContracts(f).map(sozlesmeRow); },
+      kpis:[
+        { label:'60 gün içinde biten', icon:'i-hourglass', tone:'warn',
+          calc:function(r){ return r.filter(function(x){
+            return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 60; }).length; },
+          meta:function(r){
+            var y = r.filter(function(x){ return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 60; });
+            return ico('i-file-check','ic-sm') + ' ' + F.num(r.length) + ' sözleşmenin ' + F.num(y.length) + '\'i'; },
+          metaTone:'flat' },
+        { label:'60 gün içindeki bedel (KDV hariç)', icon:'i-wallet', tone:'purple', format:F.moneyK,
+          calc:function(r){ return sum(r.filter(function(x){
+            return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 60; }), function(x){ return x.tutar; }); } },
+        { label:'Otomatik yenilemeli', icon:'i-refresh', tone:'ok',
+          calc:function(r){ return r.filter(function(x){ return x.yenileme === 'Otomatik yenileme'; }).length; } },
+        { label:'Süresi dolmuş', icon:'i-alert', tone:'danger',
+          calc:function(r){ return r.filter(function(x){ return x.kalanGun != null && x.kalanGun < 0; }).length; } }
+      ],
+      charts:function(r){
+        var bar = r.slice().sort(function(a, b){ return nz(a.kalanGun) - nz(b.kalanGun); }).map(function(x){
+          return { label:cShort(x.musteri), value:Math.max(0, x.kalanGun || 0),
+                   tone:x.kalanGun == null ? null : x.kalanGun < 0 ? 'danger'
+                        : x.kalanGun <= 15 ? 'danger' : x.kalanGun <= 30 ? 'warn' : x.kalanGun <= 60 ? null : 'ok' }; });
+        var bm = {}, order = [];
+        r.forEach(function(x){
+          if(!(x.band in bm)){ bm[x.band] = 0; order.push(x.band); }
+          bm[x.band]++;
+        });
+        var don = order.map(function(k){ return { label:k, value:bm[k] }; });
+        return [
+          { title:'Sözleşme bitişine kalan gün', sub:'süresi geçmiş sözleşme sıfır sütunla ve kırmızıyla gösterilir',
+            wide:true, html:GV.chart.bar(bar) },
+          { title:'Eşik bandına göre sözleşme adedi', sub:'7 / 15 / 30 / 60 gün',
+            html:GV.chart.donut(don, { center:String(r.length), centerSub:'sözleşme' }), legend:don }
+        ];
+      },
+      table:tbl({ exportName:'finans-rapor-sozlesme-bitis', exportTitle:'Sözleşme Yaklaşan Bitişler Raporu',
+        defaultSort:'kalanGun', defaultDir:'asc', pageSize:25,
+        search:{ placeholder:'Sözleşme no, konu, müşteri veya sorumlu ara',
+                 fields:['kod','ad','musteriAd','sorumluAd','durum','band'] },
+        tabs:[
+          { key:'hepsi', label:'Tüm sözleşmeler', icon:'i-list', filter:function(){ return true; } },
+          { key:'g60', label:'60 gün içinde', icon:'i-hourglass',
+            filter:function(x){ return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 60; } },
+          { key:'g30', label:'30 gün içinde', icon:'i-clock',
+            filter:function(x){ return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 30; } },
+          { key:'g15', label:'15 gün içinde', icon:'i-alert',
+            filter:function(x){ return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 15; } },
+          { key:'g7', label:'7 gün içinde', icon:'i-x-circle',
+            filter:function(x){ return x.kalanGun != null && x.kalanGun >= 0 && x.kalanGun <= 7; } },
+          { key:'doldu', label:'Süresi dolmuş', icon:'i-archive',
+            filter:function(x){ return x.kalanGun != null && x.kalanGun < 0; } }
+        ],
+        columns:[
+          { key:'kod', label:'Sözleşme', width:'20%', locked:true, cellClass:'cell-wrap',
+            exportValue:function(x){ return x.kod + ' — ' + x.ad; },
+            render:function(x){ return linkCell('app-sozlesme.html?t=tumu&q=' + encodeURIComponent(x.kod), x.kod) +
+              sub(esc(x.ad)); } },
+          { key:'musteriKisa', label:'Müşteri',
+            exportValue:function(x){ return x.musteriAd; },
+            render:function(x){ return linkCell('app-musteri.html', x.musteriKisa) +
+              '<span class="cell-code">' + esc(x.musteri) + '</span>'; } },
+          colKisi('sorumlu', 'Sorumlu'),
+          colDate('bitis', 'Bitiş', { done:function(x){ return x.kalanGun != null && x.kalanGun < 0; } }),
+          { key:'kalanGun', label:'Kalan gün', cellClass:'num',
+            sortValue:function(x){ return x.kalanGun; },
+            exportValue:function(x){ return x.kalanGun == null ? '' : x.kalanGun; },
+            render:function(x){
+              if(x.kalanGun == null) return faint('—');
+              return gunCell(x.kalanGun, x.kalanGun < 0 ? 'danger' : x.kalanGun <= 30 ? 'warn' : null) +
+                sub(F.rel(x.bitis)); } },
+          { key:'band', label:'Eşik bandı',
+            render:function(x){ return GV.badge(x.band, esikTon(x.kalanGun)); } },
+          { key:'yenileme', label:'Yenileme',
+            exportValue:function(x){ return x.yenileme; },
+            render:function(x){ return GV.badge(x.yenileme,
+              x.yenileme === 'Otomatik yenileme' ? 'is-ok' : 'is-neutral') +
+              (x.yenilemeTarihi ? sub(F.date(x.yenilemeTarihi)) : ''); } },
+          colMoney('tutar', 'Bedel (KDV hariç)'),
+          colMoney('toplam', 'Brüt bedel (KDV dahil)', { visible:false }),
+          { key:'projeAd', label:'Proje', visible:false,
+            render:function(x){ return x.proje ? linkCell('app-butce.html', x.projeAd) : faint('Projesiz'); } },
+          colDate('imzaTarihi', 'İmza tarihi', { plain:true, visible:false }),
+          colDurum('durum', 'Durum')
+        ],
+        mobile:function(x){
+          return mRow(linkCell('app-sozlesme.html?t=tumu&q=' + encodeURIComponent(x.kod), x.kod) + mny(x.tutar),
+            esc(x.musteriAd) + ' · ' + esc(x.ad),
+            [ico('i-user','ic-sm') + esc(x.sorumluAd),
+             ico('i-calendar','ic-sm') + F.dateShort(x.bitis),
+             ico('i-clock','ic-sm') + F.rel(x.bitis)],
+            GV.badge(x.band, esikTon(x.kalanGun)) + GV.badge(x.durum));
+        },
+        emptyState:bos('Yaklaşan sözleşme bitişi yok',
+          'Seçilen kapsamda bitiş tarihi kayıtlı sözleşme bulunmuyor.', 'i-file-check') }) }
 
     ]
   });
