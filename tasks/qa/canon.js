@@ -1106,6 +1106,54 @@ head('31) Proje kapanış kontrolü (REVİZE 07)');
     ' · hiçbir kontrolü ölçülemeyen: ' + olcum.filter(n => n === 0).length);
 }
 
+/* ---------- 32. PROJE → BAKIM PAKETİ BAĞI (REVİZE 08) ----------
+   Bağ **pakette** durur ve bugün 7 kaydın 7'sinde BOŞTUR — bu ölçülmüş bir
+   gerçektir, eksiklik değil: veride proje ile paket arasında hiçbir yönde
+   yazılı bağ yok ve tarih yakınlığı bağ sayılmadı (L-13). Alan yine de her
+   kayıtta durur (şema kayıttan kayda değişmesin diye), ve DOLDURULDUĞUNDA
+   tutarlı olmak zorundadır. */
+head('32) Proje → bakım paketi bağı (REVİZE 08)');
+{
+  const PKT = DB.supportPackages;
+
+  /* 32a. Alan HER kayıtta var — yeni yazılan kayıtta doğan alan şemayı bozar
+     (VB-20 eki: `DB.sprints`'in 6 kaydında `aktif` yoktu, bileşen bekliyordu). */
+  PKT.forEach(x => say('proje' in x, x.kod + " 'proje' alanı yok — şema kayıttan kayda değişiyor"));
+
+  /* 32b. Dolu bağ çözülür ve paketin müşterisi projenin müşterisiyle aynıdır. */
+  PKT.filter(x => x.proje).forEach(x => {
+    const p = DB.projects.filter(y => y.kod === x.proje)[0];
+    say(!!p, x.kod + ' proje=' + x.proje + ' çözülmüyor');
+    if(p) say(p.musteri === x.musteri,
+      x.kod + ' paketin müşterisi projeninkiyle uyuşmuyor: ' + x.musteri + ' ≠ ' + p.musteri);
+  });
+
+  /* 32c. Bir projeye en fazla BİR paket bağlanır. */
+  const s2 = {};
+  PKT.filter(x => x.proje).forEach(x => { s2[x.proje] = (s2[x.proje] || 0) + 1; });
+  Object.keys(s2).forEach(k => say(s2[k] === 1, k + ' projesine ' + s2[k] + ' paket bağlanmış'));
+
+  /* 32d. Paket tipi sözlükten. */
+  say(Array.isArray(DB.supportPackageTypes) && DB.supportPackageTypes.length > 0,
+    'DB.supportPackageTypes tanımlı değil');
+  PKT.forEach(x => say((DB.supportPackageTypes || []).indexOf(x.ad) !== -1,
+    x.kod + ' paket tipi sözlükte yok: ' + x.ad));
+
+  /* 32e. Kota aritmetiği (components.md §9) — gün düzeltmeli dönem sayımı.
+     Yeni açılan paket de bu sözleşmeye uymak zorunda. */
+  PKT.forEach(x => {
+    const b = new Date(x.baslangic), e = new Date(x.bitis);
+    const ay = (e.getFullYear() - b.getFullYear()) * 12 + (e.getMonth() - b.getMonth()) +
+               (e.getDate() >= b.getDate() ? 1 : 0);
+    say(x.kullanilan + x.kalan === x.aylikSaat * ay,
+      x.kod + ' kota: kullanılan+kalan=' + (x.kullanilan + x.kalan) +
+      ' ≠ aylıkSaat×ay=' + (x.aylikSaat * ay));
+  });
+
+  console.log('  · projeye bağlı paket: ' + PKT.filter(x => x.proje).length + ' / ' + PKT.length +
+    ' (bağ kapanış akışında kurulur; veride yazılı bağ yok — uydurulmadı)');
+}
+
 console.log('\n' + (bad === 0
   ? 'TEMİZ — ' + checks + ' kontrol, canonical çelişki yok'
   : 'ÇELİŞKİ — ' + bad + ' / ' + checks + ' kontrol başarısız'));
