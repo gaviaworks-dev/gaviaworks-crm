@@ -16,7 +16,8 @@ echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks
 | Ölçüm | Değer |
 |---|---|
 | Alt madde | **138** |
-| İşaretli | **15** (R01 8/8 · R02 7/7 · R02 kuyruğu 0/2) |
+| İşaretli | **34** — R01 8/8 · R02 7/7 + kuyruk 2/2 · R03 8/8 · R04 9/9 |
+| Kalan | 104 (FAZ 2 · 3 · 4) |
 
 > Kutu **yapılan iş doğrulanarak** işaretlenir, hatırlanarak değil. Bir alt madde
 > bitince **aynı turn içinde** işaretlenir — sonraki oturuma bırakılmaz.
@@ -74,8 +75,8 @@ Bu turun kendi çalışma kuralları:
 |---|---|---|---|---|
 | R01 | Görev durumlarını sadeleştir | 1 | **✅ TAMAM** | sözlük 19 → 10; bekleme ayrı eksene çıktı; canon eksen 25 |
 | R02 | Görev geçiş algoritması | 1 | **✅ TAMAM** | tablo artık uygulanıyor; dropdown yerine aksiyon butonu; `GV.task` tek mutasyon noktası |
-| R03 | Timesheet → gerçekleşen süre | 1 | 🟡 **görev düzeyi tamam** | görev ↔ defter 26/26 eşitlendi, canon eksen 26; proje düzeyi sıradaki |
-| R04 | Timesheet + gider → gerçek maliyet | 1 | ⬜ | dört kalemin dördü de yok; `icMaliyetSaat` 0/16, `purchases.proje` 1/7 |
+| R03 | Timesheet → gerçekleşen süre | 1 | **✅ TAMAM** | `harcananSure` kaldırıldı; defter 53 → 131 satır (modül ilerlemesinden türetildi); canon eksen 26 + 27 |
+| R04 | Timesheet + gider → gerçek maliyet | 1 | **✅ TAMAM** | `gerceklesenMaliyet` kaldırıldı; dört kalem `GV.proje.maliyet`'te türetiliyor; canon eksen 28 |
 | R05 | Proje durumu / faz ayrımı | 2 | 🟡 | 14 projenin **7'sinde** `faz:'Tamamlandı'`; VB-20 olarak zaten kayıtlı |
 | R06 | Milestone / ödeme ayrımı | 2 | ⬜ | tek koleksiyon (`DB.milestones`), 10 alanın 4'ü ödeme; `sorumlu`/`aciklama`/`teslimat` yok |
 | R07 | Proje kapanış kontrolü | 2 | ⬜ | kapanış aksiyonu yok; ekran **hiç mutasyon yapmıyor**; 8 kontrolün 5'i ölçülebilir |
@@ -142,11 +143,17 @@ eklenir (25 · 26 · 27), `components.md`'ye **yazılı sözleşme** girer. Tür
 
 # FAZ 1 — KRİTİK
 
-> **R01 ✅ · R02 ✅ tamam (2026-08-07).** R03 ve R04 sıradaki iş.
-> Kapanışta `canon.js` **2.929 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen
-> → şimdi 26 eksen). Yeni eksenler: **25** görev durumu/geçiş/bekleme,
-> **26** zaman defteri ↔ görev emeği. İkisi de kasıtlı bozulmuş bir kopyayla
-> sınandı (L-24/L-27 gereği), scratchpad'de, repo dosyasına dokunmadan.
+> **FAZ 1 KAPANDI — R01 ✅ · R02 ✅ (+ kuyruk) · R03 ✅ · R04 ✅ (2026-08-07).**
+> Kapanışta `canon.js` **3.469 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen
+> → şimdi **28 eksen**). Yeni eksenler: **25** görev durumu/geçiş/bekleme ·
+> **26** zaman defteri ↔ görev emeği · **27** proje süre zinciri ve tek onay
+> ekseni · **28** proje maliyet zinciri. Dördü de kasıtlı bozulmuş bir kopyayla,
+> olumlu **ve** birden çok olumsuz vakayla sınandı (L-24/L-27 gereği),
+> scratchpad'de, repo dosyasına dokunmadan.
+>
+> Tarayıcı doğrulaması: **18 ekran × 4 rol = 72 yükleme, konsol hatası 0**;
+> proje detayında 22 sekmenin tamamı tıklandı. Zaman defteri kapsamayan projede
+> hiçbir ekranda `₺0` sızıntısı yok.
 
 ## R01 · Görev durum yapısını sadeleştir · ✅ TAMAM
 
@@ -295,14 +302,14 @@ karmaşıklaştırma."* Bugünkü tek geçiş yolu dropdown'dur.
 
 **Açık kalan iki küçük madde (R02'nin kuyruğu, FAZ 1 içinde kapanır):**
 
-- [ ] `app-gorev.html` toplu işlem `ata` ve `oncelik`'in `run`'ı yok. Sahte
+- [x] `app-gorev.html` toplu işlem `ata` ve `oncelik`'in `run`'ı yok. Sahte
       başarı basmıyorlar (UID-27 düzeltmesinden sonra `ui.js` `run`'sız toplu
       işlemi **pasif** basıyor), ama karar gerekiyor: `ata` havuzdaki görevde
       `Havuzda → Atandı` **geçişidir**, diğerlerinde düz alan yazımı — ikisini
       tek butona toplamak REVİZE 02'nin kapattığı ikinci mutasyon yolunu geri
       açardı. Ya `GV.task` üzerinden iki yolu ayıran bir toplu işlem yazılır ya
       da madde kaldırılır.
-- [ ] `app-ayar-arsiv.html` arşivden geri alma artık `GV.task.arsivGeriAl`
+- [x] `app-ayar-arsiv.html` arşivden geri alma artık `GV.task.arsivGeriAl`
       yordamına bağlanabilir (ekran yazıldığında yordam henüz yoktu; ekran
       kendi türetmesini yapıyor ve **doğru davranıyor**, ama iki yerde iki
       türetme var — tek yordama indirilecek).
@@ -416,7 +423,7 @@ sayı **düşer ve öyle kalır**.
 
 ## R04 · Proje maliyetini otomatik hesapla
 
-**DURUM: ⬜ yok — `gerceklesenMaliyet` elle yazılmış tek rakam; `saatlikUcret` 1/16 personelde**
+**DURUM: ✅ TAMAM (2026-08-07)** — `gerceklesenMaliyet` kaldırıldı, dört kalem türetiliyor.
 
 Ölçüm:
 
@@ -443,32 +450,57 @@ tam değil.
 
 **Yapılacaklar**
 
-- [ ] `DB.employees[].icMaliyetSaat` alanı **16/16** — yazılı türetme:
+- [x] `DB.employees[].icMaliyetSaat` alanı **16/16** — yazılı türetme:
       `maas > 0` ise `round(maas × işverenKatsayısı / aylıkSaat)`, `saatlikUcret > 0`
       ise `saatlikUcret` (dış kaynakta fatura edilen tutar = şirketin maliyetidir).
       `işverenKatsayısı` ve `aylıkSaat` `DB.company` altında **yazılı sabit** olur ki
       hesap sessizce değişmesin (VB-19 dersi). Mevcut XOR sözleşmesi **bozulmaz**.
-- [ ] `DB.purchases[].proje` bağı gerçekten proje için alınmış kayıtlarda doldurulsun
+- [x] `DB.purchases[].proje` bağı gerçekten proje için alınmış kayıtlarda doldurulsun
       (var olan `gerekce`/`butceKodu` alanından türetilir — `BTC-PRJ-002` zaten
       proje biçimli bir bütçe kodu taşıyor). `DB.orders`'a `proje` alanı **açılmaz**;
       sipariş → talep → proje zinciriyle çözülür (§9d yön kuralı)
-- [ ] `DB.projectExpenses` **açılmaz** — talimat "yeni finans modülü oluşturma"
+- [x] `DB.projectExpenses` **açılmaz** — talimat "yeni finans modülü oluşturma"
       diyor. Diğer proje giderleri var olan `DB.purchases` üzerinden temsil edilir;
       dış kaynak maliyeti **çalışma tipi ≠ Kadrolu olan personelin onaylı zaman
       kayıtlarından** gelir (R16 o ekseni açıyor — iki madde birbirini besliyor)
-- [ ] `GV.proje.maliyet(kod)` → `{ personel, disKaynak, satinAlma, diger, toplam,
+- [x] `GV.proje.maliyet(kod)` → `{ personel, disKaynak, satinAlma, diger, toplam,
       gelir, brutKar, karlilikYuzde }` — `domain.js`'te tek yordam
-- [ ] `DB.projects[].gerceklesenMaliyet` **kaldırılsın**
-- [ ] Proje detayındaki **mevcut** Bütçe ve Maliyetler sekmeleri bu yedi değeri
+- [x] `DB.projects[].gerceklesenMaliyet` **kaldırılsın**
+- [x] Proje detayındaki **mevcut** Bütçe ve Maliyetler sekmeleri bu yedi değeri
       göstersin — yeni finans modülü/tab açılmaz. (İki sekme bugün **aynı iki
       sayıyı** iki farklı çerçeveyle basıyor; kırılım gelince ayrım anlam kazanır.)
-- [ ] `app-proje-detay.html:864` ve `:873` "türetilmiş / örtüşmeyebilir" uyarıları
+- [x] `app-proje-detay.html:864` ve `:873` "türetilmiş / örtüşmeyebilir" uyarıları
       kalksın — artık türetme **gerçek** olacak
-- [ ] `canon.js` **eksen 26**: "proje personel maliyeti = Σ(onaylı saat ×
+- [x] `canon.js` **eksen 26**: "proje personel maliyeti = Σ(onaylı saat ×
       `icMaliyetSaat`)" · "toplam = dört kalemin toplamı" · "brütKâr = gelir − toplam" ·
       "kârlılık% = brütKâr / gelir" · "projeli zaman kaydı olan her personelin
       `icMaliyetSaat`i var"
-- [ ] `finans` yetki ekseni korunur — maskeleme mevcut `GV` davranışıyla
+- [x] `finans` yetki ekseni korunur — maskeleme mevcut `GV` davranışıyla
+
+> **Planın üç maddesi uygulamada BAŞKA türlü kapandı — gerekçeleriyle:**
+>
+> 1. **`icMaliyetSaat` alanı AÇILMADI.** İçeriği `maas × katsayı ÷ aylık saat`
+>    formülünden tamamen türetilebilir, yani L-08'in "türetilebilir sayaç"
+>    sınıfı. Aynı turda `harcananSure` ve `gerceklesenMaliyet` tam bu gerekçeyle
+>    kaldırılırken yeni bir türetilebilir sayaç saklamak kendi kararımızla
+>    çelişirdi. `GV.hr.icMaliyet()` türetiyor ve **formülü de döndürüyor**;
+>    iki girdi `DB.company`'de yazılı sabit. XOR sözleşmesine dokunulmadı. → **V-46**
+> 2. **`DB.purchases[].proje` dolduracak kayıt ÇIKMADI.** Yedi satın alma tek tek
+>    okundu: yalnız biri proje kaynaklı (`BTC-PRJ-002`) ve **zaten doluydu**.
+>    Kalan altısı donanım, ofis sarfı, lisans, monitör, araç — hiçbiri projeye ait
+>    değil ve **hiçbiri zorlanarak bağlanmadı**. Plan maddesi borcu fazla tahmin
+>    etmişti (L-28'in ters yönü). → **V-47**
+> 3. **Dış kaynak kalemi 0 ₺ ve bu dürüst bir sıfır.** Eksen kuruldu
+>    (`GV.hr.disKaynak`), hizmet sözleşmeli tek personelin **projeye bağlı zaman
+>    kaydı yok**; başlamamış bir görevden saat türetmek uydurma olurdu (L-13).
+>    Değer veri gelince dolar. → **V-47**
+>
+> Ayrıca yol boyunca çıkan ve kapatılan bir şey: **`GV.proje.maliyet` satın alma
+> kalemini `DB.purchases`'tan okuyor ve o koleksiyon `ops.js`'te.** Dört ekran
+> `ops.js`'i yüklemiyordu ve kalem **hata vermeden sessizce 0** kalıyordu.
+> → **L-34** (L-12 · L-32'nin üçüncü ikizi; en sinsisi çünkü hata değil
+> **eksik sayı** üretiyor). Yordamların veri bağımlılık tablosu artık
+> `components.md` §6b'de yazılı.
 
 **Dokunulacak dosyalar:** `assets/js/domain.js` · `assets/data/work.js` ·
 `assets/data/hr.js` · `assets/data/org.js` · `assets/data/ops.js` ·

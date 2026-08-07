@@ -13,45 +13,72 @@
 **`plan.md`'ye dokunulmaz.** O defter 295/295 ile kapandı; revize turunun maddeleri
 oraya eklenmez, yüzdesi bozulmaz.
 
-**Turun durumu (13. oturum sonu, 2026-08-07):**
+**Turun durumu (14. oturum sonu, 2026-08-07):**
 
 | Adım | Durum |
 |---|---|
 | Adım 0 — talimatı repoya al | ✅ `tasks/revize-talimati.md` |
 | Adım 1 — ölç + defter yaz | ✅ 20 maddenin 20'si ölçüldü · `tasks/revize-plan.md` |
-| **FAZ 1 · R01** görev durumlarını sadeleştir | ✅ **TAMAM** |
-| **FAZ 1 · R02** görev geçiş algoritması | ✅ **TAMAM** (iki küçük kuyruk maddesi açık, plana yazıldı) |
-| **FAZ 1 · R03** timesheet → gerçekleşen süre | 🟡 **görev düzeyi tamam**, proje düzeyi açık |
-| **FAZ 1 · R04** timesheet + gider → gerçek maliyet | ⬜ açık |
-| FAZ 2 · 3 · 4 | ⬜ açık — ölçümleri plana yazılı, uygulama başlamadı |
+| **FAZ 1 · R01** görev durumlarını sadeleştir | ✅ **TAMAM** (8/8 alt madde) |
+| **FAZ 1 · R02** görev geçiş algoritması | ✅ **TAMAM** (7/7 + kuyruk 2/2) |
+| **FAZ 1 · R03** timesheet → gerçekleşen süre | ✅ **TAMAM** (8/8 · görev **ve** proje ucu) |
+| **FAZ 1 · R04** timesheet + gider → gerçek maliyet | ✅ **TAMAM** (9/9) |
+| **FAZ 1** | ✅ **KAPANDI** — 34 / 138 alt madde |
+| FAZ 2 · 3 · 4 | ⬜ açık — ölçümleri plana yazılı, uygulama başlamadı (104 alt madde) |
 
-**Tarama:** `canon.js` **2.929 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen →
-şimdi **26 eksen**). Yeni: **25** görev durumu/geçiş/bekleme · **26** zaman defteri
-↔ görev emeği. İkisi de kasıtlı bozulmuş bir kopyayla sınandı (L-24/L-27),
-scratchpad'de, repo dosyasına dokunulmadan.
+> **İLERLEME ARTIK MEKANİK ÖLÇÜLÜYOR.** `revize-plan.md`'deki 138 alt maddenin
+> kaçının bittiği damgadan değil kutudan okunur:
+> ```bash
+> echo "$(grep -c '^- \[x\]' tasks/revize-plan.md) / $(grep -c '^- \[[ x]\]' tasks/revize-plan.md)"
+> ```
+> Kutu **yapılan iş doğrulanarak** işaretlenir ve bir alt madde bitince **aynı
+> turn içinde** işaretlenir. Damga ile kutu çelişirse **kutu doğrudur**.
 
-### Sıradaki oturum ne yapacak — sırayla
+**Tarama:** `canon.js` **3.469 kontrol · TEMİZ** (turun başında 2.588 · 24 eksen →
+şimdi **28 eksen**). Yeni: **27** proje süre zinciri / tek onay ekseni ·
+**28** proje maliyet zinciri. İkisi de bilinçli bozulmuş bir kopyayla, olumlu ve
+**altı/yedi ayrı olumsuz** vakayla sınandı (L-24/L-27), scratchpad'de, repo
+dosyasına dokunulmadan.
 
-**1. R03'ün proje ucu.** Alt uç (görev ↔ defter) kapandı; üst uç açık.
-   - `GV.zaman.onayla(timesheetKod)` → `domain.js`. **Bugün haftalık timesheet
-     onaylanınca alttaki `DB.timelogs[].onay` DEĞİŞMİYOR** (`app-zaman-onay.html:136`
-     yalnız `t.durum` yazıyor). Yani "onaylı zaman kaydı" iki farklı şey demek.
-     Tek onay ekseni kurulacak.
-   - `GV.proje.sure(kod)` → `{ planlanan, gerceklesen, faturalanabilir }`.
-   - Proje kartında üç değer (`app-proje.html:55` `kpis[]` — **yeni kart açılmaz**).
-   - `app-proje-detay.html:568` `faturalanabilirSaat` **tüm** kayıtları topluyor,
-     onaylı eksene çekilecek. `app-rapor-proje.html:702` açıklaması da düzelecek.
-   - `harcananSure` formdan kalkacak (`app-proje-form.html:559-560`); alan **kalır**,
-     beyan olarak — gerekçe **V-44**, canon eksen 26c `beyan ≥ defter` diyor.
+### 14. oturumda kapanan üç şey
 
-**2. R04.** `DB.employees[].icMaliyetSaat` (16/16) — ⚠️ `saatlikUcret`i doldurma:
-   `app-personel-form.html:146` `maas > 0` **XOR** `saatlikUcret > 0` kuralını
-   uyguluyor, kırarsın. Ayrı eksen aç. Katsayı `DB.company`'de yazılı sabit olsun.
-   Sonra `GV.proje.maliyet()` ve canon ekseni.
+**1. Tek onay ekseni.** "Onaylı saat" iki farklı şey demekti: `DB.timelogs[].onay`
+(satır) ile `DB.timesheets[].durum` (hafta) birbirinden habersizdi ve **dört kayıt
+kendi haftasıyla çelişiyordu**. `GV.zaman.onayla/iade/onaylaKayit` tek eksene
+indirdi: haftalık defter **onay merciidir**; haftası onay bekleyen satır tek başına
+onaylanamaz, yordam reddeder ve nereden onaylanacağını söyler.
 
-**3. FAZ 2**'ye geç (R05 → R06 → R07 → R08 → R09 → R10).
+**2. R03 proje ucu — 9.125 saatin kaderi.** `DB.projects[].harcananSure`
+**kaldırıldı** (V-44'ün "beyan olarak kalsın" yarısı geri alındı → **V-45**).
+Türetme kaynağı `DB.projectModules`: `round(efor × ilerleme/100)`. Çift sayım
+`DB.tasks[].modul` bağıyla kesildi — defter 53 → **131 satır**, 308 → **2.369 saat**.
+Canon eksen 27d her modül için `Σ defter = efor × ilerleme` eşitliğini kilitler.
+**Türetilemeyen ~5.600 saat için tek bir kayıt bile üretilmedi**: dokuz projenin
+ne modülü ne görevi var; `GV.proje.sure()` `kapsam:false` döndürüyor ve ekranlar
+sıfır basmak yerine *"zaman defterinde bu projeye ait kayıt yok"* diyor.
 
-### Bu turda öğrenilen, tekrar etmemesi gereken üç şey
+**3. R04 maliyet.** `gerceklesenMaliyet` de kaldırıldı; `GV.proje.maliyet()` dört
+kalemi ayrı türetiyor. **`icMaliyetSaat` alanı AÇILMADI** (→ **V-46**): içeriği
+tamamen türetilebilir olduğu için `GV.hr.icMaliyet()` hesaplıyor, iki girdi
+`DB.company`'de yazılı sabit. `maas` XOR `saatlikUcret` sözleşmesine dokunulmadı.
+Dış kaynak kalemi **0 ₺** ve bu dürüst bir sıfırdır (→ **V-47**): hizmet
+sözleşmeli tek personelin projeye bağlı zaman kaydı yok.
+
+### Sıradaki oturum ne yapacak
+
+**FAZ 1 kapandı.** Sıradaki iş **FAZ 2**: R05 (proje durumu / faz ayrımı) →
+R06 (milestone / ödeme ayrımı) → R07 (proje kapanış kontrolü) → R08 (proje →
+bakım geçişi) → R09 (ticket detayları) → R10 (ticket → görev / CR / fırsat).
+Sırayı `revize-plan.md` belirler; **her alt madde bitince aynı turn içinde
+işaretlenir**.
+
+R05 için hazır not: `faz:'Tamamlandı'` 14 projenin **7'sinde** var ve doküman bunu
+ismen yasaklıyor; `durum` sözlüğü de faz kelimeleri (`Geliştirme` · `Test`)
+taşıyor. VB-20 olarak zaten kayıtlı. R05'in ton haritası ve süzgeç kümesi
+dokunuşu **L-33'ün kapsamına girer**: bir durum adını silmeden önce o adı
+kullanan **her koleksiyon** aranır (`grep "'<değer>'" assets/data/*.js`).
+
+### Bu turda öğrenilen, tekrar etmemesi gereken dört şey
 
 1. **`domain.js` yedi ekranın hiçbirinde yüklü değildi.** `GV.task`/`GV.fin`
    çağıran bir ekran `<script src="assets/js/domain.js">` taşımak zorunda —
@@ -64,6 +91,16 @@ scratchpad'de, repo dosyasına dokunulmadan.
    timesheet reddi o değere düşüyordu ve rozet griye indi. Geri kondu.
 3. **Ekran metni ile menü etiketi ayrı yerlerde yaşıyor.** Liste sekmesi
    "Kontroldekiler" olunca `shell.js:70` "Kontrol Bekleyenler" kaldı.
+4. **Ortak yordamın veri bağımlılığı da sözleşmenin parçasıdır (L-34).**
+   `GV.proje.maliyet` satın alma kalemini `DB.purchases`'tan okuyor; o koleksiyon
+   `ops.js`'te. Dört ekran `domain.js` ve `hr.js`'i yüklüyordu ama `ops.js`'i
+   yüklemiyordu ve kalem **hata vermeden sessizce 0** kalıyordu. L-12'nin ve
+   L-32'nin üçüncü ikizi — ve en sinsisi: diğer ikisi **hata** üretir, bu
+   **eksik sayı**. Yordamların veri bağımlılık tablosu artık
+   `components.md` §6b'de yazılı. Denetim:
+   ```bash
+   for f in app-*.html; do grep -q "GV.proje.maliyet(" $f && ! grep -q data/ops.js $f && echo $f; done
+   ```
 
 ### Ölçüm kaynağı
 
