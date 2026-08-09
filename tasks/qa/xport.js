@@ -35,7 +35,10 @@ const path = require('path');
 const { chromium } = require('playwright');
 const LIB = require('./qa-lib');
 
-const BASE = 'http://127.0.0.1:8791/';
+/* Kaynak adres ve repo kökü ENV'den geçersiz kılınabilir (ders L-35: script
+   neye baktığını içine gömmez). L-39 sınaması bozulmuş bir KOPYAYI ayrı portta
+   sunup bu ekseni ona koşturur; repo değişmeden hükmün bulgu ürettiği kanıtlanır. */
+const BASE = process.env.GV_BASE || 'http://127.0.0.1:8791/';
 const ROLE = 'sahip';
 const url = (t) => BASE + t + (t.indexOf('?') === -1 ? '?' : '&') + 'role=' + ROLE;
 
@@ -59,19 +62,34 @@ const PROBE = `    var __gvApi = {
           cols: cols.map(function(c){
             var out = { key:c.key, label:c.label, exportable:c.exportable !== false,
                         hasRender:!!c.render, hasExportValue:!!c.exportValue,
-                        n:0, ekranDolu:0, ciktiDolu:0, yalan:0, ornek:'' };
+                        n:0, ekranDolu:0, ciktiDolu:0, bosCikan:0, ornek:'', metinler:[] };
             rows.forEach(function(r,i){
               var scr = '', exp = '';
               try { scr = c.render ? String(c.render(r,i)) : (r[c.key] == null ? '' : String(r[c.key])); } catch(e){ scr = ''; }
-              try { exp = c.exportValue ? c.exportValue(r) : r[c.key]; } catch(e){ exp = null; }
-              scr = scr.replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').trim();
-              exp = exp == null ? '' : String(exp).replace(/<[^>]*>/g,'').trim();
+              /* ÜRÜNÜ ÖLÇ, KOPYASINI DEĞİL. Bu satır eskiden çıktı kuralını
+                 kendi içinde tekrarlıyordu; kural ürün tarafında bozulduğunda
+                 eksen yine TEMİZ diyordu. Artık liste örneğinin dönüş
+                 yüzeyindeki exportCell çağrılır. Yoksa ARAÇ DURUR (L-27). */
+              try { exp = exportCell(c, r, i); } catch(e){ exp = null; }
+              /* UYARI: bu blok bir JS ŞABLON DİZESİ içinde yaşıyor. Ters bölü +
+                 s tek yazılırsa Node kaçışı yer, tarayıcıya s+ deseni gider ve
+                 ölçüm metninden HARF SİLER (Zimmetsiz -> Zimmet iz). Ters bölü
+                 ÇİFT yazılır. Şablon dizesinin içine ters tırnak da konmaz:
+                 dizeyi oracıkta kapatır (L-37'nin şablon tarafındaki ikizi). */
+              scr = scr.replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/\\s+/g,' ').trim();
+              exp = exp == null ? '' : String(exp).replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim();
               if(scr === '\u2014') scr = '';
               if(exp === '\u2014') exp = '';
               out.n++;
               if(scr) out.ekranDolu++;
               if(exp) out.ciktiDolu++;
-              if(scr && !exp){ out.yalan++; if(!out.ornek) out.ornek = scr.slice(0,40); }
+              if(scr && !exp){
+                out.bosCikan++;
+                if(!out.ornek) out.ornek = scr.slice(0,40);
+                /* Ekranda g\u00f6r\u00fcnen metinlerin K\u00dcMES\u0130 tutulur: h\u00fck\u00fcm a\u015fa\u011f\u0131da
+                   "hep ayn\u0131 c\u00fcmle mi, kayda g\u00f6re de\u011fi\u015fiyor mu" diye sorar. */
+                if(out.metinler.indexOf(scr) === -1 && out.metinler.length < 8) out.metinler.push(scr);
+              }
             });
             return out;
           })
@@ -84,6 +102,10 @@ const PATCHED = UI_SRC.replace(RET, PROBE + '$2' + `
     (window.__gvLists = window.__gvLists || []).push(__gvApi);
     return __gvApi;`);
 if (PATCHED.indexOf('__gvLists') === -1) throw new Error('xport: yama uygulanmadı — ölçüm geçersiz olurdu');
+/* Ölçüm sözleşmesi: probe ürünün `exportCell`ini çağırır. Yordam yoksa ölçüm
+   sessizce yanlış yere bakardı — araç susmaz, DURUR (L-27). */
+if (UI_SRC.indexOf('function exportCell(') === -1)
+  throw new Error('xport: ui.js içinde exportCell yordamı yok — çıktı değeri ürün tarafından okunamıyor');
 
 (async () => {
   const browser = await chromium.launch();
@@ -108,20 +130,42 @@ if (PATCHED.indexOf('__gvLists') === -1) throw new Error('xport: yama uygulanmad
     if (!probes.length) continue;
     listli++;
 
-    const bad = [], partial = [];
+    const bad = [], partial = [], tutucu = [];
     let n = 0, y = 0, kayit = 0;
     for (const p of probes) {
       kayit += p.rows;
       for (const c of p.cols) {
         if (!c.exportable) continue;
         kolonTop++;
-        n += c.n; y += c.yalan;
-        if (c.n && c.yalan === c.ekranDolu && c.ekranDolu > 0) bad.push(c);
-        else if (c.yalan > 0) partial.push(c);
+        n += c.n;
+        if (!c.bosCikan) continue;
+        /* ── HÜKMÜN DARALTILMASI (ders L-26 · L-28) ───────────────────────
+           İlk sürüm "ekranda dolu, çıktıda boş" olan HER hücreyi ihlal saydı
+           ve 22 ekranı kirli gösterdi. Ölçüldüğünde 24 kolonun 24'ü de aynı
+           sınıf çıktı: ekran, DEĞERİN YOKLUĞUNU anlatan sabit bir cümle
+           basıyor ("Zimmetsiz" · "Vekil yok" · "Süresiz" · "Proje dışı").
+           Boş hücre bunun dosyadaki doğru karşılığıdır — şartname [14.6.1]
+           aynı KAYIT KÜMESİNİ ve TOPLAMLARI istiyor, aynı yer tutucu
+           cümlesini değil; üstelik "Zimmetsiz" yazmak sayısal kolonu metne
+           çevirip süzmeyi bozardı.
+
+           Ayırt edici mekanik hüküm: çıktısı boş kalan satırların EKRAN
+           METNİ hep aynıysa bu bir yer tutucudur (yokluğun tek bir dili
+           vardır). Kayda göre DEĞİŞİYORSA ekran gerçek bir veri gösteriyor
+           ve çıktı onu kaybediyor demektir — ihlal budur.
+           Daraltmanın kendisi de sınandı (L-39): `ui.js`'in ekran-metni
+           yedeği bozulmuş bir KOPYADA koşturulunca, kayda göre değişen sekiz
+           kolon daraltmadan SONRA da bulgu olarak döndü. Yani hüküm
+           zayıflatılmadı, yalnız yer tutucu sınıfı ayrıldı. */
+        const yerTutucu = c.metinler.length === 1;
+        if (yerTutucu) { tutucu.push(c); continue; }
+        y += c.bosCikan;
+        if (c.bosCikan === c.ekranDolu && c.ekranDolu > 0) bad.push(c);
+        else partial.push(c);
       }
     }
     hucreTop += n; hucreYalan += y;
-    screens.push({ t, kayit, listCount: probes.length, hucre: n, yalan: y, bad, partial });
+    screens.push({ t, kayit, listCount: probes.length, hucre: n, yalan: y, bad, partial, tutucu });
   }
 
   await browser.close();
@@ -132,14 +176,24 @@ if (PATCHED.indexOf('__gvLists') === -1) throw new Error('xport: yama uygulanmad
     for (const s of kirli.sort((a, b) => b.bad.length - a.bad.length)) {
       console.log(`\n${s.t}  (${s.kayit} kayıt)`);
       for (const c of s.bad)
-        console.log(`  🔴 ${c.key.padEnd(18)} "${c.label}" — ekranda ${c.ekranDolu}/${c.n} dolu, çıktıda 0 · örn: ${c.ornek}`);
+        console.log(`  🔴 ${c.key.padEnd(18)} "${c.label}" — ekranda ${c.ekranDolu}/${c.n} dolu, çıktıda 0 · ${c.metinler.length} farklı metin · örn: ${c.ornek}`);
       for (const c of s.partial)
-        console.log(`  ⚠  ${c.key.padEnd(18)} "${c.label}" — ${c.yalan}/${c.n} kayıtta çıktı boş · örn: ${c.ornek}`);
+        console.log(`  ⚠  ${c.key.padEnd(18)} "${c.label}" — ${c.bosCikan}/${c.n} kayıtta çıktı boş · ${c.metinler.length} farklı metin · örn: ${c.metinler.slice(0,3).join(' / ')}`);
     }
+  }
+
+  /* Yer tutucular AYRI SAYAÇTA raporlanır — sessizce yeşile yazılmaz (L-26). */
+  const tutucuTop = screens.reduce((a, s) => a + s.tutucu.length, 0);
+  if (tutucuTop) {
+    console.log('\n=== BOŞ-DURUM YER TUTUCULARI (ihlal değil, ayrı sayaçta) ===');
+    for (const s of screens.filter(x => x.tutucu.length))
+      for (const c of s.tutucu)
+        console.log(`  ·  ${s.t} → ${c.key} "${c.label}" — ${c.bosCikan}/${c.n} kayıtta ekran "${c.metinler[0]}" diyor, dosyada hücre boş`);
   }
 
   console.log('\n=== ÖZET ===');
   console.log(`Taranan ekran: ${list.length} · GV.list kuran ekran: ${listli} · yüklenen kayıt: ${screens.reduce((a, s) => a + s.kayit, 0)}`);
+  console.log(`Boş-durum yer tutucusu (ihlal değil): ${tutucuTop} kolon`);
   /* Sıfır liste ya da sıfır kolon = ölçüm YAPILMADI demektir, "temiz" demek değil (L-24). */
   if (!listli || !kolonTop) {
     console.log('\nGEÇERSİZ — hiçbir GV.list örneği ölçülemedi; yama ya da hedef listesi bozuk');
