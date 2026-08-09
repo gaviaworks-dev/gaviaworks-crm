@@ -181,7 +181,8 @@ function kaydet(){
     GV.toast(kod + ' oluşturuldu', 'ok');
   }
   form.setDirty(false);
-  setTimeout(function(){ location.href = 'app-lead.html'; }, 700);   // listeye dön
+  GV.afterSave({ kod: duzenle ? kayit.kod : kod, yeni:!duzenle,
+                 detay:'app-lead-detay.html', liste:'app-lead.html' });
 }
 ```
 
@@ -189,8 +190,12 @@ function kaydet(){
 
 1. **`location.reload()` YASAK** (ders L-15). Mock veri bellektedir; reload script'leri
    baştan koşar ve mutasyonu **siler**. Aynı sayfada kalıp yeniden çizmen gerekiyorsa
-   `GV.refresh()` kullan. Formda normal akış **listeye dönmektir**, o zaten yeni bir
-   sayfa yüklemesidir ve veri o yüklemede sıfırlanır — prototipte beklenen davranış budur.
+   `GV.refresh()` kullan.
+   **Kaydettikten sonra nereye gidileceğini SEN seçmezsin** — `GV.afterSave` seçer:
+   kaydın detay ekranı yayındaysa ve yetki varsa **detaya**, yoksa listeye
+   (şartname [3.1.16]). Çıplak `location.href = 'app-liste.html'` yazmak artık
+   **yasaktır**; `tasks/qa/aftersave.js` ekseni bunu bulgu olarak basar.
+   Sözleşmenin tamamı `tasks/brief-p2-form-gocu.md` §2'de.
 2. **Yeni kod dizi uzunluğundan üretilmez.** En yüksek mevcut numaradan +1:
    ```js
    function yeniKod(){

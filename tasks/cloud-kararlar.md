@@ -115,15 +115,28 @@ Sessiz varsayım yapılmadı: her karar soru, seçilen cevap, gerekçe ve geri a
 **Gerekçe.** Şartname anatominin 23 maddesini zaten tam yazmış — ölçülebilir ve denetlenebilir bir sözleşme. Dış repodan dosya kopyalamak marka/token kirlenmesi riski taşır (`CLAUDE.md` bunu yasaklıyor) ve iki kaynak arasında yeni bir belirsizlik açar. Ayrıca ölçüm gösterdi ki mevcut `GV.form` motoru sağlam; eksik olan sekme ve sağ panel — ikisi de madde metninden kurulabilir.
 **Geri alma.** Karar belge düzeyinde; uygulama `GV.form`'a eklemeli olduğu için sekme/sağ panel vermeyen form eski davranışta kalır.
 
+## ADR-18 · Sekmeli kabuğun kapsamı bölüm sayısıyla belirlenir
+**Soru (AS-6.3 · [3.1.4]).** `CreateEditPage` standardı şartnamenin saydığı 33 form tipini mi kapsıyor, repodaki tüm create/edit ekranlarını (ölçülen: **38**) mı?
+**Karar.** Kapsam **repodaki 38 formun tamamıdır**, ama **sekme zorunlu değildir**: sekmeli kabuğa yalnız **4 ve daha çok bölümü olan** form taşınır. Üç ve daha az bölümlü formda `cfg.tabs` verilmez ve form düz düzeninde kalır. Kayıt sonrası detaya yönlendirme (P2-02) ise **istisnasız 38 formun tamamında** uygulanır.
+**Gerekçe.** İki bölümlük bir formu üç sekmeye bölmek okunabilirliği düşürür ve şartname [3.1.4]'ün amacı olan "uzun formu gezinilebilir kılmak" hedefine ters düşer. Motor `tabs` verilmeyen formu zaten eski düzeninde bıraktığı için bu bir eksiklik değil, bilinçli bir yoldur — ve ölçüm ekseni (`tasks/qa/aftersave.js`) sekme sayısına değil yönlendirme sözleşmesine bakar, yani karar ölçümü bozmaz. 33 vs 38 sorusu böylece kapsamı daraltmadan çözülür: şartnamenin saymadığı 5 form da standardın yönlendirme yarısını alır.
+**Geri alma.** Form başına `tabs` yapılandırması eklemek/çıkarmak tek satırlık iştir; karar geriye dönük uygulanabilir.
+
+## ADR-19 · Kayıt sonrası hedefi ortak yordam seçer, form değil
+**Soru (P2-02 · [3.1.16]).** 34 formda `/* location.reload() YASAK — normal akış listeye dönmektir. */` yorumu kayıt sonrası davranışı **listeye dönüş** olarak kurallaştırmıştı; şartname [3.1.16] detaya gidilmesini istiyor.
+**Karar.** Yorumun `location.reload()` yasağı **yerinde kalır** (ders L-15 hâlâ geçerli). "Listeye dönmek normaldir" hükmü **tersine çevrilir**: hedefi `GV.afterSave` seçer — detay ekranı `BUILT`'te ve dosya adı ekseninde yetki varsa `detay?id=KOD`, yoksa liste. Karar 38 formda tek yordamda toplanır; hiçbir form kendi hedef mantığını yazmaz.
+**Gerekçe.** Kural 38 ayrı `kaydet()` sonunda yaşarsa "detay var mı · yetki var mı" sorusuna 38 ayrı cevap verilir ve biri diğerinden sessizce ayrılır (L-23'ün aynı sınıfı). Detay ekranı olmayan 12 form için listeye dönüş **istisna olarak korunur** ve şeritte kullanıcıya dürüstçe söylenir.
+**Ölçüm.** `tasks/qa/aftersave.js` (6 eksen, `--selftest` ile bozuk kopyada sınandı).
+**Geri alma.** `GV.afterSave` gövdesinde `detay` yolunu kapatmak tek satırdır; formlar değişmeden eski davranışa döner.
+
 ---
 
 ## Sayım
 
 | | |
 |---|---:|
-| Karara bağlanan blokaj sorusu | 17 |
+| Karara bağlanan blokaj sorusu | 19 |
 | 🔸 Yasin Bey'in teyidini bekleyen | 5 (ADR-06, 08, 11, 16 ve dolaylı olarak 02) |
 | Bayrakla geri alınabilir | 12 |
-| Yalnız commit revert ile geri alınabilir | 5 |
+| Yalnız commit revert ile geri alınabilir | 7 |
 
 ⚠️ işaretli 30 soru, ilgili iş paketine gelindiğinde aynı biçimde karara bağlanıp bu dosyaya eklenir.
