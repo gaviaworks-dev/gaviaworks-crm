@@ -117,7 +117,7 @@ document.addEventListener('gv:ready', function(){
   }
   function esikBadge(g){
     var e = esik(g);
-    return e ? GV.badge(e.ad, 'is-' + e.ton) : '<span class="u-faint">—</span>';
+    return e ? GV.badge(e.ad, 'is-' + e.ton) : GV.cell.faint('—');
   }
   function esikTon(g){ var e = esik(g); return e ? e.ton : 'neutral'; }
   function yaklasan(g){ return g != null && g <= 60; }
@@ -131,15 +131,20 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
-     2. YETKİ — finans yetkisi yoksa tutarlar maskelenir
+     2. YETKİ — finans yetkisi yoksa tutarlar maskelenir.
+     Kolon maskesi artık UID-28 kolon sözleşmesinden gelir: para kolonuna
+     perm:'finans' konur, GV.list hem hücreyi hem çıktıyı kapatır. Sayfa
+     kendi maskeleme kopyasını taşımaz. KPI biçimleyicisi (paraK · tlKm) ve
+     grafik ekseni ortak fabrikanın kapsamı dışında, sayfada kaldı.
      ================================================================= */
-  function para(v){ return canFinans ? '<span class="cell-money">' + F.money(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
-  function paraNum(v){ return canFinans ? '<span class="u-num">' + F.money(v) + '</span>' : '<span class="cell-mask">••••••</span>'; }
-  function paraExp(v){ return canFinans ? v : ''; }
+  function paraKol(key, label, o){ var c = GV.cols.money(key, label, o); c.perm = 'finans'; return c; }
   function paraK(v){ return canFinans ? F.moneyK(v) : '••••••'; }
   function tlKm(v){ return canFinans ? '₺' + F.num(v, 2) : '••••••'; }
-  function tlKmCell(v){
-    return canFinans ? '<span class="cell-money">₺' + F.num(v, 2) + '</span>' : '<span class="cell-mask">••••••</span>';
+  /* TL/km ölçüsü iki basamaklı ve birim önde — GV.cell.mny'nin biçimi değil. */
+  function tlKmKol(key, label){
+    return { key:key, label:label || 'Km başına maliyet', cellClass:'num', perm:'finans',
+      render:function(a){ return '<span class="cell-money">₺' + F.num(a[key], 2) + '</span>' + GV.cell.sub('TL / km'); },
+      exportValue:function(a){ return Math.round(a[key] * 100) / 100; } };
   }
 
   /* =================================================================
@@ -256,37 +261,41 @@ document.addEventListener('gv:ready', function(){
 
   /* =================================================================
      5. KOLON SÖZLÜĞÜ — her çağrıda yeni nesne (GV.list kolon durumu tutar)
+     Para · sayı · tarih · durum kolonları GV.cols'tan gelir; burada yalnız
+     filoya özgü (türetilmiş ya da farklı davranan) kolonlar kalır.
      ================================================================= */
   var C = {
     /* --- araç satırı --- */
     arac:function(w){ return { key:'plaka', label:'Araç', width:w || '20%', cellClass:'cell-wrap', locked:true,
       render:function(v){
-        return '<a class="cell-main" href="' + aracLink(v.kod) + '">' + esc(v.plaka) + '</a>' +
-               '<span class="cell-sub">' + esc(v.marka + ' ' + v.model + ' · ' + v.modelYili) + '</span>' +
-               '<span class="cell-code">' + v.kod + ' · ' + esc(v.tip) + '</span>'; },
+        return GV.cell.link(aracLink(v.kod), v.plaka,
+          GV.cell.sub(esc(v.marka + ' ' + v.model + ' · ' + v.modelYili)) +
+          '<span class="cell-code">' + v.kod + ' · ' + esc(v.tip) + '</span>'); },
       exportValue:function(v){ return v.kod + ' — ' + v.plaka; } }; },
 
     tip:function(vis){ return { key:'tip', label:'Tip / yakıt', visible:vis !== false,
       render:function(v){ return '<span class="tag">' + esc(v.tip) + '</span>' +
-        '<span class="cell-sub">' + esc(v.yakit + ' · ' + v.vites) + '</span>'; },
+        GV.cell.sub(esc(v.yakit + ' · ' + v.vites)); },
       exportValue:function(v){ return v.tip + ' / ' + v.yakit; } }; },
 
     mulkiyet:function(vis){ return { key:'mulkiyet', label:'Mülkiyet', visible:vis !== false,
       render:function(v){ return '<span class="tag">' + esc(v.mulkiyet) + '</span>' +
-        (v.mulkiyet === 'Kiralık' && v.aylikKira ? '<span class="cell-sub">' + (canFinans ? F.money(v.aylikKira) + ' / ay' : '•••• / ay') + '</span>' : ''); },
+        (v.mulkiyet === 'Kiralık' && v.aylikKira ? GV.cell.sub(canFinans ? F.money(v.aylikKira) + ' / ay' : '•••• / ay') : ''); },
       exportValue:function(v){ return v.mulkiyet; } }; },
 
     kullanim:function(){ return { key:'kullanim', label:'Kullanım',
       render:function(v){ return '<span class="cell-main">' + esc(v.kullanim) + '</span>' +
-        (v.anaSurucu ? '<span class="cell-sub">' + esc(DB.empName(v.anaSurucu)) + '</span>' : ''); },
+        (v.anaSurucu ? GV.cell.sub(esc(DB.empName(v.anaSurucu))) : ''); },
       exportValue:function(v){ return v.kullanim; } }; },
 
+    /* GV.cols.kisi değil: boş değer dili burada "Ortak kullanım" — havuz aracı
+       sürücüsüz olabilir, bu bir eksik veri değil. */
     anaSurucu:function(){ return { key:'anaSurucu', label:'Ana sürücü',
-      render:function(v){ return v.anaSurucu ? GV.user(v.anaSurucu) : '<span class="u-faint">Ortak kullanım</span>'; },
+      render:function(v){ return v.anaSurucu ? GV.user(v.anaSurucu) : GV.cell.faint('Ortak kullanım'); },
       exportValue:function(v){ return v.anaSurucu ? DB.empName(v.anaSurucu) : '—'; } }; },
 
     yedekSurucu:function(vis){ return { key:'yedekSurucu', label:'Yedek sürücü', visible:vis !== false,
-      render:function(v){ return v.yedekSurucu ? GV.user(v.yedekSurucu) : '<span class="u-faint">—</span>'; },
+      render:function(v){ return v.yedekSurucu ? GV.user(v.yedekSurucu) : GV.cell.faint('—'); },
       exportValue:function(v){ return v.yedekSurucu ? DB.empName(v.yedekSurucu) : '—'; } }; },
 
     aracDep:function(vis){ return { key:'dep', label:'Departman', visible:vis !== false,
@@ -294,52 +303,49 @@ document.addEventListener('gv:ready', function(){
       exportValue:function(v){ return DB.depName(v.dep); } }; },
 
     aracProje:function(vis){ return { key:'proje', label:'Proje', visible:vis !== false,
-      render:function(v){ return v.proje ? '<a class="cell-main" href="app-proje.html?q=' + encodeURIComponent(v.proje) + '">' + esc(projeAd(v.proje)) + '</a>'
-                                         : '<span class="u-faint">Tahsis edilmemiş</span>'; },
+      render:function(v){ return v.proje ? GV.cell.link('app-proje.html?q=' + encodeURIComponent(v.proje), projeAd(v.proje))
+                                         : GV.cell.faint('Tahsis edilmemiş'); },
       exportValue:function(v){ return v.proje ? projeAd(v.proje) : '—'; } }; },
 
-    km:function(){ return { key:'guncelKm', label:'Güncel km', cellClass:'num',
-      render:function(v){ return '<span class="u-num">' + F.num(v.guncelKm) + '</span>'; } }; },
-
-    sonrakiBakim:function(){ return { key:'sonrakiBakimTarihi', label:'Sonraki bakım',
+    /* Tarih + kilometre eşiği tek hücrede — GV.cols.date'in `sub` seçeneği yok. */
+    sonrakiBakim:function(){ return { key:'sonrakiBakimTarihi', label:'Sonraki bakım', cellClass:'center',
       render:function(v){ return GV.dateCell(v.sonrakiBakimTarihi) +
-        '<span class="cell-sub">' + F.num(v.sonrakiBakimKm) + ' km</span>'; } }; },
+        GV.cell.sub(F.num(v.sonrakiBakimKm) + ' km'); } }; },
 
     muayeneOzet:function(vis){ return { key:'muayene', label:'Muayene', sortable:false, visible:vis !== false,
       render:function(v){
         var m = mynOf(v.kod);
-        if(!m) return '<span class="u-faint">—</span>';
-        return GV.dateCell(m.sonrakiTarih) + '<span class="cell-sub">' + esikBadge(F.days(m.sonrakiTarih)) + '</span>'; },
+        if(!m) return GV.cell.faint('—');
+        return GV.dateCell(m.sonrakiTarih) + GV.cell.sub(esikBadge(F.days(m.sonrakiTarih))); },
       exportValue:function(v){ var m = mynOf(v.kod); return m ? m.sonrakiTarih : '—'; } }; },
 
     sigortaOzet:function(vis){ return { key:'sigorta', label:'Trafik sigortası', sortable:false, visible:vis !== false,
       render:function(v){
         var p = polOf(v.kod, 'Trafik Sigortası');
-        if(!p) return '<span class="u-faint">Poliçe yok</span>';
-        return GV.dateCell(p.bitis) + '<span class="cell-sub">' + esc(p.sirket) + '</span>'; },
+        if(!p) return GV.cell.faint('Poliçe yok');
+        return GV.dateCell(p.bitis) + GV.cell.sub(esc(p.sirket)); },
       exportValue:function(v){ var p = polOf(v.kod, 'Trafik Sigortası'); return p ? p.bitis : '—'; } }; },
 
-    giderToplam:function(baslik){ return { key:'gider', label:baslik || 'Toplam gider', cellClass:'num',
+    /* Türetilmiş para: değer satırda değil, gider kayıtlarından toplanır. */
+    giderToplam:function(baslik){ return { key:'gider', label:baslik || 'Toplam gider', cellClass:'num', perm:'finans',
       sortValue:function(v){ return gidTop(v.kod); },
-      render:function(v){ return para(gidTop(v.kod)); },
-      exportValue:function(v){ return paraExp(gidTop(v.kod)); } }; },
-
-    aracDurum:function(){ return { key:'durum', label:'Durum', render:function(v){ return GV.badge(v.durum); } }; },
+      render:function(v){ return GV.cell.mny(gidTop(v.kod)); },
+      exportValue:function(v){ return gidTop(v.kod); } }; },
 
     /* --- araca bağlı kayıt satırı --- */
     kayit:function(sayfa, baslik, altFn, w){ return { key:'kod', label:baslik || 'Kayıt', width:w || '16%',
       cellClass:'cell-wrap', locked:true,
       render:function(x){
-        return '<a class="cell-main" href="' + sayfa + '?q=' + encodeURIComponent(x.kod) + '">' + x.kod + '</a>' +
-               (altFn ? '<span class="cell-sub">' + esc(altFn(x)) + '</span>' : ''); },
+        return GV.cell.link(sayfa + '?q=' + encodeURIComponent(x.kod), x.kod,
+          altFn ? GV.cell.sub(esc(altFn(x))) : ''); },
       exportValue:function(x){ return x.kod; } }; },
 
     aracOf:function(w){ return { key:'arac', label:'Araç', width:w || '16%', cellClass:'cell-wrap',
       sortValue:function(x){ return plaka(x.arac); },
       render:function(x){
         var v = arc(x.arac);
-        return '<a class="cell-main" href="' + aracLink(x.arac) + '">' + esc(v ? v.plaka : x.arac) + '</a>' +
-               (v ? '<span class="cell-sub">' + esc(v.marka + ' ' + v.model) + '</span>' : ''); },
+        return GV.cell.link(aracLink(x.arac), v ? v.plaka : x.arac,
+          v ? GV.cell.sub(esc(v.marka + ' ' + v.model)) : ''); },
       exportValue:function(x){ return plaka(x.arac); } }; },
 
     kayitDep:function(vis){ return { key:'kdep', label:'Departman', visible:vis !== false,
@@ -347,81 +353,74 @@ document.addEventListener('gv:ready', function(){
       render:function(x){ var v = arc(x.arac); return esc(v ? DB.depName(v.dep) : '—'); },
       exportValue:function(x){ var v = arc(x.arac); return v ? DB.depName(v.dep) : '—'; } }; },
 
+    /* GV.cols.kisi değil: sıralama personel ADINA göre yapılır (kod sırası
+       "Ahmet"i "Zeynep"ten sonraya atabilir) ve avatar tam boy basılır. */
     surucu:function(baslik){ return { key:'surucu', label:baslik || 'Sürücü',
       sortValue:function(x){ return DB.empName(x.surucu); },
-      render:function(x){ return x.surucu ? GV.user(x.surucu) : '<span class="u-faint">—</span>'; },
+      render:function(x){ return x.surucu ? GV.user(x.surucu) : GV.cell.faint('—'); },
       exportValue:function(x){ return x.surucu ? DB.empName(x.surucu) : '—'; } }; },
 
-    tarih:function(alan, baslik){ return { key:alan, label:baslik || 'Tarih',
-      render:function(x){ return x[alan] ? '<span class="cell-date">' + F.dateShort(x[alan]) + '</span>' : '<span class="u-faint">—</span>'; } }; },
-
-    hedefTarih:function(alan, baslik){ return { key:alan, label:baslik || 'Tarih',
-      render:function(x){ return GV.dateCell(x[alan]); } }; },
+    /* Geçmiş tarih — GV.cols.date'in iki kipi de uymuyor: `plain` uzun biçim
+       (03.08.2026) basar, kipsizi ise geçmiş tarihi `is-late` diye kırmızıya
+       çeker. Filoda geçmiş tarih gecikme değildir. Ortalama fabrikadan alındı. */
+    tarih:function(alan, baslik){ return { key:alan, label:baslik || 'Tarih', cellClass:'center',
+      render:function(x){ return x[alan] ? '<span class="cell-date">' + F.dateShort(x[alan]) + '</span>' : GV.cell.faint('—'); } }; },
 
     kalanGun:function(alan){ return { key:'kalan', label:'Kalan gün', cellClass:'num',
       sortValue:function(x){ var g = F.days(x[alan]); return g == null ? 99999 : g; },
       render:function(x){
         var g = F.days(x[alan]);
-        if(g == null) return '<span class="u-faint">—</span>';
+        if(g == null) return GV.cell.faint('—');
         if(g < 0) return '<span class="u-num u-danger">' + F.num(-g) + ' gün gecikti</span>';
-        return '<span class="u-num ' + (g <= 15 ? 'u-danger' : g <= 60 ? 'u-warn' : '') + '">' + F.num(g) + ' gün</span>'; },
+        return GV.cell.gun(g, g <= 15 ? 'danger' : g <= 60 ? 'warn' : null); },
       exportValue:function(x){ return F.days(x[alan]); } }; },
 
-    esikKol:function(alan){ return { key:'esik', label:'Yenileme eşiği',
+    esikKol:function(alan){ return { key:'esik', label:'Yenileme eşiği', cellClass:'center',
       sortValue:function(x){ var e = esik(F.days(x[alan])); return e ? e.sira : 9; },
       render:function(x){ return esikBadge(F.days(x[alan])); },
       exportValue:function(x){ var e = esik(F.days(x[alan])); return e ? e.ad : '—'; } }; },
-
-    tutar:function(alan, baslik){ return { key:alan, label:baslik || 'Tutar', cellClass:'num',
-      render:function(x){ return x[alan] == null ? '<span class="u-faint">—</span>' : para(x[alan]); },
-      exportValue:function(x){ return paraExp(x[alan]); } }; },
-
-    kayitDurum:function(baslik){ return { key:'durum', label:baslik || 'Durum',
-      render:function(x){ return GV.badge(x.durum); } }; },
 
     /* --- kırılım (özet) satırı --- */
     ad:function(baslik, w){ return { key:'ad', label:baslik, width:w || '22%', cellClass:'cell-wrap', locked:true,
       render:function(a){ return '<span class="cell-main">' + esc(a.ad) + '</span>' +
         '<span class="cell-code">' + esc(a.kod) + '</span>'; },
       exportValue:function(a){ return a.ad; } }; },
+    /* GV.cols.num değil: kırılımda sıfır ÖLÇÜLMÜŞ bir değerdir ("bu
+       departmanda hiç ceza yok"), boş değer değil — "—" değil "0" basar. */
     sayi:function(key, baslik, ton){ return { key:key, label:baslik, cellClass:'num',
       render:function(a){ return a[key] ? '<span class="u-num' + (ton ? ' u-' + ton : ' u-b') + '">' + F.num(a[key]) + '</span>'
-                                        : '<span class="u-faint">0</span>'; } }; },
-    kmSayi:function(key, baslik){ return { key:key, label:baslik || 'Toplam km', cellClass:'num',
-      render:function(a){ return '<span class="u-num">' + F.num(a[key]) + '</span>'; } }; },
-    paraSayi:function(key, baslik){ return { key:key, label:baslik, cellClass:'num',
-      render:function(a){ return para(a[key]); },
-      exportValue:function(a){ return paraExp(a[key]); } }; }
+                                        : GV.cell.faint('0'); } }; }
   };
 
   /* =================================================================
      6. MOBİL SATIR, BOŞ DURUM VE TABLO İSKELETLERİ
      ================================================================= */
+  /* Mobil satır iskeleti GV.cell.mrow'dan gelir; sayfa yalnız içeriği kurar. */
   function mArac(v){
-    return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(v.kod) + '">' + esc(v.plaka) + '</a>' +
-      GV.badge(v.durum) + '</div>' +
-      '<div class="gv-mrow-code">' + v.kod + ' · ' + esc(v.marka + ' ' + v.model) + '</div>' +
-      '<div class="gv-mrow-meta"><span>' + ico('i-user','ic-sm') + esc(v.anaSurucu ? DB.empName(v.anaSurucu) : 'Ortak kullanım') + '</span>' +
-      '<span>' + ico('i-gauge','ic-sm') + F.num(v.guncelKm) + ' km</span>' +
-      '<span>' + ico('i-wrench','ic-sm') + F.dateShort(v.sonrakiBakimTarihi) + '</span></div>';
+    return GV.cell.mrow(
+      GV.cell.link(aracLink(v.kod), v.plaka) + GV.badge(v.durum),
+      v.kod + ' · ' + esc(v.marka + ' ' + v.model),
+      [ico('i-user','ic-sm') + esc(v.anaSurucu ? DB.empName(v.anaSurucu) : 'Ortak kullanım'),
+       ico('i-gauge','ic-sm') + F.num(v.guncelKm) + ' km',
+       ico('i-wrench','ic-sm') + F.dateShort(v.sonrakiBakimTarihi)]);
   }
   function mYenileme(alan, altFn){
     return function(x){
-      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(plaka(x.arac)) + '</span>' +
-        esikBadge(F.days(x[alan])) + '</div>' +
-        '<div class="gv-mrow-code">' + x.kod + (altFn ? ' · ' + esc(altFn(x)) : '') + '</div>' +
-        '<div class="gv-mrow-meta"><span>' + ico('i-calendar','ic-sm') + F.dateShort(x[alan]) + '</span>' +
-        '<span>' + ico('i-clock','ic-sm') + F.rel(x[alan]) + '</span></div>';
+      return GV.cell.mrow(
+        '<span class="cell-main">' + esc(plaka(x.arac)) + '</span>' + esikBadge(F.days(x[alan])),
+        x.kod + (altFn ? ' · ' + esc(altFn(x)) : ''),
+        [ico('i-calendar','ic-sm') + F.dateShort(x[alan]),
+         ico('i-clock','ic-sm') + F.rel(x[alan])]);
     };
   }
   function mKayit(altFn, tutarFn){
     return function(x){
-      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(plaka(x.arac)) + '</span>' +
-        (x.durum ? GV.badge(x.durum) : '') + '</div>' +
-        '<div class="gv-mrow-code">' + x.kod + (altFn ? ' · ' + esc(altFn(x)) : '') + '</div>' +
-        '<div class="gv-mrow-meta"><span>' + ico('i-calendar','ic-sm') + F.dateShort(x.tarih) + '</span>' +
-        (x.surucu ? '<span>' + ico('i-user','ic-sm') + esc(DB.empName(x.surucu)) + '</span>' : '') +
-        (tutarFn ? '<span>' + (canFinans ? F.money(tutarFn(x)) : '••••••') + '</span>' : '') + '</div>';
+      return GV.cell.mrow(
+        '<span class="cell-main">' + esc(plaka(x.arac)) + '</span>' + (x.durum ? GV.badge(x.durum) : ''),
+        x.kod + (altFn ? ' · ' + esc(altFn(x)) : ''),
+        [ico('i-calendar','ic-sm') + F.dateShort(x.tarih),
+         x.surucu ? ico('i-user','ic-sm') + esc(DB.empName(x.surucu)) : '',
+         tutarFn ? (canFinans ? F.money(tutarFn(x)) : '••••••') : ''].filter(Boolean));
     };
   }
   function mAgg(altFn){
@@ -432,28 +431,31 @@ document.addEventListener('gv:ready', function(){
         '<div class="gv-mrow-meta">' + altFn(a) + '</div>';
     };
   }
+  /* Filo boş durumunun varsayılan ikonu araçtır; GV.cols.bos'un varsayılanı
+     cüzdandır, bu yüzden ikon burada geçilir. */
   function bos(baslik, aciklama, ikon){
-    return { icon:ikon || 'i-car', title:baslik || 'Bu raporda kayıt yok',
-             desc:aciklama || 'Ortak filtreleri temizleyerek ya da tarih aralığını genişleterek kapsamı büyütebilirsiniz.' };
+    return GV.cols.bos(baslik || 'Bu raporda kayıt yok', aciklama, ikon || 'i-car');
   }
   function araAracla(){
     return { placeholder:'Plaka, marka, model, tip veya sürücü ara',
              fields:['kod','plaka','marka','model','tip','yakit','mulkiyet','kullanim','sasi','motorNo'] };
   }
+  /* İki iskelet de GV.cols.tbl'e devrediyor; burada yalnız filoya özgü
+     varsayılanlar (sayfa boyu, araç araması, plakaya göre sıralama) kalıyor. */
   function tblArac(o){
-    return { key:'kod', pageSize:o.pageSize || 10, archive:false,
+    return GV.cols.tbl({ pageSize:o.pageSize || 10,
       exportName:o.exportName, exportTitle:o.exportTitle,
       search:o.search || araAracla(),
       defaultSort:o.defaultSort || 'plaka', defaultDir:o.defaultDir || 'asc',
       tabs:o.tabs, columns:o.columns, mobile:o.mobile || mArac,
-      emptyState:o.emptyState || bos() };
+      emptyState:o.emptyState || bos() });
   }
   function tblKayit(o){
-    return { key:'kod', pageSize:o.pageSize || 15, archive:false,
+    return GV.cols.tbl({ pageSize:o.pageSize || 15,
       exportName:o.exportName, exportTitle:o.exportTitle,
       search:o.search, defaultSort:o.defaultSort, defaultDir:o.defaultDir || 'asc',
       tabs:o.tabs, columns:o.columns, mobile:o.mobile,
-      emptyState:o.emptyState || bos() };
+      emptyState:o.emptyState || bos() });
   }
 
   /* =================================================================
@@ -587,8 +589,8 @@ document.addEventListener('gv:ready', function(){
             { key:'serviste', label:'Serviste', icon:'i-wrench', filter:function(v){ return v.durum === 'Serviste'; } },
             { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
           ],
-          columns:[C.arac(), C.tip(), C.mulkiyet(), C.kullanim(), C.aracDep(false), C.km(),
-                   C.sonrakiBakim(), C.muayeneOzet(), C.sigortaOzet(false), C.giderToplam(), C.aracDurum()],
+          columns:[C.arac(), C.tip(), C.mulkiyet(), C.kullanim(), C.aracDep(false), GV.cols.num('guncelKm', 'Güncel km'),
+                   C.sonrakiBakim(), C.muayeneOzet(), C.sigortaOzet(false), C.giderToplam(), GV.cols.durum('durum', 'Durum')],
           emptyState:bos('Aktif araç yok', 'Seçilen kapsamda filoda kayıtlı aktif araç bulunmuyor.') }) },
 
       { key:'tahsisli', label:'Personele tahsisli araçlar', icon:'i-user-check', group:'Envanter',
@@ -614,7 +616,7 @@ document.addEventListener('gv:ready', function(){
         },
         table:tblArac({ exportName:'filo-rapor-tahsisli', exportTitle:'Personele Tahsisli Araçlar Raporu',
           columns:[C.arac(), C.anaSurucu(), C.yedekSurucu(), C.aracDep(), C.tip(false), C.mulkiyet(),
-                   C.km(), C.sonrakiBakim(), C.muayeneOzet(false), C.giderToplam(), C.aracDurum()],
+                   GV.cols.num('guncelKm', 'Güncel km'), C.sonrakiBakim(), C.muayeneOzet(false), C.giderToplam(), GV.cols.durum('durum', 'Durum')],
           emptyState:bos('Tahsisli araç yok', 'Seçilen kapsamda personele zimmetlenmiş araç bulunmuyor.', 'i-user-check') }) },
 
       { key:'ortak', label:'Ortak kullanım araçları', icon:'i-users', group:'Envanter',
@@ -643,18 +645,18 @@ document.addEventListener('gv:ready', function(){
           ];
         },
         table:tblArac({ exportName:'filo-rapor-ortak', exportTitle:'Ortak Kullanım Araçları Raporu',
-          columns:[C.arac(), C.aracDep(), C.tip(), C.mulkiyet(), C.km(),
+          columns:[C.arac(), C.aracDep(), C.tip(), C.mulkiyet(), GV.cols.num('guncelKm', 'Güncel km'),
             { key:'kullanici', label:'Kullanan personel', sortable:false,
               render:function(v){
                 var ls = yktOf(v.kod).map(function(y){ return DB.empName(y.surucu); });
                 var u = ls.filter(function(x, i){ return ls.indexOf(x) === i; });
                 return u.length ? '<span class="cell-main">' + esc(u.join(', ')) + '</span>' +
                                   '<span class="cell-sub">' + F.num(ls.length) + ' yakıt kaydı</span>'
-                                : '<span class="u-faint">Kullanım kaydı yok</span>'; },
+                                : GV.cell.faint('Kullanım kaydı yok'); },
               exportValue:function(v){
                 var ls = yktOf(v.kod).map(function(y){ return DB.empName(y.surucu); });
                 return ls.filter(function(x, i){ return ls.indexOf(x) === i; }).join(' / ') || '—'; } },
-            C.sonrakiBakim(), C.giderToplam(), C.aracDurum()],
+            C.sonrakiBakim(), C.giderToplam(), GV.cols.durum('durum', 'Durum')],
           emptyState:bos('Ortak kullanım aracı yok', 'Seçilen kapsamda havuzda tutulan araç bulunmuyor.', 'i-users') }) },
 
       { key:'serviste', label:'Servisteki araçlar', icon:'i-wrench', group:'Envanter',
@@ -692,7 +694,7 @@ document.addEventListener('gv:ready', function(){
             { key:'bakimKayit', label:'Açık bakım kaydı', cellClass:'cell-wrap', sortable:false,
               render:function(v){
                 var b = servisKaydi(v.kod);
-                if(!b) return '<span class="u-faint">Açık bakım kaydı yok</span>';
+                if(!b) return GV.cell.faint('Açık bakım kaydı yok');
                 return '<a class="cell-main" href="app-arac-bakim.html?q=' + encodeURIComponent(b.kod) + '">' + b.kod + '</a>' +
                        '<span class="cell-sub">' + esc(b.tur + ' · ' + b.servis) + '</span>'; },
               exportValue:function(v){ var b = servisKaydi(v.kod); return b ? b.kod + ' — ' + b.tur : '—'; } },
@@ -700,15 +702,15 @@ document.addEventListener('gv:ready', function(){
               sortValue:function(v){ var b = servisKaydi(v.kod); return b && b.gercekTarihi ? -F.days(b.gercekTarihi) : -1; },
               render:function(v){
                 var b = servisKaydi(v.kod);
-                if(!b || !b.gercekTarihi) return '<span class="u-faint">—</span>';
+                if(!b || !b.gercekTarihi) return GV.cell.faint('—');
                 var g = -F.days(b.gercekTarihi);
                 return '<span class="u-num ' + (g > 7 ? 'u-danger' : 'u-warn') + '">' + F.num(g > 0 ? g : 0) + ' gün</span>'; },
               exportValue:function(v){ var b = servisKaydi(v.kod); return b && b.gercekTarihi ? -F.days(b.gercekTarihi) : ''; } },
-            { key:'bakimMaliyet', label:'Bakım maliyeti', cellClass:'num',
+            { key:'bakimMaliyet', label:'Bakım maliyeti', cellClass:'num', perm:'finans',
               sortValue:function(v){ return gidTur(v.kod, 'Bakım'); },
-              render:function(v){ return para(gidTur(v.kod, 'Bakım')); },
-              exportValue:function(v){ return paraExp(gidTur(v.kod, 'Bakım')); } },
-            C.km(), C.aracDurum()],
+              render:function(v){ return GV.cell.mny(gidTur(v.kod, 'Bakım')); },
+              exportValue:function(v){ return gidTur(v.kod, 'Bakım'); } },
+            GV.cols.num('guncelKm', 'Güncel km'), GV.cols.durum('durum', 'Durum')],
           emptyState:bos('Serviste araç yok', 'Seçilen kapsamda serviste bekleyen araç bulunmuyor.', 'i-wrench') }) },
 
       /* =========================== YENİLEME =========================== */
@@ -762,12 +764,12 @@ document.addEventListener('gv:ready', function(){
           ],
           columns:[C.kayit('app-arac-bakim.html', 'Bakım kaydı', function(m){ return m.tur; }),
                    C.aracOf(), C.kayitDep(false),
-                   C.hedefTarih('planTarihi', 'Plan tarihi'), C.kalanGun('planTarihi'), C.esikKol('planTarihi'),
+                   GV.cols.date('planTarihi', 'Plan tarihi'), C.kalanGun('planTarihi'), C.esikKol('planTarihi'),
             { key:'planKm', label:'Plan km / güncel km', cellClass:'num',
               sortValue:function(m){ var v = arc(m.arac); return v && m.planKm ? m.planKm - v.guncelKm : 999999; },
               render:function(m){
                 var v = arc(m.arac);
-                if(!v || !m.planKm) return '<span class="u-faint">—</span>';
+                if(!v || !m.planKm) return GV.cell.faint('—');
                 var k = m.planKm - v.guncelKm;
                 return '<span class="u-num">' + F.num(m.planKm) + ' / <b>' + F.num(v.guncelKm) + '</b></span>' +
                        '<span class="cell-sub ' + (k <= 3000 ? 'u-warn' : '') + '">' + F.num(k) + ' km kaldı</span>'; },
@@ -776,7 +778,7 @@ document.addEventListener('gv:ready', function(){
             { key:'islemler', label:'Planlanan işlemler', cellClass:'cell-wrap', width:'18%', sortable:false,
               render:function(m){ return (m.islemler || []).map(function(i){ return '<span class="tag">' + esc(i) + '</span>'; }).join(' '); },
               exportValue:function(m){ return (m.islemler || []).join(', '); } },
-            C.kayitDurum()],
+            GV.cols.durum('durum', 'Durum')],
           mobile:mYenileme('planTarihi', function(m){ return m.tur; }),
           emptyState:bos('Yaklaşan bakım yok', 'Seçilen kapsamda planlanmış ve tamamlanmamış bakım kaydı bulunmuyor.', 'i-clipboard') }) },
 
@@ -822,24 +824,24 @@ document.addEventListener('gv:ready', function(){
           search:{ placeholder:'Bakım no, servis, tür veya işlem ara', fields:['kod','tur','servis','durum','islemler','arac'] },
           columns:[C.kayit('app-arac-bakim.html', 'Bakım kaydı', function(m){ return m.tur; }),
                    C.aracOf(), C.kayitDep(false),
-                   C.hedefTarih('planTarihi', 'Plan tarihi'), C.tarih('gercekTarihi', 'Servise giriş'),
+                   GV.cols.date('planTarihi', 'Plan tarihi'), C.tarih('gercekTarihi', 'Servise giriş'),
             { key:'gecikme', label:'Gecikme', cellClass:'num',
               sortValue:function(m){ var g = -F.days(m.gercekTarihi || m.planTarihi); return g > 0 ? g : 0; },
               render:function(m){
                 var g = -F.days(m.gercekTarihi || m.planTarihi);
-                return g > 0 ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>' : '<span class="u-faint">—</span>'; },
+                return g > 0 ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>' : GV.cell.faint('—'); },
               exportValue:function(m){ var g = -F.days(m.gercekTarihi || m.planTarihi); return g > 0 ? g : 0; } },
             { key:'kmAsim', label:'Km aşımı', cellClass:'num',
               sortValue:function(m){ var v = arc(m.arac); return v && m.planKm ? v.guncelKm - m.planKm : -999999; },
               render:function(m){
                 var v = arc(m.arac);
-                if(!v || !m.planKm) return '<span class="u-faint">—</span>';
+                if(!v || !m.planKm) return GV.cell.faint('—');
                 var k = v.guncelKm - m.planKm;
                 return k >= 0 ? '<span class="u-num u-danger">+' + F.num(k) + ' km</span>'
                               : '<span class="u-num u-ok">' + F.num(-k) + ' km kaldı</span>'; },
               exportValue:function(m){ var v = arc(m.arac); return v && m.planKm ? v.guncelKm - m.planKm : ''; } },
             { key:'servis', label:'Servis', render:function(m){ return esc(m.servis); } },
-            C.tutar('maliyet', 'Bakım maliyeti'), C.kayitDurum()],
+            paraKol('maliyet', 'Bakım maliyeti'), GV.cols.durum('durum', 'Durum')],
           mobile:mYenileme('planTarihi', function(m){ return m.tur; }),
           emptyState:bos('Geciken bakım yok', 'Seçilen kapsamda plan tarihi ya da kilometre eşiği aşılmış açık bakım kaydı bulunmuyor.', 'i-check-circle') }) },
 
@@ -875,13 +877,13 @@ document.addEventListener('gv:ready', function(){
           ],
           columns:[C.kayit('app-arac-muayene.html', 'Muayene kaydı', function(m){ return m.istasyon; }),
                    C.aracOf(), C.kayitDep(false),
-                   C.tarih('sonTarih', 'Son muayene'), C.hedefTarih('sonrakiTarih', 'Geçerlilik / sonraki'),
+                   C.tarih('sonTarih', 'Son muayene'), GV.cols.date('sonrakiTarih', 'Geçerlilik / sonraki'),
                    C.kalanGun('sonrakiTarih'), C.esikKol('sonrakiTarih'),
-            { key:'sonuc', label:'Sonuç', render:function(m){ return GV.badge(m.sonuc); } },
+            GV.cols.durum('sonuc', 'Sonuç'),
             { key:'kusur', label:'Kusur bilgisi', cellClass:'cell-wrap', width:'18%',
-              render:function(m){ return m.kusur ? '<span class="u-warn">' + esc(m.kusur) + '</span>' : '<span class="u-faint">Kusur yok</span>'; },
+              render:function(m){ return m.kusur ? '<span class="u-warn">' + esc(m.kusur) + '</span>' : GV.cell.faint('Kusur yok'); },
               exportValue:function(m){ return m.kusur || '—'; } },
-            C.kayitDurum()],
+            GV.cols.durum('durum', 'Durum')],
           mobile:mYenileme('sonrakiTarih', function(m){ return m.istasyon; }),
           emptyState:bos('Muayene kaydı yok', 'Seçilen kapsamda takip edilen araç muayenesi bulunmuyor.', 'i-clipboard-check') }) },
 
@@ -921,11 +923,11 @@ document.addEventListener('gv:ready', function(){
             { key:'sirket', label:'Sigorta şirketi',
               render:function(p){ return '<span class="cell-main">' + esc(p.sirket) + '</span>' +
                 '<span class="cell-sub">' + esc(p.acente) + '</span>'; } },
-                   C.tarih('baslangic', 'Başlangıç'), C.hedefTarih('bitis', 'Bitiş'),
-                   C.kalanGun('bitis'), C.esikKol('bitis'), C.tutar('prim', 'Prim'),
+                   C.tarih('baslangic', 'Başlangıç'), GV.cols.date('bitis', 'Bitiş'),
+                   C.kalanGun('bitis'), C.esikKol('bitis'), paraKol('prim', 'Prim'),
             { key:'teminat', label:'Teminat', visible:false, render:function(p){ return esc(p.teminat); } },
-            { key:'yenileme', label:'Yenileme', render:function(p){ return GV.badge(p.yenileme); } },
-            { key:'odeme', label:'Ödeme', render:function(p){ return GV.badge(p.odeme); } }],
+            GV.cols.durum('yenileme', 'Yenileme'),
+            GV.cols.durum('odeme', 'Ödeme')],
           mobile:mYenileme('bitis', function(p){ return p.sirket; }),
           emptyState:bos('Trafik poliçesi yok', 'Seçilen kapsamda zorunlu trafik sigortası poliçesi bulunmuyor.', 'i-shield') }) },
 
@@ -968,8 +970,8 @@ document.addEventListener('gv:ready', function(){
             { key:'sirket', label:'Kasko şirketi',
               render:function(p){ return '<span class="cell-main">' + esc(p.sirket) + '</span>' +
                 '<span class="cell-sub">' + esc(p.acente) + '</span>'; } },
-                   C.hedefTarih('bitis', 'Bitiş'), C.kalanGun('bitis'), C.esikKol('bitis'),
-                   C.tutar('kaskoBedeli', 'Kasko bedeli'), C.tutar('prim', 'Prim'),
+                   GV.cols.date('bitis', 'Bitiş'), C.kalanGun('bitis'), C.esikKol('bitis'),
+                   paraKol('kaskoBedeli', 'Kasko bedeli'), paraKol('prim', 'Prim'),
             { key:'muafiyet', label:'Muafiyet', render:function(p){ return esc(p.muafiyet || '—'); } },
             { key:'hasarsizlik', label:'Hasarsızlık', render:function(p){ return esc(p.hasarsizlik || '—'); } },
             { key:'haklar', label:'Ek haklar', sortable:false, visible:false,
@@ -977,10 +979,10 @@ document.addEventListener('gv:ready', function(){
                 var h = [];
                 if(p.ikameArac) h.push('İkame araç');
                 if(p.miniOnarim) h.push('Mini onarım');
-                return h.length ? h.map(function(x){ return '<span class="tag">' + esc(x) + '</span>'; }).join(' ') : '<span class="u-faint">—</span>'; },
+                return h.length ? h.map(function(x){ return '<span class="tag">' + esc(x) + '</span>'; }).join(' ') : GV.cell.faint('—'); },
               exportValue:function(p){ return [p.ikameArac ? 'İkame araç' : '', p.miniOnarim ? 'Mini onarım' : ''].filter(Boolean).join(', ') || '—'; } },
-            { key:'yenileme', label:'Yenileme', render:function(p){ return GV.badge(p.yenileme); } },
-            { key:'odeme', label:'Ödeme', render:function(p){ return GV.badge(p.odeme); } }],
+            GV.cols.durum('yenileme', 'Yenileme'),
+            GV.cols.durum('odeme', 'Ödeme')],
           mobile:mYenileme('bitis', function(p){ return p.sirket; }),
           emptyState:bos('Kasko poliçesi yok', 'Seçilen kapsamda kasko poliçesi bulunmuyor.', 'i-shield-check') }) },
 
@@ -1018,18 +1020,16 @@ document.addEventListener('gv:ready', function(){
                    C.aracOf(), C.tarih('tarih'), C.surucu(),
             { key:'litre', label:'Litre', cellClass:'num',
               render:function(y){ return '<span class="u-num">' + F.num(y.litre, 1) + ' L</span>'; } },
-            { key:'birimFiyat', label:'Birim fiyat', cellClass:'num',
-              render:function(y){ return canFinans ? '<span class="u-num">₺' + F.num(y.birimFiyat, 2) + '</span>'
-                                                   : '<span class="cell-mask">••••••</span>'; },
-              exportValue:function(y){ return paraExp(y.birimFiyat); } },
-            C.tutar('tutar'),
-            { key:'km', label:'Kilometre', cellClass:'num',
-              render:function(y){ return '<span class="u-num">' + F.num(y.km) + '</span>'; } },
+            { key:'birimFiyat', label:'Birim fiyat', cellClass:'num', perm:'finans',
+              render:function(y){ return '<span class="u-num">₺' + F.num(y.birimFiyat, 2) + '</span>'; },
+              exportValue:function(y){ return y.birimFiyat; } },
+            paraKol('tutar', 'Tutar'),
+            GV.cols.num('km', 'Kilometre'),
             { key:'ortTuketim', label:'Ortalama tüketim', cellClass:'num',
               sortValue:function(y){ return tuketim(y.arac) || 0; },
               render:function(y){
                 var t = tuketim(y.arac);
-                return t == null ? '<span class="u-faint">Hesaplanamıyor</span>'
+                return t == null ? GV.cell.faint('Hesaplanamıyor')
                                  : '<span class="u-num">' + F.num(t, 1) + ' L/100km</span>'; },
               exportValue:function(y){ var t = tuketim(y.arac); return t == null ? '' : t; } },
             { key:'istasyon', label:'İstasyon', visible:false, render:function(y){ return esc(y.istasyon); } }],
@@ -1075,10 +1075,10 @@ document.addEventListener('gv:ready', function(){
           columns:[C.kayit('app-arac-gider.html', 'Gider kaydı', function(g){ return g.tur; }),
                    C.aracOf(), C.kayitDep(false), C.tarih('tarih'),
             { key:'tur', label:'Gider türü', render:function(g){ return '<span class="tag">' + esc(g.tur) + '</span>'; } },
-            C.tutar('tutar'),
+            paraKol('tutar', 'Tutar'),
             { key:'aciklama', label:'Açıklama', cellClass:'cell-wrap', width:'20%',
               render:function(g){ return esc(g.aciklama || '—'); } },
-            { key:'belge', label:'Belge', render:function(g){ return g.belge ? '<span class="cell-code">' + esc(g.belge) + '</span>' : '<span class="u-faint">—</span>'; } }],
+            { key:'belge', label:'Belge', render:function(g){ return g.belge ? '<span class="cell-code">' + esc(g.belge) + '</span>' : GV.cell.faint('—'); } }],
           mobile:mKayit(function(g){ return g.tur + ' · ' + (g.aciklama || ''); }, function(g){ return g.tutar; }),
           emptyState:bos('Gider kaydı yok', 'Seçilen kapsamda araç gideri bulunmuyor.', 'i-wallet') }) },
 
@@ -1137,30 +1137,22 @@ document.addEventListener('gv:ready', function(){
           columns:[
             { key:'plaka', label:'Araç', width:'20%', cellClass:'cell-wrap', locked:true,
               render:function(a){
-                return '<a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
-                       '<span class="cell-sub">' + esc(a.marka + ' ' + a.model) + '</span>' +
-                       '<span class="cell-code">' + a.kod + ' · ' + esc(a.mulkiyet) + '</span>'; },
+                return GV.cell.link(aracLink(a.kod), a.plaka,
+                  GV.cell.sub(esc(a.marka + ' ' + a.model)) +
+                  '<span class="cell-code">' + a.kod + ' · ' + esc(a.mulkiyet) + '</span>'); },
               exportValue:function(a){ return a.kod + ' — ' + a.plaka; } },
-            { key:'guncelKm', label:'Güncel km', cellClass:'num',
-              render:function(a){ return '<span class="u-num">' + F.num(a.guncelKm) + '</span>'; } },
-            { key:'gider', label:'Kayıtlı gider', cellClass:'num',
-              render:function(a){ return para(a.gider); }, exportValue:function(a){ return paraExp(a.gider); } },
-            { key:'yakitGider', label:'Yakıt gideri', cellClass:'num',
-              render:function(a){ return para(a.yakitGider); }, exportValue:function(a){ return paraExp(a.yakitGider); } },
-            { key:'bakimGider', label:'Bakım ve onarım', cellClass:'num',
-              render:function(a){ return para(a.bakimGider); }, exportValue:function(a){ return paraExp(a.bakimGider); } },
-            { key:'sabitGider', label:'Sigorta ve kira', cellClass:'num', visible:false,
-              render:function(a){ return para(a.sabitGider); }, exportValue:function(a){ return paraExp(a.sabitGider); } },
-            { key:'kmMaliyet', label:'Km başına maliyet', cellClass:'num',
-              render:function(a){ return tlKmCell(a.kmMaliyet) + '<span class="cell-sub">TL / km</span>'; },
-              exportValue:function(a){ return canFinans ? Math.round(a.kmMaliyet * 100) / 100 : ''; } },
-            { key:'aylikGider', label:'Aylık ortalama gider', cellClass:'num',
-              render:function(a){ return para(a.aylikGider); }, exportValue:function(a){ return paraExp(a.aylikGider); } },
+            GV.cols.num('guncelKm', 'Güncel km'),
+            paraKol('gider', 'Kayıtlı gider'),
+            paraKol('yakitGider', 'Yakıt gideri'),
+            paraKol('bakimGider', 'Bakım ve onarım'),
+            paraKol('sabitGider', 'Sigorta ve kira', { visible:false }),
+            tlKmKol('kmMaliyet'),
+            paraKol('aylikGider', 'Aylık ortalama gider'),
             { key:'tuketim', label:'Ortalama tüketim', cellClass:'num',
-              render:function(a){ return a.tuketim == null ? '<span class="u-faint">Hesaplanamıyor</span>'
+              render:function(a){ return a.tuketim == null ? GV.cell.faint('Hesaplanamıyor')
                                                            : '<span class="u-num">' + F.num(a.tuketim, 1) + ' L/100km</span>'; },
               exportValue:function(a){ return a.tuketim == null ? '' : a.tuketim; } },
-            { key:'durum', label:'Durum', render:function(a){ return GV.badge(a.durum); } }],
+            GV.cols.durum('durum', 'Durum')],
           mobile:function(a){
             return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
               (canFinans ? '<span class="u-num u-b">₺' + F.num(a.kmMaliyet, 2) + ' / km</span>' : '<span class="cell-mask">••••••</span>') + '</div>' +
@@ -1194,7 +1186,7 @@ document.addEventListener('gv:ready', function(){
           return [barKart('Sürücü bazlı yakıt tüketimi', 'litre', litre),
                   donutKart('Tahsisli araç dağılımı', tahsis, sum(r, function(a){ return a.ana; }), 'araç')];
         },
-        table:{ key:'kod', pageSize:25, archive:false,
+        table:GV.cols.tbl({ pageSize:25,
           exportName:'filo-rapor-personel-kullanim', exportTitle:'Personel Bazlı Araç Kullanımı Raporu',
           search:{ placeholder:'Personel ara', fields:['kod','ad','depAd'] },
           defaultSort:'ana', defaultDir:'desc',
@@ -1204,29 +1196,31 @@ document.addEventListener('gv:ready', function(){
               exportValue:function(a){ return a.ad; } },
             { key:'depAd', label:'Departman', render:function(a){ return esc(a.depAd); } },
             { key:'ana', label:'Ana sürücü', cellClass:'num',
-              render:function(a){ return a.ana ? '<span class="u-num u-b">' + F.num(a.ana) + '</span>' : '<span class="u-faint">0</span>'; } },
+              render:function(a){ return a.ana ? '<span class="u-num u-b">' + F.num(a.ana) + '</span>' : GV.cell.faint('0'); } },
             { key:'yedek', label:'Yedek sürücü', cellClass:'num',
-              render:function(a){ return a.yedek ? '<span class="u-num">' + F.num(a.yedek) + '</span>' : '<span class="u-faint">0</span>'; } },
+              render:function(a){ return a.yedek ? '<span class="u-num">' + F.num(a.yedek) + '</span>' : GV.cell.faint('0'); } },
             { key:'plakalar', label:'Tahsisli araçlar', cellClass:'cell-wrap', width:'16%', sortable:false,
               render:function(a){ return a.plakalar.length
                 ? a.plakalar.map(function(p){ return '<a class="tag" href="app-arac.html?q=' + encodeURIComponent(p) + '">' + esc(p) + '</a>'; }).join(' ')
-                : '<span class="u-faint">—</span>'; },
+                : GV.cell.faint('—'); },
               exportValue:function(a){ return a.plakalar.join(', ') || '—'; } },
             { key:'yakitKayit', label:'Yakıt kaydı', cellClass:'num',
-              render:function(a){ return a.yakitKayit ? '<span class="u-num">' + F.num(a.yakitKayit) + '</span>' : '<span class="u-faint">0</span>'; } },
+              render:function(a){ return a.yakitKayit ? '<span class="u-num">' + F.num(a.yakitKayit) + '</span>' : GV.cell.faint('0'); } },
             { key:'litre', label:'Litre', cellClass:'num',
-              render:function(a){ return a.litre ? '<span class="u-num">' + F.num(a.litre, 1) + ' L</span>' : '<span class="u-faint">—</span>'; },
+              render:function(a){ return a.litre ? '<span class="u-num">' + F.num(a.litre, 1) + ' L</span>' : GV.cell.faint('—'); },
               exportValue:function(a){ return a.litre; } },
-            { key:'yakitTutar', label:'Yakıt gideri', cellClass:'num',
-              render:function(a){ return a.yakitTutar ? para(a.yakitTutar) : '<span class="u-faint">—</span>'; },
-              exportValue:function(a){ return paraExp(a.yakitTutar); } },
+            /* paraKol değil: yakıt kaydı olmayan personelde 0 basmak "0 ₺ yakıt
+               harcadı" demek olurdu — burada ölçü yok, "—" doğrusu. */
+            { key:'yakitTutar', label:'Yakıt gideri', cellClass:'num', perm:'finans',
+              render:function(a){ return a.yakitTutar ? GV.cell.mny(a.yakitTutar) : GV.cell.faint('—'); },
+              exportValue:function(a){ return a.yakitTutar || ''; } },
             { key:'ceza', label:'Trafik cezası', cellClass:'num',
               render:function(a){ return a.ceza
                 ? '<span class="u-num u-danger">' + F.num(a.ceza) + '</span><span class="cell-sub">' + (canFinans ? F.money(a.cezaTutar) : '••••••') + '</span>'
-                : '<span class="u-faint">0</span>'; },
+                : GV.cell.faint('0'); },
               exportValue:function(a){ return a.ceza; } },
             { key:'kaza', label:'Kaza kaydı', cellClass:'num',
-              render:function(a){ return a.kaza ? '<span class="u-num u-danger">' + F.num(a.kaza) + '</span>' : '<span class="u-faint">0</span>'; } }],
+              render:function(a){ return a.kaza ? '<span class="u-num u-danger">' + F.num(a.kaza) + '</span>' : GV.cell.faint('0'); } }],
           mobile:function(a){
             return '<div class="gv-mrow-top"><span class="cell-main">' + esc(a.ad) + '</span>' +
               '<span class="u-num u-b">' + F.num(a.ana) + ' araç</span></div>' +
@@ -1235,7 +1229,7 @@ document.addEventListener('gv:ready', function(){
               '<span>' + ico('i-alert','ic-sm') + F.num(a.ceza) + ' ceza</span>' +
               '<span>' + F.num(a.kaza) + ' kaza</span></div>';
           },
-          emptyState:bos('Personel kullanımı yok', 'Seçilen kapsamda araç kullanan personel kaydı bulunmuyor.', 'i-user') } },
+          emptyState:bos('Personel kullanımı yok', 'Seçilen kapsamda araç kullanan personel kaydı bulunmuyor.', 'i-user') }) },
 
       { key:'depKullanim', label:'Departman bazlı kullanım', icon:'i-users', group:'Kullanım',
         title:'Departman Bazlı Araç Kullanımı',
@@ -1264,7 +1258,7 @@ document.addEventListener('gv:ready', function(){
                   sum(r, function(a){ return a.arac; }), 'araç')
           ];
         },
-        table:{ key:'kod', pageSize:25, archive:false,
+        table:GV.cols.tbl({ pageSize:25,
           exportName:'filo-rapor-departman-kullanim', exportTitle:'Departman Bazlı Araç Kullanımı Raporu',
           search:{ placeholder:'Departman ara', fields:['kod','ad'] },
           defaultSort:'arac', defaultDir:'desc',
@@ -1272,20 +1266,18 @@ document.addEventListener('gv:ready', function(){
             { key:'plakalar', label:'Plakalar', cellClass:'cell-wrap', width:'18%', sortable:false,
               render:function(a){ return a.plakalar.map(function(p){ return '<a class="tag" href="app-arac.html?q=' + encodeURIComponent(p) + '">' + esc(p) + '</a>'; }).join(' '); },
               exportValue:function(a){ return a.plakalar.join(', '); } },
-            C.kmSayi('km'), C.sayi('serviste', 'Serviste', 'warn'),
+            GV.cols.num('km', 'Toplam km'), C.sayi('serviste', 'Serviste', 'warn'),
             { key:'litre', label:'Yakıt', cellClass:'num',
-              render:function(a){ return a.litre ? '<span class="u-num">' + F.num(a.litre, 1) + ' L</span>' : '<span class="u-faint">—</span>'; },
+              render:function(a){ return a.litre ? '<span class="u-num">' + F.num(a.litre, 1) + ' L</span>' : GV.cell.faint('—'); },
               exportValue:function(a){ return a.litre; } },
-            C.paraSayi('gider', 'Toplam gider'),
-            { key:'kmMaliyet', label:'Km başına maliyet', cellClass:'num',
-              render:function(a){ return tlKmCell(a.kmMaliyet) + '<span class="cell-sub">TL / km</span>'; },
-              exportValue:function(a){ return canFinans ? Math.round(a.kmMaliyet * 100) / 100 : ''; } },
+            paraKol('gider', 'Toplam gider'),
+            tlKmKol('kmMaliyet'),
             C.sayi('ceza', 'Ceza', 'danger'), C.sayi('kaza', 'Kaza', 'danger')],
           mobile:mAgg(function(a){
             return '<span>' + ico('i-gauge','ic-sm') + F.num(a.km) + ' km</span>' +
                    '<span>' + (canFinans ? F.moneyK(a.gider) : '••••••') + '</span>' +
                    '<span>' + F.num(a.ceza) + ' ceza</span>'; }),
-          emptyState:bos('Departman kırılımı boş', 'Seçilen kapsamda departmana bağlı araç bulunmuyor.', 'i-users') } },
+          emptyState:bos('Departman kırılımı boş', 'Seçilen kapsamda departmana bağlı araç bulunmuyor.', 'i-users') }) },
 
       { key:'projeKullanim', label:'Proje bazlı kullanım', icon:'i-briefcase', group:'Kullanım',
         title:'Proje Bazlı Araç Kullanımı',
@@ -1314,7 +1306,7 @@ document.addEventListener('gv:ready', function(){
                                                 value:a.arac, value2:Math.round(a.km / 1000) }; })),
                   donutKart('Proje tahsis durumu', dag, sum(r, function(a){ return a.arac; }), 'araç')];
         },
-        table:{ key:'kod', pageSize:25, archive:false,
+        table:GV.cols.tbl({ pageSize:25,
           exportName:'filo-rapor-proje-kullanim', exportTitle:'Proje Bazlı Araç Kullanımı Raporu',
           search:{ placeholder:'Proje ara', fields:['kod','ad'] },
           defaultSort:'arac', defaultDir:'desc',
@@ -1328,21 +1320,19 @@ document.addEventListener('gv:ready', function(){
               exportValue:function(a){ return a.ad; } },
             { key:'projeDurum', label:'Proje durumu',
               sortValue:function(a){ var p = prj(a.kod); return p ? p.durum : 'zzz'; },
-              render:function(a){ var p = prj(a.kod); return p ? GV.badge(p.durum) : '<span class="u-faint">—</span>'; },
+              render:function(a){ var p = prj(a.kod); return p ? GV.badge(p.durum) : GV.cell.faint('—'); },
               exportValue:function(a){ var p = prj(a.kod); return p ? p.durum : '—'; } },
             C.sayi('arac', 'Araç'),
             { key:'plakalar', label:'Plakalar', cellClass:'cell-wrap', width:'18%', sortable:false,
               render:function(a){ return a.plakalar.map(function(p){ return '<a class="tag" href="app-arac.html?q=' + encodeURIComponent(p) + '">' + esc(p) + '</a>'; }).join(' '); },
               exportValue:function(a){ return a.plakalar.join(', '); } },
-            C.kmSayi('km'), C.paraSayi('gider', 'Toplam gider'),
-            { key:'kmMaliyet', label:'Km başına maliyet', cellClass:'num',
-              render:function(a){ return tlKmCell(a.kmMaliyet) + '<span class="cell-sub">TL / km</span>'; },
-              exportValue:function(a){ return canFinans ? Math.round(a.kmMaliyet * 100) / 100 : ''; } },
+            GV.cols.num('km', 'Toplam km'), paraKol('gider', 'Toplam gider'),
+            tlKmKol('kmMaliyet'),
             C.sayi('serviste', 'Serviste', 'warn')],
           mobile:mAgg(function(a){
             return '<span>' + ico('i-gauge','ic-sm') + F.num(a.km) + ' km</span>' +
                    '<span>' + (canFinans ? F.moneyK(a.gider) : '••••••') + '</span>'; }),
-          emptyState:bos('Proje kırılımı boş', 'Seçilen projeye tahsis edilmiş araç bulunmuyor.', 'i-briefcase') } },
+          emptyState:bos('Proje kırılımı boş', 'Seçilen projeye tahsis edilmiş araç bulunmuyor.', 'i-briefcase') }) },
 
       /* ============================== OLAY ============================= */
       { key:'kaza', label:'Kaza ve hasar', icon:'i-alert-circle', group:'Olay',
@@ -1376,18 +1366,18 @@ document.addEventListener('gv:ready', function(){
                    C.aracOf(), C.tarih('tarih', 'Kaza tarihi'), C.surucu(),
             { key:'konum', label:'Konum', cellClass:'cell-wrap', width:'16%',
               render:function(k){ return esc(k.konum || '—'); } },
-            { key:'karsiArac', label:'Karşı araç', render:function(k){ return k.karsiArac ? '<span class="cell-code">' + esc(k.karsiArac) + '</span>' : '<span class="u-faint">—</span>'; } },
+            { key:'karsiArac', label:'Karşı araç', render:function(k){ return k.karsiArac ? '<span class="cell-code">' + esc(k.karsiArac) + '</span>' : GV.cell.faint('—'); } },
             { key:'kusurOrani', label:'Kusur oranı', cellClass:'num',
               render:function(k){ return (k.kusurOrani || 0) > 0
                 ? '<span class="u-num u-danger">' + F.pct(k.kusurOrani) + '</span>'
                 : '<span class="u-num u-ok">Kusursuz</span>'; },
               exportValue:function(k){ return k.kusurOrani || 0; } },
-            { key:'ekspertiz', label:'Ekspertiz', render:function(k){ return GV.badge(k.ekspertiz); } },
+            GV.cols.durum('ekspertiz', 'Ekspertiz'),
             { key:'sigortaDosya', label:'Sigorta dosyası', visible:false,
-              render:function(k){ return k.sigortaDosya ? '<span class="cell-code">' + esc(k.sigortaDosya) + '</span>' : '<span class="u-faint">—</span>'; } },
+              render:function(k){ return k.sigortaDosya ? '<span class="cell-code">' + esc(k.sigortaDosya) + '</span>' : GV.cell.faint('—'); } },
             { key:'onarimServis', label:'Onarım servisi', visible:false,
               render:function(k){ return esc(k.onarimServis || '—'); } },
-            C.tutar('onarimMaliyet', 'Onarım maliyeti'), C.kayitDurum('Dosya durumu')],
+            paraKol('onarimMaliyet', 'Onarım maliyeti'), GV.cols.durum('durum', 'Dosya durumu')],
           mobile:mKayit(function(k){ return k.konum; }, function(k){ return k.onarimMaliyet; }),
           emptyState:bos('Kaza kaydı yok', 'Seçilen kapsamda kaza ya da hasar kaydı bulunmuyor.', 'i-check-circle') }) },
 
@@ -1425,20 +1415,19 @@ document.addEventListener('gv:ready', function(){
           columns:[C.kayit('app-arac-kaza.html', 'Ceza kaydı', function(c){ return c.tur; }),
                    C.aracOf(), C.kayitDep(false), C.tarih('tarih', 'Ceza tarihi'), C.surucu(),
             { key:'tur', label:'Ceza türü', render:function(c){ return '<span class="tag">' + esc(c.tur) + '</span>'; } },
-            C.tutar('tutar', 'Ceza tutarı'),
-            { key:'sonOdeme', label:'Son ödeme',
-              render:function(c){ return GV.dateCell(c.sonOdeme, { done:c.durum === 'Ödendi' }); } },
+            paraKol('tutar', 'Ceza tutarı'),
+            GV.cols.date('sonOdeme', 'Son ödeme', { done:function(c){ return c.durum === 'Ödendi'; } }),
             { key:'gecikme', label:'Gecikme', cellClass:'num',
               sortValue:function(c){ var g = c.sonOdeme ? -F.days(c.sonOdeme) : -99999; return c.durum === 'Ödendi' ? -99999 : g; },
               render:function(c){
-                if(c.durum === 'Ödendi') return '<span class="u-faint">—</span>';
+                if(c.durum === 'Ödendi') return GV.cell.faint('—');
                 var g = c.sonOdeme ? -F.days(c.sonOdeme) : null;
                 return g != null && g > 0 ? '<span class="u-num u-danger">' + F.num(g) + ' gün</span>'
                                           : '<span class="u-num u-ok">Süresi var</span>'; },
               exportValue:function(c){ var g = c.sonOdeme ? -F.days(c.sonOdeme) : ''; return c.durum === 'Ödendi' ? '' : g; } },
             { key:'belge', label:'Ceza belgesi', visible:false,
-              render:function(c){ return c.belge ? '<span class="cell-code">' + esc(c.belge) + '</span>' : '<span class="u-faint">—</span>'; } },
-            C.kayitDurum('Ödeme durumu')],
+              render:function(c){ return c.belge ? '<span class="cell-code">' + esc(c.belge) + '</span>' : GV.cell.faint('—'); } },
+            GV.cols.durum('durum', 'Ödeme durumu')],
           mobile:mKayit(function(c){ return c.tur; }, function(c){ return c.tutar; }),
           emptyState:bos('Trafik cezası yok', 'Seçilen kapsamda trafik cezası kaydı bulunmuyor.', 'i-check-circle') }) },
 
@@ -1487,34 +1476,31 @@ document.addEventListener('gv:ready', function(){
               render:function(v){ return '<span class="cell-main">' + esc(v.kiralamaFirmasi || '—') + '</span>' +
                 '<span class="cell-sub">' + esc(v.mulkiyet) + '</span>'; },
               exportValue:function(v){ return v.kiralamaFirmasi || '—'; } },
-            { key:'sozlesmeBas', label:'Sözleşme başlangıcı',
-              render:function(v){ return v.sozlesmeBas ? '<span class="cell-date">' + F.dateShort(v.sozlesmeBas) + '</span>' : '<span class="u-faint">—</span>'; } },
-            { key:'sozlesmeBit', label:'Sözleşme bitişi', render:function(v){ return GV.dateCell(v.sozlesmeBit); } },
+            C.tarih('sozlesmeBas', 'Sözleşme başlangıcı'),
+            GV.cols.date('sozlesmeBit', 'Sözleşme bitişi'),
             { key:'kalan', label:'Kalan gün', cellClass:'num',
               sortValue:function(v){ var g = v.sozlesmeBit ? F.days(v.sozlesmeBit) : 99999; return g; },
               render:function(v){
-                if(!v.sozlesmeBit) return '<span class="u-faint">—</span>';
+                if(!v.sozlesmeBit) return GV.cell.faint('—');
                 var g = F.days(v.sozlesmeBit);
                 return '<span class="u-num ' + (g < 0 ? 'u-danger' : g <= 60 ? 'u-warn' : '') + '">' + F.num(g) + ' gün</span>' +
                        '<span class="cell-sub">' + esikBadge(g) + '</span>'; },
               exportValue:function(v){ return v.sozlesmeBit ? F.days(v.sozlesmeBit) : ''; } },
-            { key:'aylikKira', label:'Aylık kira', cellClass:'num',
-              render:function(v){ return para(v.aylikKira); }, exportValue:function(v){ return paraExp(v.aylikKira); } },
-            { key:'toplamKira', label:'Sözleşme taahhüdü', cellClass:'num',
+            paraKol('aylikKira', 'Aylık kira'),
+            { key:'toplamKira', label:'Sözleşme taahhüdü', cellClass:'num', perm:'finans',
               sortValue:function(v){ return (v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit); },
-              render:function(v){ return para((v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit)); },
-              exportValue:function(v){ return paraExp((v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit)); } },
+              render:function(v){ return GV.cell.mny((v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit)); },
+              exportValue:function(v){ return (v.aylikKira || 0) * ayFarki(v.sozlesmeBas, v.sozlesmeBit); } },
             { key:'kmSiniri', label:'Km sınırı', cellClass:'num',
-              render:function(v){ return '<span class="u-num">' + F.num(kmSinirToplam(v)) + '</span>' +
-                '<span class="cell-sub">' + F.num(v.kmSiniri) + ' km × ' + sozlesmeYil(v) + ' yıl</span>'; },
+              render:function(v){ return GV.cell.num(kmSinirToplam(v)) +
+                GV.cell.sub(F.num(v.kmSiniri) + ' km × ' + sozlesmeYil(v) + ' yıl'); },
               exportValue:function(v){ return kmSinirToplam(v); } },
             { key:'kmKullanim', label:'Km kullanımı', cellClass:'num',
               sortValue:function(v){ return kmKullanim(v) || 0; },
-              render:function(v){ var k = kmKullanim(v); return k == null ? '<span class="u-faint">—</span>' : GV.progress(k); },
+              render:function(v){ var k = kmKullanim(v); return k == null ? GV.cell.faint('—') : GV.progress(k); },
               exportValue:function(v){ return kmKullanim(v); } },
-            { key:'depozito', label:'Depozito', cellClass:'num', visible:false,
-              render:function(v){ return para(v.depozito); }, exportValue:function(v){ return paraExp(v.depozito); } },
-            C.aracDurum()],
+            paraKol('depozito', 'Depozito', { visible:false }),
+            GV.cols.durum('durum', 'Durum')],
           mobile:function(v){
             return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(v.kod) + '">' + esc(v.plaka) + '</a>' +
               esikBadge(v.sozlesmeBit ? F.days(v.sozlesmeBit) : null) + '</div>' +
@@ -1578,34 +1564,25 @@ document.addEventListener('gv:ready', function(){
           columns:[
             { key:'plaka', label:'Araç', width:'20%', cellClass:'cell-wrap', locked:true,
               render:function(a){
-                return '<a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
-                       '<span class="cell-sub">' + esc(a.marka + ' ' + a.model + ' · ' + a.modelYili) + '</span>' +
-                       '<span class="cell-code">' + a.kod + '</span>'; },
+                return GV.cell.link(aracLink(a.kod), a.plaka,
+                  GV.cell.sub(esc(a.marka + ' ' + a.model + ' · ' + a.modelYili)) +
+                  '<span class="cell-code">' + a.kod + '</span>'); },
               exportValue:function(a){ return a.kod + ' — ' + a.plaka; } },
             { key:'mulkiyet', label:'Mülkiyet',
               render:function(a){ return '<span class="tag">' + esc(a.mulkiyet) + '</span>'; } },
-            { key:'bas', label:'Edinme / sözleşme başlangıcı',
+            { key:'bas', label:'Edinme / sözleşme başlangıcı', cellClass:'center',
               render:function(a){ return a.bas ? '<span class="cell-date">' + F.dateShort(a.bas) + '</span>' +
-                '<span class="cell-sub">' + F.num(a.ay) + ' ay</span>' : '<span class="u-faint">—</span>'; },
+                GV.cell.sub(F.num(a.ay) + ' ay') : GV.cell.faint('—'); },
               exportValue:function(a){ return a.bas || '—'; } },
-            { key:'edinmeToplam', label:'Edinme bedeli / kira taahhüdü', cellClass:'num',
-              render:function(a){ return para(a.edinmeToplam); }, exportValue:function(a){ return paraExp(a.edinmeToplam); } },
-            { key:'edinmeAylik', label:'Aylık edinme', cellClass:'num',
-              render:function(a){ return para(a.edinmeAylik) +
-                '<span class="cell-sub">' + (a.kiralik ? 'aylık kira' : 'amortisman') + '</span>'; },
-              exportValue:function(a){ return paraExp(a.edinmeAylik); } },
-            { key:'isletmeAylik', label:'Aylık işletme', cellClass:'num',
-              render:function(a){ return para(a.isletmeAylik); }, exportValue:function(a){ return paraExp(a.isletmeAylik); } },
-            { key:'toplamAylik', label:'Aylık toplam', cellClass:'num',
-              render:function(a){ return para(a.toplamAylik); }, exportValue:function(a){ return paraExp(a.toplamAylik); } },
-            { key:'sahipToplam', label:'Bugüne kadarki toplam', cellClass:'num', visible:false,
-              render:function(a){ return para(a.sahipToplam); }, exportValue:function(a){ return paraExp(a.sahipToplam); } },
-            { key:'guncelKm', label:'Güncel km', cellClass:'num',
-              render:function(a){ return '<span class="u-num">' + F.num(a.guncelKm) + '</span>'; } },
-            { key:'kmBasi', label:'Km başına sahip olma', cellClass:'num',
-              render:function(a){ return tlKmCell(a.kmBasi) + '<span class="cell-sub">TL / km</span>'; },
-              exportValue:function(a){ return canFinans ? Math.round(a.kmBasi * 100) / 100 : ''; } },
-            { key:'durum', label:'Durum', render:function(a){ return GV.badge(a.durum); } }],
+            paraKol('edinmeToplam', 'Edinme bedeli / kira taahhüdü'),
+            paraKol('edinmeAylik', 'Aylık edinme',
+              { sub:function(a){ return a.kiralik ? 'aylık kira' : 'amortisman'; } }),
+            paraKol('isletmeAylik', 'Aylık işletme'),
+            paraKol('toplamAylik', 'Aylık toplam'),
+            paraKol('sahipToplam', 'Bugüne kadarki toplam', { visible:false }),
+            GV.cols.num('guncelKm', 'Güncel km'),
+            tlKmKol('kmBasi', 'Km başına sahip olma'),
+            GV.cols.durum('durum', 'Durum')],
           mobile:function(a){
             return '<div class="gv-mrow-top"><a class="cell-main" href="' + aracLink(a.kod) + '">' + esc(a.plaka) + '</a>' +
               '<span class="tag">' + esc(a.mulkiyet) + '</span></div>' +

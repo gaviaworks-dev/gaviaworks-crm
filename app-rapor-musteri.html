@@ -55,17 +55,21 @@ document.addEventListener('gv:ready', function(){
              values:keys.map(function(k){ return m[k]; }) };
   }
 
-  /* ===== para yetkisi =================================================== */
-  function mny(n){
+  /* ===== para yetkisi — SAYFAYA ÖZGÜ, ortak API'ye ÇEVRİLEMEZ ==========
+     `GV.cell.mny` / `GV.cols.money` burada kullanılamaz: bu sayfada para
+     alanları yetkiye bağlı maskelenir (§26-D). İki noktada ayrılır:
+     (a) yetkisiz kullanıcıya tutar yerine maske basar,
+     (b) `null` degerini 0 sayar — ortak API `null`a soluk "—" basardı. */
+  function mnyMask(n){
     return canFin ? '<span class="cell-money">' + F.money(n) + '</span>'
                   : '<span class="cell-mask">••••••</span>';
   }
   function kMoney(v){ return canFin ? F.moneyK(v) : '••••••'; }
-  function moneyCol(key, label, subFn){
+  function moneyColMask(key, label, subFn){
     return { key:key, label:label, cellClass:'num',
       sortValue:function(x){ return x[key] || 0; },
       exportValue:function(x){ return canFin ? (x[key] || 0) : ''; },
-      render:function(x){ return mny(x[key]) + (subFn ? '<span class="cell-sub">' + subFn(x) + '</span>' : ''); } };
+      render:function(x){ return mnyMask(x[key]) + (subFn ? GV.cell.sub(subFn(x)) : ''); } };
   }
   function moneyChart(cardIfCan, cardElse){ return canFin ? cardIfCan : cardElse; }
 
@@ -164,18 +168,20 @@ document.addEventListener('gv:ready', function(){
       render:function(x){ return '<span class="cell-main">' + esc(cname(x.musteri)) + '</span>' +
         '<span class="cell-code">' + esc(x.musteri || '—') + '</span>'; } };
   }
-  function scoreCell(v){ return '<span class="cell-money">' + F.num(v) + '</span>'; }
   function satisfaction(v){
-    if(v == null) return '<span class="u-faint">—</span>';
+    if(v == null) return GV.cell.faint('—');
     var t = v >= 4.5 ? 'ok' : v >= 3.5 ? '' : v >= 3 ? 'warn' : 'danger';
     return '<span class="cell-money' + (t ? ' u-' + t : '') + '">' + F.num(v, 1) + ' / 5</span>';
   }
   function tags(list){
-    if(!list || !list.length) return '<span class="u-faint">—</span>';
+    if(!list || !list.length) return GV.cell.faint('—');
     return list.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join(' ');
   }
+  function riskTone(x){ return x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'; }
+  /* `GV.cols.durum` kullanılamadığı tek yer: '—' de bir değerdir ve rozet
+     basılmaz (`musteriOnay:'—'` veri içinde gerçekten var). */
   function onayBadge(v){
-    return (!v || v === '—') ? '<span class="u-faint">—</span>' : GV.badge(v);
+    return (!v || v === '—') ? GV.cell.faint('—') : GV.badge(v);
   }
   /* GV.chart.line boş seriyle çizilemez — veri yoksa kart hiç kurulmaz */
   function lineCard(data, build){ return data.labels.length ? build() : null; }
@@ -246,51 +252,43 @@ document.addEventListener('gv:ready', function(){
         return [moneyChart(para, sayi),
           { title:'Risk seviyesi dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'müşteri' }), legend:don }];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-genel-rapor', exportTitle:'Müşteri Genel Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-genel-rapor', exportTitle:'Müşteri Genel Raporu',
         search:{ placeholder:'Müşteri, unvan, sektör veya sorumlu ara', fields:['kod','unvan','kisa','sektor','sorumluAd'] },
         defaultSort:'sozlesmeTutar', defaultDir:'desc',
         columns:[
           { key:'kod', label:'Müşteri', locked:true, width:'16%', cellClass:'cell-wrap',
             exportValue:function(x){ return x.unvan; }, render:custCell },
-          moneyCol('sozlesmeTutar', 'Toplam sözleşme', function(x){ return x.sozlesmeAdet + ' sözleşme'; }),
-          moneyCol('faturaTutar', 'Toplam fatura', function(x){ return x.faturaAdet + ' fatura'; }),
-          moneyCol('tahsilat', 'Toplam tahsilat'),
-          moneyCol('bekleyen', 'Bekleyen tahsilat', function(x){ return x.geciken ? 'gecikmiş var' : 'gecikme yok'; }),
-          moneyCol('maliyet', 'Toplam maliyet', function(x){ return F.num(x.harcananSaat) + ' saat'; }),
-          moneyCol('kar', 'Kârlılık', function(x){ return x.projeGeliri ? '%' + x.marj + ' marj' : 'proje kaydı yok'; }),
-          { key:'aktifProje', label:'Aktif projeler', cellClass:'num',
-            render:function(x){ return scoreCell(x.aktifProje) + '<span class="cell-sub">' + x.projeSayisi + ' toplam</span>'; } },
+          moneyColMask('sozlesmeTutar', 'Toplam sözleşme', function(x){ return x.sozlesmeAdet + ' sözleşme'; }),
+          moneyColMask('faturaTutar', 'Toplam fatura', function(x){ return x.faturaAdet + ' fatura'; }),
+          moneyColMask('tahsilat', 'Toplam tahsilat'),
+          moneyColMask('bekleyen', 'Bekleyen tahsilat', function(x){ return x.geciken ? 'gecikmiş var' : 'gecikme yok'; }),
+          moneyColMask('maliyet', 'Toplam maliyet', function(x){ return F.num(x.harcananSaat) + ' saat'; }),
+          moneyColMask('kar', 'Kârlılık', function(x){ return x.projeGeliri ? '%' + x.marj + ' marj' : 'proje kaydı yok'; }),
+          GV.cols.num('aktifProje', 'Aktif projeler', { sub:function(x){ return x.projeSayisi + ' toplam'; } }),
           { key:'gecikenProje', label:'Geciken projeler', cellClass:'num',
-            render:function(x){ return x.gecikenProje
-              ? '<span class="cell-money u-danger">' + x.gecikenProje + '</span>'
-              : '<span class="u-faint">0</span>'; } },
-          { key:'acikGorev', label:'Açık görevler', cellClass:'num',
-            render:function(x){ return scoreCell(x.acikGorev) + '<span class="cell-sub">' + x.gorevAdet + ' toplam</span>'; } },
-          { key:'destekAdet', label:'Destek talepleri', cellClass:'num',
-            render:function(x){ return scoreCell(x.destekAdet) + '<span class="cell-sub">' + x.acikDestek + ' açık</span>'; } },
-          { key:'revizyon', label:'Revizyonlar', cellClass:'num',
-            render:function(x){ return scoreCell(x.revizyon) + '<span class="cell-sub">' + x.degisiklik + ' değişiklik talebi</span>'; } },
-          { key:'sonIletisim', label:'Son iletişim',
-            render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
+            render:function(x){ return x.gecikenProje ? GV.cell.num(x.gecikenProje, { tone:'danger' }) : GV.cell.faint('0'); } },
+          GV.cols.num('acikGorev', 'Açık görevler', { sub:function(x){ return x.gorevAdet + ' toplam'; } }),
+          GV.cols.num('destekAdet', 'Destek talepleri', { sub:function(x){ return x.acikDestek + ' açık'; } }),
+          GV.cols.num('revizyon', 'Revizyonlar', { sub:function(x){ return x.degisiklik + ' değişiklik talebi'; } }),
+          GV.cols.date('sonIletisim', 'Son iletişim', { done:function(){ return true; } }),
           { key:'sonrakiAksiyon', label:'Sonraki aksiyon', width:'14%', cellClass:'cell-wrap',
             render:function(x){ return '<span class="cell-main">' + esc(x.sonrakiAksiyon || '—') + '</span>' +
               (x.sonrakiTarih ? '<span class="cell-sub">' + F.dateShort(x.sonrakiTarih) + ' · ' + F.rel(x.sonrakiTarih) + '</span>' : ''); } },
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num',
             render:function(x){ return satisfaction(x.memnuniyet); } },
-          { key:'risk', label:'Risk seviyesi', render:function(x){
-              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } }
+          GV.cols.durum('risk', 'Risk seviyesi', { extra:riskTone })
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mny(x.sozlesmeTutar) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mnyMask(x.sozlesmeTutar) + '</div>' +
                  '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.sektor) + ' · ' + esc(x.sorumluAd) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
-                 GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok') +
+                 GV.badge(x.risk, riskTone(x)) +
                  '</span><span class="cell-sub">' + x.aktifProje + ' aktif proje · ' + x.acikDestek + ' açık destek</span></div>';
         },
-        emptyState:{ icon:'i-building', title:'Bu filtrede müşteri yok',
-          desc:'Tarih, müşteri, proje, durum veya sorumlu filtresini değiştirin.' }
-      }
+        emptyState:GV.cols.bos('Bu filtrede müşteri yok',
+          'Tarih, müşteri, proje, durum veya sorumlu filtresini değiştirin.', 'i-building')
+      })
     },
 
     /* =================================================================
@@ -330,8 +328,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Kanal dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'etkileşim' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-iletisim-rapor', exportTitle:'Müşteri İletişim Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-iletisim-rapor', exportTitle:'Müşteri İletişim Raporu',
         search:{ placeholder:'Konu, müşteri, kontak veya sonuç ara', fields:['kod','musteriAd','konu','ozet','kontak','sonuc'] },
         defaultSort:'tarih', defaultDir:'desc',
         tabs:[
@@ -347,7 +345,7 @@ document.addEventListener('gv:ready', function(){
           musteriCol(),
           { key:'tur', label:'Kanal', render:function(x){ return '<span class="tag">' + esc(x.tur) + '</span>'; } },
           { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.dt(x.tarih) + '</span>'; } },
-          { key:'kisiAd', label:'Görüşen', render:function(x){ return GV.user(x.kisi); } },
+          GV.cols.kisi('kisi', 'Görüşen'),
           { key:'kontak', label:'Muhatap', render:function(x){ return esc(x.kontak || '—'); } },
           { key:'sonuc', label:'Sonuç', cellClass:'cell-wrap', render:function(x){ return esc(x.sonuc || '—'); } }
         ],
@@ -358,9 +356,9 @@ document.addEventListener('gv:ready', function(){
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges"><span class="tag">' + esc(x.tur) + '</span></span>' +
                  '<span class="cell-sub">' + esc(x.sonuc || '—') + '</span></div>';
         },
-        emptyState:{ icon:'i-phone', title:'Etkileşim kaydı yok',
-          desc:'Seçili filtrede müşteri iletişimi bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Etkileşim kaydı yok',
+          'Seçili filtrede müşteri iletişimi bulunamadı.', 'i-phone')
+      })
     },
 
     /* =================================================================
@@ -400,8 +398,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Memnuniyet segmentleri', html:GV.chart.donut(seg, { center:String(r.length), centerSub:'müşteri' }), legend:seg }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-memnuniyet-rapor', exportTitle:'Müşteri Memnuniyet Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-memnuniyet-rapor', exportTitle:'Müşteri Memnuniyet Raporu',
         search:{ placeholder:'Müşteri veya sektör ara', fields:['kod','unvan','kisa','sektor','sorumluAd'] },
         defaultSort:'memnuniyet', defaultDir:'asc',
         columns:[
@@ -409,15 +407,12 @@ document.addEventListener('gv:ready', function(){
             exportValue:function(x){ return x.unvan; }, render:custCell },
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
           { key:'destekPuan', label:'Destek puanı', cellClass:'num', render:function(x){ return satisfaction(x.destekPuan); } },
-          { key:'destekAdet', label:'Destek talebi', cellClass:'num',
-            render:function(x){ return scoreCell(x.destekAdet) + '<span class="cell-sub">' + x.acikDestek + ' açık</span>'; } },
-          { key:'revizyon', label:'Revizyon', cellClass:'num',
-            render:function(x){ return scoreCell(x.revizyon) + '<span class="cell-sub">' + x.degisiklik + ' değişiklik</span>'; } },
-          { key:'gecikenProje', label:'Geciken proje', cellClass:'num', render:function(x){ return scoreCell(x.gecikenProje); } },
-          { key:'sonIletisim', label:'Son iletişim', render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
-          { key:'risk', label:'Risk', render:function(x){
-              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } },
-          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+          GV.cols.num('destekAdet', 'Destek talebi', { sub:function(x){ return x.acikDestek + ' açık'; } }),
+          GV.cols.num('revizyon', 'Revizyon', { sub:function(x){ return x.degisiklik + ' değişiklik'; } }),
+          GV.cols.num('gecikenProje', 'Geciken proje'),
+          GV.cols.date('sonIletisim', 'Son iletişim', { done:function(){ return true; } }),
+          GV.cols.durum('risk', 'Risk', { extra:riskTone }),
+          GV.cols.kisi('sorumlu', 'Sorumlu')
         ],
         mobile:function(x){
           return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + satisfaction(x.memnuniyet) + '</div>' +
@@ -425,9 +420,9 @@ document.addEventListener('gv:ready', function(){
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-sub">' + x.acikDestek + ' açık destek · ' + x.revizyon + ' revizyon</span></div>';
         },
-        emptyState:{ icon:'i-star', title:'Memnuniyet puanı olan müşteri yok',
-          desc:'Potansiyel müşterilerde henüz memnuniyet ölçümü bulunmuyor.' }
-      }
+        emptyState:GV.cols.bos('Memnuniyet puanı olan müşteri yok',
+          'Potansiyel müşterilerde henüz memnuniyet ölçümü bulunmuyor.', 'i-star')
+      })
     },
 
     /* =================================================================
@@ -473,8 +468,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Risk seviyesi dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'müşteri' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-risk-rapor', exportTitle:'Müşteri Risk Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-risk-rapor', exportTitle:'Müşteri Risk Raporu',
         search:{ placeholder:'Müşteri, sektör veya sinyal ara', fields:['kod','unvan','kisa','sektor','sinyalMetin'] },
         defaultSort:'skor', defaultDir:'desc',
         tabs:[
@@ -486,31 +481,29 @@ document.addEventListener('gv:ready', function(){
         columns:[
           { key:'kod', label:'Müşteri', locked:true, width:'18%', cellClass:'cell-wrap',
             exportValue:function(x){ return x.unvan; }, render:custCell },
-          { key:'risk', label:'Risk seviyesi', render:function(x){
-              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } },
-          { key:'skor', label:'Risk skoru', cellClass:'num', render:function(x){
-              return '<span class="cell-money' + (x.skor >= 4 ? ' u-danger' : x.skor >= 2 ? ' u-warn' : '') + '">' + x.skor + '</span>'; } },
-          moneyCol('geciken', 'Gecikmiş tahsilat'),
-          moneyCol('bekleyen', 'Bekleyen tahsilat'),
+          GV.cols.durum('risk', 'Risk seviyesi', { extra:riskTone }),
+          GV.cols.num('skor', 'Risk skoru', { tone:function(x){ return x.skor >= 4 ? 'danger' : x.skor >= 2 ? 'warn' : null; } }),
+          moneyColMask('geciken', 'Gecikmiş tahsilat'),
+          moneyColMask('bekleyen', 'Bekleyen tahsilat'),
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
-          { key:'gecikenProje', label:'Geciken proje', cellClass:'num', render:function(x){ return scoreCell(x.gecikenProje); } },
-          { key:'acikDestek', label:'Açık destek', cellClass:'num', render:function(x){ return scoreCell(x.acikDestek); } },
+          GV.cols.num('gecikenProje', 'Geciken proje'),
+          GV.cols.num('acikDestek', 'Açık destek'),
           { key:'sinyalMetin', label:'Sinyaller', width:'22%', cellClass:'cell-wrap',
             render:function(x){ return tags(x.sinyaller); } },
-          { key:'sonIletisim', label:'Son iletişim', render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
-          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+          GV.cols.date('sonIletisim', 'Son iletişim', { done:function(){ return true; } }),
+          GV.cols.kisi('sorumlu', 'Sorumlu')
         ],
         mobile:function(x){
           return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' +
                  '<span class="cell-money">Skor ' + x.skor + '</span></div>' +
                  '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.sinyalMetin || 'sinyal yok') + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
-                 GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok') +
-                 '</span>' + mny(x.geciken) + '</div>';
+                 GV.badge(x.risk, riskTone(x)) +
+                 '</span>' + mnyMask(x.geciken) + '</div>';
         },
-        emptyState:{ icon:'i-shield-check', title:'Risk sinyali yok',
-          desc:'Seçili filtrede risk taşıyan müşteri bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Risk sinyali yok',
+          'Seçili filtrede risk taşıyan müşteri bulunamadı.', 'i-shield-check')
+      })
     },
 
     /* =================================================================
@@ -552,8 +545,8 @@ document.addEventListener('gv:ready', function(){
         return [moneyChart(para, sayi),
           { title:'Teklif durumu dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'teklif' }), legend:don }];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-teklif-rapor', exportTitle:'Müşteri Teklif Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-teklif-rapor', exportTitle:'Müşteri Teklif Raporu',
         search:{ placeholder:'Teklif no, firma veya müşteri ara', fields:['kod','firma','musteriAd','durum'] },
         defaultSort:'tarih', defaultDir:'desc',
         tabs:[
@@ -565,29 +558,28 @@ document.addEventListener('gv:ready', function(){
         ],
         columns:[
           { key:'kod', label:'Teklif', locked:true, width:'18%', cellClass:'cell-wrap',
-            render:function(x){ return '<a class="cell-main" href="app-teklif.html">' + x.kod + '</a>' +
-              '<span class="cell-sub">' + esc(x.firma) + '</span>'; } },
+            render:function(x){ return GV.cell.link('app-teklif.html', x.kod, GV.cell.sub(esc(x.firma))); } },
           musteriCol(),
-          { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
-          { key:'gecerlilik', label:'Geçerlilik', render:function(x){ return GV.dateCell(x.gecerlilik); } },
+          GV.cols.date('tarih', 'Tarih', { plain:true }),
+          GV.cols.date('gecerlilik', 'Geçerlilik'),
           { key:'versiyon', label:'Versiyon', cellClass:'num', render:function(x){ return 'v' + x.versiyon; } },
-          { key:'kalemSayisi', label:'Kalem', cellClass:'num', render:function(x){ return scoreCell(x.kalemSayisi); } },
-          moneyCol('araToplam', 'Ara toplam'),
-          moneyCol('indirim', 'İndirim'),
-          moneyCol('toplam', 'Toplam'),
+          GV.cols.num('kalemSayisi', 'Kalem'),
+          moneyColMask('araToplam', 'Ara toplam'),
+          moneyColMask('indirim', 'İndirim'),
+          moneyColMask('toplam', 'Toplam'),
           { key:'icOnay', label:'İç onay', render:function(x){ return onayBadge(x.icOnay); } },
           { key:'musteriOnay', label:'Müşteri onayı', render:function(x){ return onayBadge(x.musteriOnay); } },
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
-          { key:'hazirlayanAd', label:'Hazırlayan', render:function(x){ return GV.user(x.hazirlayan); } }
+          GV.cols.durum('durum', 'Durum'),
+          GV.cols.kisi('hazirlayan', 'Hazırlayan')
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.toplam) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mnyMask(x.toplam) + '</div>' +
                  '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · v' + x.versiyon + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-date">' + F.date(x.tarih) + '</span></div>';
         },
-        emptyState:{ icon:'i-quote', title:'Teklif kaydı yok', desc:'Seçili filtrede teklif bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Teklif kaydı yok', 'Seçili filtrede teklif bulunamadı.', 'i-quote')
+      })
     },
 
     /* =================================================================
@@ -632,35 +624,35 @@ document.addEventListener('gv:ready', function(){
           { title:'Kaynak dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'fırsat' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-donusum-rapor', exportTitle:'Satış Dönüşüm Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-donusum-rapor', exportTitle:'Satış Dönüşüm Raporu',
         search:{ placeholder:'Fırsat, firma, hizmet veya kaynak ara', fields:['kod','firma','hizmet','kaynak','asama'] },
         defaultSort:'puan', defaultDir:'desc',
         columns:[
           { key:'kod', label:'Fırsat', locked:true, width:'20%', cellClass:'cell-wrap',
             render:function(x){ return '<a class="cell-main" href="app-lead.html">' + esc(x.firma) + '</a>' +
               '<span class="cell-code">' + x.kod + ' · ' + esc(x.hizmet) + '</span>'; } },
-          { key:'asama', label:'Aşama', render:function(x){ return GV.badge(x.asama); } },
-          { key:'puan', label:'Skor', cellClass:'num', render:function(x){ return scoreCell(x.puan); } },
+          GV.cols.durum('asama', 'Aşama'),
+          GV.cols.num('puan', 'Skor'),
           { key:'sicaklik', label:'Sıcaklık', render:function(x){ return '<span class="tag">' + esc(x.sicaklik) + '</span>'; } },
-          moneyCol('butce', 'Bütçe'),
+          moneyColMask('butce', 'Bütçe'),
           { key:'kaynak', label:'Kaynak', render:function(x){ return esc(x.kaynak); } },
-          { key:'talepTarihi', label:'Talep', render:function(x){ return '<span class="cell-date">' + F.date(x.talepTarihi) + '</span>'; } },
-          { key:'kapanisTahmini', label:'Kapanış tahmini', render:function(x){ return GV.dateCell(x.kapanisTahmini); } },
+          GV.cols.date('talepTarihi', 'Talep', { plain:true }),
+          GV.cols.date('kapanisTahmini', 'Kapanış tahmini'),
           { key:'musteriAd', label:'Müşteri', render:function(x){
               return x.musteri ? '<span class="cell-main">' + esc(x.musteriAd) + '</span>' : '<span class="u-faint">Aday</span>'; } },
           { key:'kayipNedeni', label:'Kayıp nedeni', cellClass:'cell-wrap',
-            render:function(x){ return x.kayipNedeni ? '<span class="u-danger">' + esc(x.kayipNedeni) + '</span>' : '<span class="u-faint">—</span>'; } },
-          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+            render:function(x){ return x.kayipNedeni ? '<span class="u-danger">' + esc(x.kayipNedeni) + '</span>' : GV.cell.faint('—'); } },
+          GV.cols.kisi('sorumlu', 'Sorumlu')
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.firma) + '</span>' + mny(x.butce) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.firma) + '</span>' + mnyMask(x.butce) + '</div>' +
                  '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.hizmet) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.asama) +
                  '<span class="tag">' + esc(x.sicaklik) + '</span></span><span class="cell-sub">Skor ' + x.puan + '</span></div>';
         },
-        emptyState:{ icon:'i-funnel', title:'Fırsat yok', desc:'Seçili filtrede müşteri adayı bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Fırsat yok', 'Seçili filtrede müşteri adayı bulunamadı.', 'i-funnel')
+      })
     },
 
     /* =================================================================
@@ -707,8 +699,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Önerilen hizmet dağılımı', html:GV.chart.donut(don, { center:String(don.length), centerSub:'hizmet' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-capraz-satis', exportTitle:'Çapraz Satış Fırsatları',
+      table:GV.cols.tbl({
+        exportName:'musteri-capraz-satis', exportTitle:'Çapraz Satış Fırsatları',
         search:{ placeholder:'Müşteri, sektör veya hizmet ara', fields:['kod','unvan','kisa','sektor','alinanMetin','oneriMetin'] },
         defaultSort:'oneriSayisi', defaultDir:'desc',
         columns:[
@@ -718,13 +710,12 @@ document.addEventListener('gv:ready', function(){
             render:function(x){ return tags(x.alinan); } },
           { key:'oneriMetin', label:'Önerilen hizmetler', width:'24%', cellClass:'cell-wrap',
             render:function(x){ return tags(x.oneri); } },
-          { key:'oneriSayisi', label:'Fırsat', cellClass:'num', render:function(x){ return scoreCell(x.oneriSayisi); } },
-          { key:'bakim', label:'Bakım paketi', render:function(x){
-              return GV.badge(x.bakim === 'Aktif' ? 'Aktif' : 'Yok', x.bakim === 'Aktif' ? 'is-ok' : 'is-warn'); } },
-          moneyCol('toplamCiro', 'Mevcut ciro'),
+          GV.cols.num('oneriSayisi', 'Fırsat'),
+          GV.cols.durum('bakim', 'Bakım paketi', { extra:function(x){ return x.bakim === 'Aktif' ? 'is-ok' : 'is-warn'; } }),
+          moneyColMask('toplamCiro', 'Mevcut ciro'),
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
-          { key:'sonIletisim', label:'Son iletişim', render:function(x){ return GV.dateCell(x.sonIletisim, { done:true }); } },
-          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+          GV.cols.date('sonIletisim', 'Son iletişim', { done:function(){ return true; } }),
+          GV.cols.kisi('sorumlu', 'Sorumlu')
         ],
         mobile:function(x){
           return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' +
@@ -732,11 +723,11 @@ document.addEventListener('gv:ready', function(){
                  '<div class="gv-mrow-code">' + esc(x.oneriMetin || '—') + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' +
                  GV.badge(x.bakim === 'Aktif' ? 'Aktif' : 'Yok', x.bakim === 'Aktif' ? 'is-ok' : 'is-warn') +
-                 '</span>' + mny(x.toplamCiro) + '</div>';
+                 '</span>' + mnyMask(x.toplamCiro) + '</div>';
         },
-        emptyState:{ icon:'i-target', title:'Çapraz satış fırsatı yok',
-          desc:'Seçili filtrede öneri çıkarılacak müşteri bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Çapraz satış fırsatı yok',
+          'Seçili filtrede öneri çıkarılacak müşteri bulunamadı.', 'i-target')
+      })
     },
 
     /* =================================================================
@@ -782,8 +773,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Yenileme kaydı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'sözleşme' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-yenileme-firsatlari', exportTitle:'Yenileme Fırsatları',
+      table:GV.cols.tbl({
+        exportName:'musteri-yenileme-firsatlari', exportTitle:'Yenileme Fırsatları',
         search:{ placeholder:'Sözleşme, müşteri veya konu ara', fields:['kod','ad','musteriAd'] },
         defaultSort:'kalan', defaultDir:'asc',
         tabs:[
@@ -793,29 +784,27 @@ document.addEventListener('gv:ready', function(){
         ],
         columns:[
           { key:'kod', label:'Sözleşme', locked:true, width:'22%', cellClass:'cell-wrap',
-            render:function(x){ return '<a class="cell-main" href="app-sozlesme.html">' + x.kod + '</a>' +
-              '<span class="cell-sub">' + esc(x.ad) + '</span>'; } },
+            render:function(x){ return GV.cell.link('app-sozlesme.html', x.kod, GV.cell.sub(esc(x.ad))); } },
           musteriCol(),
-          { key:'bitis', label:'Bitiş', render:function(x){ return '<span class="cell-date">' + F.date(x.bitis) + '</span>'; } },
-          { key:'hedef', label:'Yenileme tarihi', render:function(x){ return GV.dateCell(x.hedef); } },
-          { key:'kalan', label:'Kalan gün', cellClass:'num', render:function(x){
-              return '<span class="cell-money' + (x.kalan < 0 ? ' u-danger' : x.kalan <= 90 ? ' u-warn' : '') + '">' +
-                     F.num(x.kalan) + '</span><span class="cell-sub">' + F.rel(x.hedef) + '</span>'; } },
-          moneyCol('tutar', 'Bedel'),
-          { key:'yenileme', label:'Yenileme', render:function(x){
-              return GV.badge(x.yenileme, x.yenileme === 'Otomatik yenileme' ? 'is-ok' : 'is-neutral'); } },
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          GV.cols.date('bitis', 'Bitiş', { plain:true }),
+          GV.cols.date('hedef', 'Yenileme tarihi'),
+          GV.cols.num('kalan', 'Kalan gün', { tone:function(x){ return x.kalan < 0 ? 'danger' : x.kalan <= 90 ? 'warn' : null; },
+            sub:function(x){ return F.rel(x.hedef); } }),
+          moneyColMask('tutar', 'Bedel'),
+          GV.cols.durum('yenileme', 'Yenileme', { extra:function(x){
+            return x.yenileme === 'Otomatik yenileme' ? 'is-ok' : 'is-neutral'; } }),
+          GV.cols.durum('durum', 'Durum'),
           { key:'odemePlani', label:'Ödeme planı', cellClass:'cell-wrap', render:function(x){ return esc(x.odemePlani); } }
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.tutar) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mnyMask(x.tutar) + '</div>' +
                  '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + esc(x.ad) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-date">' + F.rel(x.hedef) + '</span></div>';
         },
-        emptyState:{ icon:'i-refresh', title:'Yenilenecek sözleşme yok',
-          desc:'Seçili filtrede yaklaşan yenileme bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Yenilenecek sözleşme yok',
+          'Seçili filtrede yaklaşan yenileme bulunamadı.', 'i-refresh')
+      })
     },
 
     /* =================================================================
@@ -862,8 +851,8 @@ document.addEventListener('gv:ready', function(){
         return [moneyChart(para, sayi),
           { title:'Proje durumu dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'proje' }), legend:don }];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-proje-rapor', exportTitle:'Müşteri Proje Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-proje-rapor', exportTitle:'Müşteri Proje Raporu',
         search:{ placeholder:'Proje, müşteri veya tür ara', fields:['kod','ad','musteriAd','tur','durum'] },
         defaultSort:'planlananBitis', defaultDir:'asc',
         tabs:[
@@ -877,31 +866,30 @@ document.addEventListener('gv:ready', function(){
             render:function(x){ return '<a class="cell-main" href="app-proje.html">' + esc(x.ad) + '</a>' +
               '<span class="cell-code">' + x.kod + ' · ' + esc(x.tur) + '</span>'; } },
           musteriCol(),
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
-          { key:'saglik', label:'Sağlık', render:function(x){
-              return GV.badge(x.saglik, x.saglik === 'Riskli' ? 'is-danger' : x.saglik === 'Dikkat' ? 'is-warn' : 'is-ok'); } },
+          GV.cols.durum('durum', 'Durum'),
+          GV.cols.durum('saglik', 'Sağlık', { extra:function(x){
+            return x.saglik === 'Riskli' ? 'is-danger' : x.saglik === 'Dikkat' ? 'is-warn' : 'is-ok'; } }),
           { key:'ilerleme', label:'İlerleme', width:'12%', render:function(x){ return GV.progress(x.ilerleme); } },
-          { key:'baslangic', label:'Başlangıç', render:function(x){ return '<span class="cell-date">' + F.date(x.baslangic) + '</span>'; } },
-          { key:'planlananBitis', label:'Planlanan bitiş', render:function(x){
-              return GV.dateCell(x.planlananBitis, { done:BITEN_PROJE.indexOf(x.durum) !== -1 }); } },
-          moneyCol('sozlesmeTutari', 'Sözleşme bedeli'),
-          moneyCol('butce', 'Bütçe'),
-          moneyCol('gerceklesenMaliyet', 'Gerçekleşen maliyet', function(x){
+          GV.cols.date('baslangic', 'Başlangıç', { plain:true }),
+          GV.cols.date('planlananBitis', 'Planlanan bitiş', { done:function(x){ return BITEN_PROJE.indexOf(x.durum) !== -1; } }),
+          moneyColMask('sozlesmeTutari', 'Sözleşme bedeli'),
+          moneyColMask('butce', 'Bütçe'),
+          moneyColMask('gerceklesenMaliyet', 'Gerçekleşen maliyet', function(x){
             return x.harcananSure == null ? 'defterde kayıt yok'
                  : F.num(x.harcananSure) + ' / ' + F.num(x.tahminiSure) + ' saat'; }),
-          { key:'pmAd', label:'Proje yöneticisi', render:function(x){ return GV.user(x.pm); } },
+          GV.cols.kisi('pm', 'Proje yöneticisi'),
           { key:'gecikmeNedeni', label:'Gecikme nedeni', width:'16%', cellClass:'cell-wrap',
-            render:function(x){ return x.gecikmeNedeni ? '<span class="u-danger">' + esc(x.gecikmeNedeni) + '</span>' : '<span class="u-faint">—</span>'; } }
+            render:function(x){ return x.gecikmeNedeni ? '<span class="u-danger">' + esc(x.gecikmeNedeni) + '</span>' : GV.cell.faint('—'); } }
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' + mny(x.sozlesmeTutari) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.ad) + '</span>' + mnyMask(x.sozlesmeTutari) + '</div>' +
                  '<div class="gv-mrow-code">' + x.kod + ' · ' + esc(x.musteriAd) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) +
                  GV.badge(x.saglik, x.saglik === 'Riskli' ? 'is-danger' : x.saglik === 'Dikkat' ? 'is-warn' : 'is-ok') +
                  '</span><span class="cell-sub">%' + x.ilerleme + '</span></div>';
         },
-        emptyState:{ icon:'i-briefcase', title:'Proje yok', desc:'Seçili filtrede proje kaydı bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Proje yok', 'Seçili filtrede proje kaydı bulunamadı.', 'i-briefcase')
+      })
     },
 
     /* =================================================================
@@ -955,8 +943,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Kategori dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'talep' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-destek-rapor', exportTitle:'Müşteri Destek Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-destek-rapor', exportTitle:'Müşteri Destek Raporu',
         search:{ placeholder:'Talep, müşteri veya kategori ara', fields:['kod','baslik','musteriAd','kategori','durum'] },
         defaultSort:'acilis', defaultDir:'desc',
         tabs:[
@@ -972,18 +960,18 @@ document.addEventListener('gv:ready', function(){
           musteriCol(),
           { key:'kategori', label:'Kategori', render:function(x){ return '<span class="tag">' + esc(x.kategori) + '</span>'; } },
           { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          GV.cols.durum('durum', 'Durum'),
           { key:'sla', label:'SLA', render:function(x){ return esc(x.sla); } },
-          { key:'slaDurum', label:'SLA durumu', render:function(x){
-              return GV.badge(x.slaDurum, x.slaDurum === 'Risk altında' ? 'is-danger' : 'is-ok'); } },
+          GV.cols.durum('slaDurum', 'SLA durumu', { extra:function(x){
+            return x.slaDurum === 'Risk altında' ? 'is-danger' : 'is-ok'; } }),
           { key:'acilis', label:'Açılış', render:function(x){ return '<span class="cell-date">' + F.dt(x.acilis) + '</span>'; } },
           { key:'mudahaleSuresi', label:'İlk yanıt', cellClass:'num',
             render:function(x){ return x.mudahaleSuresi != null
               ? '<span class="cell-money">' + F.num(x.mudahaleSuresi) + ' dk</span>'
-              : '<span class="u-faint">—</span>'; } },
+              : GV.cell.faint('—'); } },
           { key:'harcananSure', label:'Harcanan', cellClass:'num', render:function(x){ return '<span class="cell-money">' + F.hours(x.harcananSure) + '</span>'; } },
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
-          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+          GV.cols.kisi('sorumlu', 'Sorumlu')
         ],
         mobile:function(x){
           return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.baslik) + '</span>' + GV.pri(x.oncelik) + '</div>' +
@@ -992,8 +980,8 @@ document.addEventListener('gv:ready', function(){
                  GV.badge(x.slaDurum, x.slaDurum === 'Risk altında' ? 'is-danger' : 'is-ok') + '</span>' +
                  '<span class="cell-date">' + F.date(x.acilis) + '</span></div>';
         },
-        emptyState:{ icon:'i-support', title:'Destek talebi yok', desc:'Seçili filtrede destek kaydı bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Destek talebi yok', 'Seçili filtrede destek kaydı bulunamadı.', 'i-support')
+      })
     },
 
     /* =================================================================
@@ -1038,8 +1026,8 @@ document.addEventListener('gv:ready', function(){
         return [moneyChart(para, sayi),
           { title:'Fatura durumu dağılımı', html:GV.chart.donut(don, { center:String(r.length), centerSub:'fatura' }), legend:don }];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-finans-rapor', exportTitle:'Müşteri Finans Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-finans-rapor', exportTitle:'Müşteri Finans Raporu',
         search:{ placeholder:'Fatura, müşteri veya sözleşme ara', fields:['kod','musteriAd','sozlesme','durum'] },
         defaultSort:'tarih', defaultDir:'desc',
         tabs:[
@@ -1054,26 +1042,26 @@ document.addEventListener('gv:ready', function(){
               '<span class="cell-code">' + esc(x.sozlesme || 'sözleşmesiz') + '</span>'; } },
           musteriCol(),
           { key:'proje', label:'Proje', render:function(x){
-              return x.proje ? '<span class="cell-code">' + x.proje + '</span>' : '<span class="u-faint">—</span>'; } },
-          { key:'tarih', label:'Tarih', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
-          { key:'vade', label:'Vade', render:function(x){ return GV.dateCell(x.vade, { done:x.durum === 'Ödendi' }); } },
-          moneyCol('tutar', 'Tutar'),
-          moneyCol('vergi', 'Vergi'),
-          moneyCol('toplam', 'Toplam'),
-          { key:'gecikme', label:'Gecikme', cellClass:'num', render:function(x){
-              return x.gecikme ? '<span class="cell-money u-danger">' + x.gecikme + ' gün</span>' : '<span class="u-faint">—</span>'; } },
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+              return x.proje ? '<span class="cell-code">' + x.proje + '</span>' : GV.cell.faint('—'); } },
+          GV.cols.date('tarih', 'Tarih', { plain:true }),
+          GV.cols.date('vade', 'Vade', { done:function(x){ return x.durum === 'Ödendi'; } }),
+          moneyColMask('tutar', 'Tutar'),
+          moneyColMask('vergi', 'Vergi'),
+          moneyColMask('toplam', 'Toplam'),
+          { key:'gecikme', label:'Gecikme', cellClass:'num',
+            render:function(x){ return x.gecikme ? GV.cell.gun(x.gecikme, 'danger') : GV.cell.faint('—'); } },
+          GV.cols.durum('durum', 'Durum'),
           { key:'odemeTarihi', label:'Ödeme tarihi', render:function(x){
-              return x.odemeTarihi ? '<span class="cell-date is-done">' + F.date(x.odemeTarihi) + '</span>' : '<span class="u-faint">—</span>'; } }
+              return x.odemeTarihi ? '<span class="cell-date is-done">' + F.date(x.odemeTarihi) + '</span>' : GV.cell.faint('—'); } }
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.toplam) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mnyMask(x.toplam) + '</div>' +
                  '<div class="gv-mrow-code">' + esc(x.musteriAd) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-date">Vade ' + F.date(x.vade) + '</span></div>';
         },
-        emptyState:{ icon:'i-receipt', title:'Fatura yok', desc:'Seçili filtrede fatura kaydı bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Fatura yok', 'Seçili filtrede fatura kaydı bulunamadı.', 'i-receipt')
+      })
     },
 
     /* =================================================================
@@ -1111,8 +1099,8 @@ document.addEventListener('gv:ready', function(){
           { title:'Tahsilat durumu', html:GV.chart.donut(don, { center:String(r.length), centerSub:'kayıt' }), legend:don }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-tahsilat-rapor', exportTitle:'Müşteri Tahsilat Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-tahsilat-rapor', exportTitle:'Müşteri Tahsilat Raporu',
         search:{ placeholder:'Tahsilat, fatura veya müşteri ara', fields:['kod','fatura','musteriAd','durum','sonAksiyon'] },
         defaultSort:'gecikmeGun', defaultDir:'desc',
         tabs:[
@@ -1126,24 +1114,24 @@ document.addEventListener('gv:ready', function(){
             render:function(x){ return '<a class="cell-main" href="app-tahsilat.html">' + x.kod + '</a>' +
               '<span class="cell-code">' + esc(x.fatura) + '</span>'; } },
           musteriCol(),
-          moneyCol('tutar', 'Tutar'),
-          { key:'vade', label:'Vade', render:function(x){ return GV.dateCell(x.vade, { done:x.durum === 'Ödendi' }); } },
-          { key:'gecikmeGun', label:'Gecikme', cellClass:'num', render:function(x){
-              return x.gecikmeGun ? '<span class="cell-money u-danger">' + x.gecikmeGun + ' gün</span>' : '<span class="u-faint">—</span>'; } },
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+          moneyColMask('tutar', 'Tutar'),
+          GV.cols.date('vade', 'Vade', { done:function(x){ return x.durum === 'Ödendi'; } }),
+          { key:'gecikmeGun', label:'Gecikme', cellClass:'num',
+            render:function(x){ return x.gecikmeGun ? GV.cell.gun(x.gecikmeGun, 'danger') : GV.cell.faint('—'); } },
+          GV.cols.durum('durum', 'Durum'),
           { key:'sonAksiyon', label:'Son aksiyon', width:'20%', cellClass:'cell-wrap',
             render:function(x){ return '<span class="cell-main">' + esc(x.sonAksiyon) + '</span>' +
               '<span class="cell-sub">' + F.date(x.sonAksiyonTarihi) + '</span>'; } },
-          { key:'sorumluAd', label:'Sorumlu', render:function(x){ return GV.user(x.sorumlu); } }
+          GV.cols.kisi('sorumlu', 'Sorumlu')
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mny(x.tutar) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + x.kod + '</span>' + mnyMask(x.tutar) + '</div>' +
                  '<div class="gv-mrow-code">' + esc(x.musteriAd) + ' · ' + esc(x.fatura) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-date">' + (x.gecikmeGun ? x.gecikmeGun + ' gün gecikme' : 'Vade ' + F.date(x.vade)) + '</span></div>';
         },
-        emptyState:{ icon:'i-wallet', title:'Tahsilat kaydı yok', desc:'Seçili filtrede tahsilat bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Tahsilat kaydı yok', 'Seçili filtrede tahsilat bulunamadı.', 'i-wallet')
+      })
     },
 
     /* =================================================================
@@ -1187,38 +1175,34 @@ document.addEventListener('gv:ready', function(){
                        tone:x.marj < 20 ? 'danger' : x.marj < 35 ? 'warn' : 'ok' }; }), { height:200 }) }
         ];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-karlilik-rapor', exportTitle:'Müşteri Kârlılık Raporu',
+      table:GV.cols.tbl({
+        exportName:'musteri-karlilik-rapor', exportTitle:'Müşteri Kârlılık Raporu',
         search:{ placeholder:'Müşteri veya sektör ara', fields:['kod','unvan','kisa','sektor'] },
         defaultSort:'kar', defaultDir:'desc',
         columns:[
           { key:'kod', label:'Müşteri', locked:true, width:'20%', cellClass:'cell-wrap',
             exportValue:function(x){ return x.unvan; }, render:custCell },
-          { key:'projeSayisi', label:'Proje', cellClass:'num',
-            render:function(x){ return scoreCell(x.projeSayisi) + '<span class="cell-sub">' + x.aktifProje + ' aktif</span>'; } },
-          moneyCol('projeGeliri', 'Proje geliri'),
-          moneyCol('maliyet', 'Gerçekleşen maliyet'),
-          moneyCol('kar', 'Kâr'),
+          GV.cols.num('projeSayisi', 'Proje', { sub:function(x){ return x.aktifProje + ' aktif'; } }),
+          moneyColMask('projeGeliri', 'Proje geliri'),
+          moneyColMask('maliyet', 'Gerçekleşen maliyet'),
+          moneyColMask('kar', 'Kâr'),
           { key:'marj', label:'Marj', cellClass:'num', render:function(x){
               return '<span class="cell-money' + (x.marj < 20 ? ' u-danger' : x.marj < 35 ? ' u-warn' : ' u-ok') + '">%' + x.marj + '</span>'; } },
-          { key:'harcananSaat', label:'Harcanan saat', cellClass:'num',
-            render:function(x){ return '<span class="cell-money">' + F.num(x.harcananSaat) + '</span>' +
-              '<span class="cell-sub">' + F.num(x.tahminiSaat) + ' tahmini</span>'; } },
+          GV.cols.num('harcananSaat', 'Harcanan saat', { sub:function(x){ return F.num(x.tahminiSaat) + ' tahmini'; } }),
           { key:'sapma', label:'Efor sapması', cellClass:'num', render:function(x){
               return '<span class="cell-money' + (x.sapma > 0 ? ' u-danger' : ' u-ok') + '">%' + x.sapma + '</span>'; } },
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
-          { key:'risk', label:'Risk', render:function(x){
-              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } }
+          GV.cols.durum('risk', 'Risk', { extra:riskTone })
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mny(x.kar) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mnyMask(x.kar) + '</div>' +
                  '<div class="gv-mrow-code">' + x.kod + ' · %' + x.marj + ' marj</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-sub">' + F.num(x.harcananSaat) + ' saat</span></div>';
         },
-        emptyState:{ icon:'i-percent', title:'Kârlılık verisi yok',
-          desc:'Seçili filtrede proje geliri veya maliyeti olan müşteri bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Kârlılık verisi yok',
+          'Seçili filtrede proje geliri veya maliyeti olan müşteri bulunamadı.', 'i-percent')
+      })
     },
 
     /* =================================================================
@@ -1260,36 +1244,34 @@ document.addEventListener('gv:ready', function(){
         return [moneyChart(para, sayi),
           { title:'Değer segmentleri', html:GV.chart.donut(seg, { center:String(r.length), centerSub:'müşteri' }), legend:seg }];
       },
-      table:{
-        key:'kod', pageSize:10, archive:false,        exportName:'musteri-yasam-boyu-deger', exportTitle:'Müşteri Yaşam Boyu Değeri',
+      table:GV.cols.tbl({
+        exportName:'musteri-yasam-boyu-deger', exportTitle:'Müşteri Yaşam Boyu Değeri',
         search:{ placeholder:'Müşteri, sektör veya segment ara', fields:['kod','unvan','kisa','sektor','segment'] },
         defaultSort:'toplamCiro', defaultDir:'desc',
         columns:[
           { key:'kod', label:'Müşteri', locked:true, width:'18%', cellClass:'cell-wrap',
             exportValue:function(x){ return x.unvan; }, render:custCell },
           { key:'segment', label:'Segment', render:function(x){ return '<span class="tag">' + esc(x.segment) + '</span>'; } },
-          { key:'ilkKayit', label:'İlk kayıt', render:function(x){ return '<span class="cell-date">' + F.date(x.ilkKayit) + '</span>'; } },
+          GV.cols.date('ilkKayit', 'İlk kayıt', { plain:true }),
           { key:'yasAy', label:'Müşteri yaşı', cellClass:'num',
             render:function(x){ return '<span class="cell-money">' + F.num(x.yasAy) + ' ay</span>'; } },
-          moneyCol('toplamCiro', 'Toplam ciro'),
-          moneyCol('aylikDeger', 'Aylık ortalama'),
-          moneyCol('ortProje', 'Proje başına'),
-          { key:'projeSayisi', label:'Proje', cellClass:'num',
-            render:function(x){ return scoreCell(x.projeSayisi) + '<span class="cell-sub">' + x.sozlesmeAdet + ' sözleşme</span>'; } },
-          moneyCol('bekleyen', 'Bekleyen tahsilat'),
+          moneyColMask('toplamCiro', 'Toplam ciro'),
+          moneyColMask('aylikDeger', 'Aylık ortalama'),
+          moneyColMask('ortProje', 'Proje başına'),
+          GV.cols.num('projeSayisi', 'Proje', { sub:function(x){ return x.sozlesmeAdet + ' sözleşme'; } }),
+          moneyColMask('bekleyen', 'Bekleyen tahsilat'),
           { key:'memnuniyet', label:'Memnuniyet', cellClass:'num', render:function(x){ return satisfaction(x.memnuniyet); } },
-          { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
-          { key:'risk', label:'Risk', render:function(x){
-              return GV.badge(x.risk, x.risk === 'Yüksek' ? 'is-danger' : x.risk === 'Orta' ? 'is-warn' : 'is-ok'); } }
+          GV.cols.durum('durum', 'Durum'),
+          GV.cols.durum('risk', 'Risk', { extra:riskTone })
         ],
         mobile:function(x){
-          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mny(x.toplamCiro) + '</div>' +
+          return '<div class="gv-mrow-top"><span class="cell-main">' + esc(x.kisa) + '</span>' + mnyMask(x.toplamCiro) + '</div>' +
                  '<div class="gv-mrow-code">' + x.kod + ' · ' + x.yasAy + ' ay · ' + esc(x.segment) + '</div>' +
                  '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + '</span>' +
                  '<span class="cell-sub">aylık ' + (canFin ? F.moneyK(x.aylikDeger) : '••••••') + '</span></div>';
         },
-        emptyState:{ icon:'i-trend-up', title:'Müşteri yok', desc:'Seçili filtrede müşteri bulunamadı.' }
-      }
+        emptyState:GV.cols.bos('Müşteri yok', 'Seçili filtrede müşteri bulunamadı.', 'i-trend-up')
+      })
     }
 
     ]
