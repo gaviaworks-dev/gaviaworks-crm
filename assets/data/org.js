@@ -8,6 +8,16 @@ window.DB = window.DB || {};
 
 DB.today = '2026-08-03';
 
+/* FORMÜL SÜRÜMÜ — şartname [14.4.2] · [14.5.1].
+   Dışa aktarılan her dosyanın künyesine yazılır ve rapor kaydında
+   (`DB.reportRegistry[].formula_version`) tekrar edilir. Amacı tek:
+   elindeki dosyanın HANGİ hesap kuralıyla üretildiğini söylemek. Bir
+   ölçünün formülü değiştiğinde (bakiye net→brüt, SLA takvim→iş günü)
+   bu sürüm ARTIRILIR; artırılmazsa iki farklı kuralla üretilmiş iki
+   dosya ayırt edilemez ve eski çıktı sessizce yanlış okunur.
+   Sürüm tek ve genel: prototipte hesap katmanı (`domain.js`) tek parça. */
+DB.formulaVersion = 'f-2026.08-1';
+
 DB.company = {
   ad:'Gavia Works', unvan:'Gavia Works Yazılım ve Danışmanlık Ltd. Şti.',
   vergiDairesi:'Çankaya', vergiNo:'3720654891', kurulus:'2021-03-15',

@@ -45,6 +45,48 @@
   }
 
   /* ===================================================================
+     0a. HTML → DÜZ METİN  (çıktı katmanının tabanı — şartname [14.6.1])
+     -------------------------------------------------------------------
+     `xport.js` beş oturumdur şunu ölçüyor: "ekranda dolu, çıktıda boş" hücre.
+     Kök neden tek cümlede: **kolonun ekranda gösterdiği değer `render`'dan
+     türüyor, çıktı ise `r[c.key]`'e bakıyordu.** Türetilmiş kolonda o anahtar
+     kayıtta hiç yok, dolayısıyla hücre boş çıkıyordu — 22 ekranda.
+
+     Yanlış çözüm: 22 ekranda tek tek `exportValue` yazmak. Doğru çözüm:
+     çıktı, `exportValue` verilmediğinde **ekranın gösterdiği metni** almalı.
+     `render` HTML döndürdüğü için ham etiket çıktıya gitmesin diye buradan
+     geçirilir. Etiket sınırları BOŞLUĞA çevrilir: `<span>Acme</span><span>
+     MUS-001</span>` düz silmeyle "AcmeMUS-001" olurdu (L-14'ün çıktı
+     tarafındaki ikizi — "konsol temiz ≠ ekran doğru"nun üçüncüsü). */
+  function htmlText(h){
+    if(h == null) return '';
+    return String(h)
+      .replace(/<(br|hr)\s*\/?>/gi, ' ')
+      .replace(/<\/(div|p|li|tr|td|th|span|h[1-6])\s*>/gi, ' ')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  GV.htmlText = htmlText;
+
+  /* CSV FORMÜL ENJEKSİYONU KORUMASI — şartname [14.4.5].
+     `=`, `+`, `-`, `@` ile başlayan bir hücre Excel/Sheets'te FORMÜL olarak
+     yorumlanır; `=cmd|'/c calc'!A1` gibi bir değer dosyayı açan kişinin
+     makinesinde komut çalıştırabilir. Değer bozulmadan zararsızlaştırılır:
+     başına tek tırnak konur (Excel'in metin işareti) ve hücre tırnaklanır.
+     ⚠️ Negatif sayı da `-` ile başlar; sayısal hücre (yalnız rakam, ayraç,
+     nokta/virgül) MUAF tutulur, yoksa her eksi tutar bozulurdu. */
+  function csvGuard(s){
+    if(!s) return s;
+    if(!/^[=+\-@\t\r]/.test(s)) return s;
+    if(/^-?[\d.,\s]+$/.test(s)) return s;             /* düz negatif sayı — formül değil */
+    return "'" + s;
+  }
+
+  /* ===================================================================
      0. BİÇİMLENDİRME
      =================================================================== */
   var AY = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
@@ -1009,7 +1051,12 @@
       cols.forEach(function(c){
         var sortable = c.sortable !== false;
         var aria = state.sort === c.key ? ' aria-sort="' + (state.dir === 'asc' ? 'ascending' : 'descending') + '"' : '';
-        head += '<th data-col="' + c.key + '"' + (sortable ? ' class="is-sortable" data-sort="' + c.key + '"' : '') + aria +
+        /* Hizalama kolonun özelliğidir: `cellClass` başlığa DA basılır, yoksa
+           `num`/`center` kolonlarında başlık solda, değer sağda/ortada kalır
+           ([14.2.4]–[14.2.6]). Sıralanabilirlik ayrı bir sınıf, ikisi birlikte. */
+        var thCls = [sortable ? 'is-sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
+        head += '<th data-col="' + c.key + '"' + (thCls ? ' class="' + thCls + '"' : '') +
+                (sortable ? ' data-sort="' + c.key + '"' : '') + aria +
                 (c.width ? ' style="width:' + c.width + '"' : '') + '>' + esc(c.label) +
                 (state.sort === c.key ? ico(state.dir === 'asc' ? 'i-chev-up' : 'i-chev-down') : '') + '</th>';
       });
@@ -1656,7 +1703,21 @@
               var data = scope === 'tumu' ? kaynak()
                        : scope === 'secili' ? kaynak().filter(function(r){ return state.selected.indexOf(r[cfg.key]) !== -1; })
                        : rows;
-              doExport(data, fmt);
+              var ad = scope === 'tumu' ? 'tüm kayıtlar' : scope === 'secili' ? 'seçili kayıtlar' : 'filtrelenmiş';
+              /* Şartname [14.4.7] — "Tüm kayıtlar" ekranda süzülmemiş veriyi
+                 dosyaya çıkarır; filtre kapsamı bir yetki sınırı da olabildiği
+                 için ayrıca onaylatılır. Diğer iki kapsamda ek soru sorulmaz:
+                 kullanıcı zaten gördüğü kümeyi indiriyor. */
+              if(scope === 'tumu'){
+                GV.confirm({
+                  title:'Tüm kayıtlar dışa aktarılacak',
+                  text:'Ekrandaki filtreler UYGULANMAYACAK; ' + data.length + ' kaydın tamamı ' +
+                       'dosyaya yazılacak. Dosya paylaşıldığında kapsam sınırı korunmaz.',
+                  okLabel:'Tümünü aktar', tone:'warn'
+                }).then(function(ok){ if(ok) doExport(data, fmt, ad); });
+                return;
+              }
+              doExport(data, fmt, ad);
             } }
         ]
       });
@@ -1689,33 +1750,82 @@
       return rows.length;
     }
 
-    function doExport(rows, fmt){
+    /* ÇIKTI KÜNYESİ — şartname [14.4.2]: "çıktı ekranda aktif filtre, kolon,
+       sıralama, kapsam ve formül sürümünü taşısın." Künye VERİNİN ARDINA
+       yazılır, önüne değil: başa konan satırlar CSV'yi okuyan her aracın
+       başlık satırını kaydırır ve [14.6.1]'in "ekranla aynı kayıt kümesi"
+       sözleşmesini bozardı. */
+    function ciktiKunyesi(rows, cols, kapsam){
+      var f = [];
+      if(state.q) f.push('arama: ' + state.q);
+      if(state.tab) f.push('sekme: ' + state.tab);
+      Object.keys(state.filters || {}).forEach(function(k){
+        var v = state.filters[k];
+        if(v && v.length) f.push(k + ': ' + (Array.isArray(v) ? v.join(' | ') : v));
+      });
+      if(state.archive) f.push('arşiv: dahil');
+      return [
+        ['Kapsam', kapsam + ' · ' + rows.length + ' kayıt'],
+        ['Filtre', f.length ? f.join(' · ') : 'yok'],
+        ['Sıralama', state.sort ? state.sort + ' ' + (state.dir === 'desc' ? 'azalan' : 'artan') : 'varsayılan'],
+        ['Kolon', cols.map(function(c){ return c.label; }).join(' | ')],
+        ['Formül sürümü', (window.DB && DB.formulaVersion) || 'tanımsız'],
+        ['Alındığı an', (window.DB ? DB.today : '') + ' · ' + ((GV.session && GV.session.ad) || '—')]
+      ];
+    }
+
+    /* TEK HÜCRE SÖZLEŞMESİ — çıktının değer kuralı BURADA yaşar.
+       Değer sırası: açık sözleşme → ekranın gösterdiği metin → ham alan.
+       Ortadaki basamak `xport.js`'in ölçtüğü "ekranda dolu, çıktıda boş"
+       sınıfını kökten kapatır; kolon başına yama gerekmez.
+
+       ⚠️ Ayrı bir yordam olmasının sebebi ölçüm: `xport.js` bu kuralı kendi
+       içinde KOPYALIYORDU ve kopya, ürün kodundan bağımsız yaşıyordu — kuralı
+       ürün tarafında bozup ekseni koşturduğumda eksen yine "TEMİZ" dedi, çünkü
+       kendi kopyasını ölçüyordu (L-27 ailesinin yeni bir üyesi). Eksen artık
+       liste örneğinin dönüş yüzeyindeki `exportCell`i çağırır, yani ÜRÜNÜ
+       ölçer. Bu yordamın imzası ölçüm sözleşmesinin parçasıdır. */
+    function exportCell(c, r, i){
+      if(colMasked(c, r)) return '';                /* UID-28 — maskeli hücre çıktıya da girmez */
+      var v = c.exportValue ? c.exportValue(r, i)
+            : c.render     ? htmlText(c.render(r, i))
+            : r[c.key];
+      return v == null ? '' : htmlText(v);
+    }
+
+    function doExport(rows, fmt, kapsam){
       var cols = visibleCols().filter(function(c){ return c.exportable !== false; });
       var head = cols.map(function(c){ return c.label; });
-      var body = rows.map(function(r){
-        return cols.map(function(c){
-          if(colMasked(c, r)) return '';              /* UID-28 — maskeli hücre çıktıya da girmez */
-          var v = c.exportValue ? c.exportValue(r) : r[c.key];
-          if(v == null) return '';
-          return String(v).replace(/<[^>]*>/g,'').trim();
-        });
+      var body = rows.map(function(r, i){
+        return cols.map(function(c){ return exportCell(c, r, i); });
       });
       var name = (cfg.exportName || 'liste') + '-' + (window.DB ? DB.today : '');
+      var kunye = ciktiKunyesi(rows, cols, kapsam || 'filtrelenmiş');
 
       if(fmt === 'print' || fmt === 'pdf'){
         var w = window.open('', '_blank');
         if(!w){ GV.toast('Açılır pencere engellendi', 'danger'); return; }
         w.document.write('<html><head><title>' + name + '</title><meta charset="utf-8">' +
-          '<style>body{font-family:system-ui,sans-serif;padding:24px;color:#101426}' +
-          'h1{font-size:18px;margin:0 0 4px}p{color:#6A7189;font-size:12px;margin:0 0 18px}' +
+          '<style>@page{size:A4 landscape;margin:14mm}' +
+          'body{font-family:system-ui,sans-serif;padding:0;color:#101426}' +
+          'h1{font-size:18px;margin:0 0 4px}p{color:#6A7189;font-size:12px;margin:0 0 12px}' +
           'table{width:100%;border-collapse:collapse;font-size:11px}' +
+          /* Şartname [14.4.6]: başlık her sayfada tekrar etsin, satır ortadan bölünmesin. */
+          'thead{display:table-header-group}tfoot{display:table-footer-group}' +
+          'tr{page-break-inside:avoid;break-inside:avoid}' +
           'th{background:#EDF0F5;text-align:left;padding:7px;border:1px solid #E3E7EE;font-size:10px;text-transform:uppercase}' +
-          'td{padding:7px;border:1px solid #E3E7EE}</style></head><body>' +
+          'td{padding:7px;border:1px solid #E3E7EE}' +
+          '.kunye{margin-top:14px;font-size:10px;color:#6A7189;page-break-inside:avoid}' +
+          '.kunye b{color:#101426}' +
+          '</style></head><body>' +
           '<h1>' + esc(cfg.exportTitle || 'Liste çıktısı') + '</h1>' +
-          '<p>Gavia Works · ' + Fmt.date(window.DB ? DB.today : '') + ' · ' + rows.length + ' kayıt</p>' +
+          '<p>GaviaWorks · ' + Fmt.date(window.DB ? DB.today : '') + ' · ' + rows.length + ' kayıt</p>' +
           '<table><thead><tr>' + head.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           body.map(function(r){ return '<tr>' + r.map(function(c){ return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') +
-          '</tbody></table></body></html>');
+          '</tbody></table>' +
+          '<div class="kunye">' + kunye.map(function(k){
+            return '<div><b>' + esc(k[0]) + ':</b> ' + esc(k[1]) + '</div>'; }).join('') + '</div>' +
+          '</body></html>');
         w.document.close();
         setTimeout(function(){ w.print(); }, 300);
         GV.toast(fmt === 'pdf' ? 'Yazdırma penceresinden PDF olarak kaydedebilirsiniz' : 'Yazdırma penceresi açıldı', 'info', 5000);
@@ -1723,9 +1833,14 @@
       }
 
       var sep = fmt === 'csv' ? ',' : '\t';
-      var text = [head].concat(body).map(function(r){
-        return r.map(function(c){ return /["\n,;\t]/.test(c) ? '"' + c.replace(/"/g,'""') + '"' : c; }).join(sep);
-      }).join('\n');
+      function satir(r){
+        return r.map(function(c){
+          c = csvGuard(String(c == null ? '' : c));
+          return /^'|["\n,;\t]/.test(c) ? '"' + c.replace(/"/g,'""') + '"' : c;
+        }).join(sep);
+      }
+      var text = [satir(head)].concat(body.map(satir)).join('\n') +
+                 '\n\n' + kunye.map(function(k){ return satir([k[0], k[1]]); }).join('\n');
       var mime = fmt === 'csv' ? 'text/csv;charset=utf-8' : 'application/vnd.ms-excel;charset=utf-8';
       var blob = new Blob(['﻿' + text], { type:mime });
       var a = document.createElement('a');
@@ -1769,6 +1884,7 @@
       setTab:function(k){ state.tab = k; reset(); render(); },
       setFilter:function(k, v){ state.filters[k] = v; reset(); render(); },
       exportRows:exportRows,         /* UID-07 — seçili / dışarıdan verilen kapsamı dışa aktarır */
+      exportCell:exportCell,         /* ÖLÇÜM SÖZLEŞMESİ — `xport.js` çıktı değerini buradan okur */
       openCols:openCols,             /* UID-26 — kolon yöneticisi */
       openFilters:openFilters,       /* UID-26 — gelişmiş filtre paneli */
       /* Kayıt kümesi verilmezse EKRANDAKİ süzülmüş küme kullanılır — çağıran
@@ -2739,6 +2855,147 @@
                   table:{...GV.list config (mount hariç)} }]
      })
      =================================================================== */
+  /* ===================================================================
+     11b. ORTAK HÜCRE VE KOLON FABRİKALARI — `GV.cell` · `GV.cols`
+     -------------------------------------------------------------------
+     ÖLÇÜLEN SORUN ([14.0.2]): 7 rapor sayfası toplam ~3.060 satır prelude
+     yazıyor ve `colMoney / colNum / colPct / colDate / colDurum / colKisi /
+     mny / num / sub / faint / linkCell / mRow / tbl / bos` fabrikaları HER
+     SAYFADA yeniden tanımlanıyor (finans'ta 115 satır). Yedi kopya, biri
+     diğerinden sessizce ayrılabiliyor.
+
+     Üç şey buraya taşındığında düzeliyor:
+     1. **Hizalama** ([14.2.5] · [14.2.6]) — tarih ve durum kolonlarının
+        ortalanması gerekiyordu; ölçüldü, 7 sayfanın hiçbirinde
+        `cellClass:'center'` yoktu. Artık fabrikadan geliyor, sayfa unutamaz.
+     2. **Çıktı** ([14.4.1]) — her fabrika `exportValue`'yu kendi kurar.
+     3. **`null` ≠ 0** (REVİZE 04) — ölçülemeyen bir maliyet için "0 ₺"
+        basmak, gideri olmayan bir kayıt göstermek olurdu. Boş değer dili
+        tek yerde.
+
+     ⚠️ `GV.fmt` ZATEN VAR ve biçimlendirmedir (`Fmt`: date/money/num).
+     HTML üreten hücre yardımcıları bu yüzden `GV.cell` altındadır; ikisi
+     karıştırılırsa sayfa `GV.fmt.mny` diye var olmayan bir ad çağırır.
+     =================================================================== */
+  GV.cell = {
+    /* Değer tarafı escape'lidir, sabit işaretleme değil (ders L-14). */
+    faint:function(t){ return '<span class="u-faint">' + esc(t == null ? '—' : t) + '</span>'; },
+    /* `sub` HTML ALIR — çağıran içeride başka hücre yardımcısı kullanabilsin
+       diye. Ham kullanıcı metni verilecekse çağıran escape eder. */
+    sub:function(html){ return '<span class="cell-sub">' + (html == null ? '' : html) + '</span>'; },
+    mny:function(v, o){
+      o = o || {};
+      if(v == null) return GV.cell.faint('—');
+      if(o.signed) return v < 0
+        ? '<span class="cell-money u-danger">−' + Fmt.money(Math.abs(v), o.cur) + '</span>'
+        : '<span class="cell-money u-ok">' + Fmt.money(v, o.cur) + '</span>';
+      return '<span class="cell-money' + (o.tone ? ' u-' + o.tone : '') + '">' + Fmt.money(v, o.cur) + '</span>';
+    },
+    num:function(v, o){
+      o = o || {};
+      if(v == null) return GV.cell.faint('—');
+      return '<span class="u-num' + (o.tone ? ' u-' + o.tone : '') + '">' + Fmt.num(v, o.basamak) + '</span>';
+    },
+    gun:function(v, tone){
+      if(v == null) return GV.cell.faint('—');
+      return '<span class="u-num' + (tone ? ' u-' + tone : '') + '">' + Fmt.num(v) + ' gün</span>';
+    },
+    oran:function(v, esik){
+      if(v == null) return GV.cell.faint('—');
+      var e = esik || 50;
+      return '<span class="u-num ' + (v >= e ? 'u-ok' : v >= e / 2 ? 'u-warn' : 'u-danger') + '">%' + Fmt.num(v) + '</span>';
+    },
+    link:function(href, kod, altHtml){
+      return '<a class="cell-main" href="' + href + '">' + esc(kod) + '</a>' + (altHtml || '');
+    },
+    mrow:function(main, kod, metas, badges){
+      return '<div class="gv-mrow-top">' + main + '</div>' +
+        '<div class="gv-mrow-code">' + kod + '</div>' +
+        (metas && metas.length ? '<div class="gv-mrow-meta">' + metas.map(function(m){
+          return '<span>' + m + '</span>'; }).join('') + '</div>' : '') +
+        (badges ? '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + badges + '</span></div>' : '');
+    }
+  };
+
+  GV.cols = {
+    money:function(key, label, o){
+      o = o || {};
+      return { key:key, label:label, cellClass:o.cellClass || 'num', visible:o.visible !== false,
+        sortValue:function(x){ return x[key] == null ? null : x[key]; },
+        exportValue:o.exportValue || function(x){ return x[key] == null ? '' : x[key]; },
+        render:function(x){
+          return GV.cell.mny(x[key], { signed:o.signed, cur:o.cur, tone:o.tone ? o.tone(x) : null }) +
+                 (o.sub ? GV.cell.sub(o.sub(x)) : ''); } };
+    },
+    num:function(key, label, o){
+      o = o || {};
+      return { key:key, label:label, cellClass:o.cellClass || 'num', visible:o.visible !== false,
+        sortValue:function(x){ return x[key] == null ? null : x[key]; },
+        exportValue:o.exportValue || function(x){ return x[key] == null ? '' : x[key]; },
+        render:function(x){
+          return GV.cell.num(x[key], { basamak:o.basamak, tone:o.tone ? o.tone(x) : null }) +
+                 (o.sub ? GV.cell.sub(o.sub(x)) : ''); } };
+    },
+    pct:function(key, label, o){
+      o = o || {};
+      return { key:key, label:label, cellClass:o.cellClass || 'num', visible:o.visible !== false,
+        sortValue:function(x){ return x[key] == null ? null : x[key]; },
+        exportValue:o.exportValue || function(x){ return x[key] == null ? '' : x[key]; },
+        /* Ölçüm yoksa ilerleme çubuğu da çizilmez — %0 dolu çubuk "hiç
+           kullanılmamış" iddiasıdır, oysa değer hesaplanamıyor. */
+        render:function(x){ return x[key] == null ? GV.cell.faint('—')
+          : o.bar ? GV.progress(x[key]) : GV.cell.oran(x[key], o.esik); } };
+    },
+    /* [14.2.5] — tarih kolonu ORTALANIR. */
+    date:function(key, label, o){
+      o = o || {};
+      return { key:key, label:label, cellClass:o.cellClass || 'center', visible:o.visible !== false,
+        exportValue:o.exportValue || function(x){ return x[key] || ''; },
+        render:function(x){ return x[key]
+          ? (o.plain ? '<span class="cell-date">' + Fmt.date(x[key]) + '</span>'
+                     : GV.dateCell(x[key], { done:o.done ? o.done(x) : false }))
+          : GV.cell.faint('—'); } };
+    },
+    /* [14.2.6] — durum kolonu ORTALANIR. Rozet HTML'dir; çıktıya ham
+       değerin kendisi gider, etiket soyulmuş rozet değil. */
+    durum:function(key, label, o){
+      o = o || {};
+      key = key || 'durum';
+      return { key:key, label:label || 'Durum', cellClass:o.cellClass || 'center', visible:o.visible !== false,
+        exportValue:o.exportValue || function(x){ return x[key] || ''; },
+        render:function(x){ return x[key] ? GV.badge(x[key], o.extra ? o.extra(x) : null) : GV.cell.faint('—'); } };
+    },
+    /* Kişi kolonu ekranda avatar+ad basar; çıktıya ADI gider, kod değil —
+       dosyayı açan kişi `EMP-004`'ü okuyamaz (VB-12 ile aynı gerekçe). */
+    kisi:function(key, label, o){
+      o = o || {};
+      return { key:key, label:label, visible:o.visible !== false,
+        exportValue:o.exportValue || function(x){
+          return x[key] ? (window.DB && DB.empName ? DB.empName(x[key]) : x[key]) : ''; },
+        render:function(x){ return x[key] ? GV.user(x[key], { sm:true }) : GV.cell.faint('—'); } };
+    },
+    kod:function(key, label, o){
+      o = o || {};
+      return { key:key, label:label, visible:o.visible !== false,
+        exportValue:o.exportValue || function(x){ return x[key] || ''; },
+        render:function(x){
+          var alt = o.sub ? GV.cell.sub(o.sub(x)) : '';
+          return o.href ? GV.cell.link(o.href(x), x[key], alt)
+                        : '<span class="cell-main">' + esc(x[key]) + '</span>' + alt; } };
+    },
+    /* Rapor tablosu iskeleti — `GV.list` yapılandırmasının rapor lehçesi. */
+    tbl:function(o){
+      return { key:o.key || 'kod', pageSize:o.pageSize || 10, archive:false,
+        exportName:o.exportName, exportTitle:o.exportTitle,
+        search:o.search, defaultSort:o.defaultSort, defaultDir:o.defaultDir || 'desc',
+        tabs:o.tabs, columns:o.columns, mobile:o.mobile, emptyState:o.emptyState };
+    },
+    bos:function(baslik, aciklama, ikon){
+      return { icon:ikon || 'i-wallet', title:baslik,
+        desc:aciklama || 'Ortak filtreleri temizleyerek ya da tarih aralığını genişleterek kapsamı büyütebilirsiniz.' };
+    }
+  };
+
   GV.report = function(cfg){
     var mount = typeof cfg.mount === 'string' ? document.querySelector(cfg.mount) : cfg.mount;
     if(!mount) return null;
