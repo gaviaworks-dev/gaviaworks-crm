@@ -204,11 +204,18 @@
       if(!kural || !kural.next || !kural.next.length) return [];
       var izin = Flow.yetkili(rec, kural);
       var eksik = Flow.eksikAlanlar(rec, kural);
+      /* Dostane etiket YALNIZ birincil hedefe verilir. Eskiden `next[0]`a
+         veriliyordu ve ikisi ayrışabiliyordu: proje `Aktif` durumunda etiket
+         "Teste Al" iken `next[0]` `Beklemede`ydi — düğme yanlış işi vaat
+         ediyordu. Birincil hedef artık tabloda `anaHedef` ile yazılır;
+         yazılmamışsa `next[0]` varsayılır. */
+      var ana = kural.anaHedef || kural.next[0];
       return kural.next.map(function(hedef){
         var hk = Flow.kural(tur, hedef) || {};
         return {
           hedef:hedef,
-          etiket:(kural.next.length === 1 || hedef === kural.next[0]) ? (kural.etiket || hedef) : hedef,
+          birincil:hedef === ana,
+          etiket:hedef === ana ? (kural.etiket || hedef) : hedef,
           tone:/Onay|Kabul|Tamam|Aktif|Kapandı|Kapat|Ödendi/.test(hedef) ? 'btn-ok'
              : /İptal|Ret|Fesih|Feshedildi|Kaybedildi|Engel/.test(hedef) ? 'btn-danger-line'
              : /Revizyon|Revize|İade|Geri|Arşiv|Askı/.test(hedef) ? 'btn-line' : 'btn-acc',
@@ -980,17 +987,22 @@
       if(d.musteriOnay === karar) return { ok:false, why:'zaten bu durumda' };
       var eskiOnay = d.musteriOnay, eskiDurum = d.durum;
       d.musteriOnay = karar;
-      if(karar === 'Onaylandı'){
-        d.onayTarihi = tarih || DB.today;
-        d.durum = 'Onaylandı';
-      }else if(karar === 'Revizyon istendi'){
-        d.onayTarihi = null;
-        /* Teslim durumu sözlüğü üç değerlidir (Planlandı · Onaylandı · Gecikti);
-           revizyon için yeni bir durum UYDURULMAZ — onaylı teslim planlıya döner. */
-        if(d.durum === 'Onaylandı') d.durum = 'Planlandı';
-        if(not) d.not = not;
-      }else{
-        d.onayTarihi = null;
+      /* ⚠️ CLOUD TURU — bu yordam sözlük dışı değer yazıyordu (`'Onaylandı'` ve
+         `'Planlandı'`, ikisi de teslim sözlüğünden çıktı). Artık durumu KENDİ
+         yazmaz; hedefi merkezî motora bırakır. Motor geçişe izin vermezse
+         müşteri onayı alanı da geri alınır — yarım sonuç bırakmaz. */
+      var hedef = karar === 'Onaylandı' ? 'Kabul'
+                : karar === 'Revizyon istendi' ? 'Revizyon' : null;
+      if(karar === 'Onaylandı') d.onayTarihi = tarih || DB.today;
+      else d.onayTarihi = null;
+      if(not) d.not = not;
+      if(hedef && d.durum !== hedef){
+        var g = Flow.gec('delivery', d.kod, hedef, null,
+                         { not:not || 'müşteri kararı: ' + karar });
+        if(!g.ok){
+          d.musteriOnay = eskiOnay; d.onayTarihi = eskiDurum === 'Kabul' ? d.onayTarihi : null;
+          return { ok:false, why:'akis', mesaj:g.mesaj || g.why, akis:g };
+        }
       }
       log(d.kod, 'Müşteri onayı işlendi' +
           (eskiDurum !== d.durum ? ' · teslim durumu ' + eskiDurum + ' → ' + d.durum : ''),
@@ -1836,8 +1848,17 @@
 
     var acikGorev = t.filter(function(x){ return GOREV_ACIK.indexOf(x.durum) === -1; });
     var kontrolde = t.filter(function(x){ return x.durum === 'Kontrolde'; });
-    var acikCr    = cr.filter(function(x){ return ['Onaylandı','Reddedildi'].indexOf(x.durum) === -1; });
-    var acikTsl   = tsl.filter(function(x){ return x.durum !== 'Onaylandı'; });
+    /* Değişiklik sözlüğü de taşındı: onaydan sonra `Uygulama → Teslim → Kapandı`
+       adımları var ve bunların hiçbiri "açık talep" değildir. */
+    var CR_KARARLI = ['Onaylandı','Uygulama','Teslim','Kapandı','Reddedildi','İptal Edildi'];
+    var acikCr    = cr.filter(function(x){ return CR_KARARLI.indexOf(x.durum) === -1; });
+    /* ⚠️ CLOUD TURU DÜZELTMESİ — teslim sözlüğü taşındığında burası geride
+       kaldı: `'Onaylandı'` artık teslim durumu DEĞİL (`Kabul` oldu). Kural
+       sessizce her teslimi "onaylanmamış" sayıyor, dolayısıyla HER proje
+       kapanışı yönetici istisnası istiyordu. Kapalı sayılan durumlar
+       `DB.deliveryStatuses` ile birebir hizalı tutulur. */
+    var TESLIM_BITTI = ['Kabul','Kısmi Kabul','Kapandı'];
+    var acikTsl   = tsl.filter(function(x){ return TESLIM_BITTI.indexOf(x.durum) === -1; });
     var onaysiz   = tsl.filter(function(x){ return x.musteriOnay !== 'Onaylandı'; });
     var zorunlu   = ((DB.company || {}).zorunluProjeDokuman || []);
     var eksikDok  = zorunlu.filter(function(tur){

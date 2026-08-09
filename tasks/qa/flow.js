@@ -94,6 +94,60 @@ function denetle(DB) {
     });
   });
 
+  /* 6 — SÖZLÜK DIŞI DİZGİ: kod, artık var olmayan bir durum adını arıyor mu?
+     Bu ekseni ekleyen sebep somuttur: durum sözlükleri şartnameye taşındıktan
+     sonra `domain.js` içinde iki yordam eski adı aramaya devam etti.
+       · `Proje.kapanisKontrol` teslimleri `durum !== 'Onaylandı'` diye süzüyordu;
+         'Onaylandı' artık teslim durumu değil, dolayısıyla HER teslim
+         "onaylanmamış" sayılıyor ve HER proje kapanışı yönetici istisnası
+         istiyordu.
+       · `Delivery.approve` durumu `'Onaylandı'` / `'Planlandı'` yazıyordu —
+         ikisi de sözlükten çıkmıştı.
+     İkisi de sessizdi: hata yok, yalnız yanlış sonuç. Eksen 1–5 bunu
+     göremez çünkü onlar VERİYİ ve TABLOYU ölçer, KODU değil. */
+  const KOD_DOSYALARI = ['assets/js/domain.js', 'assets/js/ui.js',
+                         'assets/js/shell.js', 'assets/js/dashboard.js'];
+  /* ⚠️ EKSENİN DAR OLMASI ŞART. İlk hâli 25 bulgu üretti ve neredeyse hepsi
+     YANLIŞ ALARMDI: `Bekliyor` ödeme ve onay ekseninde, `Gecikti` ödeme ve
+     taksitte, `Planlandı` milestone/sprint/testte, `Onaylandı` onay ve
+     timesheette HÂLÂ meşru. Bir ad yalnız BİR koleksiyondan taşındı diye
+     ölü sayılamaz.
+
+     Doğru ölçüt: ad, sistemde HİÇBİR YERDE yaşamıyorsa ölüdür. Canlı küme
+     üç kaynaktan kurulur — geçiş tabloları, `DB.*Statuses` sözlükleri ve
+     koleksiyonlarda FİİLEN duran değerler. */
+  const canli = new Set();
+  Object.keys(tablolar).forEach(t => Object.keys(tablolar[t] || {}).forEach(d => canli.add(d)));
+  Object.keys(DB).forEach(k => {
+    const v = DB[k];
+    if (Array.isArray(v) && /Statuses$|Kararlar$|Results$|Levels$/.test(k))
+      v.forEach(x => { if (typeof x === 'string') canli.add(x); });
+    if (Array.isArray(v)) v.forEach(r => {
+      if (r && typeof r === 'object') ['durum', 'belgeDurum', 'onay', 'musteriOnay', 'odemeDurum']
+        .forEach(a => { if (typeof r[a] === 'string') canli.add(r[a]); });
+    });
+  });
+
+  const tasinan = new Set();
+  Object.keys(DB.statusMigration || {}).forEach(tur => {
+    Object.keys(DB.statusMigration[tur]).forEach(eski => {
+      if (!canli.has(eski)) tasinan.add(eski);
+    });
+  });
+  KOD_DOSYALARI.forEach(rel => {
+    const tam = path.join(ROOT, rel);
+    if (!fs.existsSync(tam)) return;
+    const satirlar = fs.readFileSync(tam, 'utf8').split('\n');
+    satirlar.forEach((l, i) => {
+      if (/^\s*(\/\*|\*|\/\/)/.test(l)) return;          /* yorum satırı sayılmaz */
+      tasinan.forEach(eski => {
+        if (l.indexOf("'" + eski + "'") === -1) return;
+        if (!/durum|status/i.test(l)) return;
+        bulgular.push(['sozluk-disi-dizgi', rel, (i + 1) + ': "' + eski + '" sözlükten çıktı']);
+      });
+    });
+  });
+
   return bulgular;
 }
 
@@ -149,6 +203,8 @@ function selftest() {
     process.exit(1);
   }
   console.log('\nÖZ SINAMA GEÇTİ — beş eksenin beşi de bozuk kopyada bulgu üretti.');
+  console.log('(Altıncı eksen `sozluk-disi-dizgi` gerçek kod dosyalarını okur;');
+  console.log(' bozuk kopyada değil, temiz koşumda ölçülür.)');
   console.log('Temiz veride ' + temiz.length + ' bulgu' + (temiz.length ? ' VAR — düzeltilmeli.' : ' yok.'));
   process.exit(temiz.length ? 1 : 0);
 }
