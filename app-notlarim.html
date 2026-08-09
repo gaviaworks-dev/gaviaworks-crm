@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Notlarım — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<!-- `data-sec="calisma"` — "Çalışma Alanım" bölümü `shell.js` SECTIONS ve
+     SEC_BY_ROLE'e eklendi ve şirket içi 26 rolün hepsine açık: kişisel not
+     tutmak bir yetki değil, kullanıcının kendi alanıdır. Tek istisna `musteri`
+     personası — portal kimliği bir `YTK-` kaydıdır, `GV.notes` oturumdaki
+     personel koduna bağlıdır ve müşteri için hep boş bir ekran açardı.
+     Erişim kapısı roldedir DEĞİL sahipliktedir; `GV.notes` uygular. -->
+<body data-sec="calisma" data-screen="notlarim">
+<div id="rec"></div>
+
+<!-- Yalnız iki veri dosyası. `notes.js` KİŞİSEL koleksiyondur ve sadece
+     Notlarım ekranları yükler; `org.js` oturum/personel/`DB.today` içindir.
+     Kurumsal veri dosyaları (crm · work · ops · hr · misc) burada BİLEREK yok:
+     bu ekranın onlara ihtiyacı yok ve yüklememek, notun kurumsal kayıtla aynı
+     bellekte buluşmadığı tek somut sınırdır (ADR-13). Görünen bedeli: sol
+     menüdeki onay/bildirim rozetleri bu sayfada sayı basmaz — raporda yazılı. -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/notes.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var esc = GV.esc, F = GV.fmt;
+
+  /* ===================================================================
+     TEK OKUMA KAPISI — `GV.notes`
+     -------------------------------------------------------------------
+     Bu dosyada kişisel not koleksiyonlarının (`personalNotes` ·
+     `personalNoteChecklistItems`) ADI HİÇ GEÇMEZ — koleksiyona doğrudan
+     tek bir `filter`/`find` bile yazılmadı. Her okuma
+     `GV.notes.*` üzerinden gider; sözlükler
+     (`DB.noteStatuses` · `DB.notePriorities` · `DB.noteCategories` ·
+     `DB.noteTrashDays`) süzgeç değil, seçenek listesidir ve doğrudan
+     okunur. Gerekçe ders L-40: ikinci bir süzgeç yolu açılırsa biri
+     diğerinden sessizce ayrılır — ekran "Açık" derken servis başka bir
+     kümeyi açık sayar.
+
+     ⚠️ AUDIT YAZILMAZ. Bu ekranda denetim yordamına (`GV` audit yüzeyi),
+     kurumsal aktivite defterine (`activities`) ve sistem günlüğüne
+     (`logs`) tek bir çağrı YOKTUR; bu yokluk bilinçlidir (ADR-13 ·
+     şartname [15.5.5]): kurumsal defter kişisel not metnini taşımaz,
+     olayın kendisi bile kaydın varlığını başkasına duyurur.
+
+     ⚠️ PROTOTİP SINIRI — kodda yaşar, ekranda değil. Sahiplik süzgeci
+     istemcide çalışıyor; konsolu açan biri koleksiyonu okur. Gerçek
+     izolasyon sunucu tarafı `owner_user_id` kapsamıyla gelir
+     ([15.4.1]-[15.4.3]) ve modül canlıya çıkmadan kapatılması zorunlu
+     bir açıktır. Kullanıcıya güvenlik açığı duyurulmaz.
+     =================================================================== */
+
+  var COP_GUN = DB.noteTrashDays || 7;
+  var ONIZLEME = 60;                 /* gövde ön izlemesinin karakter sınırı */
+
+  /* Gövdenin İLK SATIRI — alt satır olarak basılır. Kırpma tek yerde:
+     iki farklı uzunluk, aynı notu iki ekranda iki türlü gösterirdi. */
+  function ilkSatir(body, sinir){
+    var s = String(body == null ? '' : body).split(/\r?\n/)[0].replace(/\s+/g, ' ').trim();
+    if(!s) return '';
+    return s.length > sinir ? s.slice(0, sinir - 1).replace(/\s+\S*$/, '') + '…' : s;
+  }
+
+  /* Görünüm üyeliği — sekme süzgeçleri BU yordamdan geçer, kendi
+     koşullarını yazmazlar. "Bugün" tanımı tek yerde: `GV.notes.gorunum`. */
+  function gorunumde(key, r){
+    return GV.notes.gorunum(key).some(function(n){ return n.kod === r.kod; });
+  }
+
+  /* Kontrol listesi ilerlemesi — maddeler de sahiplik kapısından geçer
+     (`GV.notes.maddeler` içeride `bul()` çağırır, başkasının notunda boş döner). */
+  function kontrol(kod){
+    var m = GV.notes.maddeler(kod);
+    var isaretli = m.filter(function(x){ return x.isaretli; }).length;
+    return { toplam:m.length, isaretli:isaretli,
+             oran:m.length ? Math.round(isaretli * 100 / m.length) : null };
+  }
+
+  /* ---- kaynak -------------------------------------------------------
+     Arama kutusu `GV.notes.ara(q)` kullanır: arama YALNIZ sahibinin
+     kayıtlarında koşar ([15.5.1]). Terim listenin kendi durumundan
+     okunur; ilk çizimde `api` henüz atanmadığı için adres çubuğundaki
+     `q` parametresine düşer (liste `urlSync` ile oraya yazıyor).
+     Bileşenin kendi arama geçişi `search.fields` ile AYNI iki alanda
+     çalışır (`baslik` · `body`), yani servisin döndürdüğü kümeden bir
+     kayıt daha eksiltmez — yetkili süzgeç servistedir. */
+  var api;
+  function aramaTerimi(){
+    if(api && api.state) return api.state.q || '';
+    return new URLSearchParams(location.search).get('q') || '';
+  }
+  function notKaynak(){
+    var q = aramaTerimi();
+    var rows = q ? GV.notes.ara(q) : GV.notes.benim();
+    /* Sabitleme bir SÜZGEÇ değil SIRALAMA kuralıdır: servis kümeyi verir,
+       ekran sırasını kurar. Kullanıcı bir kolon başlığına basınca
+       bileşenin sıralaması bunun yerine geçer. */
+    return rows.slice().sort(function(a, b){
+      if(!!a.sabit !== !!b.sabit) return a.sabit ? -1 : 1;
+      return (a.sira || 0) - (b.sira || 0);
+    });
+  }
+
+  /* ---- sayfa başlığı ---- */
+  GV.pageHead({
+    eyebrow:'Çalışma Alanım',
+    title:'Notlarım',
+    sub:'Yalnız size görünen kişisel notlar',
+    actions:[{ label:'Yeni Not', icon:'i-plus', cls:'btn-acc', href:'app-not-form.html' }]
+  });
+
+  /* Liste ve çöp kutusu AYRI mount düğümleri: `GV.refresh()` `#rec`i taze
+     kopyayla değiştirir (ders L-15/L-16), ikisi birden yeniden kurulur. */
+  document.getElementById('rec').innerHTML =
+    GV.notice({ tone:'neutral', icon:'i-lock',
+      title:'Kişisel çalışma alanı',
+      text:'Buradaki notlar yalnız size görünür. Kurumsal raporlara, aktivite geçmişine ve ' +
+           'ekip aramalarına girmez; silinen not ' + COP_GUN + ' gün çöp kutusunda bekler.' }) +
+    '<div id="notListe" class="u-mt-4"></div>' +
+    '<div id="notCop"></div>';
+
+  api = GV.list({
+    mount:'#notListe', id:'notlarim', key:'kod',
+    source:notKaynak,
+    pageSize:10,
+    archive:false,          /* arşiv ayrı bir SEKME — notun `aktif`/`arsiv` alanı yok */
+    /* Çıktı kapalı: kişisel not kurumsal yüzeye girmez ve dışa aktarma
+       dosyası o yüzeylerden biridir (ADR-13 · [15.5.5]). Yetki eksikliği
+       değil kapsam kararı; bu yüzden şeritte "bu sürümde yok" da denmez. */
+    export:false,
+    search:{ placeholder:'Not başlığı veya içeriğinde ara', fields:['baslik','body'] },
+    kpis:[
+      /* Sayaçlar da servisten okunur — KPI ile sekme sayısı ayrışamaz. */
+      { label:'Açık not', icon:'i-clipboard', calc:function(){ return GV.notes.gorunum('acik').length; } },
+      { label:'Bugün biten', icon:'i-sun', tone:'warn', calc:function(){ return GV.notes.gorunum('bugun').length; } },
+      { label:'Gecikmiş', icon:'i-alert', tone:'danger', calc:function(){ return GV.notes.gorunum('gecikmis').length; } },
+      { label:'Tamamlanan', icon:'i-check-circle', tone:'ok', calc:function(){ return GV.notes.gorunum('tamam').length; } }
+    ],
+    /* Sekme sayaçlarını bileşen KENDİ ölçer (`chip-cnt`): etikete elle sayı
+       yazmak, süzgeçle sayının ayrışmasına açık ikinci bir hesap olurdu. */
+    tabs:[
+      { key:'tumu',     label:'Tümü',        icon:'i-list',         filter:function(r){ return gorunumde('', r); } },
+      { key:'acik',     label:'Açık',        icon:'i-clipboard',    filter:function(r){ return gorunumde('acik', r); } },
+      { key:'bugun',    label:'Bugün',       icon:'i-sun',          filter:function(r){ return gorunumde('bugun', r); } },
+      { key:'yaklasan', label:'Yaklaşan',    icon:'i-calendar',     filter:function(r){ return gorunumde('yaklasan', r); } },
+      { key:'tamam',    label:'Tamamlanan',  icon:'i-check-circle', filter:function(r){ return gorunumde('tamam', r); } },
+      { key:'arsiv',    label:'Arşiv',       icon:'i-archive',      filter:function(r){ return gorunumde('arsiv', r); } }
+    ],
+    columns:[
+      /* Başlık + gövdenin ilk satırı. Bağlantı forma gider; not detayı ayrı
+         bir ekran değil, düzenleme formunun kendisidir. */
+      GV.cols.kod('baslik', 'Not', { width:'26%', locked:true, cellClass:'cell-wrap',
+        href:function(x){ return 'app-not-form.html?id=' + encodeURIComponent(x.kod); },
+        sub:function(x){
+          var on = ilkSatir(x.body, ONIZLEME);
+          return (x.sabit ? '<span class="tag">Sabit</span> ' : '') +
+                 GV.cell.faint(on || 'Gövde boş');
+        } }),
+      /* Kategori bir DURUM değil etikettir; `GV.badge` ton sözlüğünde
+         karşılığı yok, bu yüzden açık ton geçilir (detay-brief §4). */
+      GV.cols.durum('kategori', 'Kategori', { extra:function(){ return 'is-neutral no-dot'; } }),
+      /* Öncelik rozeti `GV.pri` ile basılır; `GV.cols` ailesinde öncelik
+         fabrikası YOK — eksik bileşen olarak raporlandı. */
+      { key:'oncelik', label:'Öncelik', cellClass:'center',
+        sortValue:function(x){ return (DB.notePriorities || []).indexOf(x.oncelik); },
+        exportValue:function(x){ return x.oncelik || ''; },
+        render:function(x){ return GV.pri(x.oncelik); } },
+      GV.cols.durum('durum', 'Durum'),
+      /* Tamamlanan/arşivlenen notun terminine "gecikti" rengi verilmez. */
+      GV.cols.date('bitis', 'Bitiş tarihi', { bosMetin:'Tarihsiz',
+        done:function(x){ return x.durum !== 'Açık'; } }),
+      { key:'kontrolListesi', label:'Kontrol listesi', cellClass:'center',
+        sortValue:function(x){ var k = kontrol(x.kod); return k.toplam ? k.oran : null; },
+        exportValue:function(x){ var k = kontrol(x.kod); return k.toplam ? k.isaretli + '/' + k.toplam : ''; },
+        render:function(x){
+          var k = kontrol(x.kod);
+          /* Maddesi olmayan notta %0'lık çubuk basılmaz: hiç madde olmaması
+             ile hiçbiri işaretlenmemiş olması aynı şey değildir. */
+          if(!k.toplam) return GV.cell.faint('Madde yok');
+          return GV.progress(k.oran) + GV.cell.sub(GV.cell.faint(k.isaretli + ' / ' + k.toplam + ' madde'));
+        } }
+    ],
+    filters:[
+      { key:'kategori', label:'Kategori', type:'multi',  options:DB.noteCategories || [] },
+      { key:'oncelik',  label:'Öncelik',  type:'multi',  options:DB.notePriorities || [] },
+      { key:'durum',    label:'Durum',    type:'select', options:DB.noteStatuses || [] },
+      { key:'bitis',    label:'Bitiş tarihi', type:'daterange' }
+    ],
+    rowClass:function(x){ return gorunumde('gecikmis', x) ? 'is-late' : ''; },
+    mobile:function(x){
+      var k = kontrol(x.kod);
+      return '<div class="gv-mrow-top"><a class="cell-main" href="app-not-form.html?id=' + encodeURIComponent(x.kod) + '">' +
+          esc(x.baslik) + '</a>' + (x.sabit ? '<span class="tag">Sabit</span>' : '') + '</div>' +
+        '<div class="gv-mrow-code">' + esc(x.kod) + ' · ' + esc(x.kategori) +
+          (k.toplam ? ' · ' + k.isaretli + '/' + k.toplam + ' madde' : '') + '</div>' +
+        '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(x.durum) + GV.pri(x.oncelik) + '</span>' +
+          (x.bitis ? GV.dateCell(x.bitis, { done:x.durum !== 'Açık' }) : '') + '</div>';
+    },
+    rowActions:[
+      { key:'tamam', icon:'i-check-circle', label:'Tamamlandı işaretle',
+        show:function(x){ return x.durum === 'Açık'; },
+        run:function(x, refresh){
+          GV.notes.guncelle(x.kod, { durum:'Tamamlandı' });
+          GV.toast(x.baslik + ' tamamlandı olarak işaretlendi', 'ok');
+          refresh();
+        } },
+      { key:'geri', icon:'i-refresh', label:'Geri al',
+        show:function(x){ return x.durum === 'Tamamlandı'; },
+        run:function(x, refresh){
+          GV.notes.guncelle(x.kod, { durum:'Açık' });
+          GV.toast(x.baslik + ' yeniden açıldı', 'ok');
+          refresh();
+        } },
+      { key:'sabitle', icon:'i-star', label:'Sabitle',
+        show:function(x){ return !x.sabit; },
+        run:function(x, refresh){
+          GV.notes.guncelle(x.kod, { sabit:true });
+          GV.toast('Not listenin başına sabitlendi', 'ok');
+          refresh();
+        } },
+      { key:'sabitKaldir', icon:'i-star', label:'Sabiti kaldır',
+        show:function(x){ return !!x.sabit; },
+        run:function(x, refresh){
+          GV.notes.guncelle(x.kod, { sabit:false });
+          GV.toast('Sabitleme kaldırıldı', 'ok');
+          refresh();
+        } },
+      { key:'arsivle', icon:'i-archive', label:'Arşivle',
+        show:function(x){ return x.durum !== 'Arşiv'; },
+        run:function(x, refresh){
+          GV.notes.guncelle(x.kod, { durum:'Arşiv' });
+          GV.toast(x.kod + ' arşive alındı', 'ok');
+          refresh();
+        } },
+      /* Arşivden çıkarma olmasaydı arşiv sekmesi tek yönlü bir kapı olurdu:
+         kullanıcı kendi notunu geri alamazdı. */
+      { key:'arsivCik', icon:'i-inbox', label:'Arşivden çıkar',
+        show:function(x){ return x.durum === 'Arşiv'; },
+        run:function(x, refresh){
+          GV.notes.guncelle(x.kod, { durum:'Açık' });
+          GV.toast(x.kod + ' arşivden çıkarıldı', 'ok');
+          refresh();
+        } },
+      { key:'sil', icon:'i-trash', cls:'is-danger', label:'Sil',
+        run:function(x){
+          GV.confirm({ tone:'danger', okLabel:'Sil',
+            title:'Notu sil',
+            text:'"' + x.baslik + '" çöp kutusuna taşınacak.' })
+            .then(function(ok){
+              if(!ok) return;
+              var s = GV.notes.sil(x.kod);
+              if(!s){ GV.toast('Not bulunamadı', 'danger'); return; }
+              /* Geri alma süresi servisin DÖNDÜRDÜĞÜ değerdir; ekran kendi
+                 sayısını yazmaz (ADR-14: süre kullanıcıya söylenir). */
+              GV.toast(s.kod + ' çöp kutusuna taşındı · ' + s.gun + ' gün içinde geri alınabilir', 'ok');
+              /* location.reload() YASAK (L-15) — mutasyon bellekte, reload siler.
+                 Çöp kutusu kartı da yeniden çizilsin diye tam tazeleme. */
+              GV.refresh();
+            });
+        } }
+    ],
+    bulk:[
+      /* Ders L-23: `run` vermeden madde konmaz — bileşen "N kayıt işlendi"
+         demez, aksiyonu devre dışı basar. Üçünün de yordamı yazılı. */
+      { key:'tamam', label:'Tamamlandı işaretle', icon:'i-check-circle',
+        run:function(ids){
+          ids.forEach(function(kod){ GV.notes.guncelle(kod, { durum:'Tamamlandı' }); });
+          GV.toast(ids.length + ' not tamamlandı olarak işaretlendi', 'ok');
+        } },
+      { key:'arsivle', label:'Arşivle', icon:'i-archive',
+        confirm:'{n} not arşive alınacak.',
+        run:function(ids){
+          ids.forEach(function(kod){ GV.notes.guncelle(kod, { durum:'Arşiv' }); });
+          GV.toast(ids.length + ' not arşive alındı', 'ok');
+        } },
+      { key:'sil', label:'Sil', icon:'i-trash', tone:'danger',
+        confirm:'{n} not çöp kutusuna taşınacak.',
+        run:function(ids){
+          var n = 0, gun = COP_GUN;
+          ids.forEach(function(kod){ var s = GV.notes.sil(kod); if(s){ n++; gun = s.gun; } });
+          GV.toast(n + ' not çöp kutusuna taşındı · ' + gun + ' gün içinde geri alınabilir', 'ok');
+          /* Bileşen `run`dan HEMEN sonra kendi `render()`ını çağırıyor;
+             tazelemeyi sıranın sonuna bırakmazsak liste sökülmüş bir
+             düğüme çizim yapar. */
+          setTimeout(function(){ GV.refresh(); }, 0);
+        } }
+    ],
+    emptyState:{ icon:'i-clipboard', title:'Bu görünümde not yok',
+      desc:'Kişisel çalışma alanınız boş. Toplantı hazırlığı, kişisel hatırlatma veya fikir ' +
+           'notlarınızı buraya yazabilir, kontrol listesi ve bitiş tarihi ekleyebilirsiniz.',
+      action:'<a class="btn btn-acc" href="app-not-form.html">İlk notunu oluştur</a>' },
+    urlSync:true
+  });
+
+  /* ===================================================================
+     ÇÖP KUTUSU — ADR-14
+     Yumuşak silinen not COP_GUN gün geri alınabilir. Kart YALNIZ içinde
+     kayıt varken basılır: boş bir "çöp kutusu" kartı, kullanıcıya olmayan
+     bir birikim varmış gibi gösterirdi.
+     =================================================================== */
+  (function copKutusu(){
+    var host = document.getElementById('notCop');
+    var cop = GV.notes.gorunum('cop');
+    if(!host || !cop.length) return;
+
+    host.innerHTML =
+      '<div class="gv-card u-mt-4">' +
+        '<div class="gc-head"><div>' +
+          '<h2 class="gc-title">' + GV.ico('i-trash') + ' Çöp Kutusu</h2>' +
+          '<div class="gc-sub">Silinen not ' + COP_GUN + ' gün geri alınabilir. Süre dolduğunda ' +
+            'kayıt listelerde görünmez.</div>' +
+        '</div></div>' +
+        '<div class="gc-body flush">' +
+          cop.map(function(n){
+            var kalan = COP_GUN + (F.days(String(n.silinme).slice(0,10)) || 0);
+            return '<div class="gv-mrow" data-id="' + esc(n.kod) + '">' +
+              '<div class="gv-mrow-top">' +
+                '<div><span class="cell-main">' + esc(n.baslik) + '</span>' +
+                  '<span class="cell-sub">' + esc(n.kategori) + ' · ' + esc(n.oncelik) + ' öncelik</span></div>' +
+                '<button type="button" class="btn btn-line btn-sm" data-geri="' + esc(n.kod) + '">' +
+                  GV.ico('i-refresh','ic-sm') + ' Geri al</button>' +
+              '</div>' +
+              '<div class="gv-mrow-code">' + esc(n.kod) + ' · silindi ' + F.dt(n.silinme) +
+                ' · ' + Math.max(0, kalan) + ' gün kaldı</div>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+
+    /* Dinleyici `#rec` İÇİNDEKİ düğümde: `GV.refresh()` mount'u taze kopyayla
+       değiştirdiği için birikmez (ders L-16), `GV.on` anahtarı gerekmez. */
+    Array.prototype.forEach.call(host.querySelectorAll('[data-geri]'), function(btn){
+      btn.addEventListener('click', function(){
+        var n = GV.notes.geriAl(btn.dataset.geri);
+        if(!n){ GV.toast('Geri alma süresi dolmuş olabilir', 'warn'); return; }
+        GV.toast(n.kod + ' geri alındı', 'ok');
+        GV.refresh();
+      });
+    });
+  })();
+
+});
+</script>
+</body>
+</html>

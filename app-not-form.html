@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yeni Not — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="calisma" data-screen="notlarim">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js   → DB.today (tarih ekseni), oturum çözümü
+     notes.js → DB.noteStatuses, DB.notePriorities, DB.noteCategories,
+                DB.noteColors, DB.noteTrashDays ve kişisel not koleksiyonu
+
+     ⚠️ Kişisel not koleksiyonuna bu ekran DOĞRUDAN DOKUNMAZ. Her okuma ve
+     yazma `GV.notes` üzerinden gider (ADR-13): iki ayrı süzgeç yolu açılırsa
+     biri diğerinden sessizce ayrılır (ders L-40). Dosya yalnız servisin
+     beslendiği veri ve sözlükler için yüklenir. -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/notes.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+  /* Şartname [15.0.3] — eyebrow "Kişisel Çalışma Alanı", breadcrumb
+     "Çalışma Alanım > Notlarım". Bölüm kaydı shell.js'te henüz yok; kırıntı
+     yolunun bölüm halkası menü kaydı doğduğunda kendiliğinden basılır. */
+  var EYEBROW = 'Kişisel Çalışma Alanı';
+  var LISTE   = 'app-notlarim.html';
+
+  function kart(baslik, ikon, govde, alt){
+    return '<section class="gv-card">' +
+      (baslik ? '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+        (alt ? '<div class="gc-sub">' + esc(alt) + '</div>' : '') + '</div></div>' : '') +
+      '<div class="gc-body">' + govde + '</div></section>';
+  }
+
+  function cikisBasligi(baslik, altYazi){
+    GV.pageHead({
+      eyebrow:EYEBROW, title:baslik, sub:altYazi,
+      actions:[{ label:'Notlarım', cls:'btn-line', href:LISTE }]
+    });
+  }
+
+  /* =================================================================
+     KAPI — ROL MATRİSİ DEĞİL, SAHİPLİK (ADR-13 · şartname [15.4.1])
+
+     Diğer formlar `GV.perm.can('ekle'/'duzenle')` sorar; kişisel notta soru
+     bu değildir. Kişisel çalışma alanı bir kurumsal modül değil, oturum
+     sahibinin kendi alanıdır: rol matrisi ne derse desin sahibi olmayan
+     göremez, sahibi olan da rolünden bağımsız kendi notunu yazar. Bu yüzden
+     tek kapı `GV.notes.sahip()`: oturumun bir personel kimliği yoksa
+     (müşteri portalı oturumunda `emp` null'dur) kişisel alan hiç açılmaz.
+     ================================================================= */
+  var sahip = GV.notes.sahip();
+  if(!sahip){
+    cikisBasligi('Kişisel not açılamadı', 'Bu oturumda kişisel çalışma alanı bulunmuyor.');
+    mount.innerHTML = kart('', '', GV.empty({
+      icon:'i-lock', title:'Kişisel çalışma alanı bulunmuyor',
+      desc:'Kişisel notlar personel hesabına bağlıdır. Bu oturum bir personel hesabı ' +
+           'olmadığı için not oluşturulamaz veya düzenlenemez.',
+      action:'<a class="btn btn-acc" href="app-panel.html">Ana panele dön</a>' }));
+    return;
+  }
+
+  /* =================================================================
+     MOD — adreste id varsa düzenleme, yoksa yeni kayıt
+     ================================================================= */
+  var qs      = new URLSearchParams(location.search);
+  var id      = qs.get('id');
+  var kayit   = id ? GV.notes.bul(id) : null;
+  var duzenle = !!kayit;
+
+  /* `GV.notes.bul` sahibi olmayan kayıtta da null döner ([15.5.1] · [15.4.3]):
+     "yetkiniz yok" demek kaydın VARLIĞINI sızdırırdı. Ekran bu yüzden iki
+     durumu ayırmaz — ikisi de "yok"tur ve metin kaydın var olduğunu ima etmez. */
+  if(id && !kayit){
+    GV.shell.crumb('Kayıt bulunamadı');
+    cikisBasligi('Kayıt bulunamadı', 'Düzenlenmek istenen not bulunamadı.');
+    mount.innerHTML = kart('', '', GV.empty({
+      icon:'i-search', title:'Not bulunamadı',
+      desc:'“' + esc(id) + '” kodlu bir kişisel notunuz bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="' + LISTE + '">Notlarım listesine dön</a>' }));
+    return;
+  }
+
+  GV.shell.crumb('Notlarım · ' + (duzenle ? kayit.kod + ' · Düzenle' : 'Yeni Not'));
+  document.title = (duzenle ? kayit.kod + ' · Notu Düzenle' : 'Yeni Not') + ' — GaviaWorks CRM';
+
+  /* =================================================================
+     SÖZLÜKLER — hepsi veri katmanından (ders L-31: ada atıf yapan kural,
+     adın gerçekten var olduğu bir kümeden beslenir).
+     ================================================================= */
+  var RENK_AD = { amber:'Amber', mavi:'Mavi', mor:'Mor', yesil:'Yeşil', kirmizi:'Kırmızı', gri:'Gri' };
+  function renkSecenek(){
+    return (DB.noteColors || []).map(function(r){ return { value:r, label:RENK_AD[r] || r }; });
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, servisten sayılır.
+     ================================================================= */
+  var notSayisi = GV.notes.benim().length;
+  var maddeler  = duzenle ? GV.notes.maddeler(kayit.kod) : [];
+  var isaretli  = maddeler.filter(function(m){ return m.isaretli; }).length;
+
+  function maddeAlanAdi(kodMadde){ return 'md_' + kodMadde; }
+
+  /* =================================================================
+     FORM KAYDI — düzenlemede kayıttan, yeni notta servisin varsayılanlarıyla
+     aynı değerlerden başlar (form ile servis iki ayrı varsayılan tutmaz).
+     ================================================================= */
+  var formRec;
+  if(duzenle){
+    formRec = {
+      baslik:kayit.baslik || '', body:kayit.body || '',
+      kategori:kayit.kategori || '', renk:kayit.renk || '',
+      bitis:kayit.bitis || '', hatirlatma:kayit.hatirlatma || '',
+      oncelik:kayit.oncelik || '', sabit:!!kayit.sabit,
+      durum:kayit.durum || 'Açık', yeniMadde:''
+    };
+    maddeler.forEach(function(m){ formRec[maddeAlanAdi(m.kod)] = !!m.isaretli; });
+  }else{
+    formRec = {
+      baslik:'', body:'', kategori:'Kişisel', renk:'mavi',
+      bitis:'', hatirlatma:'', oncelik:'Orta', sabit:false, durum:'Açık'
+    };
+  }
+
+  /* =================================================================
+     BÖLÜMLER VE SEKMELER — şartname [15.2.2]–[15.2.5]
+
+     Not · Plan · Kontrol Listesi · Durum. "Özet" ([15.2.5]) ayrı bir sekme
+     DEĞİL, sağ bağlam panelidir: içeriği girilen değerlerden türer ve
+     kaydetmeden önce görülmesi gerekir — sekmeye koymak onu kullanıcının
+     bakmadığı bir yere gömerdi.
+
+     Kontrol listesi sekmesi YALNIZ düzenleme modunda açılır: madde bir nota
+     bağlıdır, not doğmadan maddesi olamaz. Yeni kayıtta sekme listeye hiç
+     eklenmez (boş panel = ölü kontrol).
+     ================================================================= */
+  var sections = [
+    { tab:'not', title:'Not', icon:'i-file',
+      desc:'Başlık ve içerik yalnız size görünür; biçimlendirme uygulanmaz, düz metin saklanır.',
+      fields:[
+        { key:'baslik', label:'Başlık', type:'text', required:true, cols:12,
+          placeholder:'Notu tek cümlede özetleyin',
+          validate:function(v){ return String(v || '').trim() ? '' : 'Başlık yalnızca boşluk olamaz.'; } },
+        { key:'body', label:'İçerik', type:'textarea', required:true, rows:9, cols:12,
+          placeholder:'Kendi çalışma notunuz — kimseye açılmaz.',
+          validate:function(v){ return String(v || '').trim() ? '' : 'İçerik yalnızca boşluk olamaz.'; } },
+        { key:'kategori', label:'Kategori', type:'select', options:DB.noteCategories, cols:6,
+          hint:'Notlarım listesindeki kategori süzgecini besler.' },
+        { key:'renk', label:'Renk', type:'select', options:renkSecenek(), cols:6,
+          hint:'Kart görünümünde notu ayırt etmek için.' }
+      ]},
+
+    { tab:'plan', title:'Plan', icon:'i-calendar',
+      desc:'Tarihler ve öncelik yalnız sizin listenizi sıralar; kurumsal takvime ve göreve düşmez.',
+      fields:[
+        { key:'bitis', label:'Bitiş tarihi', type:'date', cols:6,
+          hint:'Boş bırakılabilir — tarihsiz not "Yaklaşan" görünümüne girmez.' },
+        { key:'hatirlatma', label:'Hatırlatma tarihi', type:'date', cols:6,
+          hint:'Hatırlatma yalnız size gider.',
+          validate:function(v, d){
+            if(!v || !d.bitis) return '';
+            return v > d.bitis ? 'Hatırlatma tarihi bitiş tarihinden sonra olamaz.' : '';
+          } },
+        { key:'oncelik', label:'Öncelik', type:'select', options:DB.notePriorities, cols:6 },
+        { key:'sabit', label:'Sabitle', type:'switch', cols:6,
+          onLabel:'Listenin başında sabit dursun' }
+      ]},
+
+    { tab:'durum', title:'Durum', icon:'i-flag',
+      desc:'“Tamamlandı” seçildiğinde tamamlanma zamanı, “Arşiv” seçildiğinde arşivlenme ' +
+           'zamanı kaydedilir; geri alındığında bu zaman damgası temizlenir.',
+      fields:[
+        { key:'durum', label:'Kayıt durumu', type:'select', options:DB.noteStatuses,
+          required:true, cols:6,
+          hint:'Arşivlenen not "Tümü" görünümünde listelenmez, silinmez.' }
+      ]}
+  ];
+
+  var tabs = [
+    { key:'not',   label:'Not',              icon:'i-file' },
+    { key:'plan',  label:'Plan',             icon:'i-calendar' },
+    { key:'liste', label:'Kontrol Listesi',  icon:'i-clipboard-check' },
+    { key:'durum', label:'Durum',            icon:'i-flag' }
+  ];
+
+  if(duzenle){
+    /* Maddeler tek tek işaretlenebilir alanlar olarak basılır. `GV.form`'da
+       sıralanabilir/silinebilir madde listesi bileşeni YOK (components.md §4);
+       şartname [15.2.3] sıralama ve silme de istiyor — eksik bileşen olarak
+       raporlanır, sayfaya özel markup ya da CSS yazılmaz (§8 yasağı). */
+    var maddeAlanlari = maddeler.map(function(m){
+      return { key:maddeAlanAdi(m.kod), label:m.metin, type:'checkbox', cols:12,
+               hint:m.isaretli ? 'Kayıtta işaretli · ' + F.dt(m.isaretTarihi) : 'Kayıtta işaretsiz' };
+    });
+    maddeAlanlari.push({ key:'yeniMadde', label:'Yeni madde', type:'text', cols:12,
+      placeholder:'Eklenecek maddeyi yazın',
+      hint:'Kaydettiğinizde listenin sonuna eklenir. Her kaydetmede bir madde eklenir.' });
+
+    sections.splice(2, 0, { tab:'liste', title:'Kontrol Listesi', icon:'i-clipboard-check',
+      desc:maddeler.length
+        ? maddeler.length + ' madde · ' + isaretli + ' işaretli. İşaret durumu kaydettiğinizde yazılır.'
+        : 'Bu notta henüz madde yok. Aşağıdan ilk maddeyi ekleyebilirsiniz.',
+      fields:maddeAlanlari });
+  }else{
+    tabs = tabs.filter(function(t){ return t.key !== 'liste'; });
+  }
+
+  var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
+
+  /* =================================================================
+     ÜST BLOK — bağlam kartı (düzenleme) / ne olacağı (yeni kayıt)
+     ⚠️ AKTİVİTE GEÇMİŞİ BÖLÜMÜ YOK ve bu bilinçlidir (ADR-13 · [15.4.5]).
+     Kişisel not kurumsal deftere satır yazmaz; olay metadata'sı bile kaydın
+     varlığını başkasına duyurur. Ortak denetim defteri yordamı ve kurumsal
+     aktivite koleksiyonu bu ekranda hiç çağrılmaz — yokluğu bilinçlidir.
+     ================================================================= */
+  var ust = '';
+  if(duzenle){
+    var damga = kayit.durum === 'Tamamlandı' ? ['Tamamlanma', kayit.tamamlanma ? F.dt(kayit.tamamlanma) : null]
+              : kayit.durum === 'Arşiv'      ? ['Arşivlenme', kayit.arsivlenme ? F.dt(kayit.arsivlenme) : null]
+              : null;
+    ust += kart('Not Künyesi', 'i-file',
+      GV.dl([
+        ['Kayıt no', '<b>' + esc(kayit.kod) + '</b>'],
+        ['Durum', GV.badge(kayit.durum)],
+        ['Öncelik', GV.pri(kayit.oncelik)],
+        ['Kategori', esc(kayit.kategori || '—')],
+        ['Oluşturma', F.dt(kayit.olusturma)],
+        ['Son güncelleme', F.dt(kayit.guncelleme)],
+        damga,
+        ['Kontrol listesi', maddeler.length
+          ? '<b class="u-num">' + isaretli + '</b> / ' + maddeler.length + ' işaretli'
+          : null]
+      ], { skipEmpty:false }),
+      kayit.kod + ' · yalnız size görünür');
+
+    if(maddeler.length && isaretli < maddeler.length &&
+       (kayit.durum === 'Tamamlandı' || kayit.durum === 'Arşiv')){
+      ust += kart('', '', GV.notice({ tone:'warn', icon:'i-clipboard-check',
+        title:'İşaretsiz madde var',
+        text:'Not “' + kayit.durum + '” durumunda ama kontrol listesinde ' +
+             (maddeler.length - isaretli) + ' madde hâlâ işaretsiz.' }));
+    }
+  }else{
+    ust += kart('', '', GV.notice({ tone:'info', icon:'i-file',
+      title:'Yeni kişisel not açılıyor',
+      text:'Kaydettiğinizde sıradaki not numarası atanır, sahiplik oturumunuzdan yazılır ' +
+           've not Notlarım listenize düşer. Çalışma alanınızda şu an ' + notSayisi + ' not var. ' +
+           'Kontrol listesi maddeleri not oluştuktan sonra, notu yeniden açtığınızda eklenir.',
+      actions:[{ label:'Notlarım', href:LISTE }] }));
+  }
+
+  /* =================================================================
+     FORM KABUĞU
+     ================================================================= */
+  mount.innerHTML = ust +
+    '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-file') +
+        (duzenle ? 'Notu Düzenle' : 'Yeni Not') + '</h2>' +
+        '<div class="gc-sub">' + alanSayisi + ' alan · zorunlu alanlar yıldızla işaretlidir · ' +
+          'kaydetmek için Ctrl+S</div></div></div>' +
+      '<div class="gc-body" id="formMount"></div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="' + LISTE + '">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' Notu Kaydet</button>' +
+      '</div>' +
+    '</section>';
+
+  var form = GV.form({
+    mount:'#formMount', id:'not', record:formRec, sections:sections, tabs:tabs,
+
+    /* SAĞ BAĞLAM PANELİ = şartname [15.2.5] "Özet": görünürlük açıklaması,
+       açık/tamamlanan madde sayısı ve kayıt durumu. Hepsi girilen değerlerden
+       türer; içinde döngüsel tarama ya da dinleyici yok. */
+    aside:function(v){
+      var out = '';
+      var baslik = String(v.baslik || '').trim();
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-file',
+        title:baslik || (duzenle ? kayit.kod : 'Başlıksız not'),
+        text:[(v.kategori || 'Kategorisiz'),
+              (v.oncelik ? v.oncelik + ' öncelik' : 'Önceliksiz'),
+              (RENK_AD[v.renk] || v.renk || 'Renksiz'),
+              (v.sabit ? 'listenin başında sabit' : 'sabitlenmemiş')].join(' · ') });
+
+      out += GV.notice({
+        tone:v.durum === 'Tamamlandı' ? 'ok' : v.durum === 'Arşiv' ? 'neutral' : 'info',
+        icon:'i-flag', title:'Durum · ' + (v.durum || 'Açık'),
+        text:v.durum === 'Tamamlandı'
+              ? 'Kaydettiğinizde tamamlanma zamanı yazılır.'
+              : v.durum === 'Arşiv'
+                ? 'Arşivlenen not listelerde görünmez; silinmez, geri alınabilir.'
+                : (duzenle && kayit.durum !== 'Açık'
+                    ? 'Durum “' + kayit.durum + '” idi; kaydettiğinizde zaman damgası temizlenir.'
+                    : 'Not açık kalır ve Notlarım listenizde görünür.') });
+
+      if(v.bitis){
+        var g = F.days(v.bitis);
+        out += GV.notice({
+          tone:g < 0 ? 'warn' : g === 0 ? 'info' : 'neutral', icon:'i-calendar',
+          title:'Bitiş · ' + F.date(v.bitis),
+          text:F.rel(v.bitis) +
+               (v.hatirlatma ? ' · hatırlatma ' + F.date(v.hatirlatma) : ' · hatırlatma yok') });
+      }else if(v.hatirlatma){
+        out += GV.notice({ tone:'neutral', icon:'i-calendar',
+          title:'Hatırlatma · ' + F.date(v.hatirlatma),
+          text:'Bitiş tarihi girilmedi; not “Yaklaşan” görünümüne girmez.' });
+      }
+
+      if(duzenle && maddeler.length){
+        var acik = maddeler.filter(function(m){ return !v[maddeAlanAdi(m.kod)]; }).length;
+        var yeni = String(v.yeniMadde || '').trim();
+        out += GV.notice({
+          tone:acik ? 'warn' : 'ok', icon:'i-clipboard-check',
+          title:'Kontrol listesi · ' + (maddeler.length - acik) + ' / ' + maddeler.length,
+          text:(acik ? acik + ' madde işaretsiz.' : 'Tüm maddeler işaretli.') +
+               (yeni ? ' Kaydedince 1 madde eklenecek.' : '') });
+      }
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-lock', title:'Yalnızca siz görürsünüz',
+        text:'Kişisel notlar şirket araması, raporlar, dışa aktarma ve aktivite akışına girmez.' });
+
+      return out;
+    }
+  });
+
+  /* =================================================================
+     KAYDET — her yazma `GV.notes` üzerinden ([15.5.3]: `owner` GÖNDERİLMEZ,
+     servis sahipliği oturumdan atar; forma "sahip" alanı konmaz).
+     ================================================================= */
+  function kaydet(){
+    var v = form.submit();
+    if(!v) return;
+
+    var deger = {
+      baslik:String(v.baslik || '').trim(),
+      body:String(v.body || '').trim(),
+      durum:v.durum, oncelik:v.oncelik, kategori:v.kategori, renk:v.renk,
+      sabit:!!v.sabit,
+      bitis:v.bitis || null,
+      hatirlatma:v.hatirlatma || null
+    };
+
+    var sonuc = duzenle ? GV.notes.guncelle(kayit.kod, deger) : GV.notes.olustur(deger);
+    if(!sonuc){
+      GV.toast('Not kaydedilemedi — kişisel çalışma alanı açık değil', 'danger');
+      return;
+    }
+    var kod = sonuc.kod;
+
+    /* Madde işaretleri — yalnız DEĞİŞENLER servise gider; değişmeyen maddeye
+       dokunmak `isaretTarihi` damgasını sebepsiz tazelerdi ([15.5.4]). */
+    var degisenMadde = 0;
+    if(duzenle){
+      maddeler.forEach(function(m){
+        var yeniDurum = !!v[maddeAlanAdi(m.kod)];
+        if(yeniDurum === !!m.isaretli) return;
+        if(GV.notes.madde(m.kod, yeniDurum)) degisenMadde++;
+      });
+      var metin = String(v.yeniMadde || '').trim();
+      if(metin && GV.notes.maddeEkle(kod, metin)) degisenMadde++;
+    }
+
+    GV.toast(kod + (duzenle ? ' güncellendi' : ' oluşturuldu') +
+      (degisenMadde ? ' · ' + degisenMadde + ' madde' : ''), 'ok');
+
+    form.setDirty(false);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer.
+       Notun AYRI DETAY EKRANI YOKTUR: form kendisi detaydır (kişisel not
+       ikinci bir okuma yüzeyi açmaz), bu yüzden `detay` hedefi verilmez ve
+       yönlendirme listeye düşer ([3.1.16]).
+       Bu form nottan başka kayıt üretmez; kontrol listesi maddesi notun kendi
+       alt kaydıdır ve ayrı ekranı yoktur — `alt` bağlantısı yok. */
+    GV.afterSave({ kod:kod, yeni:!duzenle, liste:LISTE });
+  }
+
+  GV.pageHead({
+    eyebrow:EYEBROW,
+    title: duzenle ? kayit.kod + ' · Notu Düzenle' : 'Yeni Not',
+    sub:   duzenle
+      ? 'Yalnızca sizin görebildiğiniz kişisel not · ' + alanSayisi + ' alan, ' +
+        maddeler.length + ' kontrol listesi maddesi.'
+      : 'Yalnızca sizin görebildiğiniz kişisel not · zorunlu alanlar yıldızla işaretlidir.',
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:LISTE },
+      { label:'Notu Kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+    ]
+  });
+
+  /* Mount İÇİNDEKİ düğüm — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var altBtn = document.getElementById('kaydetAlt');
+  if(altBtn) altBtn.addEventListener('click', kaydet);
+
+  /* Klavye ile kaydetme ([15.1.7]). `document` KALICI düğümdür: GV.on ile
+     tekil anahtar üzerinden bağlanır, yoksa her tazelemede dinleyici birikir
+     (ders L-16). */
+  GV.on(document, 'keydown', function(e){
+    if(!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 's') return;
+    e.preventDefault();
+    kaydet();
+  }, 'notform.save');
+});
+</script>
+</body>
+</html>
