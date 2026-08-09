@@ -153,6 +153,16 @@
       { ic:'i-briefcase',    lbl:'Proje Raporları',  href:'app-rapor-proje.html',        screen:'raporproje' }
     ]},
 
+    /* ÇALIŞMA ALANIM — şartname §15 · ADR-13.
+       Bu bölüm diğer on beşinden bir yönüyle ayrılır: içeriği KURUMSAL DEĞİL
+       KİŞİSELDİR. Bu yüzden `SEC_BY_ROLE`'de HER role açıktır — kişisel not
+       tutmak bir yetki değil, kullanıcının kendi alanıdır; rol matrisiyle
+       kısıtlamak "bu rol kendi notunu tutamaz" demek olurdu. Erişim kapısı
+       roldedir değil SAHİPLİKTEDİR ve `GV.notes` içinde uygulanır. */
+    calisma:{ ic:'i-file', eyebrow:'Çalışma Alanım', title:'Kişisel Çalışma Alanı', menu:[
+      { ic:'i-file',  lbl:'Notlarım', href:'app-notlarim.html', screen:'notlarim' }
+    ]},
+
     ayarlar:{ ic:'i-settings', eyebrow:'Sistem', title:'Ayarlar ve Yetkilendirme', menu:[
       { ic:'i-building',     lbl:'Şirket Bilgileri', href:'app-ayar-sirket.html',        screen:'sirket', roles:['sahip','genelmudur','sistem'] },
       { ic:'i-users',        lbl:'Departmanlar',     href:'app-ayar-departman.html',     screen:'departmanlar', roles:['sahip','genelmudur','sistem','operasyon','ik'] },
@@ -176,7 +186,7 @@
   };
 
   var RAIL_ORDER = ['panel','satis','musteri','proje','gorev','destek','sohbet','personel',
-                    'varlik','satinalma','finans','dokuman','toplanti','rapor','ayarlar'];
+                    'varlik','satinalma','finans','dokuman','toplanti','rapor','calisma','ayarlar'];
 
   /* Rol → görebileceği bölümler ---------------------------------------- */
   var ALL = RAIL_ORDER.slice();
@@ -233,34 +243,34 @@
     sahip:        ALL,
     genelmudur:   ALL,
     sistem:       ALL,
-    operasyon:    ['panel','satis','musteri','proje','gorev','destek','sohbet','personel','varlik','satinalma','finans','dokuman','toplanti','rapor','ayarlar'],
-    depmudur:     ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','ayarlar'],
-    satismudur:   ['panel','satis','musteri','proje','gorev','sohbet','finans','dokuman','toplanti','rapor','ayarlar'],
-    satistemsilci:['panel','satis','musteri','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    musteritems:  ['panel','musteri','destek','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    analist:      ['panel','satis','musteri','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    pm:           ['panel','musteri','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','finans','ayarlar'],
-    takimlideri:  ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','ayarlar'],
-    tasarimci:    ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    frontend:     ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    backend:      ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    mobil:        ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    ai:           ['panel','proje','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    qa:           ['panel','proje','gorev','destek','sohbet','dokuman','toplanti','ayarlar'],
-    devops:       ['panel','proje','gorev','destek','sohbet','varlik','dokuman','toplanti','ayarlar'],
-    destek:       ['panel','musteri','destek','gorev','proje','sohbet','dokuman','toplanti','ayarlar'],
-    ik:           ['panel','personel','gorev','sohbet','varlik','dokuman','toplanti','rapor','ayarlar'],
-    muhasebe:     ['panel','musteri','finans','satinalma','varlik','gorev','sohbet','dokuman','toplanti','rapor','ayarlar'],
-    satinalma:    ['panel','satinalma','varlik','finans','gorev','sohbet','dokuman','toplanti','rapor','ayarlar'],
-    idari:        ['panel','varlik','satinalma','personel','gorev','sohbet','dokuman','toplanti','ayarlar'],
-    freelancer:   ['panel','gorev','sohbet','dokuman','ayarlar'],
-    diskaynak:    ['panel','gorev','sohbet','dokuman','ayarlar'],
-    stajyer:      ['panel','gorev','sohbet','dokuman','ayarlar'],
+    operasyon:    ['panel','satis','musteri','proje','gorev','destek','sohbet','personel','varlik','satinalma','finans','dokuman','toplanti','rapor','calisma','ayarlar'],
+    depmudur:     ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','calisma','ayarlar'],
+    satismudur:   ['panel','satis','musteri','proje','gorev','sohbet','finans','dokuman','toplanti','rapor','calisma','ayarlar'],
+    satistemsilci:['panel','satis','musteri','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    musteritems:  ['panel','musteri','destek','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    analist:      ['panel','satis','musteri','proje','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    pm:           ['panel','musteri','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','finans','calisma','ayarlar'],
+    takimlideri:  ['panel','proje','gorev','destek','sohbet','personel','dokuman','toplanti','rapor','calisma','ayarlar'],
+    tasarimci:    ['panel','proje','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    frontend:     ['panel','proje','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    backend:      ['panel','proje','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    mobil:        ['panel','proje','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    ai:           ['panel','proje','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    qa:           ['panel','proje','gorev','destek','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    devops:       ['panel','proje','gorev','destek','sohbet','varlik','dokuman','toplanti','calisma','ayarlar'],
+    destek:       ['panel','musteri','destek','gorev','proje','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    ik:           ['panel','personel','gorev','sohbet','varlik','dokuman','toplanti','rapor','calisma','ayarlar'],
+    muhasebe:     ['panel','musteri','finans','satinalma','varlik','gorev','sohbet','dokuman','toplanti','rapor','calisma','ayarlar'],
+    satinalma:    ['panel','satinalma','varlik','finans','gorev','sohbet','dokuman','toplanti','rapor','calisma','ayarlar'],
+    idari:        ['panel','varlik','satinalma','personel','gorev','sohbet','dokuman','toplanti','calisma','ayarlar'],
+    freelancer:   ['panel','gorev','sohbet','dokuman','calisma','ayarlar'],
+    diskaynak:    ['panel','gorev','sohbet','dokuman','calisma','ayarlar'],
+    stajyer:      ['panel','gorev','sohbet','dokuman','calisma','ayarlar'],
     /* REVİZE 13 — müşteriye açılan TEK yeni bölüm `proje` ("Projelerim").
        Yeni ekran doğmuyor: var olan proje · milestone · teslim ekranları
        kapsamlanıyor, bölümün iç ekranları (sprint · test · hata · değişiklik)
        `SCREEN_DENY` ile kapalı. */
-    musteri:      ['panel','proje','destek','dokuman','ayarlar'],
+    musteri:      ['panel','proje','destek','dokuman','ayarlar'],   /* 'calisma' YOK: kişisel çalışma alanı ŞİRKET İÇİ kullanıcınındır; müşteri portalı kimliği bir `YTK-` kaydıdır, `GV.notes` oturumdaki personel koduna bağlıdır ve müşteri için hep boş bir ekran açardı */
   };
 
   /* ===================================================================
@@ -919,7 +929,9 @@
     'app-arac-gider-form.html',
     'app-arac-kaza-form.html',
     'app-destek-paket-form.html',
-    'app-performans-form.html'
+    'app-performans-form.html',
+    'app-notlarim.html',
+    'app-not-form.html'
   ];
   GV.built = BUILT;
 
