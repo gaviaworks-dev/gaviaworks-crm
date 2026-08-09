@@ -565,3 +565,65 @@ dışına basılan overlay tazelenmez) → **L-36 (tazeleme yolunun KENDİSİ di
 biriktirir)**. Üçünü de aynı araç yakaladı: `listen.js` add − remove farkını
 sayıyor. Bu, tarama setinin bir regresyonu **kod incelemesinden önce** yakaladığı
 üçüncü olaydır.
+
+## L-37 — Yorum içindeki `*/` bloğu erken kapatır (CLOUD TURU)
+
+`app-panel-onaylar.html` içine yazdığım bir açıklama yorumu şu cümleyi
+taşıyordu: *"kaynak kayda (SAT-\*/IZN-\*/TKL-\*) hiç dokunmuyor"*.
+`SAT-*/` dizisindeki `*/` blok yorumunu **oracıkta kapattı**; kalan metin
+kod olarak ayrıştırılmaya çalışıldı ve sayfa `SyntaxError: Unexpected token '*'`
+ile tamamen çöktü.
+
+Kusurun sinsiliği iki katmanlı:
+1. `node --check` HTML dosyasını okumaz — hata ancak inline script çıkarılıp
+   ayrı ayrıştırılınca görünür.
+2. Sayfa oturum yokken login'e yönlendiği için tarayıcıda "boş sayfa" değil,
+   **normal görünen giriş ekranı** çıkıyordu. Yani belirti, hatayı gizliyordu.
+
+**Kural:** kod yorumlarında kayıt kodu deseni yazarken `*` kullanma.
+`SAT-*` yerine `SAT-…` ya da düz sözcük ("satın alma · izin · teklif") yaz.
+Repo geneli tarandı, başka örneği yok.
+
+**Ölçüm aracı:** `tasks/qa/` altındaki HTML taramaları inline script'i
+çıkarıp `node --check`ten geçirmeli; dosya adına bakan bir kontrol bu sınıfı
+göremez.
+
+## L-38 — Blok sınırı bulurken Türkçe kesme işareti string sanılır
+
+Veri dosyalarında bir koleksiyonun (`DB.purchases = [ … ];`) sınırını parantez
+sayarak bulan bir taşıma betiği yazdım. Betik `'` görünce string başlangıcı
+sayıp kapanışını arıyordu. Ama veri dosyalarındaki Türkçe yorumlar kesme
+işareti taşıyor: *"UID-24'ten beri"*, *"zincirin adım kayıtları"*. Tek bir
+`'` karakteri, tarayıcıyı satırlarca ileri sürükledi ve `]` kapanışlarını
+yuttu; `DB.purchases` bloğu `DB.orders`'a taştı.
+
+Sonuç sessizdi: taşıma raporu "7 değişiklik" dedi, oysa hedef koleksiyonda
+3 kayıt vardı. **Sayı tutmadığı için yakalandı** — rapor yalnız "başarılı"
+deseydi görülmezdi.
+
+Aynı oturumda ikinci kez tekrarladı: `misc.js` üzerinde koleksiyon sınırı
+gözetmeden yapılan global `durum:'Gecikti'` → `durum:'Aktif'` değişimi
+`contracts`ın yanında `payments` ve `milestones` kayıtlarını da vurdu.
+
+**Kural:** veri dosyasında koleksiyon bazlı değişiklik yaparken sınır
+**satır aralığıyla** bulunur (`^DB\.x\s*=\s*\[` … `^\];`), parantez sayarak
+değil. Değişiklikten sonra **koleksiyon başına kayıt sayısı yeniden ölçülür**;
+rapor edilen değişiklik sayısı beklenen kayıt sayısını aşıyorsa taşma vardır.
+
+## L-39 — "Kaç değişiklik yaptım" raporu, doğrulama değildir
+
+Yukarıdaki iki hatanın ikisi de bir betiğin kendi başarı raporunu basmasıyla
+"tamamlandı" görünmüştü. İkisi de ancak **bağımsız bir yeniden ölçüm**
+(koleksiyon başına durum dağılımını yeniden saymak) ile ortaya çıktı.
+
+Aynı sınıf sözdizimi kontrolünde de tekrarladı: `for f in $FILES` döngüsünde
+tırnak hatası yüzünden python tek dosya yerine tüm listeyi okudu, hiçbir
+dosyayı gerçekten ayrıştırmadı ve döngü `bad=0` kaldığı için **"16/16 temiz"**
+bastı. Sıfır bulgu, aracın çalıştığı anlamına gelmiyordu.
+
+**Kural (L-17'nin üçüncü tekrarı):** bir aracın "temiz" demesi doğru şeyi
+ölçtüğü anlamına gelmez. Yeni bir ölçüm ekseni, **bozulmuş bir kopyada
+bulgu ürettiği kanıtlanmadan** koşmaz. `tasks/qa/flow.js --selftest` bu
+kuralın uygulanmış hâlidir: veriyi bilerek bozar ve beş eksenin beşinin de
+kendi hata sınıfını yakaladığını doğrular, ancak ondan sonra temiz koşumu
+geçerli sayar.
