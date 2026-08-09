@@ -511,4 +511,6 @@ Tamamı backend.
 
 Sayılar yaklaşıktır; bir madde birden çok pakete dokunabilir (ör. [2.0.1] hem P1-03 hem P1-05 kapsamında).
 
-**Blokaj özeti:** 24 paketin **11'i** ⛔ işaretli bir açık soru kararlaşmadan başlayamaz. Kararsız başlanabilecek paketler: P0-00, P1-02, P1-07, P1-08, P1-09, P2-02, P2-03, P4-02.
+**Paket sayısı:** Faz 0–4'te §22'nin yedi başlığını tam taşıyan **23 paket**; Faz 5'in **6 başlığı** kasten özet düzeyinde bırakıldı — tamamı backend gerektiriyor ve prototip payı, önceki fazların kararları verilmeden yazılamaz.
+
+**Blokaj özeti:** 23 tam paketin **11'i** ⛔ işaretli bir açık soru kararlaşmadan başlayamaz. Karar beklemeden başlanabilecek 8 paket: P0-00, P1-02, P1-07, P1-08, P1-09, P2-02, P2-03, P4-02.
