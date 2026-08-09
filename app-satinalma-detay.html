@@ -68,8 +68,19 @@ document.addEventListener('gv:ready', function(){
   var maxPuan = teklifler.length ? Math.max.apply(null, teklifler.map(function(q){ return q.puan; })) : null;
   var uygunsuzSayi = teklifler.length - uygunlar.length;
 
-  var acikTalep    = ['Teslim alındı','İptal'].indexOf(p.durum) === -1;
-  var onayBekliyor = p.durum === 'Onay bekliyor' && p.onayAdim < p.onayToplam;
+  /* =================================================================
+     DURUM KÜMELERİ — sözlük DB.purchaseStatuses / DB.orderStatuses (org.js).
+     Eski dizgiler (“Onay bekliyor” · “Sipariş verildi” · “Teslim alındı”)
+     hiçbir kayıtta kalmadı; onları arayan koşullar sessizce yanlış cevap
+     veriyordu (açık talep kapanmış görünüyor, onay aksiyonu hiç basılmıyordu).
+     ================================================================= */
+  var TALEP_KAPALI = ['Tam Teslim','Kapandı','Reddedildi','İptal Edildi'];
+  var TALEP_ONAYDA = ['Onaya Gönderildi','İnceleme'];   /* karar bekleyen iki durum */
+  var SIP_TESLIM   = ['Tam Teslim','Kapandı'];          /* siparişte mal geldi */
+  function sipTeslim(o){ return SIP_TESLIM.indexOf(o.durum) !== -1; }
+
+  var acikTalep    = TALEP_KAPALI.indexOf(p.durum) === -1;
+  var onayBekliyor = TALEP_ONAYDA.indexOf(p.durum) !== -1 && p.onayAdim < p.onayToplam;
   var gecikmeGun   = p.ihtiyacTarihi ? F.days(p.ihtiyacTarihi) : null;
   var onayYuzde    = Math.round(p.onayAdim / Math.max(1, p.onayToplam) * 100);
 
@@ -134,7 +145,81 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
+     İŞ AKIŞI EYLEMLERİ — şartname §6.1: durum EKRANDA yazılmaz.
+     `GV.flow.adimlar('purchase', kod)` yapılabilir geçişleri verir;
+     `GV.flow.gec(...)` TEK mutasyon noktasıdır. Ekran yalnız buton basar,
+     sonucu okur ve tazeler. Yürütülemeyen adım ölü buton bırakılmaz:
+     düğme `disabled` basılır ve engelin sebebi `title`a yazılır.
+     ================================================================= */
+  var AKIS = (GV.flow && GV.flow.adimlar) ? (GV.flow.adimlar('purchase', p.kod) || []) : [];
+
+  /* Neden kodu sözlüğü hedefe göre daraltılır (DB.reasonCodes[].tur). */
+  var NEDEN_TURU = { 'İade':'iade', 'Reddedildi':'ret', 'İptal Edildi':'iptal', 'Taslak':'geri' };
+  function nedenSecenek(hedef){
+    var t = NEDEN_TURU[hedef];
+    var liste = (DB.reasonCodes || []).filter(function(r){ return !t || (r.tur || []).indexOf(t) !== -1; });
+    if(!liste.length) liste = DB.reasonCodes || [];
+    return liste.map(function(r){
+      return '<option value="' + esc(r.kod) + '">' + esc(r.ad) + '</option>'; }).join('');
+  }
+
+  function akisEngeli(s){
+    if(!s.izin) return 'Bu geçiş için yetkiniz yok';
+    if(s.eksik && s.eksik.length) return 'Eksik zorunlu alan: ' + s.eksik.join(', ');
+    return '';
+  }
+
+  /* Motor kuralın etiketini yalnız İLK hedefe verir, kalanlara durum adını
+     basar. Etiket hedeften farklıysa hedef düğmenin üstünde AÇIKÇA yazılır —
+     “Teslim Al” gibi bir etiketin hangi duruma gittiği tahmine bırakılmaz. */
+  function akisButonlari(){
+    if(!AKIS.length) return '';
+    return '<div class="gv-state-acts u-mt-8">' + AKIS.map(function(s, i){
+      var engel = akisEngeli(s);
+      var yazi  = esc(s.etiket) + (s.etiket === s.hedef ? ''
+                  : ' <span class="u-faint">→ ' + esc(s.hedef) + '</span>');
+      return '<button type="button" class="btn ' + (s.tone || 'btn-acc') + '" data-akis="' + i + '"' +
+        (engel ? ' disabled title="' + esc(engel) + '"' : ' title="' + esc('Yeni durum: ' + s.hedef) + '"') +
+        '>' + yazi + '</button>';
+    }).join(' ') + '</div>';
+  }
+
+  function akisCalistir(s){
+    var gerekli = !!s.gerekce;
+    GV.modal({
+      title:s.etiket, icon:'i-refresh', size:'sm',
+      text:p.kod + ' · “' + p.durum + '” → “' + s.hedef + '”',
+      body:(gerekli
+        ? '<div class="field"><label for="akNeden">Neden kodu<span class="req">*</span></label>' +
+          '<select id="akNeden">' + nedenSecenek(s.hedef) + '</select>' +
+          '<div class="f-hint">Gerekçe neden KODU + açıklama olarak istenir; serbest metin tek başına raporlanamaz.</div></div>'
+        : '') +
+        '<div class="field' + (gerekli ? ' u-mt-4' : '') + '"><label for="akNot">Açıklama' +
+        (gerekli ? '<span class="req">*</span>' : '') + '</label>' +
+        '<textarea id="akNot" rows="3" placeholder="Bu geçişin nedeni — aktivite geçmişine yazılır"></textarea></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:s.etiket, cls:s.tone === 'btn-danger-line' ? 'btn-danger' : 'btn-acc',
+          onClick:function(close, el){
+            var neden = gerekli ? ((el.querySelector('#akNeden') || {}).value || '') : null;
+            var not   = String(((el.querySelector('#akNot') || {}).value) || '').trim();
+            if(gerekli && (!neden || !not)){
+              GV.toast('Neden kodu ve açıklama zorunludur', 'warn'); return false;
+            }
+            var r = GV.flow.gec('purchase', p.kod, s.hedef, null, { not:not, neden:neden });
+            if(!r.ok){
+              GV.toast(r.mesaj || (r.eksik ? 'Eksik zorunlu alan: ' + r.eksik.join(', ') : r.why), 'warn');
+              return false;
+            }
+            GV.toast(p.kod + ' · ' + r.eski + ' → ' + r.yeni, 'ok');
+            setTimeout(function(){ GV.refresh(); }, 400);
+          } }]
+    });
+  }
+
+  /* =================================================================
      ONAY AKSİYONU — yalnız yetki + gerçekten onay bekleyen talep
+     Zincir adımı (DB.purchaseApprovals) ile DURUM ayrı eksenlerdir:
+     adım burada işlenir, durum motordan geçer.
      ================================================================= */
   function onayla(){
     GV.confirm({
@@ -147,18 +232,36 @@ document.addEventListener('gv:ready', function(){
       if(!ok) return;
       var saat = DB.today + 'T' + new Date().toTimeString().slice(0,5);
       if(bekleyen){ bekleyen.durum = 'Onaylandı'; bekleyen.tarih = saat; }
-      var eski = p.durum;
       p.onayAdim += 1;
-      if(p.onayAdim >= p.onayToplam){
-        p.durum = 'Sipariş verildi';
-        if(onayKaydi) onayKaydi.durum = 'Onaylandı';
-      }
       DB.activities.unshift({ kayit:p.kod, tarih:saat, kisi:GV.session.emp,
-        metin:'Satın alma talebi onaylandı' + (bekleyen ? ' — ' + bekleyen.rol : ''),
-        eski:eski, yeni:p.durum, tone:'ok', icon:'i-stamp' });
-      GV.toast(p.onayAdim >= p.onayToplam
-        ? p.kod + ' tüm onayları aldı, sipariş aşamasına geçti'
-        : p.kod + ' onaylandı — ' + (p.onayToplam - p.onayAdim) + ' onay kaldı', 'ok');
+        metin:'Onay adımı tamamlandı' + (bekleyen ? ' — ' + bekleyen.rol : ''),
+        eski:(p.onayAdim - 1) + ' / ' + p.onayToplam, yeni:p.onayAdim + ' / ' + p.onayToplam,
+        tone:'ok', icon:'i-stamp' });
+
+      if(p.onayAdim < p.onayToplam){
+        GV.toast(p.kod + ' onaylandı — ' + (p.onayToplam - p.onayAdim) + ' onay kaldı', 'ok');
+        setTimeout(function(){ GV.refresh(); }, 700);
+        return;
+      }
+      /* Zincir bitti → durumu motor yazar. Yol geçiş tablosundan OKUNUR,
+         ekrana gömülmez: 'Onaylandı' doğrudan erişilebilirse tek adım,
+         değilse ara adım (İnceleme) üzerinden yürünür. */
+      var ulasilir = (GV.flow.adimlar('purchase', p.kod) || []).map(function(s){ return s.hedef; });
+      var yol = ulasilir.indexOf('Onaylandı') !== -1 ? ['Onaylandı']
+              : ulasilir.indexOf('İnceleme')  !== -1 ? ['İnceleme','Onaylandı'] : [];
+      var r = yol.length ? { ok:true }
+            : { ok:false, why:'“' + p.durum + '” durumundan onay tamamlanamaz' };
+      for(var i = 0; i < yol.length; i++){
+        r = GV.flow.gec('purchase', p.kod, yol[i], null,
+                        { not:'onay zinciri tamamlandı (' + p.onayToplam + ' adım)' });
+        if(!r.ok) break;
+      }
+      if(!r.ok){
+        GV.toast(r.mesaj || (r.eksik ? 'Eksik zorunlu alan: ' + r.eksik.join(', ') : r.why), 'warn');
+      }else{
+        if(onayKaydi) onayKaydi.durum = 'Onaylandı';
+        GV.toast(p.kod + ' tüm onayları aldı — durum “' + p.durum + '”', 'ok');
+      }
       setTimeout(function(){ GV.refresh(); }, 700);
     });
   }
@@ -256,6 +359,13 @@ document.addEventListener('gv:ready', function(){
         '<span class="cell-sub">' + p.onayAdim + ' / ' + p.onayToplam + ' onay</span>'],
       ['Kayıt durumu', p.aktif ? GV.badge('Aktif') : GV.badge('Arşiv')]
     ])) +
+    sec('İş Akışı Eylemleri', (AKIS.length
+      ? '<p class="u-sm u-muted u-mt-0">Durum bu ekrandan elle yazılmaz; aşağıdaki eylemler merkezî ' +
+        'geçiş motorundan (şartname §6.1) geçer. Yetkisi olmayan ya da zorunlu alanı eksik olan ' +
+        'eylem etkisiz basılır, sebebi düğmenin üstünde yazar.</p>' + akisButonlari()
+      : GV.notice({ tone:'neutral', icon:'i-lock', title:'Bu durumdan yapılabilecek geçiş yok',
+          text:'“' + p.durum + '” geçiş tablosunda uç durumdur ya da tanımlı bir sonraki adımı yoktur; ' +
+               'talep üzerinde durum değiştiren bir eylem kalmadı.' }))) +
     sec('Gerekçe', GV.dl([
       ['Talep gerekçesi', esc(p.gerekce)]
     ])) +
@@ -414,7 +524,7 @@ document.addEventListener('gv:ready', function(){
             '<td class="num">' + para(o.tutar) + '</td>' +
             '<td class="num">' + paraSade(o.vergi) + '</td>' +
             '<td class="num">' + para(o.toplam) + '</td>' +
-            '<td>' + GV.dateCell(o.teslimTarihi, { done:o.durum === 'Teslim alındı' }) + '</td>' +
+            '<td>' + GV.dateCell(o.teslimTarihi, { done:sipTeslim(o) }) + '</td>' +
             '<td>' + GV.badge(o.durum) + '</td></tr>';
         }).join('')) +
       sayac('<b>' + siparisler.length + '</b> sipariş · bu talepten doğdu',
@@ -433,8 +543,8 @@ document.addEventListener('gv:ready', function(){
           ['Genel toplam <span class="u-faint">(KDV dahil)</span>', para(o.toplam)],
           ['Para birimi', esc(o.doviz)],
           ['Sipariş durumu', GV.badge(o.durum)],
-          ['Teslim tarihi', GV.dateCell(o.teslimTarihi, { done:o.durum === 'Teslim alındı' }) +
-            '<span class="cell-sub">' + (o.durum === 'Teslim alındı' ? 'gerçekleşen' : 'planlanan') + '</span>'],
+          ['Teslim tarihi', GV.dateCell(o.teslimTarihi, { done:sipTeslim(o) }) +
+            '<span class="cell-sub">' + (sipTeslim(o) ? 'gerçekleşen' : 'planlanan') + '</span>'],
           ['İhtiyaç tarihine göre', fark == null ? null
             : (fark > 0
                 ? '<b class="u-danger">' + fark + ' gün sonra</b>'
@@ -465,7 +575,7 @@ document.addEventListener('gv:ready', function(){
   if(siparisler.length){
     pTeslimat = '<div class="gc-body">' +
       siparisler.map(function(o){
-        var teslimEdildi = o.durum === 'Teslim alındı';
+        var teslimEdildi = sipTeslim(o);
         var fark = gunFark(o.teslimTarihi, p.ihtiyacTarihi);
         var kalan = F.days(o.teslimTarihi);
         return sec('Teslimat · ' + o.kod, GV.dl([
@@ -474,9 +584,9 @@ document.addEventListener('gv:ready', function(){
           [teslimEdildi ? 'Teslim tarihi' : 'Planlanan teslim tarihi',
             GV.dateCell(o.teslimTarihi, { done:teslimEdildi }) +
             (teslimEdildi ? '' : '<span class="cell-sub">' + F.rel(o.teslimTarihi) + '</span>')],
-          ['Teslim durumu', teslimEdildi ? GV.badge('Teslim alındı') : GV.badge('Teslim bekleniyor','is-warn')],
+          ['Teslim durumu', teslimEdildi ? GV.badge(o.durum) : GV.badge('Teslim bekleniyor','is-warn')],
           ['Teslim kontrolü', val(o.teslimKontrol)
-            ? GV.badge(o.teslimKontrol, 'is-ok')
+            ? GV.badge(o.teslimKontrol, o.teslimKontrol === 'Tam' ? 'is-ok' : 'is-warn')
             : '<span class="u-faint">Teslim kontrolü yapılmadı</span>'],
           ['İrsaliye', val(o.irsaliye) ? '<span class="u-num">' + esc(o.irsaliye) + '</span>' : null],
           ['Tedarikçi faturası', val(o.fatura) ? '<span class="u-num">' + esc(o.fatura) + '</span>' : null],
@@ -580,6 +690,15 @@ document.addEventListener('gv:ready', function(){
     '</div>';
 
   GV.tabs('#recTabs');
+
+  /* İş akışı düğmeleri her çizimde TAZE düğüme bağlanır; `GV.refresh()` mount'u
+     yeni kopyayla değiştirdiği için dinleyici birikmez (ders L-16). */
+  Array.prototype.forEach.call(mount.querySelectorAll('[data-akis]'), function(b){
+    b.addEventListener('click', function(){
+      var s = AKIS[+b.getAttribute('data-akis')];
+      if(s) akisCalistir(s);
+    });
+  });
 });
 </script>
 </body>

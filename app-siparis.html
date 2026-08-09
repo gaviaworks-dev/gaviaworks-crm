@@ -23,6 +23,20 @@
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* =====================================================================
+     DURUM KÜMELERİ — sözlük DB.orderStatuses (org.js), geçiş tablosu
+     DB.transitions.order. Eski dizgiler (“Sipariş verildi” · “Teslim
+     alındı” · “İptal”) taşındı ve hiçbir kayıtta kalmadı; onları arayan
+     KPI'lar sıfır, sekmeler boş dönüyordu.
+     ACIK: mal hâlâ bekleniyor (kısmi teslim de bekleyen kalem demektir).
+     ===================================================================== */
+  var ACIK   = ['Taslak','Sipariş','Kısmi Teslim'];
+  var TESLIM = ['Tam Teslim','Kapandı'];
+  function acik(o){ return ACIK.indexOf(o.durum) !== -1; }
+  function bekleyen(o){ return o.durum === 'Sipariş' || o.durum === 'Kısmi Teslim'; }
+  function teslimAlindi(o){ return TESLIM.indexOf(o.durum) !== -1; }
+
   var ted = function(k){ return DB.suppliers.filter(function(s){ return s.kod === k; })[0] || {}; };
   var tal = function(k){ return DB.purchases.filter(function(p){ return p.kod === k; })[0] || {}; };
   /* Eksik birim siparişte YAZILI DEĞİLDİR, kalem dökümünden türer (L-08) */
@@ -39,10 +53,10 @@ document.addEventListener('gv:ready', function(){
     search:{ placeholder:'Sipariş no, tedarikçi, fatura veya irsaliye ara', fields:['kod','talep','tedarikci','fatura','irsaliye'] },
     defaultSort:'tarih', defaultDir:'desc',
     kpis:[
-      { label:'Açık sipariş', icon:'i-truck', calc:function(a){ return a.filter(function(x){ return x.durum === 'Sipariş verildi'; }).length; } },
+      { label:'Açık sipariş', icon:'i-truck', calc:function(a){ return a.filter(bekleyen).length; } },
       { label:'Geciken teslimat', icon:'i-alert', tone:'danger',
-        calc:function(a){ return a.filter(function(x){ return x.durum === 'Sipariş verildi' && F.days(x.teslimTarihi) < 0; }).length; } },
-      { label:'Teslim alınan', icon:'i-check-circle', tone:'ok', calc:function(a){ return a.filter(function(x){ return x.durum === 'Teslim alındı'; }).length; } },
+        calc:function(a){ return a.filter(function(x){ return bekleyen(x) && F.days(x.teslimTarihi) < 0; }).length; } },
+      { label:'Teslim alınan', icon:'i-check-circle', tone:'ok', calc:function(a){ return a.filter(teslimAlindi).length; } },
       /* §17 "Eksik teslim" — sipariş kapanmadan kalem eksiği olan kayıtlar */
       { label:'Eksik teslim', icon:'i-package', tone:'warn',
         calc:function(a){ return a.filter(function(x){ return x.teslimKontrol === 'Eksik'; }).length; } },
@@ -50,10 +64,10 @@ document.addEventListener('gv:ready', function(){
         perm:'finans', calc:function(a){ return a.reduce(function(s,x){ return s + x.toplam; }, 0); } }
     ],
     tabs:[
-      { key:'acik', label:'Açık Siparişler', icon:'i-truck', filter:function(x){ return x.durum === 'Sipariş verildi'; } },
+      { key:'acik', label:'Açık Siparişler', icon:'i-truck', filter:bekleyen },
       { key:'geciken', label:'Geciken Teslimat', icon:'i-alert',
-        filter:function(x){ return x.durum === 'Sipariş verildi' && F.days(x.teslimTarihi) < 0; } },
-      { key:'teslim', label:'Teslim Alınanlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Teslim alındı'; } },
+        filter:function(x){ return bekleyen(x) && F.days(x.teslimTarihi) < 0; } },
+      { key:'teslim', label:'Teslim Alınanlar', icon:'i-check-circle', filter:teslimAlindi },
       { key:'eksik', label:'Eksik Teslim / İade', icon:'i-package',
         filter:function(x){ return x.teslimKontrol === 'Eksik' || x.teslimKontrol === 'İade'; } },
       { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
@@ -69,7 +83,7 @@ document.addEventListener('gv:ready', function(){
           return '<a class="cell-main" href="app-satinalma-detay.html?id=' + x.talep + '">' + x.talep + '</a>'; } },
       { key:'tarih', label:'Sipariş tarihi', render:function(x){ return '<span class="cell-date">' + F.date(x.tarih) + '</span>'; } },
       { key:'teslimTarihi', label:'Teslim tarihi', render:function(x){
-          return GV.dateCell(x.teslimTarihi, { done:x.durum === 'Teslim alındı' }); } },
+          return GV.dateCell(x.teslimTarihi, { done:teslimAlindi(x) }); } },
       { key:'tutar', label:'Tutar', cellClass:'num', visible:false, render:function(x){
           return canFinans ? '<span class="u-num">' + F.money(x.tutar) + '</span>' : '<span class="cell-mask">••••</span>'; } },
       { key:'toplam', label:'Toplam (KDV dahil)', cellClass:'num', render:function(x){
@@ -95,11 +109,11 @@ document.addEventListener('gv:ready', function(){
       { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
     ],
     filters:[
-      { key:'durum', label:'Sipariş durumu', type:'multi', options:['Sipariş verildi','Teslim alındı','İptal'] },
+      { key:'durum', label:'Sipariş durumu', type:'multi', options:DB.orderStatuses },
       { key:'tedarikci', label:'Tedarikçi', type:'select', options:DB.suppliers.map(function(s){ return { value:s.kod, label:s.unvan }; }) },
       { key:'teslimTarihi', label:'Teslim tarihi', type:'daterange' }
     ],
-    rowClass:function(x){ return (x.durum === 'Sipariş verildi' && F.days(x.teslimTarihi) < 0) ? 'is-late' : ''; },
+    rowClass:function(x){ return (bekleyen(x) && F.days(x.teslimTarihi) < 0) ? 'is-late' : ''; },
     mobile:function(x){
       return '<div class="gv-mrow-top"><a class="cell-main" href="app-siparis-detay.html?id=' + x.kod + '">' + x.kod + '</a>' +
         GV.badge(x.durum) + '</div>' +
@@ -109,29 +123,68 @@ document.addEventListener('gv:ready', function(){
     },
     rowActions:[
       { key:'ac', icon:'i-external', label:'Siparişi aç', href:function(x){ return 'app-siparis-detay.html?id=' + x.kod; } },
+      /* TESLİM ALMA — durum artık EKRANDA yazılmaz. Teslim kontrolü (Tam ·
+         Eksik · İade) ile SİPARİŞ DURUMU iki ayrı eksendir; kontrol sonucu
+         hedef duruma eşlenir ve geçiş `GV.flow.gec` üzerinden yapılır.
+         Radyo düğmeleri motorun izin verdiği hedeflerden üretilir: geçiş
+         tablosunda yeri olmayan seçenek hiç basılmaz (sahte seçenek yasak). */
       { key:'teslim', icon:'i-check', label:'Teslim al', run:function(x, refresh){
-          if(x.durum === 'Teslim alındı'){ GV.toast('Bu sipariş zaten teslim alınmış.', 'info'); return; }
+          var HEDEF = [{ tk:'Tam', hedef:'Tam Teslim', lbl:'Tam — tüm kalemler geldi' },
+                       { tk:'Eksik', hedef:'Kısmi Teslim', lbl:'Eksik — kalem bekleniyor' },
+                       { tk:'İade', hedef:'İade', lbl:'İade — mal tedarikçiye geri gönderildi' }];
+          var adimlar = (GV.flow.adimlar('order', x.kod) || []).map(function(s){ return s.hedef; });
+          var secenek = HEDEF.filter(function(h){ return adimlar.indexOf(h.hedef) !== -1; });
+          if(!secenek.length){
+            GV.toast('“' + x.durum + '” durumundan teslim alma geçişi yok.', 'info'); return;
+          }
           var t = tal(x.talep);
           GV.modal({ title:'Teslim Alma Kontrolü', text:x.kod + ' · ' + (t.urun || ''), icon:'i-truck', size:'sm',
             body:'<div class="field"><span class="f-lbl">Teslim durumu</span><div class="f-radios">' +
-              ['Tam','Eksik','İade'].map(function(o,i){
-                return '<label class="f-radio"><input type="radio" name="tk" value="' + o + '"' + (i===0?' checked':'') + '>' + o + '</label>'; }).join('') +
+              secenek.map(function(h,i){
+                return '<label class="f-radio"><input type="radio" name="tk" value="' + esc(h.tk) + '"' +
+                       (i===0?' checked':'') + '>' + esc(h.lbl) + '</label>'; }).join('') +
               '</div></div>' +
               '<div class="gv-fields u-mt-4"><div class="field f-col-6"><label for="sFat">Fatura no</label>' +
               '<input type="text" class="inp" id="sFat" placeholder="FTR-..."></div>' +
               '<div class="field f-col-6"><label for="sIrs">İrsaliye no</label><input type="text" class="inp" id="sIrs" placeholder="IRS-..."></div></div>' +
+              '<div class="gv-fields u-mt-4"><div class="field f-col-6"><label for="sNeden">Neden kodu</label>' +
+              '<select id="sNeden"><option value="">Gerekmiyor</option>' +
+              (DB.reasonCodes || []).map(function(r){
+                return '<option value="' + esc(r.kod) + '">' + esc(r.ad) + '</option>'; }).join('') +
+              '</select><div class="f-hint">İade ve iptal geçişlerinde zorunludur.</div></div>' +
+              '<div class="field f-col-6"><label for="sNot">Açıklama</label>' +
+              '<input type="text" class="inp" id="sNot" placeholder="Aktivite geçmişine yazılır"></div></div>' +
               (t.kategori && ['Otomobil','Ticari araç','Motosiklet','Kiralık araç'].indexOf(t.kategori) !== -1
                 ? '<p class="u-xs u-muted u-mt-4">Bu kalem araç kategorisinde — teslim alındığında filo modülüne aktarılır.</p>'
                 : '<p class="u-xs u-muted u-mt-4">Teslim alınan ekipman demirbaş envanterine aktarılır.</p>'),
             actions:[{ label:'Vazgeç', cls:'btn-line' },
               { label:'Teslim al', cls:'btn-acc', onClick:function(close, el){
                   var tk = el.querySelector('[name=tk]:checked').value;
-                  x.durum = tk === 'İade' ? 'İptal' : 'Teslim alındı';
-                  x.teslimKontrol = tk;
-                  x.fatura = el.querySelector('#sFat').value.trim() || x.fatura;
-                  x.irsaliye = el.querySelector('#sIrs').value.trim() || x.irsaliye;
-                  if(t.kod) t.durum = 'Teslim alındı';
-                  GV.toast(x.kod + ' teslim alındı ve envantere aktarıldı', 'ok'); refresh(); } }] }); } }
+                  var h  = secenek.filter(function(z){ return z.tk === tk; })[0];
+                  var ek = { teslimKontrol:tk };
+                  var fat = el.querySelector('#sFat').value.trim();
+                  var irs = el.querySelector('#sIrs').value.trim();
+                  if(fat) ek.fatura = fat;
+                  if(irs) ek.irsaliye = irs;
+                  var neden = el.querySelector('#sNeden').value || null;
+                  var not   = el.querySelector('#sNot').value.trim();
+                  var r = GV.flow.gec('order', x.kod, h.hedef, ek, { not:not, neden:neden });
+                  if(!r.ok){
+                    GV.toast(r.mesaj || (r.eksik ? 'Eksik zorunlu alan: ' + r.eksik.join(', ') : r.why), 'warn');
+                    return false;
+                  }
+                  GV.toast(x.kod + ' · ' + r.eski + ' → ' + r.yeni, 'ok');
+                  /* Kaynak talep siparişi izler — ayna da motordan geçer.
+                     Yalnız TESLİM ekseni aynalanır: siparişteki 'İade' malın
+                     tedarikçiye geri gitmesidir, talepteki 'İade' ise talebin
+                     sahibine geri dönmesidir — ikisi aynı şey değildir, o
+                     yüzden aynalanmaz. Geçiş yasaksa talep olduğu gibi kalır. */
+                  if(t.kod && ['Tam Teslim','Kısmi Teslim'].indexOf(h.hedef) !== -1 && t.durum !== h.hedef){
+                    var rt = GV.flow.gec('purchase', t.kod, h.hedef, null,
+                                         { not:x.kod + ' siparişi teslim alındı' });
+                    if(!rt.ok) GV.toast(t.kod + ' talebi eşitlenemedi: ' + (rt.mesaj || rt.why), 'warn');
+                  }
+                  refresh(); } }] }); } }
     ],
     bulk:[{ key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
     emptyState:{ icon:'i-truck', title:'Bu görünümde sipariş yok',

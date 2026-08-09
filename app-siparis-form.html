@@ -109,6 +109,21 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
+     DURUM KÜMELERİ — sözlük DB.orderStatuses (org.js), geçiş tablosu
+     DB.transitions.order. Eski dizgiler (“Sipariş verildi” · “Teslim
+     alındı” · “İptal”) taşındı ve hiçbir kayıtta kalmadı; onları arayan
+     doğrulamalar ve ölçümler sessizce sıfır/boş dönüyordu.
+     'Kapandı' teslimden SONRA gelir → teslim ekseninde sayılır.
+     ================================================================= */
+  var SIP_TESLIM = ['Tam Teslim','Kapandı'];
+  var SIP_ACIK   = ['Taslak','Sipariş','Kısmi Teslim'];
+  /* Talep yalnız TESLİM ekseninde siparişi izler — sipariş ve talep
+     sözlüklerinde ortak anlamı olan iki durum. */
+  var AYNA_HEDEF = ['Kısmi Teslim','Tam Teslim'];
+  function teslimAlindiMi(o){ return o && SIP_TESLIM.indexOf(o.durum) !== -1; }
+  function acikDurum(d){ return SIP_ACIK.indexOf(d) !== -1; }
+
+  /* =================================================================
      BAĞ OKUMALARI — hepsi veride yazılı tekil bağdan
        DB.orders[].talep     → DB.purchases
        DB.orders[].tedarikci → DB.suppliers
@@ -171,9 +186,9 @@ document.addEventListener('gv:ready', function(){
     var p = talepBul(o.talep);
     return p && p.durum === o.durum; }).length;
   var trySayisi = DB.orders.filter(function(o){ return (o.doviz || 'TRY') === 'TRY'; }).length;
-  var teslimAlinanSayi = DB.orders.filter(function(o){ return o.durum === 'Teslim alındı'; }).length;
+  var teslimAlinanSayi = DB.orders.filter(teslimAlindiMi).length;
   var faturaliTeslim = DB.orders.filter(function(o){
-    return o.durum === 'Teslim alındı' && o.fatura; }).length;
+    return teslimAlindiMi(o) && o.fatura; }).length;
   var tamKontrol = DB.orders.filter(function(o){ return o.teslimKontrol === 'Tam'; }).length;
   var demirbasliSiparis = DB.orders.filter(function(o){ return varliklarOf(o.kod).length > 0; }).length;
   var demirbasDenk = DB.orders.filter(function(o){
@@ -206,15 +221,14 @@ document.addEventListener('gv:ready', function(){
 
   /* =================================================================
      SÖZLÜKLER
-       · Sipariş durumu: veride Sipariş verildi · Teslim alındı geçiyor;
-         'İptal' değerini sipariş listesi (teslim alma modali) ve sipariş
-         kartının iptal mantığı okuyor. Sipariş durumu sözlüğü olan bir
-         koleksiyon veri katmanında YOK.
-       · Teslim kontrolü: veride yalnız 'Tam' geçiyor; 'Eksik' ve 'İade'
-         değerlerini app-siparis.html'in teslim alma modali yazıyor.
+       · Sipariş durumu: artık veri katmanında YAZILI — `DB.orderStatuses`.
+         Ekran kendi kümesini kurmaz; formda SALT OKUNUR gösterilir, çünkü
+         durum yalnız iş akışı eylemlerinden (GV.flow) değişir.
+       · Teslim kontrolü: 'Tam' · 'Eksik' · 'İade' — sipariş durumundan AYRI
+         eksendir ve teslim alma akışında yazılır.
        · Para birimi: siparişlerin tamamı TRY.
      ================================================================= */
-  var DURUMLAR = ['Sipariş verildi','Teslim alındı','İptal'];
+  var DURUMLAR = (DB.orderStatuses || []).slice();
   if(duzenle && kayit.durum && DURUMLAR.indexOf(kayit.durum) === -1) DURUMLAR.push(kayit.durum);
   var KONTROLLER = ['Tam','Eksik','İade'];
   if(duzenle && kayit.teslimKontrol && KONTROLLER.indexOf(kayit.teslimKontrol) === -1)
@@ -254,7 +268,7 @@ document.addEventListener('gv:ready', function(){
       tutar:sayi(kayit.tutar), kdvOran:oranHesapla(kayit) == null ? VARSAYILAN_KDV : oranHesapla(kayit),
       doviz:kayit.doviz || 'TRY',
       tarih:kayit.tarih || '', teslimTarihi:kayit.teslimTarihi || '',
-      durum:kayit.durum || 'Sipariş verildi',
+      durum:kayit.durum || 'Taslak',
       teslimKontrol:kayit.teslimKontrol || '',
       /* Veride '—' sentinel'i “irsaliye yok” anlamında geçiyor; formda boş metin
          karşılığıdır, sentinel yeniden yazılmaz. */
@@ -270,7 +284,9 @@ document.addEventListener('gv:ready', function(){
       kdvOran:VARSAYILAN_KDV, doviz:'TRY',
       tarih:DB.today,
       teslimTarihi:(onDoldur && onTalep.ihtiyacTarihi) ? onTalep.ihtiyacTarihi : '',
-      durum:'Sipariş verildi', teslimKontrol:'',
+      /* Yeni kayıt geçiş tablosunun GİRİŞ durumunda açılır; siparişi veren
+         eylem ('Siparişi Ver') sipariş kartındaki iş akışından yürütülür. */
+      durum:'Taslak', teslimKontrol:'',
       fatura:'', irsaliye:'', aktif:true
     };
   }
@@ -365,11 +381,13 @@ document.addEventListener('gv:ready', function(){
                  { label:'Teklif karşılaştırması', href:'app-satinalma-teklif.html' }] });
     }
 
-    ust += notKart({ tone:'info', title:'Yeni sipariş kaydı oluşturuluyor',
+    ust += notKart({ tone:'info', title:'Yeni sipariş kaydı “Taslak” olarak oluşturulur',
       text:'Kaydettiğinizde sıradaki sipariş numarası atanır, KDV ve genel toplam girdiğiniz net ' +
-           'bedelden hesaplanır, kaynak talebin durumu siparişin durumuna eşitlenir (ölçüm: ' +
-           talepliSiparis + ' siparişin ' + durumAyna + ' tanesinde talep ve sipariş durumu aynı) ve ' +
-           'aktivite geçmişine “Sipariş oluşturuldu” satırı düşer. Bu form DEMİRBAŞ kaydı yazmaz: ' +
+           'bedelden hesaplanır ve aktivite geçmişine “Sipariş oluşturuldu” satırı düşer. Sipariş ' +
+           '“Taslak” durumunda açılır: siparişi tedarikçiye veren “Siparişi Ver” eylemi sipariş ' +
+           'kartındaki iş akışından yürütülür ve merkezî geçiş motorundan geçer. Kaynak talep ' +
+           'siparişin yalnız TESLİM eksenini izler (ölçüm: ' + talepliSiparis + ' siparişin ' +
+           durumAyna + ' tanesinde talep ve sipariş durumu aynı). Bu form DEMİRBAŞ kaydı yazmaz: ' +
            'sipariş ↔ demirbaş bağı tek yönlüdür ve demirbaş kaydının üstünde tutulur, siparişte ' +
            'ayna alan yoktur. Fatura ve ödeme kaydı da bu formdan doğmaz.',
       actions:[{ label:'Sipariş listesi', href:'app-siparis.html' },
@@ -401,7 +419,7 @@ document.addEventListener('gv:ready', function(){
         actions:[{ label:'Demirbaş envanteri', href:'app-demirbas.html' },
                  { label:'Demirbaş kartını aç', href:'app-demirbas-detay.html?id=' + kVarliklar[0].kod }] });
     }else{
-      ust += notKart(kayit.durum === 'Teslim alındı'
+      ust += notKart(teslimAlindiMi(kayit)
         ? { tone:'neutral', icon:'i-package', title:'Bu siparişten demirbaş doğmamış',
             text:kayit.kod + ' teslim alınmış ama envanterde bu siparişe bağlı demirbaş yok. ' +
                  'Sarf malzemesi, kredi paketi ve abonelik gibi kalemler demirbaş doğurmaz; ' +
@@ -426,9 +444,10 @@ document.addEventListener('gv:ready', function(){
                       : 'Kaynak talebin durumu siparişten farklı',
         text:kTalep.kod + ' · ' + kTalep.urun + ' talebinin durumu “' + kTalep.durum +
              '”, siparişin durumu “' + kayit.durum + '”. ' + onayMetni(kTalep) + '. ' +
-             'Sipariş durumunu değiştirirseniz talebin durumu da eşitlenir (ölçüm: ' +
-             talepliSiparis + ' siparişin ' + durumAyna + ' tanesinde iki durum birebir aynı); ' +
-             'iptal durumu için ölçülmüş bir ayna yok, o durumda talep olduğu gibi bırakılır.',
+             'Sipariş durumu bu formdan değiştirilemez — geçişler sipariş kartındaki iş akışı ' +
+             'eylemlerinden yürütülür ve talep yalnız TESLİM ekseninde (Kısmi Teslim · Tam Teslim) ' +
+             'eşitlenir (ölçüm: ' + talepliSiparis + ' siparişin ' + durumAyna +
+             ' tanesinde iki durum birebir aynı). İptal ve iade aynalanmaz.',
         actions:[{ label:'Talebi aç', href:'app-satinalma-detay.html?id=' + kTalep.kod }] });
     }else{
       ust += notKart({ tone:'warn', icon:'i-alert', title:'Siparişin kaynak talebi bulunamadı',
@@ -440,8 +459,8 @@ document.addEventListener('gv:ready', function(){
     /* ---- Kayıt özeti ---- */
     var son = acts[0];
     var kurK = kurSim(kayit.doviz);
-    var teslimAlindi = kayit.durum === 'Teslim alındı';
-    var iptal = kayit.durum === 'İptal';
+    var teslimAlindi = teslimAlindiMi(kayit);
+    var iptal = kayit.durum === 'İptal Edildi';
     var kalanGun = kayit.teslimTarihi ? F.days(kayit.teslimTarihi) : null;
     var kOran = oranHesapla(kayit);
 
@@ -582,10 +601,10 @@ document.addEventListener('gv:ready', function(){
             ? 'Sipariş tarihi teslim tarihinden sonra olamaz.' : '';
         } },
       { key:'teslimTarihi', label:'Teslim tarihi', type:'date', required:true, cols:6,
-        hint:'Sipariş verildi durumunda planlanan, teslim alındı durumunda gerçekleşen teslim günü.',
+        hint:'“Sipariş” durumunda planlanan, “Tam Teslim” durumunda gerçekleşen teslim günü.',
         validate:function(v, d){
           if(v && d.tarih && v < d.tarih) return 'Teslim tarihi sipariş tarihinden önce olamaz.';
-          if(v && d.durum === 'Teslim alındı' && v > DB.today)
+          if(v && SIP_TESLIM.indexOf(d.durum) !== -1 && v > DB.today)
             return 'Gerçekleşen teslim tarihi bugünden (' + F.date(DB.today) + ') sonra olamaz.';
           return '';
         } }
@@ -596,20 +615,32 @@ document.addEventListener('gv:ready', function(){
          teslimAlinanSayi + ' teslim alınan siparişin ' + tamKontrol + ' tanesi “Tam” kontrolüyle, ' +
          faturaliTeslim + ' tanesi fatura numarasıyla kapanmış.',
     fields:[
+      /* SALT OKUNUR — durum bu alandan değişmez. Alan formdan kaldırılmadı,
+         çünkü kaydın hangi durumda olduğu form bağlamının parçasıdır; ama
+         `select` render'dan sonra `disabled` yapılır ve kayda hep MEVCUT
+         değer yazılır. Değiştiren tek yol iş akışı eylemleridir (GV.flow). */
       { key:'durum', label:'Sipariş durumu', type:'select', options:DURUMLAR, required:true, cols:6,
-        hint:'Küme: ' + DURUMLAR.join(' · ') + '. Sipariş durumu sözlüğü olan bir koleksiyon veri ' +
-             'katmanında yok; küme mevcut kayıtlardan ve sipariş listesindeki teslim alma akışından ' +
-             'alındı. Kaydedince kaynak talebin durumu da eşitlenir.' },
+        readonly:true,
+        hint:'Durum, iş akışı eylemlerinden değişir — bu alandan değiştirilemez. Sözlük: ' +
+             DURUMLAR.join(' · ') + ' (DB.orderStatuses). Geçişler sipariş kartındaki iş akışı ' +
+             'eylemlerinden yürütülür ve merkezî geçiş motorundan geçer.' },
       { key:'teslimKontrol', label:'Teslim kontrolü', type:'select', options:KONTROLLER, cols:6,
         placeholder:'Kontrol yapılmadı',
-        hint:'Veride yalnız “Tam” geçiyor; “Eksik” ve “İade” değerlerini sipariş listesinin teslim ' +
-             'alma akışı yazıyor. Eksik teslim MİKTARI ve iade kaydı için veri katmanında ayrı alan ' +
-             'yok — bu form onları uydurmaz.',
+        hint:'Sipariş durumundan AYRI eksendir: “Tam” · “Eksik” · “İade”. Değerleri normalde teslim ' +
+             'alma akışı yazar. Eksik teslim MİKTARI kalem dökümünden türer (DB.orderLines), ayrı ' +
+             'alan olarak tutulmaz.',
         validate:function(v, d){
-          if(d.durum === 'Teslim alındı' && !v)
+          if(SIP_TESLIM.indexOf(d.durum) !== -1 && !v)
             return 'Teslim alınan siparişte teslim kontrolü sonucu zorunludur.';
-          if(v && d.durum === 'Sipariş verildi')
-            return 'Teslim kontrolü yalnız teslim alınmış ya da iptal edilmiş siparişte yazılır.';
+          /* “Taslak” ve “Sipariş” durumunda henüz teslim yoktur. Ama kayıtta
+             ZATEN yazılı olan değer engellenmez: veride 'Sipariş' durumunda
+             'Eksik' kontrolüyle duran bir kayıt var (kısmi teslim alındı,
+             sipariş kalan kalem için açık kaldı) ve o kaydın hiçbir alanı
+             kaydedilemiyordu — kural yeni değer girilmesini durdurur, mevcut
+             veriyi rehin almaz. */
+          var mevcut = duzenle ? (kayit.teslimKontrol || '') : '';
+          if(v && v !== mevcut && ['Taslak','Sipariş'].indexOf(d.durum) !== -1)
+            return 'Teslim kontrolü yalnız teslim alınmış, iade edilmiş ya da iptal edilmiş siparişte yazılır.';
           return '';
         } },
       { key:'fatura', label:'Fatura no', type:'text', cols:6, placeholder:'Örn. FTR-TDR-1188',
@@ -627,7 +658,7 @@ document.addEventListener('gv:ready', function(){
         onLabel:'Kayıt aktif — sipariş listelerinde, sayaçlarda ve tedarikçi geçmişinde görünür',
         hint:'Kapatılırsa sipariş arşive düşer; bağlı demirbaş kayıtları ve kaynak talep silinmez.',
         validate:function(v, d){
-          return (!v && d.durum === 'Sipariş verildi')
+          return (!v && acikDurum(d.durum))
             ? 'Açık sipariş arşivlenemez — önce teslim alın ya da iptal edin.' : '';
         } }
     ]});
@@ -698,6 +729,27 @@ document.addEventListener('gv:ready', function(){
   var form = GV.form({
     mount:'#formMount', id:'siparis', record:formRec, sections:sections
   });
+
+  /* ---- DURUM ALANI SALT OKUNUR ---------------------------------------
+     `GV.form` alan düzeyinde salt okunur desteklemiyor (ortak bileşen bu
+     turda değiştirilmedi), bu yüzden `select` render'dan sonra kilitlenir.
+     `disabled` seçili değeri silmez: `form.read()` `el.value` okur, yani
+     kayda hep MEVCUT durum yazılır — form durumu asla değiştirmez. */
+  (function kilitleDurum(){
+    var alan = form.el.querySelector('[data-field="durum"]');
+    if(!alan) return;
+    var sel = alan.querySelector('select');
+    if(sel){ sel.disabled = true; sel.setAttribute('aria-readonly','true'); }
+    alan.classList.add('is-readonly');
+    alan.insertAdjacentHTML('beforeend',
+      '<div class="f-hint">' + ico('i-lock','ic-sm') +
+      ' Durum, iş akışı eylemlerinden değişir — bu alandan değiştirilemez.' +
+      (duzenle
+        ? ' Geçişler <a href="app-siparis-detay.html?id=' + esc(kayit.kod) + '">sipariş kartındaki</a> ' +
+          'iş akışı eylemlerinden yürütülür.'
+        : ' Yeni sipariş “Taslak” açılır; “Siparişi Ver” eylemi sipariş kartından yürütülür.') +
+      '</div>');
+  })();
 
   /* =================================================================
      PARA DEĞERLERİ
@@ -834,8 +886,8 @@ document.addEventListener('gv:ready', function(){
     var pd = paraDegerleri(v);
     var kur = kurSim(pd.doviz);
     var p = talepBul(v.talep);
-    var alindi = v.durum === 'Teslim alındı';
-    var iptal  = v.durum === 'İptal';
+    var alindi = SIP_TESLIM.indexOf(v.durum) !== -1;
+    var iptal  = v.durum === 'İptal Edildi';
     var gun = v.teslimTarihi ? F.days(v.teslimTarihi) : null;
 
     var teslimSatir;
@@ -873,17 +925,20 @@ document.addEventListener('gv:ready', function(){
              'bağı demirbaşın üstünde yazılır (siparişte ayna alan yoktur).' });
     }
 
-    if(p && p.durum !== v.durum && (v.durum === 'Sipariş verildi' || v.durum === 'Teslim alındı')){
+    if(p && p.durum !== v.durum && AYNA_HEDEF.indexOf(v.durum) !== -1){
       uyari += GV.notice({ tone:'info', icon:'i-info', title:'Kaynak talebin durumu eşitlenecek',
         text:p.kod + ' talebinin durumu şu an “' + p.durum + '”; kaydedince “' + v.durum +
-             '” olarak güncellenir ve talebin aktivite geçmişine yazılır. Ölçüm: ' + talepliSiparis +
-             ' talepli siparişin ' + durumAyna + ' tanesinde iki durum birebir aynı.' });
+             '” olarak eşitlenmeye çalışılır. Eşitleme de merkezî geçiş motorundan geçer: ' +
+             'talebin geçiş tablosu izin vermiyorsa talep OLDUĞU GİBİ kalır ve sebebi bildirilir. ' +
+             'Ölçüm: ' + talepliSiparis + ' talepli siparişin ' + durumAyna + ' tanesinde iki durum ' +
+             'birebir aynı.' });
     }
-    if(v.durum === 'İptal' && p){
-      uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'İptalde talep durumu değiştirilmez',
-        text:'İptal edilen sipariş için ölçülmüş bir talep-durum aynası yok; ' + p.kod +
-             ' talebi “' + p.durum + '” durumunda bırakılır ve gerekiyorsa talep ekranından ' +
-             'güncellenir.',
+    if(p && ['İptal Edildi','İade'].indexOf(v.durum) !== -1){
+      uyari += GV.notice({ tone:'warn', icon:'i-alert', title:'İptal ve iadede talep durumu değiştirilmez',
+        text:'Yalnız TESLİM ekseni (Kısmi Teslim · Tam Teslim) aynalanır. Siparişteki “İade” malın ' +
+             'tedarikçiye geri gitmesidir, talepteki “İade” ise talebin sahibine geri dönmesidir — ' +
+             'aynı şey değildir. ' + p.kod + ' talebi “' + p.durum + '” durumunda bırakılır ve ' +
+             'gerekiyorsa talep ekranındaki iş akışı eylemlerinden güncellenir.',
         actions:[{ label:'Talebi aç', href:'app-satinalma-detay.html?id=' + p.kod }] });
     }
 
@@ -1009,7 +1064,7 @@ document.addEventListener('gv:ready', function(){
                  ' tedarikçisine ait; sipariş ' + tedAd(v.tedarikci) + ' tedarikçisine açılıyor.');
       }
     }
-    if(v.durum === 'Teslim alındı' && !v.fatura){
+    if(SIP_TESLIM.indexOf(v.durum) !== -1 && !v.fatura){
       out.push('Belge: teslim alınan siparişte fatura numarası boş. Ölçüm: teslim alınan ' +
                teslimAlinanSayi + ' siparişin ' + faturaliTeslim + ' tanesinde fatura numarası var.');
     }
@@ -1019,7 +1074,7 @@ document.addEventListener('gv:ready', function(){
                  F.money(kVarlikNet, kur) + ', yeni sipariş neti ' + F.money(v.tutar, kur) +
                  ' (ikisi de KDV hariç). Demirbaş kayıtları bu formdan güncellenmez.');
       }
-      if(v.durum !== 'Teslim alındı'){
+      if(SIP_TESLIM.indexOf(v.durum) === -1){
         out.push('Demirbaş: bu siparişten doğmuş ' + kVarliklar.length + ' demirbaş kaydı var ama ' +
                  'sipariş durumu “' + v.durum + '” yapılıyor. Demirbaşlar envanterde kalır.');
       }
@@ -1071,18 +1126,29 @@ document.addEventListener('gv:ready', function(){
     setTimeout(function(){ location.href = 'app-siparis.html'; }, 700);
   }
 
-  /* Talep durumu siparişin durumunu izler (ölçüm: talepli siparişlerin tamamında
-     iki durum aynı). İptal için ölçülmüş ayna yok — talep olduğu gibi bırakılır. */
+  /* Talep durumu siparişin TESLİM eksenini izler. Ekran artık `p.durum`
+     yazmaz: eşitleme de merkezî geçiş motorundan geçer, çünkü talebin
+     geçiş tablosu (yetki · zorunlu alan · gerekçe) burada da geçerlidir.
+     Motor reddederse talep OLDUĞU GİBİ kalır ve sebep kullanıcıya basılır —
+     sessizce yanlış duruma yazmaktan iyidir.
+     İptal ve iade aynalanmaz: siparişteki iade malın tedarikçiye geri
+     gitmesidir, talepteki iade talebin sahibine geri dönmesidir. */
   function durumAynala(p, siparisKod, durum){
     if(!p || !durum) return;
-    if(durum !== 'Sipariş verildi' && durum !== 'Teslim alındı') return;
+    if(AYNA_HEDEF.indexOf(durum) === -1) return;
     if(p.durum === durum) return;
-    var eski = p.durum;
-    p.durum = durum;
+    if(!GV.flow || !GV.flow.gec) return;
+    var r = GV.flow.gec('purchase', p.kod, durum, null,
+                        { not:siparisKod + ' siparişiyle eşitlendi' });
+    if(!r.ok){
+      GV.toast(p.kod + ' talebi eşitlenemedi: ' +
+               (r.mesaj || (r.eksik ? 'eksik zorunlu alan — ' + r.eksik.join(', ') : r.why)), 'warn');
+      return;
+    }
     DB.activities.unshift({
       kayit:p.kod, tarih:simdi(), kisi:GV.session.emp,
       metin:'Talep durumu ' + siparisKod + ' siparişiyle eşitlendi',
-      eski:eski, yeni:durum, tone:'accent', icon:'i-truck'
+      eski:r.eski, yeni:r.yeni, tone:'accent', icon:'i-truck'
     });
   }
 

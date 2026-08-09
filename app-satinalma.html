@@ -24,6 +24,20 @@
 <script>
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, canFinans = GV.perm.can('finans');
+
+  /* =====================================================================
+     DURUM KÜMELERİ — sözlük DB.purchaseStatuses (org.js), geçiş tablosu
+     DB.transitions.purchase. Ekran eski dizgileri (“Onay bekliyor” ·
+     “Sipariş verildi” · “Teslim alındı”) ARAMAZ; onlar taşındı ve hiçbir
+     kayıtta kalmadı — arayan filtre sessizce boş dönerdi.
+     Kümeler tek yerde kurulur ki sekme, KPI, rozet ve satır sınıfı ayrışmasın.
+     ===================================================================== */
+  var KAPALI = ['Tam Teslim','Kapandı','Reddedildi','İptal Edildi'];  /* talep sonlandı */
+  var ONAYDA = ['Onaya Gönderildi','İnceleme'];                       /* karar bekliyor */
+  var TESLIM = ['Tam Teslim','Kapandı'];                              /* mal geldi */
+  function acik(x){ return KAPALI.indexOf(x.durum) === -1; }
+  function onayda(x){ return ONAYDA.indexOf(x.durum) !== -1; }
+
   GV.pageHead({ eyebrow:'Tedarik', title:'Satın Alma Talepleri',
     actions:[{ label:'Siparişler', icon:'i-truck', href:'app-siparis.html' },
              { label:'Yeni Talep', icon:'i-plus', cls:'btn-acc', href:'app-satinalma-form.html' }] });
@@ -34,21 +48,25 @@ document.addEventListener('gv:ready', function(){
     search:{ placeholder:'Talep no, ürün, kategori veya gerekçe ara', fields:['kod','urun','kategori','aciklama','gerekce','butceKodu'] },
     defaultSort:'ihtiyacTarihi',
     kpis:[
-      { label:'Açık talep', icon:'i-cart', calc:function(a){ return a.filter(function(x){ return ['Teslim alındı','İptal'].indexOf(x.durum) === -1; }).length; } },
-      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(function(x){ return x.durum === 'Onay bekliyor'; }).length; } },
+      { label:'Açık talep', icon:'i-cart', calc:function(a){ return a.filter(acik).length; } },
+      /* “Onay bekleyen” iki durumdur: talep onaya gönderilmiş (henüz ele alınmadı)
+         ya da incelemede (ele alındı, karar verilmedi). İkisi de karar bekler. */
+      { label:'Onay bekleyen', icon:'i-stamp', tone:'warn', calc:function(a){ return a.filter(onayda).length; } },
       { label:'Bekleyen tutar', icon:'i-wallet', tone:'info', format:F.moneyK,
-        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum === 'Onay bekliyor'; })
+        calc:function(a){ return canFinans ? a.filter(onayda)
           .reduce(function(s,x){ return s + x.tahminiMaliyet; }, 0) : 0; } },
+      /* Kapanan talep de teslim alınmıştır — 'Kapandı' yalnız 'Tam Teslim'den
+         sonra gelir, bu yüzden harcama toplamı kapanınca düşmez. */
       { label:'Bu yıl satın alma', icon:'i-truck', tone:'ok', format:F.moneyK,
-        calc:function(a){ return canFinans ? a.filter(function(x){ return x.durum === 'Teslim alındı'; })
+        calc:function(a){ return canFinans ? a.filter(function(x){ return TESLIM.indexOf(x.durum) !== -1; })
           .reduce(function(s,x){ return s + x.tahminiMaliyet; }, 0) : 0; } }
     ],
     tabs:[
-      { key:'acik', label:'Açık Talepler', icon:'i-cart', filter:function(x){ return ['Teslim alındı','İptal'].indexOf(x.durum) === -1; } },
+      { key:'acik', label:'Açık Talepler', icon:'i-cart', filter:acik },
       { key:'taslak', label:'Taslak', icon:'i-edit', filter:function(x){ return x.durum === 'Taslak'; } },
-      { key:'onay', label:'Onay Bekleyenler', icon:'i-stamp', filter:function(x){ return x.durum === 'Onay bekliyor'; } },
-      { key:'siparis', label:'Sipariş Verilenler', icon:'i-truck', filter:function(x){ return x.durum === 'Sipariş verildi'; } },
-      { key:'teslim', label:'Teslim Alınanlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Teslim alındı'; } },
+      { key:'onay', label:'Onay Bekleyenler', icon:'i-stamp', filter:onayda },
+      { key:'siparis', label:'Sipariş Verilenler', icon:'i-truck', filter:function(x){ return x.durum === 'Sipariş'; } },
+      { key:'teslim', label:'Teslim Alınanlar', icon:'i-check-circle', filter:function(x){ return x.durum === 'Tam Teslim'; } },
       { key:'tumu', label:'Tümü', icon:'i-list', filter:null }
     ],
     columns:[
@@ -66,7 +84,7 @@ document.addEventListener('gv:ready', function(){
       { key:'butceKodu', label:'Bütçe kodu', visible:false },
       { key:'gerekce', label:'Gerekçe', visible:false, cellClass:'cell-wrap' },
       { key:'oncelik', label:'Öncelik', render:function(x){ return GV.pri(x.oncelik); } },
-      { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', render:function(x){ return GV.dateCell(x.ihtiyacTarihi, { done:x.durum === 'Teslim alındı' }); } },
+      { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', render:function(x){ return GV.dateCell(x.ihtiyacTarihi, { done:!acik(x) }); } },
       { key:'onayAdim', label:'Onay ilerlemesi', sortValue:function(x){ return x.onayAdim / Math.max(1, x.onayToplam); },
         render:function(x){ return GV.progress(Math.round(x.onayAdim / Math.max(1, x.onayToplam) * 100)) +
           '<span class="cell-sub">' + x.onayAdim + ' / ' + x.onayToplam + ' onay</span>'; },
@@ -74,7 +92,7 @@ document.addEventListener('gv:ready', function(){
       { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
     ],
     filters:[
-      { key:'durum', label:'Talep durumu', type:'multi', options:['Taslak','Onay bekliyor','Sipariş verildi','Teslim alındı','İptal'] },
+      { key:'durum', label:'Talep durumu', type:'multi', options:DB.purchaseStatuses },
       { key:'kategori', label:'Kategori', type:'multi', options:DB.assetCategories },
       { key:'dep', label:'Talep eden departman', type:'multi', options:DB.departments.map(function(d){ return { value:d.kod, label:d.ad }; }) },
       { key:'talepEden', label:'Talep eden', type:'select', options:DB.employees.map(function(e){ return { value:e.kod, label:e.ad }; }) },
@@ -82,8 +100,12 @@ document.addEventListener('gv:ready', function(){
       { key:'tahminiMaliyet', label:'Tutar (en az)', type:'text', test:function(x,v){ return x.tahminiMaliyet >= (parseFloat(v) || 0); } },
       { key:'ihtiyacTarihi', label:'İhtiyaç tarihi', type:'daterange' }
     ],
-    rowClass:function(x){ return (x.ihtiyacTarihi && F.days(x.ihtiyacTarihi) < 0 && x.durum !== 'Teslim alındı') ? 'is-late' : ''; },
-    kanban:{ groupBy:'durum', columns:['Taslak','Onay bekliyor','Sipariş verildi','Teslim alındı'],
+    rowClass:function(x){ return (x.ihtiyacTarihi && F.days(x.ihtiyacTarihi) < 0 && acik(x)) ? 'is-late' : ''; },
+    /* Kanban kolonları SÖZLÜĞÜN TAMAMIDIR: `columns` verilince listede olmayan
+       duruma düşen kart hiç basılmaz. Kısaltılmış bir kolon seti (eski hâli
+       dört kolondu) İnceleme · Onaylandı · RFQ · Kısmi Teslim · İade ·
+       Reddedildi durumundaki talepleri kanbandan sessizce düşürürdü. */
+    kanban:{ groupBy:'durum', columns:DB.purchaseStatuses,
       card:function(x){
         return '<a class="gv-kcard-title" href="app-satinalma-detay.html?id=' + x.kod + '">' + esc(x.urun) + '</a>' +
           '<div class="gv-kcard-meta"><span>' + esc(x.kategori) + '</span>' + GV.pri(x.oncelik) + '</div>' +
@@ -109,16 +131,36 @@ document.addEventListener('gv:ready', function(){
             actions:[{ label:'Kapat', cls:'btn-acc' }] }); } },
       { key:'onayla', icon:'i-check', label:'Onayla', run:function(x, refresh){
           if(!GV.perm.can('onay')){ GV.toast('Satın alma onaylama yetkiniz yok.', 'danger'); return; }
-          if(x.durum !== 'Onay bekliyor'){ GV.toast('Bu talep onay aşamasında değil.', 'info'); return; }
+          if(!onayda(x)){ GV.toast('Bu talep onay aşamasında değil.', 'info'); return; }
           GV.confirm({ title:'Satın alma talebini onayla',
             text:x.urun + ' · ' + F.money(x.tahminiMaliyet) + ' — onayınızla ' + (x.onayAdim + 1) + '. adım tamamlanacak.',
             okLabel:'Onayla' }).then(function(ok){ if(!ok) return;
               var z = zincir(x.kod).filter(function(a){ return a.durum === 'Bekliyor'; })[0];
               if(z){ z.durum = 'Onaylandı'; z.tarih = DB.today + 'T09:00'; }
               x.onayAdim += 1;
-              if(x.onayAdim >= x.onayToplam){ x.durum = 'Sipariş verildi';
-                GV.toast(x.kod + ' tüm onayları aldı, sipariş aşamasına geçti', 'ok'); }
-              else GV.toast(x.kod + ' onaylandı — ' + (x.onayToplam - x.onayAdim) + ' onay kaldı', 'ok');
+              if(x.onayAdim < x.onayToplam){
+                GV.toast(x.kod + ' onaylandı — ' + (x.onayToplam - x.onayAdim) + ' onay kaldı', 'ok');
+                refresh(); return;
+              }
+              /* Zincir bitti → durumu EKRAN yazmaz, motor yazar. Yol geçiş
+                 tablosundan OKUNUR, ekrana gömülmez: 'Onaylandı' doğrudan
+                 erişilebilirse tek adım, değilse ara adım (İnceleme) yürünür.
+                 İlk reddedilen geçişte durulur, sebep kullanıcıya basılır. */
+              var ulasilir = (GV.flow.adimlar('purchase', x.kod) || []).map(function(s){ return s.hedef; });
+              var yol = ulasilir.indexOf('Onaylandı') !== -1 ? ['Onaylandı']
+                      : ulasilir.indexOf('İnceleme')  !== -1 ? ['İnceleme','Onaylandı'] : [];
+              var r = yol.length ? { ok:true }
+                    : { ok:false, why:'“' + x.durum + '” durumundan onay tamamlanamaz' };
+              for(var i = 0; i < yol.length; i++){
+                r = GV.flow.gec('purchase', x.kod, yol[i], null,
+                                { not:'onay zinciri tamamlandı (' + x.onayToplam + ' adım)' });
+                if(!r.ok) break;
+              }
+              if(!r.ok){
+                GV.toast(r.mesaj || (r.eksik ? 'Eksik zorunlu alan: ' + r.eksik.join(', ') : r.why), 'warn');
+              }else{
+                GV.toast(x.kod + ' tüm onayları aldı — durum “' + x.durum + '”', 'ok');
+              }
               refresh(); }); } }
     ],
     bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],

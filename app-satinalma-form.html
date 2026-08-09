@@ -261,7 +261,13 @@ document.addEventListener('gv:ready', function(){
                    : 'Zorunlu alanlar yıldızla işaretlidir. Talep taslak olarak açılır.',
     actions:[
       { label:'Vazgeç', cls:'btn-line', href:'app-satinalma.html' },
-      { label: duzenle ? 'Değişiklikleri kaydet' : 'Talebi kaydet', cls:'btn-acc', icon:'i-check', run:kaydet }
+      /* İKİNCİL EYLEM — taslak talebi onaya gönderir. Bu eylem YOKTU: form
+         yalnız 'Taslak' yazıyor, taslağı ilerleten hiçbir aksiyon bulunmuyordu;
+         kaydedilen talep sistemde kilitli kalıyordu (detay ekranı da yalnız
+         onay ADIMI işliyor, durumu ilerletmiyordu). */
+      { label:'Onaya Gönder', cls:'btn-line', icon:'i-stamp', run:function(){ kaydet(true); } },
+      { label: duzenle ? 'Değişiklikleri kaydet' : 'Talebi kaydet', cls:'btn-acc', icon:'i-check',
+        run:function(){ kaydet(false); } }
     ]
   });
 
@@ -301,18 +307,42 @@ document.addEventListener('gv:ready', function(){
     ustBlok += GV.notice({ tone:'info', icon:'i-info', title:'Talep taslak olarak açılır',
       text:'Kaydettiğinizde talep “Taslak” durumunda oluşur ve onay zinciri henüz başlamaz. ' +
            'Zincir tutar, kategori ve proje bağına göre otomatik belirlenir; aşağıdaki önizlemede ' +
-           'hangi makamlardan geçeceğini görürsünüz. Onay adımları bu formdan düzenlenemez.' });
+           'hangi makamlardan geçeceğini görürsünüz. Onay adımları bu formdan düzenlenemez. ' +
+           'Zinciri başlatmak için “Kaydet ve Onaya Gönder” eylemini kullanın — durum alanı ' +
+           'formda yoktur, iş akışı eyleminden değişir.' });
   }
+
+  /* Form altı eylem çubuğu — “Kaydet” tek başına talebi TASLAK'ta bırakır;
+     “Kaydet ve Onaya Gönder” aynı akışta kaydedip merkezî geçiş motorunu
+     (GV.flow) çağırır. Durum bu ekrandan elle YAZILMAZ. */
+  var altAksiyon =
+    '<div class="u-mt-4"><section class="gv-card"><div class="gc-body">' +
+      GV.notice({ tone:'info', icon:'i-stamp', title:'Taslak talep kendiliğinden ilerlemez',
+        text:'Kaydedilen talep “Taslak” durumunda açılır ve onay zinciri başlamaz. Zinciri başlatan ' +
+             'tek eylem “Onaya Gönder”dir; talebin durumu bu formdaki bir alandan değil, iş akışı ' +
+             'eyleminden değişir. Gönderilen talep artık form üzerinden düzenlenemez.' }) +
+    '</div><div class="gc-foot">' +
+      '<a class="btn btn-line" href="app-satinalma.html">Vazgeç</a>' +
+      '<button type="button" class="btn btn-line" id="btnGonder">' + ico('i-stamp') +
+        ' Kaydet ve Onaya Gönder</button>' +
+      '<button type="button" class="btn btn-acc" id="btnKaydet">' + ico('i-check') + ' ' +
+        (duzenle ? 'Değişiklikleri kaydet' : 'Talebi kaydet') + '</button>' +
+    '</div></section></div>';
 
   mount.innerHTML =
     ustBlok +
     '<div class="u-mt-4">' + kart(duzenle ? 'Talep Bilgileri' : 'Yeni Talep', null,
       '<div id="formMount"></div>', 'i-cart') + '</div>' +
     '<div class="u-mt-4" id="zincirKart"></div>' +
+    altAksiyon +
     (duzenle ? '<div class="u-mt-4">' + kart('Aktivite Geçmişi', 'Kayıt üzerindeki tüm değişiklikler',
       '<div id="aktivite"></div>', 'i-activity') + '</div>' : '');
 
   if(duzenle) document.getElementById('aktivite').innerHTML = GV.activity(acts);
+
+  /* Mount İÇİNDEKİ düğümler — GV.refresh() taze kopyayla değiştirir (ders L-16). */
+  var bK = document.getElementById('btnKaydet'); if(bK) bK.addEventListener('click', function(){ kaydet(false); });
+  var bG = document.getElementById('btnGonder'); if(bG) bG.addEventListener('click', function(){ kaydet(true); });
 
   /* =====================================================================
      7. FORM — 14 alan, 4 bölüm (PROMPT.md §17 talep kartı)
@@ -489,10 +519,32 @@ document.addEventListener('gv:ready', function(){
     return String(val);
   }
 
-  function kaydet(){
+  /* Onaya gönderme TEK mutasyon noktasından geçer: ekran `durum` yazmaz,
+     `GV.flow.gec` çağırır. Motor yetki, zorunlu alan ve gerekçe kurallarını
+     uygular; reddederse sebep kullanıcıya basılır ve sayfadan çıkılmaz ki
+     eksik düzeltilebilsin. */
+  function onayaGonder(kod){
+    if(!GV.flow || !GV.flow.gec){
+      GV.toast('Geçiş motoru yüklenmedi — talep taslak olarak kaldı', 'warn');
+      return false;
+    }
+    var r = GV.flow.gec('purchase', kod, 'Onaya Gönderildi', null, { not:'formdan gönderildi' });
+    if(!r.ok){
+      GV.toast(r.mesaj || (r.eksik ? 'Eksik zorunlu alan: ' + r.eksik.join(', ') : r.why), 'warn');
+      return false;
+    }
+    DB.activities.unshift({ kayit:kod, tarih:simdi(), kisi:GV.session.emp,
+      metin:'Talep onaya gönderildi — onay zinciri başladı',
+      eski:r.eski, yeni:r.yeni, tone:'ok', icon:'i-stamp' });
+    GV.toast(kod + ' onaya gönderildi', 'ok');
+    return true;
+  }
+
+  function kaydet(gonder){
     var ham = form.submit();
     if(!ham) return;
     var v = normalize(ham);
+    var hedefKod = duzenle ? kayit.kod : null;
 
     if(duzenle){
       var degisen = 0;
@@ -521,12 +573,12 @@ document.addEventListener('gv:ready', function(){
         }
       }
 
-      if(!degisen){
+      if(!degisen && !gonder){
         GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
         form.setDirty(false);
         return;
       }
-      GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
+      if(degisen) GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
     }else{
       var kod = yeniKod();
       var yeniKayit = Object.assign({ kod:kod }, v, {
@@ -539,10 +591,19 @@ document.addEventListener('gv:ready', function(){
         aktif:true
       });
       DB.purchases.unshift(yeniKayit);
+      hedefKod = kod;
       DB.activities.unshift({ kayit:kod, tarih:simdi(), kisi:GV.session.emp,
         metin:'Satın alma talebi oluşturuldu', eski:null, yeni:kod, tone:'ok', icon:'i-plus' });
       GV.toast(kod + ' taslak olarak oluşturuldu' +
         (yeniKayit.onayToplam ? ' · ' + yeniKayit.onayToplam + ' onay adımı' : ''), 'ok');
+    }
+
+    /* Kaydet + onaya gönder TEK akıştır: kayıt yazıldıktan sonra geçiş motoru
+       çağrılır. Motor reddederse sayfada kalınır — talep taslak olarak durur,
+       kullanıcı eksiği düzeltip yeniden gönderebilir. */
+    if(gonder && !onayaGonder(hedefKod)){
+      form.setDirty(true);
+      return;
     }
 
     form.setDirty(false);

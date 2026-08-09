@@ -92,10 +92,21 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      DURUM VE SÜRE — tarih referansı DB.today
      ================================================================= */
-  var teslimAlindi = o.durum === 'Teslim alındı';
-  var iptal        = o.durum === 'İptal';
+  /* Sözlük DB.orderStatuses / DB.purchaseStatuses (org.js). Eski dizgiler
+     (“Teslim alındı” · “İptal” · “Sipariş verildi”) taşındı ve hiçbir kayıtta
+     kalmadı; onları arayan koşullar teslim alınmış siparişi “bekliyor”
+     gösteriyor, teslim alma düğmesini kapanmış siparişte de basıyordu.
+     'Kapandı' teslimden SONRA gelir, bu yüzden teslim ekseninde sayılır. */
+  var SIP_TESLIM   = ['Tam Teslim','Kapandı'];
+  var TALEP_KAPALI = ['Tam Teslim','Kapandı','Reddedildi','İptal Edildi'];
+
+  var teslimAlindi = SIP_TESLIM.indexOf(o.durum) !== -1;
+  var iptal        = o.durum === 'İptal Edildi';
+  /* 'İade' de teslimat takibini durdurur ama iptal DEĞİLDİR: mal gelmiş,
+     sonra tedarikçiye geri gönderilmiştir. Ayrı eksen, ayrı metin. */
+  var iade         = o.durum === 'İade';
   /* `teslimTarihi` çift anlamlı (ops.js): teslim alınmadıysa PLANLANAN,
-     'Teslim alındı' ise GERÇEKLEŞEN tarihtir. Etiket buna göre seçilir. */
+     'Tam Teslim' / 'Kapandı' ise GERÇEKLEŞEN tarihtir. Etiket buna göre seçilir. */
   var teslimEksen  = teslimAlindi ? 'gerçekleşen' : 'planlanan';
   var teslimEtiket = teslimAlindi ? 'Gerçekleşen teslim tarihi' : 'Planlanan teslim tarihi';
 
@@ -176,6 +187,7 @@ document.addEventListener('gv:ready', function(){
   }
   function teslimZaman(){
     if(iptal) return '<span class="u-faint">Sipariş iptal edildi</span>';
+    if(iade)  return '<span class="u-faint">Mal tedarikçiye iade edildi</span>';
     if(teslimAlindi){
       return '<b class="u-ok">' + F.date(o.teslimTarihi) + ' tarihinde teslim alındı</b>';
     }
@@ -195,53 +207,118 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
-     TESLİM ALMA AKSİYONU (mutasyon) — ders L-15: reload YOK, GV.refresh
-     Yalnız düzenleme yetkisi VARSA ve sipariş açıkken basılır (ölü buton yok).
+     İŞ AKIŞI EYLEMLERİ — şartname §6.1: durum EKRANDA yazılmaz.
+     `GV.flow.adimlar('order', kod)` yapılabilir geçişleri verir;
+     `GV.flow.gec(...)` TEK mutasyon noktasıdır. Yürütülemeyen adım ölü
+     buton bırakılmaz: `disabled` basılır, engelin sebebi `title`a yazılır.
      ================================================================= */
-  var teslimAlinabilir = canDuzenle && !teslimAlindi && !iptal;
+  var AKIS = (GV.flow && GV.flow.adimlar) ? (GV.flow.adimlar('order', o.kod) || []) : [];
 
-  function teslimAl(){
-    GV.confirm({
-      title:'Siparişi teslim alındı işaretle',
-      text:o.kod + ' · ' + tedAd(o.tedarikci) + ' · ' + paraMetin(o.toplam) + ' (KDV dahil) — ' +
-           'sipariş durumu “Teslim alındı” olacak, teslim tarihi bugün (' + F.date(DB.today) + ') olarak ' +
-           'yazılacak ve teslim kontrolü “Tam” işaretlenecek' +
-           (eksikKalem.length
-             ? '. Eksik gelen ' + eksikKalem.length + ' kalemin kalan ' + F.num(eksikAdet) +
-               ' birimi de teslim alınmış sayılır — kalem dökümü buna göre kapanır'
-             : '') +
-           (p ? '. Kaynak talep ' + p.kod + ' de teslim alındı durumuna geçer.' : '.'),
-      okLabel:'Teslim alındı işaretle'
-    }).then(function(ok){
-      if(!ok) return;
-      var saat = DB.today + 'T' + new Date().toTimeString().slice(0,5);
-      var eskiDurum = o.durum, eskiTeslim = o.teslimTarihi;
-      var eskiEksik = eksikAdet;
-      o.durum = 'Teslim alındı';
-      o.teslimTarihi = DB.today;          /* bu andan sonra GERÇEKLEŞEN tarihtir */
-      o.teslimKontrol = 'Tam';
-      /* Kalem dökümü siparişle birlikte kapanır: 'Tam' demek her kalemin tamamının
-         geldiği demektir, aksi hâlde kayıt kendi kalemleriyle çelişirdi. */
-      kalemler.forEach(function(l){ l.teslimAlinan = l.miktar; });
-      if(eskiEksik > 0){
-        DB.activities.unshift({ kayit:o.kod, tarih:saat, kisi:GV.session.emp,
-          metin:'Eksik kalan ' + F.num(eskiEksik) + ' birim teslim alındı, kalem dökümü kapandı',
-          eski:'Eksik', yeni:'Tam', tone:'ok', icon:'i-truck' });
-      }
-      DB.activities.unshift({ kayit:o.kod, tarih:saat, kisi:GV.session.emp,
-        metin:'Sipariş teslim alındı — teslim kontrolü “Tam”, planlanan teslim ' + F.date(eskiTeslim),
-        eski:eskiDurum, yeni:'Teslim alındı', tone:'ok', icon:'i-package' });
-      if(p && p.durum !== 'Teslim alındı'){
-        var eskiTalep = p.durum;
-        p.durum = 'Teslim alındı';
-        DB.activities.unshift({ kayit:p.kod, tarih:saat, kisi:GV.session.emp,
-          metin:'Talep ' + o.kod + ' siparişinin teslim alınmasıyla kapandı',
-          eski:eskiTalep, yeni:'Teslim alındı', tone:'ok', icon:'i-truck' });
-      }
-      GV.toast(o.kod + ' teslim alındı olarak işaretlendi', 'ok');
-      setTimeout(function(){ GV.refresh(); }, 700);
+  var NEDEN_TURU = { 'İade':'iade', 'İptal Edildi':'iptal', 'Taslak':'geri' };
+  function nedenSecenek(hedef){
+    var t = NEDEN_TURU[hedef];
+    var liste = (DB.reasonCodes || []).filter(function(r){ return !t || (r.tur || []).indexOf(t) !== -1; });
+    if(!liste.length) liste = DB.reasonCodes || [];
+    return liste.map(function(r){
+      return '<option value="' + esc(r.kod) + '">' + esc(r.ad) + '</option>'; }).join('');
+  }
+  function akisEngeli(s){
+    if(!canDuzenle) return 'Kayıt düzenleme yetkiniz yok';
+    if(!s.izin) return 'Bu geçiş için yetkiniz yok';
+    if(s.eksik && s.eksik.length) return 'Eksik zorunlu alan: ' + s.eksik.join(', ');
+    return '';
+  }
+  /* Motor kuralın etiketini yalnız İLK hedefe verir, kalanlara durum adını
+     basar. Bu tek başına yanıltıcı olabiliyor — “Teslim Al” siparişte
+     'Kısmi Teslim'e gider, 'Tam Teslim'e değil. Etiket hedeften farklıysa
+     hedef düğmenin üstünde AÇIKÇA yazılır. */
+  function akisButonlari(){
+    if(!AKIS.length) return '';
+    return '<div class="gv-state-acts u-mt-8">' + AKIS.map(function(s, i){
+      var engel = akisEngeli(s);
+      var yazi  = esc(s.etiket) + (s.etiket === s.hedef ? ''
+                  : ' <span class="u-faint">→ ' + esc(s.hedef) + '</span>');
+      return '<button type="button" class="btn ' + (s.tone || 'btn-acc') + '" data-akis="' + i + '"' +
+        (engel ? ' disabled title="' + esc(engel) + '"' : ' title="' + esc('Yeni durum: ' + s.hedef) + '"') +
+        '>' + yazi + '</button>';
+    }).join(' ') + '</div>';
+  }
+
+  /* Teslim ekseni geçişleri siparişin kendi alanlarını da yazar: teslim
+     tarihi GERÇEKLEŞEN tarihe döner, teslim kontrolü kalem dökümünden
+     türetilir. Bunlar `ek` ile motora verilir — ekran doğrudan yazmaz. */
+  function akisEk(hedef){
+    if(hedef === 'Tam Teslim')   return { teslimTarihi:DB.today, teslimKontrol:'Tam' };
+    if(hedef === 'Kısmi Teslim') return { teslimKontrol:'Eksik' };
+    return null;
+  }
+
+  function akisCalistir(s){
+    var gerekli = !!s.gerekce;
+    var tamTeslim = s.hedef === 'Tam Teslim';
+    GV.modal({
+      title:s.etiket, icon:'i-refresh', size:'sm',
+      text:o.kod + ' · “' + o.durum + '” → “' + s.hedef + '”' +
+           (tamTeslim ? ' · teslim tarihi bugün (' + F.date(DB.today) + ') yazılır' : ''),
+      body:(tamTeslim && eksikKalem.length
+        ? GV.notice({ tone:'warn', icon:'i-truck', title:'Eksik kalem kapanacak',
+            text:'Eksik gelen ' + eksikKalem.length + ' kalemin kalan ' + F.num(eksikAdet) +
+                 ' birimi de teslim alınmış sayılır; kalem dökümü buna göre kapanır.' })
+        : '') +
+        (gerekli
+        ? '<div class="field"><label for="akNeden">Neden kodu<span class="req">*</span></label>' +
+          '<select id="akNeden">' + nedenSecenek(s.hedef) + '</select>' +
+          '<div class="f-hint">Gerekçe neden KODU + açıklama olarak istenir; serbest metin tek başına raporlanamaz.</div></div>'
+        : '') +
+        '<div class="field u-mt-4"><label for="akNot">Açıklama' +
+        (gerekli ? '<span class="req">*</span>' : '') + '</label>' +
+        '<textarea id="akNot" rows="3" placeholder="Bu geçişin nedeni — aktivite geçmişine yazılır"></textarea></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:s.etiket, cls:s.tone === 'btn-danger-line' ? 'btn-danger' : 'btn-acc',
+          onClick:function(close, el){
+            var neden = gerekli ? ((el.querySelector('#akNeden') || {}).value || '') : null;
+            var not   = String(((el.querySelector('#akNot') || {}).value) || '').trim();
+            if(gerekli && (!neden || !not)){
+              GV.toast('Neden kodu ve açıklama zorunludur', 'warn'); return false;
+            }
+            var eskiTeslim = o.teslimTarihi, eskiEksik = eksikAdet;
+            var r = GV.flow.gec('order', o.kod, s.hedef, akisEk(s.hedef), { not:not, neden:neden });
+            if(!r.ok){
+              GV.toast(r.mesaj || (r.eksik ? 'Eksik zorunlu alan: ' + r.eksik.join(', ') : r.why), 'warn');
+              return false;
+            }
+            var saat = DB.today + 'T' + new Date().toTimeString().slice(0,5);
+            if(tamTeslim){
+              /* 'Tam Teslim' demek her kalemin tamamının geldiği demektir;
+                 aksi hâlde kayıt kendi kalem dökümüyle çelişirdi. */
+              kalemler.forEach(function(l){ l.teslimAlinan = l.miktar; });
+              if(eskiEksik > 0){
+                DB.activities.unshift({ kayit:o.kod, tarih:saat, kisi:GV.session.emp,
+                  metin:'Eksik kalan ' + F.num(eskiEksik) + ' birim teslim alındı, kalem dökümü kapandı',
+                  eski:'Eksik', yeni:'Tam', tone:'ok', icon:'i-truck' });
+              }
+              DB.activities.unshift({ kayit:o.kod, tarih:saat, kisi:GV.session.emp,
+                metin:'Teslim tarihi gerçekleşen tarihe çevrildi (planlanan ' + F.date(eskiTeslim) + ')',
+                eski:F.date(eskiTeslim), yeni:F.date(DB.today), tone:'info', icon:'i-calendar' });
+            }
+            /* Kaynak talep siparişin TESLİM eksenini izler. Ayna da motordan
+               geçer; geçiş yasaksa talep olduğu gibi bırakılır, uydurulmaz. */
+            if(p && ['Tam Teslim','Kısmi Teslim'].indexOf(s.hedef) !== -1 && p.durum !== s.hedef){
+              var rt = GV.flow.gec('purchase', p.kod, s.hedef, null,
+                                   { not:o.kod + ' siparişi teslim alındı' });
+              if(!rt.ok) GV.toast(p.kod + ' talebi eşitlenemedi: ' + (rt.mesaj || rt.why), 'warn');
+            }
+            GV.toast(o.kod + ' · ' + r.eski + ' → ' + r.yeni, 'ok');
+            setTimeout(function(){ GV.refresh(); }, 400);
+          } }]
     });
   }
+
+  /* Başlık aksiyonu — “Teslim alındı işaretle” artık motorun 'Tam Teslim'
+     adımıdır; adım yoksa düğme HİÇ basılmaz (ölü buton yasak). */
+  var tamAdim = AKIS.filter(function(s){ return s.hedef === 'Tam Teslim'; })[0] || null;
+  var teslimAlinabilir = !!tamAdim && !akisEngeli(tamAdim);
+  function teslimAl(){ if(tamAdim) akisCalistir(tamAdim); }
 
   /* =================================================================
      SAYFA BAŞLIĞI — aksiyonların hepsi gerçekten çalışır
@@ -382,7 +459,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var pTalep;
   if(p){
-    var talepAcik = ['Teslim alındı','İptal'].indexOf(p.durum) === -1;
+    var talepAcik = TALEP_KAPALI.indexOf(p.durum) === -1;
     var sapmaNot;
     if(!canFinans){
       sapmaNot = GV.notice({ tone:'neutral', icon:'i-lock', title:'Tutar karşılaştırması gizli',
@@ -588,6 +665,10 @@ document.addEventListener('gv:ready', function(){
   if(iptal){
     teslimDurumNot = GV.notice({ tone:'neutral', icon:'i-x-circle', title:'Sipariş iptal edildi',
       text:o.kod + ' iptal durumunda; teslimat takibi yapılmıyor.' });
+  }else if(iade){
+    teslimDurumNot = GV.notice({ tone:'warn', icon:'i-refresh', title:'Sipariş iade durumunda',
+      text:o.kod + ' teslim alındıktan sonra tedarikçiye iade edildi; teslimat takibi durdu. ' +
+           'Kalan tek adım siparişi kapatmaktır.' });
   }else if(teslimAlindi){
     teslimDurumNot = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Sipariş teslim alındı',
       text:'Gerçekleşen teslim tarihi ' + F.date(o.teslimTarihi) + '. ' +
@@ -610,10 +691,16 @@ document.addEventListener('gv:ready', function(){
            ' Bu tarih PLANLANAN teslim tarihidir; teslim alındığında gerçekleşen tarihle değiştirilir.' });
   }
 
-  var teslimAksiyon = teslimAlinabilir
-    ? '<div class="u-row u-mt-8"><button type="button" class="btn btn-acc" id="btnTeslim">' +
-      ico('i-check') + ' Teslim alındı işaretle</button></div>'
-    : '';
+  /* Tek düğme yerine motorun verdiği TÜM adımlar basılır: “Teslim alındı
+     işaretle” bu adımlardan yalnız biriydi; kısmi teslim, iade, iptal ve
+     kapatma ekranda hiç yoktu ve kayıt o durumlara hiç geçemiyordu. */
+  var teslimAksiyon = AKIS.length
+    ? '<p class="u-sm u-muted u-mt-8">Durum bu ekrandan elle yazılmaz; aşağıdaki eylemler merkezî ' +
+      'geçiş motorundan (şartname §6.1) geçer. Yetkisi olmayan ya da zorunlu alanı eksik olan eylem ' +
+      'etkisiz basılır, sebebi düğmenin üstünde yazar.</p>' + akisButonlari()
+    : GV.notice({ tone:'neutral', icon:'i-lock', title:'Bu durumdan yapılabilecek geçiş yok',
+        text:'“' + o.durum + '” geçiş tablosunda uç durumdur; sipariş üzerinde durum değiştiren bir ' +
+             'eylem kalmadı.' });
 
   /* ---- Kalem dökümü · eksik teslim (§17) --------------------------------
      Eksik miktar tabloda HESAPLANIR; veride "eksik" diye bir alan yoktur. */
@@ -743,10 +830,10 @@ document.addEventListener('gv:ready', function(){
              : '<b class="u-ok">Planlanan teslim ihtiyaç tarihinden ' + Math.abs(ihtiyacFark) + ' gün önce</b>')]
     ]) +
     kalemBlok() + iadeBlok() +
-    (teslimAlinabilir ? '' : (teslimAlindi || iptal ? '' : GV.notice({ tone:'neutral', icon:'i-lock',
-      title:'Teslim alma yetkiniz yok',
-      text:'Bu sipariş henüz teslim alınmadı, ancak rolünüzde kayıt düzenleme yetkisi tanımlı değil. ' +
-           'Teslimat bilgilerini görüntüleyebilirsiniz.' }))) +
+    (!canDuzenle && AKIS.length ? GV.notice({ tone:'neutral', icon:'i-lock',
+      title:'Durum değiştirme yetkiniz yok',
+      text:'Bu siparişte yapılabilecek geçişler var, ancak rolünüzde kayıt düzenleme yetkisi tanımlı ' +
+           'değil. Teslimat bilgilerini görüntüleyebilirsiniz.' }) : '') +
     teslimAksiyon +
     '</div>';
 
@@ -806,12 +893,12 @@ document.addEventListener('gv:ready', function(){
       '</div>') + pAracBlok;
   }else{
     pDemirbas = '<div class="gc-body">' + GV.notice({
-      tone:o.durum === 'Teslim alındı' ? 'warn' : 'info',
-      icon:o.durum === 'Teslim alındı' ? 'i-alert' : 'i-truck',
-      title:o.durum === 'Teslim alındı'
+      tone:teslimAlindi ? 'warn' : 'info',
+      icon:teslimAlindi ? 'i-alert' : 'i-truck',
+      title:teslimAlindi
         ? 'Bu siparişten envantere alınan demirbaş ya da araç yok'
         : 'Sipariş henüz teslim alınmadı',
-      text:(o.durum === 'Teslim alındı'
+      text:(teslimAlindi
         ? 'Sipariş teslim alınmış ancak hiçbir demirbaş kartı bu siparişe bağlanmamış. ' +
           'Kredi paketi, abonelik ve sarf malzemesi siparişleri envanter kaydı doğurmaz; ' +
           'ekipman siparişlerinde bu boşluk eksik envanter girişi anlamına gelir.'
@@ -961,8 +1048,12 @@ document.addEventListener('gv:ready', function(){
      AKSİYONLAR — her render'da taze düğüme bağlanır (GV.refresh sonrası
      dinleyici birikmesin diye mount üzerinde delege edilmez)
      ================================================================= */
-  var btnTeslim = document.getElementById('btnTeslim');
-  if(btnTeslim) btnTeslim.addEventListener('click', teslimAl);
+  Array.prototype.forEach.call(mount.querySelectorAll('[data-akis]'), function(b){
+    b.addEventListener('click', function(){
+      var s = AKIS[+b.getAttribute('data-akis')];
+      if(s) akisCalistir(s);
+    });
+  });
 });
 </script>
 </body>
