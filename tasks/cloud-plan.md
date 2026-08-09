@@ -46,7 +46,30 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P4-03 Notlarım modülü | ⛔ başlanmadı | — |
 | P5-01…P5-06 | ⛔ başlanmadı | büyük ölçüde backend |
 
-**ADR:** 17 blokaj sorusu `tasks/cloud-kararlar.md` içinde karara bağlandı; 4'ü 🔸 teyit bekliyor.
+**ADR:** 17 blokaj sorusu `tasks/cloud-kararlar.md` içinde karara bağlandı; 5'i 🔸 teyit bekliyor.
+
+### Sıradaki altı paket — nereden başlanacağı
+
+Ayrıntılı yol tarifi `tasks/handoff.md` §4'tedir. Özet ve sıra önerisi:
+
+| # | Paket | Hazır motor | İlk dosya | Blokaj |
+|---|---|---|---|---|
+| **A** | Form göçü (`CreateEditPage`) | `GV.form` sekme + `aside` + `readonly` **hazır** | `app-personel-form.html` (7 sekme), sonra `app-proje-form.html` (8 sekme) | AS-6.3 |
+| **B** | Satış dönüşüm sihirbazı | `GV.flow` quote/contract · `Gates.teklifOnAnaliz` · `Gates.sozlesmeAktif` · ödeme planı ekranları | `app-teklif-detay.html` "Kazanıldı" akışı | AS-1.3 · AS-5.2 · AS-3.5 |
+| **C** | Test varlık modeli | — (yeni koleksiyonlar) | `assets/data/work.js` → `testPlans/testCases/testSteps/testRuns/builds/environments` | — |
+| **D** | İK yaşam döngüsü | `GV.flow` (15. varlık aynı sözleşmeyle) · `GV.calendar` · `Gates.izinBakiye` | `assets/data/org.js` → `flowEntities.employee` | AS-1.10 · AS-1.11 · AS-1.12 |
+| **E** | ReportRegistry + export | `GV.report` **hazır**, 8/8 rapor kullanıyor | `assets/js/ui.js` ortak kolon API'si | AS-2.10 · AS-2.11 · AS-6.6 |
+| **F** | Notlarım | `GV.form` sekmeli kabuk (A'dan sonra) | `tasks/qa/notes-isolation.js` **önce** | AS-4.3 · AS-4.4 · AS-4.5 |
+
+**A ve C diğerlerinin altyapısı.** F, A bittikten sonra başlamalı (sekmeli kabuğu kullanır) ve **testleri modülden önce** yazılır.
+
+### Açık kalan ölçüm: `xport.js`
+
+`node tasks/qa/xport.js` → **EKSİK — 22 ekranda kolon tanımı çıktıyı beslemiyor.**
+
+Bu bulgu **bu turdan değildir**; önceki turda da "bilinen ve bilinçli kısmi" olarak kayıtlıydı (`tasks/revize-plan.md:27`). Kök nedeni şartnamenin §14.4 export standardının (P4-02) hiç yapılmamış olmasıdır: kolonların ortak bir `exportValue` sözleşmesi yok, her rapor kendi biçimlendirmesini yazıyor.
+
+**Nokta yaması yapılmamalı.** E paketinde ortak kolon API'si kurulunca 22 ekran tek tek yamalanmadan kapanır.
 
 ---
 
