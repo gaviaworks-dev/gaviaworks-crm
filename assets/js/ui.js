@@ -2917,71 +2917,96 @@
     }
   };
 
+  /* Fabrikanın ürettiği nesneye, kolon sözleşmesinin GEÇİŞLİ alanlarını taşır.
+     Yedi rapor sayfasının GÖÇÜ sırasında dördü de bağımsız olarak aynı eksiği
+     bildirdi: `perm` (UID-28 maskesi) · `width` · `locked` · `sortable` ·
+     `sortValue` · `mask` fabrikadan geçmediği için kolon fabrikayı hiç
+     kullanamıyor, sayfa `var c = GV.cols.money(…); c.perm='finans';` diye
+     sarmalayıcı yazıyordu — yani kopya, fabrikadan bir adım öteye taşınmıştı.
+     Dört ayrı ajanın aynı eksiği bulması, eksiğin fabrikanın kendisinde
+     olduğunun kanıtıdır (L-40: kural N yerde tekrarlanıyorsa oraya değil,
+     ortak katmana aittir). Geçişli alanlar burada TEK yerde tanımlıdır. */
+  var COL_GECISLI = ['perm','mask','width','locked','sortable','sortValue','group','footer'];
+  function colGecir(c, o){
+    COL_GECISLI.forEach(function(k){ if(o[k] != null) c[k] = o[k]; });
+    return c;
+  }
+
   GV.cols = {
     money:function(key, label, o){
       o = o || {};
-      return { key:key, label:label, cellClass:o.cellClass || 'num', visible:o.visible !== false,
+      return colGecir({ key:key, label:label, cellClass:o.cellClass != null ? o.cellClass : 'num', visible:o.visible !== false,
         sortValue:function(x){ return x[key] == null ? null : x[key]; },
         exportValue:o.exportValue || function(x){ return x[key] == null ? '' : x[key]; },
         render:function(x){
           return GV.cell.mny(x[key], { signed:o.signed, cur:o.cur, tone:o.tone ? o.tone(x) : null }) +
-                 (o.sub ? GV.cell.sub(o.sub(x)) : ''); } };
+                 (o.sub ? GV.cell.sub(o.sub(x)) : ''); } }, o);
     },
     num:function(key, label, o){
       o = o || {};
-      return { key:key, label:label, cellClass:o.cellClass || 'num', visible:o.visible !== false,
+      return colGecir({ key:key, label:label, cellClass:o.cellClass != null ? o.cellClass : 'num', visible:o.visible !== false,
         sortValue:function(x){ return x[key] == null ? null : x[key]; },
         exportValue:o.exportValue || function(x){ return x[key] == null ? '' : x[key]; },
         render:function(x){
           return GV.cell.num(x[key], { basamak:o.basamak, tone:o.tone ? o.tone(x) : null }) +
-                 (o.sub ? GV.cell.sub(o.sub(x)) : ''); } };
+                 (o.sub ? GV.cell.sub(o.sub(x)) : ''); } }, o);
     },
     pct:function(key, label, o){
       o = o || {};
-      return { key:key, label:label, cellClass:o.cellClass || 'num', visible:o.visible !== false,
+      return colGecir({ key:key, label:label, cellClass:o.cellClass != null ? o.cellClass : 'num', visible:o.visible !== false,
         sortValue:function(x){ return x[key] == null ? null : x[key]; },
         exportValue:o.exportValue || function(x){ return x[key] == null ? '' : x[key]; },
         /* Ölçüm yoksa ilerleme çubuğu da çizilmez — %0 dolu çubuk "hiç
            kullanılmamış" iddiasıdır, oysa değer hesaplanamıyor. */
         render:function(x){ return x[key] == null ? GV.cell.faint('—')
-          : o.bar ? GV.progress(x[key]) : GV.cell.oran(x[key], o.esik); } };
+          : o.bar ? GV.progress(x[key]) : GV.cell.oran(x[key], o.esik); } }, o);
     },
     /* [14.2.5] — tarih kolonu ORTALANIR. */
     date:function(key, label, o){
       o = o || {};
-      return { key:key, label:label, cellClass:o.cellClass || 'center', visible:o.visible !== false,
+      return colGecir({ key:key, label:label, cellClass:o.cellClass != null ? o.cellClass : 'center', visible:o.visible !== false,
         exportValue:o.exportValue || function(x){ return x[key] || ''; },
-        render:function(x){ return x[key]
-          ? (o.plain ? '<span class="cell-date">' + Fmt.date(x[key]) + '</span>'
-                     : GV.dateCell(x[key], { done:o.done ? o.done(x) : false }))
-          : GV.cell.faint('—'); } };
+        render:function(x){
+          if(!x[key]) return GV.cell.faint(o.bosMetin || '—');
+          var g = o.plain ? '<span class="cell-date">' + Fmt.date(x[key]) + '</span>'
+                          : GV.dateCell(x[key], { done:o.done ? o.done(x) : false });
+          return g + (o.sub ? GV.cell.sub(o.sub(x)) : ''); } }, o);
     },
     /* [14.2.6] — durum kolonu ORTALANIR. Rozet HTML'dir; çıktıya ham
        değerin kendisi gider, etiket soyulmuş rozet değil. */
     durum:function(key, label, o){
       o = o || {};
       key = key || 'durum';
-      return { key:key, label:label || 'Durum', cellClass:o.cellClass || 'center', visible:o.visible !== false,
-        exportValue:o.exportValue || function(x){ return x[key] || ''; },
-        render:function(x){ return x[key] ? GV.badge(x[key], o.extra ? o.extra(x) : null) : GV.cell.faint('—'); } };
+      /* `deger(x)` — rozet değeri kayıtta değil TÜRETİLİYORSA (ör. terminden
+         hesaplanan "Gecikti") fabrikanın kullanılabilmesi için. Verilmezse
+         eski davranış: `x[key]`. */
+      var oku = o.deger || function(x){ return x[key]; };
+      return colGecir({ key:key, label:label || 'Durum', cellClass:o.cellClass != null ? o.cellClass : 'center', visible:o.visible !== false,
+        exportValue:o.exportValue || function(x){ var v = oku(x); return v == null ? '' : v; },
+        render:function(x){ var v = oku(x);
+          return v ? GV.badge(v, o.extra ? o.extra(x) : null) : GV.cell.faint(o.bosMetin || '—'); } }, o);
     },
     /* Kişi kolonu ekranda avatar+ad basar; çıktıya ADI gider, kod değil —
        dosyayı açan kişi `EMP-004`'ü okuyamaz (VB-12 ile aynı gerekçe). */
     kisi:function(key, label, o){
       o = o || {};
-      return { key:key, label:label, visible:o.visible !== false,
+      return colGecir({ key:key, label:label, visible:o.visible !== false,
+        sortValue:o.sortValue || function(x){
+          return x[key] ? (window.DB && DB.empName ? DB.empName(x[key]) : x[key]) : null; },
         exportValue:o.exportValue || function(x){
           return x[key] ? (window.DB && DB.empName ? DB.empName(x[key]) : x[key]) : ''; },
-        render:function(x){ return x[key] ? GV.user(x[key], { sm:true }) : GV.cell.faint('—'); } };
+        render:function(x){ return x[key]
+          ? GV.user(x[key], { sm:true }) + (o.sub ? GV.cell.sub(o.sub(x)) : '')
+          : GV.cell.faint(o.bosMetin || '—'); } }, o);
     },
     kod:function(key, label, o){
       o = o || {};
-      return { key:key, label:label, visible:o.visible !== false,
+      return colGecir({ key:key, label:label, visible:o.visible !== false,
         exportValue:o.exportValue || function(x){ return x[key] || ''; },
         render:function(x){
           var alt = o.sub ? GV.cell.sub(o.sub(x)) : '';
           return o.href ? GV.cell.link(o.href(x), x[key], alt)
-                        : '<span class="cell-main">' + esc(x[key]) + '</span>' + alt; } };
+                        : '<span class="cell-main">' + esc(x[key]) + '</span>' + alt; } }, o);
     },
     /* Rapor tablosu iskeleti — `GV.list` yapılandırmasının rapor lehçesi. */
     tbl:function(o){
