@@ -209,21 +209,65 @@ document.addEventListener('gv:ready', function(){
     });
   }
 
+  /* =================================================================
+     NAKİT OLAYI — şartname [10.4.4]/[10.4.5]
+     Eskiden `GV.fin.settlePayment` tahsilatı kapatıp FATURAYI ONA
+     UYDURUYORDU. Artık iki adım ayrı: burada yalnız paranın geldiği
+     kaydedilir; hangi faturaya ne kadar gideceği Tahsis Dağıtımı
+     sekmesinde belirlenir ve bir tahsilat birden çok faturaya bölünebilir.
+     ================================================================= */
+  var YONTEMLER = ['Havale','EFT','Kredi kartı','Çek','Nakit'];
   function tahsilEt(){
-    GV.confirm({
-      title:'Tahsil edildi olarak işaretle',
-      text:t.musteriAd + ' · ' + t.kod + ' — ' + F.money(tahsilBrut, kur) +
-           ' (KDV dahil brüt) tutarındaki tahsilat kapatılacak ve gecikme takibinden çıkacak.',
-      okLabel:'Tahsil edildi'
-    }).then(function(ok){
-      if(!ok) return;
-      /* VB-06 — mutasyon `GV.fin.settlePayment`'ta; fatura ve taksit de kapanır. */
-      var r = GV.fin.settlePayment(t.kod);
-      if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
-      GV.toast(t.kod + ' tahsil edildi' + (r.fatura ? ' · ' + r.fatura.kod + ' faturası da kapandı' : '') +
-               (r.taksit ? ' · ' + r.taksit.kod + ' taksiti güncellendi' : ''), 'ok', 5000);
-      setTimeout(function(){ GV.refresh(); }, 700);
-    });
+    GV.modal({
+      title:'Tahsilatı gerçekleşmiş olarak kaydet', icon:'i-wallet', tone:'ok', size:'sm',
+      text:t.musteriAd + ' · ' + t.kod + ' — ' + F.money(t.tutar, kur),
+      body:'<div class="field"><label for="thYontem">Ödeme yöntemi <span class="req">*</span></label>' +
+           '<select id="thYontem">' + YONTEMLER.map(function(y){
+             return '<option value="' + y + '"' + (t.yontem === y ? ' selected' : '') + '>' + y + '</option>'; }).join('') +
+           '</select></div>' +
+           '<div class="field"><label for="thHesap">Banka / kasa hesabı</label>' +
+           '<input type="text" id="thHesap" class="inp" placeholder="Örn. İş Bankası — TR__ ____ ____"></div>' +
+           '<div class="field"><label for="thDekont">Dekont no</label>' +
+           '<input type="text" id="thDekont" class="inp" placeholder="Örn. DKT-2026-0001"></div>' +
+           '<div class="field"><label for="thTarih">İşlem tarihi <span class="req">*</span></label>' +
+           '<input type="date" id="thTarih" class="inp" value="' + DB.today + '"></div>' +
+           '<div class="field"><label for="thValor">Valör</label>' +
+           '<input type="date" id="thValor" class="inp" value="' + DB.today + '"></div>' +
+           GV.notice({ tone:'info', icon:'i-info', title:'Fatura bu adımda kapanmaz',
+             text:'Para hareketi kaydedilir; faturaya ne kadarının gideceği Tahsis Dağıtımı bölümünde belirlenir.' }),
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:'Tahsil Edildi', cls:'btn-ok', onClick:function(close, el){
+            var tarih = el.querySelector('#thTarih').value;
+            if(!tarih){ GV.toast('İşlem tarihi zorunludur', 'danger'); return false; }
+            var r = GV.fin.tahsilEt(t.kod, {
+              tarih:tarih,
+              yontem:el.querySelector('#thYontem').value,
+              hesap:el.querySelector('#thHesap').value.trim() || null,
+              dekont:el.querySelector('#thDekont').value.trim() || null,
+              valor:el.querySelector('#thValor').value || tarih });
+            if(!r.ok){ GV.toast(GV.flowHata(r), 'danger'); return false; }
+            GV.toast(t.kod + ' tahsil edildi · dağıtılmamış ' + F.money(t.dagitilmamis || 0, kur), 'ok', 5000);
+            setTimeout(function(){ GV.refresh(); }, 700);
+          } }] });
+  }
+
+  /* ---- TAHSİS: dağıt ve geri al ---- */
+  function tahsisEt(faturaKod, tutar){
+    var r = GV.fin.tahsisEt(t.kod, faturaKod, tutar);
+    if(!r.ok){ GV.toast(GV.flowHata(r), 'danger'); return; }
+    GV.toast(faturaKod + ' → ' + F.money(r.tahsis, kur) + ' tahsis edildi · fatura ' + r.durum, 'ok', 4500);
+    setTimeout(function(){ GV.refresh(); }, 700);
+  }
+  function tahsisKaldir(faturaKod){
+    GV.confirm({ title:'Tahsisi kaldır', tone:'danger',
+      text:faturaKod + ' faturasına yapılan tahsis geri alınacak; faturanın ödeme durumu yeniden türetilecek.',
+      okLabel:'Kaldır' }).then(function(ok){
+        if(!ok) return;
+        var r = GV.fin.tahsisKaldir(t.kod, faturaKod);
+        if(!r.ok){ GV.toast(GV.flowHata(r), 'danger'); return; }
+        GV.toast(faturaKod + ' tahsisi kaldırıldı', 'ok');
+        setTimeout(function(){ GV.refresh(); }, 700);
+      });
   }
 
   /* =================================================================
@@ -234,8 +278,11 @@ document.addEventListener('gv:ready', function(){
     { label:'Tahsilat listesi', icon:'i-wallet', href:'app-tahsilat.html' },
     { label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' }
   ];
-  if(GV.perm.can('duzenle') && !odendi){
-    actions.push({ label:'Tahsil edildi işaretle', icon:'i-check', cls:'btn-acc', id:'btnTahsil', run:tahsilEt });
+  if(GV.perm.can('duzenle') && !t.tahsilEdildi){
+    actions.push({ label:'Tahsil edildi işaretle', icon:'i-wallet', cls:'btn-acc', id:'btnTahsil', run:tahsilEt });
+  }
+  if(GV.perm.can('duzenle')){
+    actions.push({ label:'Kaydı düzenle', icon:'i-edit', href:'app-tahsilat-form.html?id=' + t.kod });
   }
 
   GV.pageHead({
@@ -281,6 +328,8 @@ document.addEventListener('gv:ready', function(){
     { key:'sozlesme', lbl:'Sözleşme ve Taksit',           ic:'i-file-check', cnt:sozTaksit.length },
     { key:'gecikme',  lbl:'Gecikme Takibi',               ic:'i-hourglass' },
     { key:'musteri',  lbl:'Müşterinin Diğer Tahsilatları', ic:'i-wallet',    cnt:digerAcik.length },
+    { key:'tahsis',   lbl:'Tahsis Dağıtımı',              ic:'i-link',
+      cnt:(DB.paymentAllocations || []).filter(function(a){ return a.tahsilat === t.kod; }).length },
     { key:'aktivite', lbl:'Aktivite Geçmişi',             ic:'i-activity',  cnt:acts.length }
   ];
 
@@ -712,9 +761,80 @@ document.addEventListener('gv:ready', function(){
           action:'<a class="btn btn-line" href="app-tahsilat.html">Tahsilat listesine dön</a>' })) +
     '</div>';
 
+
+  /* =================================================================
+     TAHSİS DAĞITIMI — şartname [10.4.4] çoklu fatura tahsisi
+     Bir para hareketi birden çok faturaya bölünebilir. Tutarlar burada
+     HESAPLANMAZ; `GV.fin.balance` ve `GV.fin.tahsisEt` tek kaynaktır.
+     ================================================================= */
+  var tahsisler = (DB.paymentAllocations || []).filter(function(a){ return a.tahsilat === t.kod; });
+  var acikFaturalar = (DB.invoices || []).filter(function(f){
+    if(f.musteri !== t.musteri) return false;
+    var b = GV.fin.balance(f);
+    return b && b.acik > 0;
+  });
+
+  var pTahsis = '<div class="gc-body">' +
+    (!t.tahsilEdildi
+      ? GV.notice({ tone:'warn', icon:'i-alert', title:'Bu tahsilat henüz gerçekleşmedi',
+          text:'Fatura ancak tahsil edilmiş bir para hareketinden kapanır. Önce “Tahsil edildi işaretle” eylemini kullanın.' })
+      : '') +
+
+    sec('Dağıtım Özeti', GV.dl([
+      ['Tahsilat tutarı', '<b>' + para(t.tutar) + '</b>'],
+      ['Faturalara tahsis edilen', '<b class="u-num">' + para(t.dagitilan || 0) + '</b>'],
+      ['Dağıtılmamış bakiye', (t.dagitilmamis || 0) > 0
+        ? '<b class="u-warn">' + para(t.dagitilmamis || 0) + '</b>'
+        : '<span class="badge is-ok no-dot">Tamamı tahsis edildi</span>'],
+      ['Tahsis satırı', '<b class="u-num">' + tahsisler.length + '</b>']
+    ])) +
+
+    sec('Yapılmış Tahsisler', tahsisler.length
+      ? '<table class="gtable"><thead><tr><th>Fatura</th><th class="num">Tutar</th><th>Tarih</th>' +
+        '<th>Fatura durumu</th><th class="col-acts">İşlem</th></tr></thead><tbody>' +
+        tahsisler.map(function(a){
+          var f = (DB.invoices || []).filter(function(x){ return x.kod === a.fatura; })[0];
+          var b = f ? GV.fin.balance(f) : null;
+          return '<tr><td><a href="app-fatura-detay.html?id=' + esc(a.fatura) + '">' + esc(a.fatura) + '</a></td>' +
+            '<td class="num cell-money">' + para(a.tutar) + '</td>' +
+            '<td class="cell-date">' + (a.tarih ? F.date(a.tarih) : '—') + '</td>' +
+            '<td>' + (f ? GV.badge(f.durum) + (b ? ' <span class="cell-sub">' + b.oran + '%</span>' : '') : '—') + '</td>' +
+            '<td class="col-acts">' + (canFinans
+              ? '<button type="button" class="btn btn-sm is-danger" data-tahsis-kaldir="' + esc(a.fatura) + '">Kaldır</button>'
+              : '<span class="u-faint u-sm">—</span>') + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : GV.empty({ icon:'i-link', title:'Henüz tahsis yok',
+          desc:'Bu para hareketi hiçbir faturaya dağıtılmadı.' })) +
+
+    sec('Müşterinin Açık Faturaları', acikFaturalar.length
+      ? '<table class="gtable"><thead><tr><th>Fatura</th><th class="num">Brüt</th><th class="num">Açık</th>' +
+        '<th>Vade</th><th>Tahsis</th></tr></thead><tbody>' +
+        acikFaturalar.map(function(f){
+          var b = GV.fin.balance(f);
+          var onerilen = Math.min(b.acik, t.dagitilmamis != null ? t.dagitilmamis : t.tutar);
+          var zatenVar = tahsisler.some(function(a){ return a.fatura === f.kod; });
+          return '<tr><td><a href="app-fatura-detay.html?id=' + esc(f.kod) + '">' + esc(f.kod) + '</a>' +
+            (GV.fin.gecikti(f) ? ' <span class="badge is-danger no-dot">Vadesi geçti</span>' : '') + '</td>' +
+            '<td class="num cell-money">' + para(b.brut) + '</td>' +
+            '<td class="num cell-money">' + para(b.acik) + '</td>' +
+            '<td class="cell-date">' + F.date(f.vade) + '</td>' +
+            '<td>' + (zatenVar
+              ? '<span class="u-faint u-sm">bu faturaya tahsis edilmiş</span>'
+              : (!canFinans || !t.tahsilEdildi || onerilen <= 0
+                  ? '<span class="u-faint u-sm">—</span>'
+                  : '<span class="u-row u-gap-2">' +
+                    '<input type="number" class="inp inp-sm" style="max-width:9rem" ' +
+                    'data-tahsis-tutar="' + esc(f.kod) + '" value="' + onerilen + '" min="1" max="' + onerilen + '">' +
+                    '<button type="button" class="btn btn-sm btn-acc" data-tahsis-et="' + esc(f.kod) + '">Tahsis et</button>' +
+                    '</span>')) + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : GV.empty({ icon:'i-check-circle', title:'Açık fatura yok',
+          desc:'Bu müşterinin açık bakiyesi bulunan faturası bulunmuyor.' })) +
+    '</div>';
+
   var panels = {
     genel:pGenel, fatura:pFatura, sozlesme:pSozlesme,
-    gecikme:pGecikme, musteri:pMusteri, aktivite:pAktivite
+    gecikme:pGecikme, musteri:pMusteri, tahsis:pTahsis, aktivite:pAktivite
   };
 
   /* =================================================================
@@ -798,6 +918,20 @@ document.addEventListener('gv:ready', function(){
      sildiği için dinleyici birikmez. */
   var btnHatirlat = document.getElementById('btnHatirlat');
   if(btnHatirlat) btnHatirlat.addEventListener('click', hatirlatmaGonder);
+
+  /* Tahsis düğmeleri — delegasyon, her çizimde taze düğüme bağlanır */
+  document.addEventListener('click', function(e){
+    var et = e.target.closest('[data-tahsis-et]');
+    if(et){
+      var kod = et.dataset.tahsisEt;
+      var alan = document.querySelector('[data-tahsis-tutar="' + kod + '"]');
+      var tutar = alan ? Number(alan.value) : null;
+      if(!tutar || tutar <= 0){ GV.toast('Tahsis tutarı sıfırdan büyük olmalı', 'danger'); return; }
+      tahsisEt(kod, tutar); return;
+    }
+    var kaldir = e.target.closest('[data-tahsis-kaldir]');
+    if(kaldir) tahsisKaldir(kaldir.dataset.tahsisKaldir);
+  });
 });
 </script>
 </body>

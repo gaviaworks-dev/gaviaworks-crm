@@ -166,6 +166,10 @@
       { ic:'i-activity',     lbl:'Otomasyonlar',     href:'app-ayar-otomasyon.html',     screen:'otomasyon', roles:['sahip','genelmudur','sistem','operasyon'] },
       { ic:'i-link',         lbl:'Entegrasyonlar',   href:'app-ayar-entegrasyon.html',   screen:'entegrasyon', roles:['sahip','genelmudur','sistem','devops'] },
       { ic:'i-list',         lbl:'Log Kayıtları',    href:'app-ayar-log.html',           screen:'log', roles:['sahip','genelmudur','sistem','operasyon','devops'] },
+      /* Şartname §17 bu ekranı P0 sayıyor: veri tutarlılığı kontrolleri
+         zamanlanmış ve talep üzerine koşar. Kapsam yönetim rolleriyle
+         sınırlı — bulgular kayıt kodlarını ve sorumluları ifşa ediyor. */
+      { ic:'i-shield',       lbl:'Veri Kalitesi',    href:'app-veri-kalitesi.html',      screen:'veri-kalitesi', roles:['sahip','genelmudur','sistem'] },
       { ic:'i-user',         lbl:'Profilim',         href:'app-ayar-profil.html',        screen:'profil' },
       { ic:'i-archive',      lbl:'Arşiv',            href:'app-ayar-arsiv.html',         screen:'arsiv', roles:['sahip','genelmudur','sistem','operasyon'] }
     ]}
@@ -825,6 +829,8 @@
     'app-fatura-detay.html',
     'app-tahsilat.html',
     'app-tahsilat-detay.html',
+    'app-tahsilat-form.html',
+    'app-veri-kalitesi.html',
     'app-butce.html',
     'app-sohbet.html',
     'app-ajanda.html',

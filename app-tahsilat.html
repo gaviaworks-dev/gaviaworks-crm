@@ -35,7 +35,7 @@ document.addEventListener('gv:ready', function(){
   GV.pageHead({ eyebrow:'Finans', title:'Tahsilatlar',
     actions:[{ label:'Faturalar', icon:'i-receipt', href:'app-fatura.html' },
              { label:'Sözleşmeler', icon:'i-file-check', href:'app-sozlesme.html' },
-             { label:'Yeni Fatura', icon:'i-plus', cls:'btn-acc', href:'app-fatura-form.html' }] });
+             { label:'Yeni Tahsilat', icon:'i-plus', cls:'btn-acc', href:'app-tahsilat-form.html' }] });
 
   GV.list({
     mount:'#liste', id:'tahsilat', key:'kod', source:function(){ return DB.payments; },
@@ -95,10 +95,20 @@ document.addEventListener('gv:ready', function(){
       { key:'sonAksiyonTarihi', label:'Son aksiyon tarihi', visible:false, render:function(x){
           return x.sonAksiyonTarihi ? '<span class="cell-date">' + F.date(x.sonAksiyonTarihi) + '</span>'
                                     : '<span class="u-faint">—</span>'; } },
-      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } }
+      { key:'durum', label:'Durum', render:function(x){ return GV.badge(x.durum); } },
+      /* Dağıtılmamış bakiye TÜRETİLİR: tahsilat tutarı eksi faturalara
+         tahsis edilen toplam. Elde tutulan bir alan değildir. */
+      { key:'dagitilmamis', label:'Dağıtılmamış', cellClass:'num',
+        sortValue:function(x){ return x.dagitilmamis || 0; },
+        render:function(x){
+          if(!x.tahsilEdildi) return '<span class="u-faint">—</span>';
+          var d = x.dagitilmamis || 0;
+          return d > 0 ? '<span class="cell-money">' + F.money(d) + '</span>'
+                       : '<span class="u-ok u-sm">tamamı tahsis edildi</span>'; },
+        exportValue:function(x){ return x.tahsilEdildi ? (x.dagitilmamis || 0) : ''; } }
     ],
     filters:[
-      { key:'durum', label:'Tahsilat durumu', type:'multi', options:['Gecikti','Bekliyor','Ödendi'] },
+      { key:'durum', label:'Tahsilat durumu', type:'multi', options:['Bekliyor','Gecikti','Ödendi'] },
       { key:'musteri', label:'Müşteri', type:'select',
         options:DB.customers.map(function(c){ return { value:c.kod, label:c.kisa }; }) },
       { key:'sorumlu', label:'Sorumlu', type:'select',
@@ -133,19 +143,28 @@ document.addEventListener('gv:ready', function(){
               x.sonAksiyon = 'Ödeme hatırlatması gönderildi';
               x.sonAksiyonTarihi = DB.today;
               GV.toast(x.kod + ' için hatırlatma gönderildi', 'ok'); refresh(); }); } },
-      { key:'tahsil', icon:'i-check', label:'Tahsil edildi işaretle', run:function(x, refresh){
+      /* ⚠️ CLOUD TURU — bu eylem artık FATURAYI KAPATMIYOR.
+         Şartname [10.4.5]: kanonik kaynak başarılı PARA HAREKETİdir.
+         Eskiden `settlePayment` tahsilatı kapatıp faturayı ona uyduruyordu;
+         artık yalnız nakit olayı kaydedilir, faturaya ne kadarının
+         gideceği TAHSİS adımında belirlenir (tahsilat detayı → Tahsis
+         Dağıtımı). Bir tahsilat birden çok faturaya bölünebilir. */
+      { key:'tahsil', icon:'i-wallet', label:'Tahsil edildi işaretle', run:function(x, refresh){
           if(!canFinans){ GV.toast('Finans kaydı güncelleme yetkiniz yok.', 'danger'); return; }
-          if(x.durum === 'Ödendi'){ GV.toast('Bu tahsilat zaten tahsil edilmiş.', 'info'); return; }
-          GV.confirm({ title:'Tahsil edildi olarak işaretle',
-            text:F.money(x.tutar) + ' tutarındaki tahsilat kapatılacak ve gecikme takibinden çıkacak.',
-            okLabel:'Tahsil edildi' }).then(function(ok){
-              if(!ok) return;
-              /* VB-06 — kapanış zinciri tek yerde (tahsilat + fatura + taksit + müşteri) */
-              var r = GV.fin.settlePayment(x.kod);
-              if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
-              GV.toast(x.kod + ' tahsil edildi' + (r.fatura ? ' · ' + r.fatura.kod + ' faturası da kapandı' : ''),
-                       'ok', 5000);
-              refresh(); }); } }
+          if(x.tahsilEdildi){ GV.toast('Bu tahsilat zaten gerçekleşmiş olarak kayıtlı.', 'info'); return; }
+          GV.action({
+            eylem:'Onayla', tone:'ok',
+            kayit:{ kod:x.kod, baslik:x.musteriAd + ' · ' + F.money(x.tutar) },
+            sonuc:'Para hareketi kaydedilecek. Fatura kapanışı ayrı bir adımdır: ' +
+                  'tahsilat detayındaki Tahsis Dağıtımı bölümünden faturalara dağıtılır.',
+            run:function(){
+              var r = GV.fin.tahsilEt(x.kod, { tarih:DB.today });
+              if(!r.ok) return { ok:false, mesaj:GV.flowHata(r) };
+              refresh();
+              return { ok:true, mesaj:x.kod + ' tahsil edildi · dağıtılmamış ' +
+                       F.money(x.dagitilmamis || 0) };
+            } });
+        } }
     ],
     bulk:[
       { key:'hatirlat', label:'Toplu hatırlatma', icon:'i-send',

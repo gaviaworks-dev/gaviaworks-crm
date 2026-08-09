@@ -923,6 +923,12 @@
       p.sonAksiyon     = 'Tahsil edildi';
       p.sonAksiyonTarihi = p.tahsilTarihi;
       Fin.tahsilatDurumTazele(p);
+      /* Müşterinin `bekleyenTahsilat` alanı TÜRETİLMİŞ bir değerdir (L-08) ve
+         nakit olayı onu doğrudan etkiler. Tazelemeyi atlamak, tahsilat
+         alındıktan sonra müşteri kartının eski bakiyeyi göstermesine yol
+         açıyordu — ekran haklı olarak "fark var" diyordu. Türetimi ekranda
+         değil, değeri değiştiren yordamda yapmak gerekir. */
+      if(p.musteri) musteriOzet(p.musteri);
       log(p.kod, 'Tahsilat gerçekleşti (' + (p.tutar || 0).toLocaleString('tr-TR') + ' ₺ · ' +
           p.yontem + (p.dekont ? ' · dekont ' + p.dekont : '') + ')',
           '', p.tahsilTarihi, 'ok', 'i-wallet');
