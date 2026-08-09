@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Ödeme Planı Kaydı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="finans" data-screen="odemeplani">
+<div id="rec"></div>
+
+<!-- Okunan koleksiyonların TAMAMININ dosyası yüklenir (ders L-12):
+     org.js  → DB.today, DB.employees, DB.permMatrix
+     crm.js  → DB.customers
+     work.js → DB.projects, DB.milestones, DB.milestoneStatuses,
+               DB.projectMilestones, DB.activities, DB.proj
+     misc.js → DB.contracts, DB.invoices -->
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/misc.js"></script>
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
+
+
+  /* =================================================================
+     PARA KONVANSİYONU — components.md §9b, TEK EKSEN
+       contract.tutar    = sözleşme bedeli, NET (KDV hariç)
+       milestone.odeme   = taksitin NET tutarı (KDV hariç)
+       Σ milestone.odeme = contract.tutar  ← [8.2.3] denge kuralı
+     KDV taksitte tutulmaz; sözleşmenin `kdvOran`ı üzerinden fatura
+     kesilirken uygulanır. Bu form KDV YAZMAZ.
+     ================================================================= */
+  function sayi(v){ var n = Number(v); return isFinite(n) ? n : 0; }
+  function kurSim(d){ return (!d || d === 'TRY') ? '₺' : d; }
+  function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+  function taksitleriOf(kod){
+    return DB.milestones.filter(function(m){ return m.sozlesme === kod; })
+                        .sort(function(a, b){ return a.taksit - b.taksit; });
+  }
+  function toplamOf(list, alan){
+    return list.reduce(function(s, m){ return s + sayi(m[alan || 'odeme']); }, 0);
+  }
+  /* Bir taksitin faturaları — [8.2.5]: kalem başına EN FAZLA bir fatura.
+     Birden çok dönerse veri zaten mükerrer; ekran onu gizlemez, söyler. */
+  function faturalariOf(msKod){
+    return DB.invoices.filter(function(i){ return i.milestone === msKod; });
+  }
+
+  var qs   = new URLSearchParams(location.search);
+  var sKod = qs.get('sozlesme') || qs.get('id') || '';
+  var c    = sKod ? DB.contracts.filter(function(x){ return x.kod === sKod; })[0] : null;
+
+  /* =================================================================
+     YETKİ KAPISI — form kurulmadan önce (PROMPT.md §5 · ders L-07)
+     Ödeme planının her satırı ticari bedelin parçasıdır; finans yetkisi
+     olmayan role yarısı maskeli bir tutar tablosu açmak ölü kontrol
+     olurdu. Sayfa seviyesinde 403 basılır.
+     ================================================================= */
+  var canFinans = GV.perm.can('finans');
+  var canEkle   = GV.perm.can('ekle');
+  var canDuz    = GV.perm.can('duzenle');
+
+  if(!canFinans || !(canEkle || canDuz)){
+    var neden = !canFinans
+      ? 'Ödeme planının tamamı finansal bedeldir; rolünüzde (' + GV.session.rolAd + ') finansal ' +
+        'tutar yetkisi tanımlı değil. Taksitleri listede görebilir, tutarları maskeli okuyabilirsiniz — ' +
+        'ama plan kaydı oluşturamaz veya değiştiremezsiniz.'
+      : 'Kayıt ekleme ya da düzenleme yetkisi rolünüzde (' + GV.session.rolAd + ') tanımlı değil. ' +
+        'Ödeme planını görüntüleyebilir ama değiştiremezsiniz.';
+
+    GV.shell.crumb('Ödeme Planı Kaydı');
+    GV.pageHead({ eyebrow:'Finans', title:'Ödeme Planı Kaydı', sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Ödeme planları', cls:'btn-line', href:'app-odemeplani.html' }] });
+    mount.innerHTML = '<section class="gv-card">' + GV.errorState({
+      title:'Bu işlem için yetkiniz yok', desc:neden }) + '</section>';
+    var acts403 = mount.querySelector('.gv-state-acts');
+    if(acts403){
+      acts403.innerHTML = '<a class="btn btn-line" href="app-odemeplani.html">Ödeme planlarına dön</a>' +
+        (c ? ' <a class="btn btn-acc" href="app-odemeplani-detay.html?id=' + esc(c.kod) + '">Plan kartını aç</a>' : '');
+    }
+    return;                                              /* GV.form HİÇ kurulmaz */
+  }
+
+  /* =================================================================
+     ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, veriden sayılır
+     ================================================================= */
+  var projeliSozlesmeler = DB.contracts.filter(function(x){ return !!x.proje; });
+  var planTamSayi = projeliSozlesmeler.filter(function(x){
+    var ms = taksitleriOf(x.kod);
+    return ms.length > 0 && toplamOf(ms) === sayi(x.tutar);
+  }).length;
+  var toplamTaksit = DB.milestones.filter(function(m){ return !!m.sozlesme; }).length;
+
+  /* =================================================================
+     ADRESTE SÖZLEŞME YOK — plan bir sözleşmenin taksit setidir, önce
+     sözleşme seçilir. Boş forma düşülmez; seçim gerçek bir kontroldür.
+     ================================================================= */
+  if(!sKod){
+    GV.shell.crumb('Ödeme Planı Kaydı');
+    GV.pageHead({ eyebrow:'Finans', title:'Ödeme Planı Kaydı',
+      sub:'Plan bir sözleşmenin taksit setidir — önce sözleşme seçilir.',
+      actions:[{ label:'Ödeme planları', cls:'btn-line', icon:'i-list', href:'app-odemeplani.html' },
+               { label:'Sözleşmeler', cls:'btn-line', icon:'i-file-check', href:'app-sozlesme.html' },
+               { label:'Planı aç', cls:'btn-acc', icon:'i-arrow-right', run:function(){
+                   var v = secForm ? secForm.read() : {};
+                   if(!v.sozlesme){ GV.toast('Önce bir sözleşme seçin', 'danger'); return; }
+                   location.href = 'app-odemeplani-form.html?sozlesme=' + encodeURIComponent(v.sozlesme);
+                 } }] });
+
+    var secSecenek = DB.contracts.map(function(x){
+      var ms = taksitleriOf(x.kod);
+      return { value:x.kod, label:x.kod + ' · ' + x.musteriAd + ' · ' + F.money(x.tutar, kurSim(x.doviz)) +
+        ' (KDV hariç) · ' + (ms.length ? ms.length + ' taksit' : 'plan yok') };
+    });
+
+    mount.innerHTML =
+      '<section class="gv-card"><div class="gc-body">' + GV.notice({ tone:'info',
+        title:'Ödeme planı sözleşmeden doğar',
+        text:'Taksitler sözleşmeye bağlı kayıtlardır ve toplamları sözleşme bedeline (KDV hariç) eşit ' +
+             'olmak zorundadır — sözleşme bu eşitlik kurulmadan aktive edilemez. Ölçüm: projeye bağlı ' +
+             projeliSozlesmeler.length + ' sözleşmenin ' + planTamSayi + ' tanesinde ' + toplamTaksit +
+             ' taksitin toplamı sözleşme netine eşit.',
+        actions:[{ label:'Ödeme planları', href:'app-odemeplani.html' },
+                 { label:'Sözleşmeler', href:'app-sozlesme.html' }] }) + '</div></section>' +
+
+      '<section class="gv-card">' +
+        '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-file-check') + 'Sözleşme Seçimi</h2>' +
+          '<div class="gc-sub">Planı kurulacak ya da düzenlenecek sözleşmeyi seçin.</div></div></div>' +
+        '<div class="gc-body" id="formMount"></div>' +
+        '<div class="gc-foot"><a class="btn btn-line" href="app-odemeplani.html">Vazgeç</a>' +
+          '<button type="button" class="btn btn-acc" id="acAlt">' + ico('i-arrow-right') + ' Planı aç</button></div>' +
+      '</section>' +
+
+      '<section class="gv-card">' +
+        '<div class="gc-head"><div><h2 class="gc-title">' + ico('i-milestone') + 'Sözleşmelerin Plan Durumu</h2>' +
+          '<div class="gc-sub">Σ taksit ile sözleşme bedeli arasındaki fark her satırda ölçülür.</div></div></div>' +
+        '<div class="gc-body flush"><div class="gv-tablewrap"><table class="gtable"><thead><tr>' +
+          '<th>Sözleşme</th><th>Müşteri</th><th>Proje</th>' +
+          '<th class="num">Sözleşme bedeli (KDV hariç)</th><th class="num">Taksit</th>' +
+          '<th class="num">Σ taksit (KDV hariç)</th><th class="num">Fark</th><th>Denge</th><th></th>' +
+        '</tr></thead><tbody>' +
+        DB.contracts.map(function(x){
+          var ms = taksitleriOf(x.kod), tp = toplamOf(ms), fk = tp - sayi(x.tutar);
+          var kr = kurSim(x.doviz);
+          return '<tr><td class="cell-wrap"><a class="cell-main" href="app-sozlesme-detay.html?id=' + esc(x.kod) + '">' +
+              esc(x.kod) + '</a><span class="cell-sub">' + esc(x.ad) + '</span></td>' +
+            '<td class="cell-wrap">' + esc(x.musteriAd) + '</td>' +
+            '<td>' + (x.proje ? '<a class="cell-code" href="app-proje-detay.html?id=' + esc(x.proje) + '">' +
+              esc(x.proje) + '</a>' : '<span class="u-faint">Projesiz</span>') + '</td>' +
+            '<td class="num"><span class="cell-money">' + F.money(x.tutar, kr) + '</span></td>' +
+            '<td class="num">' + (ms.length ? '<b class="u-num">' + ms.length + '</b>' : '<span class="u-faint">—</span>') + '</td>' +
+            '<td class="num">' + (ms.length ? '<span class="u-num">' + F.money(tp, kr) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
+            '<td class="num">' + (!ms.length ? '<span class="u-faint">—</span>'
+              : (fk === 0 ? '<span class="u-faint">0</span>' : '<b class="u-danger">' + F.money(fk, kr) + '</b>')) + '</td>' +
+            '<td>' + (!ms.length
+              ? '<span class="badge is-warn no-dot">Plan yok</span>'
+              : (fk === 0 ? '<span class="badge is-ok no-dot">Dengede</span>'
+                          : '<span class="badge is-danger no-dot">Fark var</span>')) + '</td>' +
+            '<td class="num">' + (x.proje
+              ? '<a class="btn btn-xs btn-line" href="app-odemeplani-form.html?sozlesme=' + esc(x.kod) + '">' +
+                (ms.length ? 'Planı düzenle' : 'Plan kur') + '</a>'
+              : '<span class="u-faint">Taksit tutmaz</span>') + '</td></tr>';
+        }).join('') +
+        '</tbody></table></div></div>' +
+      '</section>';
+
+    var secForm = GV.form({ mount:'#formMount', id:'planSec',
+      record:{ sozlesme:'' },
+      sections:[{ title:'Sözleşme', desc:'Taksitler bu sözleşmeye yazılır; proje bağı da sözleşmeden gelir.',
+        fields:[{ key:'sozlesme', label:'Sözleşme', type:'select', options:secSecenek, required:true, cols:12,
+          placeholder:'Sözleşme seçin',
+          hint:'Ölçüm: ' + DB.contracts.length + ' sözleşmenin ' + projeliSozlesmeler.length +
+               ' tanesi projeye bağlı; taksit yalnız projeli sözleşmede tutulur.',
+          validate:function(v){
+            if(!v) return '';
+            var s = DB.contracts.filter(function(x){ return x.kod === v; })[0];
+            if(!s) return 'Seçilen sözleşme kaydı bulunamadı.';
+            return s.proje ? '' : s.kod + ' bir projeye bağlı değil (dönemsel hizmet sözleşmesi); ' +
+              'taksit yerine dönemsel fatura kesilir, ödeme planı taksiti tutmaz.';
+          } }] }] });
+
+    var acAlt = document.getElementById('acAlt');
+    if(acAlt) acAlt.addEventListener('click', function(){
+      var v = secForm.submit();
+      if(!v) return;
+      location.href = 'app-odemeplani-form.html?sozlesme=' + encodeURIComponent(v.sozlesme);
+    });
+    return;
+  }
+
+  /* ---- Adreste sözleşme var ama kayıt yok — uydurma yok ---- */
+  if(!c){
+    GV.shell.crumb('Kayıt bulunamadı');
+    GV.pageHead({ eyebrow:'Finans', title:'Kayıt bulunamadı',
+      sub:'Ödeme planı kurulmak istenen sözleşme sistemde yok.',
+      actions:[{ label:'Ödeme planları', cls:'btn-line', href:'app-odemeplani.html' }] });
+    mount.innerHTML = '<section class="gv-card">' + GV.empty({
+      icon:'i-search', title:'Sözleşme bulunamadı',
+      desc:'“' + esc(sKod) + '” numaralı sözleşme bulunamadı. Bağlantı eski olabilir.',
+      action:'<a class="btn btn-acc" href="app-odemeplani-form.html">Sözleşme seç</a>' }) + '</section>';
+    return;
+  }
+
+  /* =================================================================
+     KAYIT BAĞLAMI
+     ================================================================= */
+  var kur      = kurSim(c.doviz);
+  var net      = sayi(c.tutar);                          /* sözleşme bedeli, KDV hariç */
+  var proje    = c.proje ? DB.proj(c.proje) : null;
+  var musteri  = c.musteri ? DB.customers.filter(function(x){ return x.kod === c.musteri; })[0] : null;
+  var mevcut   = taksitleriOf(c.kod);
+  var duzenle  = mevcut.length > 0;
+  var basligi  = c.kod + ' · ' + (duzenle ? 'Ödeme Planını Düzenle' : 'Ödeme Planı Kur');
+
+  GV.shell.crumb(basligi);
+  document.title = basligi + ' — GaviaWorks CRM';
+
+  /* Yazma yetkisi eksenine göre kapı: var olan planı DÜZENLEMEK `duzenle`,
+     yeni plan KURMAK `ekle` yetkisi ister. İkisi tek kapıya sıkıştırılmaz. */
+  if((duzenle && !canDuz) || (!duzenle && !canEkle)){
+    GV.pageHead({ eyebrow:'Finans', title:basligi, sub:'Bu işlem için yetkiniz yok.',
+      actions:[{ label:'Plan kartını aç', cls:'btn-line', href:'app-odemeplani-detay.html?id=' + c.kod }] });
+    mount.innerHTML = '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'danger', icon:'i-lock',
+      title:duzenle ? 'Plan düzenleme yetkiniz yok' : 'Plan oluşturma yetkiniz yok',
+      text:'Rolünüzde (' + GV.session.rolAd + ') ' + (duzenle ? 'kayıt düzenleme' : 'kayıt ekleme') +
+           ' yetkisi tanımlı değil. Planı okuyabilir, çıktısını alabilirsiniz.',
+      actions:[{ label:'Plan kartını aç', href:'app-odemeplani-detay.html?id=' + c.kod },
+               { label:'Ödeme planları', href:'app-odemeplani.html' }] }) + '</div></section>';
+    return;
+  }
+
+  /* =================================================================
+     PROJESİZ SÖZLEŞME — taksit tutmaz (components.md §9b · veri
+     konvansiyonu). Taksit kaydının `proje` alanı zorunludur ve
+     uydurulamaz; form burada durur, ne yapılacağını söyler.
+     ================================================================= */
+  if(!c.proje){
+    GV.pageHead({ eyebrow:'Finans', title:duzenle ? 'Ödeme Planını Düzenle' : 'Ödeme Planı Kur',
+      sub:c.kod + ' · ' + c.musteriAd + ' · ' + c.ad,
+      actions:[{ label:'Ödeme planları', cls:'btn-line', href:'app-odemeplani.html' },
+               { label:'Sözleşme kartını aç', cls:'btn-line', href:'app-sozlesme-detay.html?id=' + c.kod },
+               { label:'Faturalar', cls:'btn-line', href:'app-fatura.html' }] });
+    mount.innerHTML = '<section class="gv-card"><div class="gc-body">' + GV.notice({
+      tone:'neutral', icon:'i-info', title:'Projesiz sözleşme ödeme planı taksiti tutmaz',
+      text:c.kod + ' bir projeye bağlı değil (dönemsel hizmet / bakım sözleşmesi). Ödeme koşulu “' +
+           (String(c.odemePlani || '').trim() || 'sözleşme metnindeki koşul') + '” olarak yürür ve taksit ' +
+           'kaydı yerine dönemsel fatura kesilir. Taksit kaydının proje bağı zorunludur; bu formdan proje ' +
+           'uydurulmaz. Sözleşmeye proje bağlanırsa plan bu ekrandan kurulabilir. Ölçüm: ' +
+           DB.contracts.length + ' sözleşmenin ' + projeliSozlesmeler.length + ' tanesi projeli.',
+      actions:[{ label:'Sözleşme kartını aç', href:'app-sozlesme-detay.html?id=' + c.kod },
+               { label:'Sözleşmeyi düzenle', href:'app-sozlesme-form.html?id=' + c.kod },
+               { label:'Faturalar', href:'app-fatura.html' }] }) + '</div></section>';
+    return;
+  }
+
+  /* Proje milestone'ları — taksitin İSTEĞE BAĞLI teslim tetikleyicisi.
+     Bağ ödeme kaydında durur (`DB.milestones[].milestone`), milestone'da
+     ayna alan yoktur (REVİZE 06 · §9d). */
+  var pmsler = DB.projectMilestones.filter(function(x){ return x.proje === c.proje; })
+                                   .sort(function(a, b){ return String(a.tarih).localeCompare(String(b.tarih)); });
+  var PMS_SECENEK = pmsler.map(function(p){
+    return { value:p.kod, label:p.kod + ' · ' + p.baslik + ' · ' + F.dateShort(p.tarih) + ' · ' + p.durum };
+  });
+  var DURUMLAR = (DB.milestoneStatuses || ['Planlandı','Yaklaşıyor','Gecikti','Tamamlandı']).slice();
+
+  /* =================================================================
+     ÇALIŞMA KOPYASI — koleksiyon kaydedilene kadar ELLENMEZ
+     `ref` var olan kaydı işaret eder; `yeni` satırlar kaydederken kod alır.
+     KİLİT: faturası kesilmiş ya da ödemesi kapanmış taksitin tutarı
+     değiştirilemez ve satır silinemez — fatura zaten o tutardan kesildi
+     ([8.2.5] geri bağ). Kilit satırın kendisinde yazılıdır.
+     ================================================================= */
+  function satirYap(m){
+    var ftr = faturalariOf(m.kod);
+    return {
+      kod:m.kod, yeni:false, ref:m,
+      ad:m.ad || '', tarih:m.tarih || '', odeme:sayi(m.odeme),
+      durum:m.durum || 'Planlandı', ilerleme:m.ilerleme == null ? 0 : sayi(m.ilerleme),
+      milestone:m.milestone || '', odemeDurum:m.odemeDurum || 'Bekliyor',
+      fatura:ftr.length ? ftr[0].kod : null, faturaSayisi:ftr.length
+    };
+  }
+  var rows = mevcut.map(satirYap);
+  function kilitli(r){ return !!r.fatura || r.odemeDurum === 'Ödendi'; }
+  var kilitliSayi = rows.filter(kilitli).length;
+
+  function toplam(){ return rows.reduce(function(s, r){ return s + sayi(r.odeme); }, 0); }
+  function fark(){ return toplam() - net; }
+  function yuzde(v){ return net ? Math.round(sayi(v) / net * 10000) / 100 : 0; }
+
+  /* Yeni taksit kodu — dizi uzunluğundan DEĞİL, en yüksek mevcut numaradan.
+     Aynı kaydetmede birden çok satır doğabildiği için verilen kodlar da sayılır. */
+  function yeniKod(verilen){
+    var max = 0;
+    DB.milestones.forEach(function(m){
+      var r = /^MS-(\d+)$/.exec(m.kod || ''); if(r) max = Math.max(max, +r[1]);
+    });
+    (verilen || []).forEach(function(k){
+      var r = /^MS-(\d+)$/.exec(k || ''); if(r) max = Math.max(max, +r[1]);
+    });
+    var s = String(max + 1);
+    while(s.length < 3) s = '0' + s;
+    return 'MS-' + s;
+  }
+
+  /* Tarih aritmetiği UTC ekseninde — yerel saat kayması yaşanmasın diye */
+  function gunEkle(iso, n){
+    var d = new Date(String(iso).slice(0,10) + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0,10);
+  }
+  function ayEkle(iso, n){
+    var d = new Date(String(iso).slice(0,10) + 'T12:00:00Z');
+    var gun = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + n);
+    var sonGun = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(gun, sonGun));
+    return d.toISOString().slice(0,10);
+  }
+  function gunFarki(a, b){
+    return Math.round((new Date(String(b).slice(0,10) + 'T12:00:00Z') -
+                       new Date(String(a).slice(0,10) + 'T12:00:00Z')) / 86400000);
+  }
+
+  /* Sözleşme metnindeki yüzdeler — “%30 · %30 · %40” gibi bir ifade
+     gerçekten yüzde taşıyorsa şablon ondan kurulur; taşımıyorsa (örn.
+     “6 eşit milestone”) seçenek kapalıdır ve nedeni yazılır. */
+  function metinYuzdeleri(t){
+    var out = [], r = /%\s*(\d+(?:[.,]\d+)?)/g, m;
+    while((m = r.exec(String(t || '')))) out.push(Number(String(m[1]).replace(',', '.')));
+    var top = out.reduce(function(s, x){ return s + x; }, 0);
+    return (out.length > 1 && Math.abs(top - 100) < 0.51) ? out : null;
+  }
+  var metinPct = metinYuzdeleri(c.odemePlani);
+
+  /* =================================================================
+     GÖRÜNÜM YARDIMCILARI
+     `dt` çağıranın kurduğu işaretlemedir (para ekseni notu taşır),
+     `dd` çağıran tarafta esc()'lenmiş gelir (ders L-14).
+     ================================================================= */
+  function para(v){ return '<span class="cell-money">' + F.money(v, kur) + '</span>'; }
+  function sub(t){ return '<span class="cell-sub">' + esc(t) + '</span>'; }
+  function kart(baslik, ikon, altBaslik, govde, ustAksiyon, altAksiyon){
+    return '<section class="gv-card">' +
+      '<div class="gc-head"><div><h2 class="gc-title">' + ico(ikon) + esc(baslik) + '</h2>' +
+        (altBaslik ? '<div class="gc-sub">' + esc(altBaslik) + '</div>' : '') + '</div>' +
+      (ustAksiyon ? '<div class="gc-head-acts">' + ustAksiyon + '</div>' : '') + '</div>' +
+      govde + (altAksiyon ? '<div class="gc-foot">' + altAksiyon + '</div>' : '') + '</section>';
+  }
+
+  /* =================================================================
+     SAYFA KABUĞU
+     ================================================================= */
+  GV.pageHead({
+    eyebrow:'Finans', title:duzenle ? 'Ödeme Planını Düzenle' : 'Ödeme Planı Kur',
+    sub:c.kod + ' · ' + c.musteriAd + ' · ' + c.ad,
+    actions:[
+      { label:'Vazgeç', cls:'btn-line', href:'app-odemeplani.html' },
+      { label:'Plan kartını aç', cls:'btn-line', icon:'i-external',
+        href:'app-odemeplani-detay.html?id=' + c.kod },
+      { label:'Planı kaydet', cls:'btn-acc', icon:'i-check', run:function(){ kaydet(); } }
+    ]
+  });
+
+  mount.innerHTML =
+    /* ---- Sözleşme künyesi: planın dayandığı bedel ---- */
+    kart('Sözleşme Künyesi', 'i-file-check',
+      'Plan bu bedele göre dengelenir; bedel bu formdan değişmez.',
+      '<div class="gc-body">' + GV.dl([
+        ['Sözleşme no', '<span class="cell-code">' + esc(c.kod) + '</span>'],
+        ['Sözleşme adı / konusu', esc(c.ad)],
+        ['Müşteri', musteri
+          ? '<a href="app-musteri-detay.html?id=' + esc(musteri.kod) + '">' + esc(musteri.unvan) + '</a>' +
+            sub(musteri.kod + ' · ' + musteri.sektor)
+          : esc(c.musteriAd)],
+        ['Bağlı proje', proje
+          ? '<a href="app-proje-detay.html?id=' + esc(proje.kod) + '">' + esc(proje.ad) + '</a>' +
+            sub(proje.kod + ' · ' + proje.durum)
+          : '<span class="u-faint">Projesiz</span>'],
+        ['Sözleşme durumu', GV.badge(c.durum)],
+        ['Sözleşme bedeli <span class="u-faint">(KDV hariç — plan bu tutara dengelenir)</span>',
+          '<b>' + para(net) + '</b>'],
+        ['KDV <span class="u-faint">(%' + esc(String(c.kdvOran)) + ' — taksitte tutulmaz)</span>', para(c.kdv)],
+        ['Genel toplam <span class="u-faint">(KDV dahil)</span>', para(c.toplam)],
+        ['Para birimi <span class="u-faint">(sözleşmeden gelir)</span>', esc(c.doviz || 'TRY')],
+        ['Ödeme planı <span class="u-faint">(sözleşme metni)</span>', esc(c.odemePlani || '—')],
+        ['İmza tarihi', F.date(c.imzaTarihi)],
+        ['Sözleşme dönemi', F.date(c.baslangic) + ' – ' + F.date(c.bitis)]
+      ]) + '</div>',
+      '<a class="btn btn-line btn-sm" href="app-sozlesme-detay.html?id=' + esc(c.kod) + '">' +
+        ico('i-external','ic-sm') + ' Sözleşme kartını aç</a>') +
+
+    /* ---- Şablon: satırları ÜRETİR, kendisi kayda yazılmaz ---- */
+    kart('Plan Şablonu', 'i-sliders',
+      'Aşağıdaki taksit satırlarını üretir. Şablonun kendisi kayda yazılmaz — kayda giren, ürettiği satırlardır.',
+      '<div class="gc-body" id="formMount"></div>',
+      null,
+      '<span class="gv-count" id="sablonNot"></span>' +
+      '<button type="button" class="btn btn-line" id="btnUret">' + ico('i-refresh') + ' Satırları üret</button>') +
+
+    /* ---- Taksit satırları ---- */
+    kart('Taksitler', 'i-milestone',
+      'Taksit numarası satır sırasından türetilir (1..N boşluksuz). Tutar ya da yüzde girin — biri diğerini yazar.',
+      '<div id="planTablo"></div>',
+      null,
+      '<span class="gv-count" id="satirSayac"></span>' +
+      '<button type="button" class="btn btn-line" id="btnFark">' + ico('i-percent') + ' Farkı son taksite yaz</button>' +
+      '<button type="button" class="btn btn-acc" id="btnEkle">' + ico('i-plus') + ' Taksit ekle</button>') +
+
+    /* ---- Canlı denge göstergesi — [8.2.3] ---- */
+    kart('Plan Dengesi', 'i-percent',
+      'Σ taksit sözleşme bedeline eşit olmadan plan kaydedilmez ve sözleşme aktive edilemez.',
+      '<div class="gc-body" id="denge"></div>') +
+
+    /* ---- Kapsam notu + kaydet ---- */
+    '<section class="gv-card">' +
+      '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-info',
+        title:'Bu formun yazmadıkları',
+        text:'Taksitin ödeme durumu bağlı faturanın aynasıdır ve motor tarafından yazılır (VB-25) — bu ' +
+             'formda alan olarak yer almaz. Fatura, tahsilat ve sözleşme kaydı da bu formdan doğmaz: ' +
+             'fatura plan kartındaki “Fatura kes” eyleminden kesilir, sözleşme bedeli sözleşme formundan ' +
+             'değişir. Vergi taksitte tutulmaz; fatura kesilirken sözleşmenin KDV oranı uygulanır.',
+        actions:[{ label:'Plan kartını aç', href:'app-odemeplani-detay.html?id=' + c.kod },
+                 { label:'Sözleşmeyi düzenle', href:'app-sozlesme-form.html?id=' + c.kod },
+                 { label:'Faturalar', href:'app-fatura.html' }] }) + '</div>' +
+      '<div class="gc-foot">' +
+        '<a class="btn btn-line" href="app-odemeplani.html">Vazgeç</a>' +
+        '<button type="button" class="btn btn-acc" id="kaydetAlt">' + ico('i-check') + ' Planı kaydet</button>' +
+      '</div>' +
+    '</section>' +
+
+    (duzenle
+      ? kart('Aktivite Geçmişi', 'i-activity', 'Sözleşme ve taksit kayıtlarının ortak geçmişi.',
+          '<div class="gc-body flush">' + GV.activity(
+            DB.activities.filter(function(a){
+              return a.kayit === c.kod || mevcut.some(function(m){ return m.kod === a.kayit; }); })
+              .sort(function(a, b){ return String(b.tarih).localeCompare(String(a.tarih)); })
+              .slice(0, 20)) + '</div>')
+      : '');
+
+  /* =================================================================
+     ŞABLON FORMU — GV.form
+     ================================================================= */
+  var DAGITIM = ['Eşit böl'].concat(metinPct ? ['Sözleşme metnindeki yüzdeler'] : [])
+                            .concat(['Tutarları elle gireceğim']);
+  var ARALIK  = ['Aylık', '2 ayda bir', '3 ayda bir', 'Sözleşme süresine yay'];
+
+  var form = GV.form({
+    mount:'#formMount', id:'odemeplaniSablon',
+    record:{
+      sayi:mevcut.length || (metinPct ? metinPct.length : 3),
+      dagitim:metinPct ? 'Sözleşme metnindeki yüzdeler' : 'Eşit böl',
+      ilkTarih:c.baslangic || DB.today,
+      aralik:'Aylık',
+      adKalibi:'taksit'
+    },
+    sections:[{
+      title:'Taksit üretimi',
+      desc:'Şablon yalnız aşağıdaki satır tablosunu doldurur. Üretimden sonra her satırı tek tek ' +
+           'değiştirebilirsiniz; kayda giren satır tablosudur.',
+      fields:[
+        { key:'sayi', label:'Taksit sayısı', type:'number', min:1, max:24, required:true, cols:4,
+          hint:'Ölçüm: ' + toplamTaksit + ' taksit ' + projeliSozlesmeler.length +
+               ' projeli sözleşmeye dağılmış; en kalabalık plan 6 taksit.' },
+        { key:'dagitim', label:'Tutar dağıtımı', type:'select', options:DAGITIM, required:true, cols:4,
+          hint:metinPct
+            ? 'Sözleşme metni “' + c.odemePlani + '” yüzde taşıyor: %' + metinPct.join(' · %') +
+              '. Yuvarlama artığı son taksite yazılır ki toplam bedele birebir otursun.'
+            : 'Sözleşme metni (“' + (c.odemePlani || '—') + '”) yüzde ifadesi taşımadığı için ' +
+              'metinden dağıtım seçeneği kapalı. Eşit bölmede yuvarlama artığı son taksite yazılır.' },
+        { key:'adKalibi', label:'Taksit adı kalıbı', type:'text', cols:4,
+          placeholder:'taksit',
+          hint:'Üretilen ad “1. taksit”, “2. taksit” biçiminde kurulur; her satırda değiştirilebilir.' },
+        { key:'ilkTarih', label:'İlk taksit tarihi', type:'date', required:true, cols:6,
+          hint:'Sözleşme başlangıcı ' + F.date(c.baslangic) + ', bitişi ' + F.date(c.bitis) + '.',
+          validate:function(v){
+            if(!v) return '';
+            if(c.baslangic && v < c.baslangic)
+              return 'İlk taksit sözleşme başlangıcından (' + F.date(c.baslangic) + ') önce olamaz.';
+            return '';
+          } },
+        { key:'aralik', label:'Taksit aralığı', type:'select', options:ARALIK, required:true, cols:6,
+          hint:'“Sözleşme süresine yay” ilk tarihten bitişe kadar eşit aralık kurar.' }
+      ]
+    }]
+  });
+
+  /* =================================================================
+     TABLO ÇİZİMİ
+     Değer değişiminde tablo YENİDEN ÇİZİLMEZ (odak kaybolurdu); yalnız
+     yapısal değişiklikte (ekle/sil/üret) çizilir. Değer değişimi modeli
+     ve denge göstergesini günceller.
+     ================================================================= */
+  var tabloEl = document.getElementById('planTablo');
+
+  function satirHtml(r, i){
+    var kilit = kilitli(r);
+    var kilitNot = r.fatura
+      ? 'Faturası kesilmiş taksit (' + r.fatura + ') — tutar değiştirilemez'
+      : 'Ödemesi kapanmış taksit — tutar değiştirilemez';
+    return '<tr data-i="' + i + '">' +
+      /* Fatura bağı AYRI KOLON DEĞİL: taksit kimliğinin altında durur.
+         Kolon sayısını 10'da tutmak her girdi kutusunu okunmaz hâle
+         getiriyordu; bağ zaten okunur bir işaret, girilebilir bir alan değil. */
+      '<td class="num cell-wrap"><b class="u-num">' + (i + 1) + '</b>' +
+        '<span class="cell-code">' + esc(r.kod || 'yeni') + '</span>' +
+        (r.fatura
+          ? '<a class="cell-sub" href="app-fatura-detay.html?id=' + esc(r.fatura) + '">' + esc(r.fatura) + '</a>' +
+            (r.faturaSayisi > 1 ? '<span class="badge is-danger no-dot">' + r.faturaSayisi + ' fatura</span>' : '')
+          : '<span class="cell-sub u-faint">Faturasız</span>') + '</td>' +
+      '<td class="cell-wrap"><input type="text" class="inp" data-k="ad" data-i="' + i + '" value="' + esc(r.ad) + '"' +
+        ' placeholder="Taksitin adı" aria-label="' + (i + 1) + '. taksitin adı"></td>' +
+      '<td><input type="date" class="inp" data-k="tarih" data-i="' + i + '" value="' + esc(r.tarih) + '"' +
+        ' aria-label="' + (i + 1) + '. taksitin planlanan tarihi"></td>' +
+      '<td class="num"><input type="number" class="inp" data-k="pct" data-i="' + i + '" min="0" max="100" step="0.01"' +
+        ' value="' + yuzde(r.odeme) + '"' + (kilit ? ' disabled title="' + esc(kilitNot) + '"' : '') +
+        ' aria-label="' + (i + 1) + '. taksitin yüzdesi"></td>' +
+      '<td class="num"><input type="number" class="inp" data-k="odeme" data-i="' + i + '" min="0" step="1"' +
+        ' value="' + sayi(r.odeme) + '"' + (kilit ? ' disabled title="' + esc(kilitNot) + '"' : '') +
+        ' aria-label="' + (i + 1) + '. taksitin tutarı"></td>' +
+      /* Yürütme ekseni (durum · ilerleme · milestone) satırda ÖZET, sağ
+         panelde girdi olarak durur. Sekiz girdi kutusunu tek satıra dizmek
+         hepsini okunmaz genişliğe düşürüyordu (ölçüldü: ad kutusu 50px,
+         yüzde kutusu değerini bile göstermiyordu). Para ekseni satırda
+         kalır — denge oradan kuruluyor. */
+      '<td class="cell-wrap">' + GV.badge(r.durum) +
+        '<span class="cell-sub">İlerleme %' + sayi(r.ilerleme) + '</span>' +
+        '<span class="cell-sub">' + (r.milestone ? esc(r.milestone) : 'Milestone bağı yok') + '</span></td>' +
+      '<td class="col-acts"><div class="cell-acts">' +
+        '<button type="button" class="ia" data-ayrinti="' + i + '"' +
+          ' title="' + (i + 1) + '. taksitin ayrıntısı" aria-label="' + (i + 1) + '. taksitin ayrıntısı">' +
+          ico('i-sliders','ic-sm') + '</button>' +
+        (kilit
+          ? '<span class="badge is-info no-dot" title="' + esc(kilitNot) + '">Kilitli</span>'
+          : '<button type="button" class="ia is-danger" data-sil="' + i + '"' +
+            ' title="' + (i + 1) + '. taksiti kaldır" aria-label="' + (i + 1) + '. taksiti kaldır">' +
+            ico('i-trash','ic-sm') + '</button>') +
+      '</div></td></tr>';
+  }
+
+  /* =================================================================
+     SATIR AYRINTISI — sağ panel (GV.drawer)
+     Taksitin yürütme alanları burada girilir; para alanları satırda kalır.
+     ================================================================= */
+  function ayrintiAc(i){
+    var r = rows[i];
+    if(!r) return;
+    var pms = r.milestone ? DB.projectMilestones.filter(function(x){ return x.kod === r.milestone; })[0] : null;
+    GV.drawer({
+      title:(i + 1) + '. taksit · ' + (r.kod || 'yeni satır'),
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="drDurum">Taksit durumu</label>' +
+          '<select id="drDurum">' + DURUMLAR.map(function(d){
+            return '<option value="' + esc(d) + '"' + (r.durum === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="f-hint">Küme DB.milestoneStatuses’tan gelir; taksitin planlama ekseni budur.</div></div>' +
+        '<div class="field f-col-12"><label for="drIlerleme">İlerleme (%)</label>' +
+          '<input type="number" class="inp" id="drIlerleme" min="0" max="100" step="1" value="' + sayi(r.ilerleme) + '">' +
+          '<div class="f-hint">Taksite karşılık gelen işin tamamlanma oranı; tutarla ilgisi yoktur.</div></div>' +
+        '<div class="field f-col-12"><label for="drMs">İlgili milestone <span class="u-faint">(isteğe bağlı)</span></label>' +
+          '<select id="drMs"><option value="">Bağlı değil</option>' + PMS_SECENEK.map(function(o){
+            return '<option value="' + esc(o.value) + '"' + (r.milestone === o.value ? ' selected' : '') + '>' +
+              esc(o.label) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="f-hint">Taksitin teslim tetikleyicisi. Bağ ödeme kaydında durur, milestone tarafında ' +
+            'ayna alan açılmaz (REVİZE 06). Projede ' + pmsler.length + ' milestone tanımlı.</div></div>' +
+        '</div>' +
+        GV.dl([
+          ['Taksit tutarı <span class="u-faint">(KDV hariç)</span>', para(r.odeme)],
+          ['Planlanan tarih', F.date(r.tarih)],
+          ['Ödeme durumu <span class="u-faint">(faturanın aynası — motor yazar)</span>', GV.badge(r.odemeDurum)],
+          ['Fatura bağı', r.fatura
+            ? '<a href="app-fatura-detay.html?id=' + esc(r.fatura) + '">' + esc(r.fatura) + '</a>'
+            : '<span class="u-faint">Kesilmedi</span>'],
+          ['Milestone kaydı', pms ? esc(pms.baslik) + sub(pms.kod + ' · ' + pms.durum) : null]
+        ]),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Uygula', cls:'btn-acc', onClick:function(close, el){
+            r.durum    = el.querySelector('#drDurum').value;
+            r.ilerleme = Math.max(0, Math.min(100, Math.round(sayi(el.querySelector('#drIlerleme').value))));
+            r.milestone = el.querySelector('#drMs').value;
+            form.setDirty(true);
+            tabloCiz();
+            GV.toast((i + 1) + '. taksitin ayrıntısı güncellendi — kaydetmeyi unutmayın', 'info');
+          } }
+      ]
+    });
+  }
+
+  function tabloCiz(){
+    if(!rows.length){
+      tabloEl.innerHTML = '<div class="gc-body">' + GV.empty({
+        icon:'i-milestone', title:'Planda hiç taksit yok',
+        desc:'Sözleşme bedeli ' + F.money(net, kur) + ' (KDV hariç) henüz taksitlere bölünmedi. ' +
+             'Yukarıdaki şablonla satır üretin ya da tek tek taksit ekleyin.',
+        action:'<button type="button" class="btn btn-acc" data-bosekle>Taksit ekle</button>' }) + '</div>';
+    }else{
+      /* `is-sticky1` — taksit kimliği kolonu yatay kaydırmada sabit kalır.
+         `th-narrow` iki küçük sayısal kolona taban genişlik verir; onlarsız
+         girdi kutusu kendi değerini bile göstermeyecek kadar eziliyordu. */
+      tabloEl.innerHTML = '<div class="gc-body flush"><div class="gv-tablewrap is-sticky1">' +
+        '<table class="gtable"><thead><tr>' +
+        '<th class="num">Taksit</th><th>Taksit adı</th><th>Planlanan tarih</th>' +
+        '<th class="num th-narrow">Yüzde</th><th class="num">Tutar (KDV hariç)</th>' +
+        '<th>Yürütme <span class="u-faint">(sağ panelden)</span></th>' +
+        '<th class="col-acts"></th></tr></thead><tbody>' +
+        rows.map(satirHtml).join('') + '</tbody></table></div></div>';
+    }
+    dengeCiz();
+  }
+
+  /* =================================================================
+     DENGE — [8.2.3]. Ölçüm ve dil `app-sozlesme-form.html`in ödeme planı
+     dengesiyle aynıdır; orada okunan, burada YAZILAN taraftır.
+     ================================================================= */
+  function dengeCiz(){
+    var tp = toplam(), fk = tp - net, dengede = fk === 0 && rows.length > 0;
+    var hedef = document.getElementById('denge');
+    if(hedef){
+      hedef.innerHTML = GV.notice({
+        tone:dengede ? 'ok' : 'danger',
+        icon:dengede ? 'i-check-circle' : 'i-alert',
+        title:dengede ? 'Plan dengede — kaydedilebilir'
+                      : (rows.length ? 'Plan dengede değil — kaydedilemez' : 'Planda taksit yok — kaydedilemez'),
+        text:dengede
+          ? 'Taksitlerin toplamı sözleşme bedeline birebir eşit ve taksit numaraları 1..' + rows.length +
+            ' boşluksuz. Sözleşmenin aktivasyon kapısı ([8.1.6]) tam bu eşitliği arıyor.'
+          : (rows.length
+              ? 'Taksitlerin toplamı ' + F.money(tp, kur) + ', sözleşme bedeli ' + F.money(net, kur) +
+                ' (ikisi de KDV hariç). Fark ' + F.money(Math.abs(fk), kur) + ' — plan ' +
+                (fk > 0 ? 'sözleşme bedelini AŞIYOR' : 'sözleşme bedelinin ALTINDA') + '. ' +
+                'Fark sıfırlanmadan kaydetme reddedilir; “Farkı son taksite yaz” düğmesi farkı ' +
+                'kilitli olmayan son taksite aktarır.'
+              : 'En az bir taksit tanımlı olmalı; boş plan sözleşmeyi aktive edemez.')
+      }) +
+      '<div class="gv-summary">' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Taksit sayısı</span>' +
+          '<span class="gv-summary-val"><b class="u-num">' + rows.length + '</b> taksit' +
+          (kilitliSayi ? sub(kilitliSayi + ' tanesi kilitli (faturalı / ödenmiş)') : '') + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Σ taksit <span class="u-faint">(KDV hariç)</span></span>' +
+          '<span class="gv-summary-val">' + para(tp) + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Sözleşme bedeli <span class="u-faint">(KDV hariç)</span></span>' +
+          '<span class="gv-summary-val">' + para(net) + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Fark <span class="u-faint">(Σ taksit − bedel)</span></span>' +
+          '<span class="gv-summary-val">' + (fk === 0
+            ? '<span class="badge is-ok no-dot">Yok</span>'
+            : '<b class="u-danger">' + F.money(fk, kur) + '</b>') + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Dağıtılan oran</span>' +
+          '<span class="gv-summary-val">' + GV.progress(net ? Math.round(tp / net * 100) : 0,
+            { tone:dengede ? 'ok' : 'danger' }) + '</span></div>' +
+        '<div class="gv-summary-row"><span class="gv-summary-lbl">Kaydetme kapısı</span>' +
+          '<span class="gv-summary-val">' + (dengede
+            ? '<span class="badge is-ok no-dot">Açık</span>'
+            : '<span class="badge is-danger no-dot">Kapalı</span>') + '</span></div>' +
+      '</div>';
+    }
+
+    var sayac = document.getElementById('satirSayac');
+    if(sayac){
+      sayac.innerHTML = '<b>' + rows.length + '</b> taksit · Σ ' + F.money(tp, kur) +
+        ' <span class="u-faint">(KDV hariç)</span> · bedel ' + F.money(net, kur) + ' · ' +
+        (fk === 0 ? '<span class="badge is-ok no-dot">Fark yok</span>'
+                  : '<span class="badge is-danger no-dot">Fark ' + F.money(fk, kur) + '</span>');
+    }
+    var bFark = document.getElementById('btnFark');
+    if(bFark) bFark.disabled = (fk === 0 || !acikSatirVar());
+
+    /* Yüzde ve tutar kutuları birbirinin aynasıdır; hangisi yazıldıysa
+       diğeri güncellenir — iki eksen ekranda ayrışmasın. */
+    rows.forEach(function(r, i){
+      var p = tabloEl.querySelector('[data-k="pct"][data-i="' + i + '"]');
+      var o = tabloEl.querySelector('[data-k="odeme"][data-i="' + i + '"]');
+      if(p && document.activeElement !== p) p.value = yuzde(r.odeme);
+      if(o && document.activeElement !== o) o.value = sayi(r.odeme);
+    });
+  }
+
+  function acikSatirVar(){ return rows.some(function(r){ return !kilitli(r); }); }
+
+  /* =================================================================
+     SATIR OLAYLARI — kap düğümüne DELEGE (innerHTML değişse de yaşar)
+     ================================================================= */
+  tabloEl.addEventListener('input', function(e){
+    var el = e.target.closest('[data-k]');
+    if(!el) return;
+    var i = +el.getAttribute('data-i'), k = el.getAttribute('data-k'), r = rows[i];
+    if(!r) return;
+    if(k === 'pct')          r.odeme = Math.round(net * sayi(el.value) / 100);
+    else if(k === 'odeme')   r.odeme = Math.round(sayi(el.value));
+    else if(k === 'ilerleme')r.ilerleme = Math.max(0, Math.min(100, Math.round(sayi(el.value))));
+    else                     r[k] = el.value;
+    form.setDirty(true);
+    dengeCiz();
+  });
+  tabloEl.addEventListener('click', function(e){
+    if(e.target.closest('[data-bosekle]')){ satirEkle(); return; }
+    var ay = e.target.closest('[data-ayrinti]');
+    if(ay){ ayrintiAc(+ay.getAttribute('data-ayrinti')); return; }
+    var b = e.target.closest('[data-sil]');
+    if(!b) return;
+    var i = +b.getAttribute('data-sil'), r = rows[i];
+    if(!r) return;
+    if(kilitli(r)){ GV.toast('Faturası kesilmiş ya da ödenmiş taksit kaldırılamaz', 'danger'); return; }
+    GV.confirm({
+      tone:'warn', title:'Taksiti plandan kaldır',
+      okLabel:'Kaldır', cancelLabel:'Vazgeç',
+      text:(i + 1) + '. taksit (' + (r.kod || 'yeni satır') + ' — ' + (r.ad || 'adsız') + ' · ' +
+           F.money(r.odeme, kur) + ') plandan çıkarılacak. ' +
+           (r.kod ? 'Kayıt ancak planı kaydettiğinizde silinir; kaydetmezseniz veri olduğu gibi kalır. ' : '') +
+           'Kaldırdıktan sonra taksit numaraları yeniden sıralanır ve denge bozulur.'
+    }).then(function(ok){
+      if(!ok) return;
+      rows.splice(i, 1);
+      kilitliSayi = rows.filter(kilitli).length;
+      form.setDirty(true);
+      tabloCiz();
+      GV.toast('Taksit plandan çıkarıldı — denge yeniden kurulmalı', 'warn');
+    });
+  });
+
+  function satirEkle(){
+    var sonTarih = rows.length ? rows[rows.length - 1].tarih : (c.baslangic || DB.today);
+    rows.push({ kod:null, yeni:true, ref:null, ad:(rows.length + 1) + '. taksit',
+      tarih:sonTarih ? ayEkle(sonTarih, 1) : DB.today, odeme:0,
+      durum:'Planlandı', ilerleme:0, milestone:'', odemeDurum:'Bekliyor',
+      fatura:null, faturaSayisi:0 });
+    form.setDirty(true);
+    tabloCiz();
+  }
+
+  /* =================================================================
+     ŞABLON UYGULAMA — kilitli satır varken satır seti EZİLMEZ
+     ================================================================= */
+  function sablonUygula(){
+    var v = form.submit();
+    if(!v) return;
+    var n = Math.max(1, Math.min(24, Math.round(sayi(v.sayi))));
+    var kalip = String(v.adKalibi || '').trim() || 'taksit';
+
+    if(rows.filter(kilitli).length){
+      GV.toast('Faturalı / ödenmiş taksit olduğu için şablon satırları ezemez — satırları elle düzenleyin', 'danger');
+      return;
+    }
+    if(v.dagitim === 'Sözleşme metnindeki yüzdeler' && metinPct && n !== metinPct.length){
+      n = metinPct.length;
+      GV.toast('Taksit sayısı sözleşme metnindeki yüzde adedine (' + n + ') çekildi', 'info');
+    }
+
+    GV.confirm({
+      tone:'warn', title:'Şablon mevcut satırların yerine geçecek',
+      okLabel:'Satırları üret', cancelLabel:'Vazgeç',
+      text:(rows.length ? 'Tablodaki ' + rows.length + ' satır silinip ' : '') + n + ' taksit üretilecek: ' +
+           v.dagitim.toLocaleLowerCase('tr') + ' · ' + v.aralik.toLocaleLowerCase('tr') + ' · ilk tarih ' +
+           F.date(v.ilkTarih) + '. Toplam sözleşme bedeline (' + F.money(net, kur) + ') birebir oturtulur. ' +
+           'Değişiklik ancak “Planı kaydet” dediğinizde veriye işlenir.'
+    }).then(function(ok){
+      if(!ok) return;
+
+      /* --- tutarlar: yuvarlama artığı SON taksite; toplam birebir tutsun --- */
+      var tutarlar = [], i, kalan = net;
+      if(v.dagitim === 'Sözleşme metnindeki yüzdeler' && metinPct){
+        for(i = 0; i < n - 1; i++){ var t = Math.round(net * metinPct[i] / 100); tutarlar.push(t); kalan -= t; }
+      }else if(v.dagitim === 'Eşit böl'){
+        var esit = Math.floor(net / n);
+        for(i = 0; i < n - 1; i++){ tutarlar.push(esit); kalan -= esit; }
+      }else{
+        for(i = 0; i < n - 1; i++) tutarlar.push(0);
+        kalan = net;                                     /* elle girişte tamamı son satırda durur */
+      }
+      tutarlar.push(kalan);
+
+      /* --- tarihler --- */
+      var tarihler = [], ilk = v.ilkTarih || c.baslangic || DB.today;
+      if(v.aralik === 'Sözleşme süresine yay' && c.bitis){
+        var gun = Math.max(0, gunFarki(ilk, c.bitis));
+        for(i = 0; i < n; i++) tarihler.push(n === 1 ? c.bitis : gunEkle(ilk, Math.round(gun * i / (n - 1))));
+      }else{
+        var adim = v.aralik === '2 ayda bir' ? 2 : v.aralik === '3 ayda bir' ? 3 : 1;
+        for(i = 0; i < n; i++) tarihler.push(ayEkle(ilk, adim * i));
+      }
+
+      rows = [];
+      for(i = 0; i < n; i++){
+        rows.push({ kod:null, yeni:true, ref:null,
+          ad:(i + 1) + '. ' + kalip, tarih:tarihler[i], odeme:tutarlar[i],
+          durum:'Planlandı', ilerleme:0, milestone:'', odemeDurum:'Bekliyor',
+          fatura:null, faturaSayisi:0 });
+      }
+      kilitliSayi = 0;
+      form.setDirty(true);
+      tabloCiz();
+      GV.toast(n + ' taksit üretildi — satırları gözden geçirip kaydedin', 'ok');
+    });
+  }
+
+  function farkiSonaYaz(){
+    var fk = fark();
+    if(fk === 0){ GV.toast('Fark zaten yok', 'info'); return; }
+    var hedef = null;
+    for(var i = rows.length - 1; i >= 0; i--){ if(!kilitli(rows[i])){ hedef = i; break; } }
+    if(hedef == null){ GV.toast('Düzenlenebilir taksit yok — tüm satırlar kilitli', 'danger'); return; }
+    var yeniTutar = sayi(rows[hedef].odeme) - fk;
+    if(yeniTutar <= 0){
+      GV.toast('Fark son taksite sığmıyor (' + F.money(yeniTutar, kur) + ') — tutarları elle dağıtın', 'danger');
+      return;
+    }
+    rows[hedef].odeme = yeniTutar;
+    form.setDirty(true);
+    tabloCiz();
+    GV.toast((hedef + 1) + '. taksit ' + F.money(yeniTutar, kur) + ' oldu — plan dengede', 'ok');
+  }
+
+  /* =================================================================
+     DOĞRULAMA VE KAYIT
+     ================================================================= */
+  function dogrula(){
+    var h = [];
+    if(!rows.length) h.push('Plan en az bir taksit içermelidir.');
+    rows.forEach(function(r, i){
+      var n = (i + 1) + '. taksit';
+      if(!String(r.ad || '').trim())  h.push(n + ': ad boş.');
+      if(!r.tarih)                    h.push(n + ': planlanan tarih boş.');
+      if(!(sayi(r.odeme) > 0))        h.push(n + ': tutar sıfırdan büyük olmalı.');
+      if(sayi(r.ilerleme) < 0 || sayi(r.ilerleme) > 100) h.push(n + ': ilerleme 0–100 arasında olmalı.');
+      if(r.tarih && c.baslangic && r.tarih < c.baslangic)
+        h.push(n + ': tarih sözleşme başlangıcından (' + F.date(c.baslangic) + ') önce olamaz.');
+    });
+    for(var i = 1; i < rows.length; i++){
+      if(rows[i].tarih && rows[i - 1].tarih && rows[i].tarih < rows[i - 1].tarih){
+        h.push((i + 1) + '. taksitin tarihi bir öncekinden erken — taksit sırası tarih sırasıyla uyuşmuyor.');
+        break;
+      }
+    }
+    var kullanilan = {};
+    rows.forEach(function(r, i){
+      if(!r.milestone) return;
+      if(kullanilan[r.milestone]) h.push((i + 1) + '. taksit ' + r.milestone +
+        ' milestone’una bağlı; aynı milestone ' + kullanilan[r.milestone] + '. taksitte de seçili.');
+      else kullanilan[r.milestone] = i + 1;
+    });
+    return h;
+  }
+
+  function gorunur(k, v){
+    if(v == null || v === '') return '—';
+    if(k === 'odeme')     return F.money(v, kur) + ' (KDV hariç)';
+    if(k === 'tarih')     return F.date(v);
+    if(k === 'ilerleme')  return '%' + v;
+    if(k === 'milestone'){
+      var p = DB.projectMilestones.filter(function(x){ return x.kod === v; })[0];
+      return p ? p.baslik + ' (' + v + ')' : String(v);
+    }
+    return String(v);
+  }
+  var ALAN_ADI = { ad:'Taksit adı', tarih:'Planlanan tarih', odeme:'Taksit tutarı',
+                   durum:'Taksit durumu', ilerleme:'İlerleme', taksit:'Taksit sırası',
+                   milestone:'İlgili milestone' };
+
+  function yaz(){
+    var kalan = rows.filter(function(r){ return !!r.kod; }).map(function(r){ return r.kod; });
+    var silinen = 0, eklenen = 0, degisen = 0;
+
+    /* --- plandan çıkarılan taksitler --- */
+    mevcut.forEach(function(m){
+      if(kalan.indexOf(m.kod) !== -1) return;
+      var ix = DB.milestones.indexOf(m);
+      if(ix === -1) return;
+      DB.milestones.splice(ix, 1);
+      silinen++;
+      DB.activities.unshift({ kayit:c.kod, tarih:simdi(), kisi:GV.session.emp,
+        metin:'Ödeme planından taksit çıkarıldı — ' + m.kod + ' · ' + m.ad,
+        eski:F.money(m.odeme, kur) + ' (KDV hariç)', yeni:'—', tone:'danger', icon:'i-trash' });
+    });
+
+    /* --- kalan ve yeni taksitler --- */
+    var verilen = [];
+    rows.forEach(function(r, i){
+      var sira = i + 1;
+      if(r.ref){
+        var m = r.ref, yeniDeger = {
+          taksit:sira, ad:String(r.ad).trim(), tarih:r.tarih, odeme:sayi(r.odeme),
+          durum:r.durum, ilerleme:sayi(r.ilerleme)
+        };
+        Object.keys(yeniDeger).forEach(function(k){
+          if(String(m[k] == null ? '' : m[k]) === String(yeniDeger[k])) return;
+          DB.activities.unshift({ kayit:m.kod, tarih:simdi(), kisi:GV.session.emp,
+            metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
+            eski:gorunur(k, m[k]), yeni:gorunur(k, yeniDeger[k]), tone:'accent', icon:'i-edit' });
+          m[k] = yeniDeger[k];
+          degisen++;
+        });
+        /* Milestone bağı: seçilmediyse anahtar KAYITTAN DÜŞER — veride de
+           bağsız taksitte bu anahtar hiç yok (§9d, ayna alan açılmaz). */
+        var eskiMs = m.milestone || '';
+        if(eskiMs !== (r.milestone || '')){
+          DB.activities.unshift({ kayit:m.kod, tarih:simdi(), kisi:GV.session.emp,
+            metin:'Alan güncellendi: İlgili milestone',
+            eski:gorunur('milestone', eskiMs), yeni:gorunur('milestone', r.milestone),
+            tone:'accent', icon:'i-link' });
+          if(r.milestone) m.milestone = r.milestone; else delete m.milestone;
+          degisen++;
+        }
+      }else{
+        var kod = yeniKod(verilen);
+        verilen.push(kod);
+        /* Anahtar sırası koleksiyondaki kayıtlarla aynı tutulur.
+           `odemeDurum` başlangıçta 'Bekliyor'dur: faturası yoktur, ayna
+           alanı motor fatura kesilince yazar (VB-25). */
+        var kayit = {
+          kod:kod, proje:c.proje, sozlesme:c.kod, taksit:sira,
+          ad:String(r.ad).trim(), tarih:r.tarih, durum:r.durum,
+          odeme:sayi(r.odeme), odemeDurum:'Bekliyor', ilerleme:sayi(r.ilerleme)
+        };
+        if(r.milestone) kayit.milestone = r.milestone;
+        DB.milestones.push(kayit);
+        r.kod = kod; r.ref = kayit; r.yeni = false;
+        eklenen++;
+        DB.activities.unshift({ kayit:kod, tarih:simdi(), kisi:GV.session.emp,
+          metin:'Ödeme planı taksiti oluşturuldu — ' + c.kod + ' · ' + sira + '. taksit · ' +
+                F.money(sayi(r.odeme), kur) + ' (KDV hariç)',
+          eski:null, yeni:kod, tone:'ok', icon:'i-plus' });
+      }
+    });
+
+    /* --- plan seviyesinde tek satır: sözleşmenin geçmişine --- */
+    DB.activities.unshift({ kayit:c.kod, tarih:simdi(), kisi:GV.session.emp,
+      metin:'Ödeme planı kaydedildi — ' + rows.length + ' taksit · toplam ' +
+            F.money(toplam(), kur) + ' (KDV hariç) · sözleşme bedeliyle dengede',
+      eski:mevcut.length + ' taksit', yeni:rows.length + ' taksit', tone:'ok', icon:'i-milestone' });
+
+    form.setDirty(false);
+    var ozet = [];
+    if(eklenen) ozet.push(eklenen + ' taksit eklendi');
+    if(degisen) ozet.push(degisen + ' alan güncellendi');
+    if(silinen) ozet.push(silinen + ' taksit çıkarıldı');
+    GV.toast(c.kod + ' ödeme planı kaydedildi' + (ozet.length ? ' · ' + ozet.join(' · ') : ' — değişiklik yok'), 'ok');
+
+    /* location.reload() YASAK (ders L-15) — normal akış plan kartına gitmektir. */
+    setTimeout(function(){ location.href = 'app-odemeplani-detay.html?id=' + c.kod; }, 700);
+  }
+
+  function kaydet(){
+    var hatalar = dogrula();
+    var fk = fark();
+
+    /* [8.2.3] — DENGE TUTMADAN PLAN KAYDEDİLMEZ. Onay penceresiyle
+       "yine de kaydet" yolu YOKTUR: bu eşitlik sözleşme aktivasyonunun
+       ön koşulu, yani kuralın kendisidir. */
+    if(fk !== 0){
+      hatalar.unshift('Σ taksit (' + F.money(toplam(), kur) + ') sözleşme bedeline (' +
+        F.money(net, kur) + ') eşit değil; fark ' + F.money(fk, kur) + '. Denge kurulmadan plan kaydedilemez.');
+    }
+
+    if(hatalar.length){
+      var hedef = document.getElementById('denge');
+      if(hedef){
+        hedef.insertAdjacentHTML('afterbegin', GV.notice({
+          tone:'danger', icon:'i-x-circle', title:'Plan kaydedilemedi — ' + hatalar.length + ' engel var',
+          text:hatalar.join(' · ') }));
+        hedef.scrollIntoView({ behavior:'smooth', block:'center' });
+      }
+      GV.toast(hatalar.length + ' engel var — plan kaydedilmedi', 'danger');
+      return;
+    }
+    yaz();
+  }
+
+  /* =================================================================
+     BAĞLAMA — düğümler mount İÇİNDEDİR (ders L-16)
+     ================================================================= */
+  document.getElementById('btnUret').addEventListener('click', sablonUygula);
+  document.getElementById('btnEkle').addEventListener('click', satirEkle);
+  document.getElementById('btnFark').addEventListener('click', farkiSonaYaz);
+  document.getElementById('kaydetAlt').addEventListener('click', kaydet);
+
+  var sablonNot = document.getElementById('sablonNot');
+  if(sablonNot){
+    sablonNot.textContent = metinPct
+      ? 'Sözleşme metni: ' + c.odemePlani + ' → %' + metinPct.join(' · %')
+      : 'Sözleşme metni yüzde taşımıyor: ' + (c.odemePlani || '—');
+  }
+
+  tabloCiz();
+});
+</script>
+</body>
+</html>
