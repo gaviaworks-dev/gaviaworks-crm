@@ -1992,16 +1992,23 @@
           '<span class="gv-tab-err" hidden aria-hidden="true"></span></button>';
       }).join('') + '</div>';
 
+      /* Sekmesi belirtilmemiş bölüm KAYBOLMAZ — İLK panelin altına düşer.
+         Sessizce yok saymak, alanı olmayan bir formu "tamam" gösterirdi.
+         ⚠️ Bu güvenlik ağı ilk yazımında `html.replace('</div>', …)` ile
+         kurulmuştu ve YANLIŞ YERE basıyordu: dizedeki ilk `</div>`, hata özeti
+         bloğunun kapanışıdır — sekmesiz bölüm formun görünmez uyarı kutusunun
+         İÇİNE düşüyordu. Kusur hiç görülmedi çünkü göç eden ilk dört formun
+         dördü de her bölüme `tab` verdi; yani kural yazılıydı ama hiç
+         çalışmamıştı (ders L-31'in aynı sınıfı). Artık panel içeriği tek yerde,
+         dize oyunu olmadan kuruluyor. */
       cfg.tabs.forEach(function(t, i){
+        var icerik = (cfg.sections || []).filter(function(s){
+          return s.tab === t.key || (i === 0 && !s.tab);
+        });
         html += '<div class="gv-tabpanel" role="tabpanel" id="fpanel_' + esc(t.key) + '"' +
           ' aria-labelledby="ftab_' + esc(t.key) + '"' + (i === 0 ? '' : ' hidden') + '>' +
-          (cfg.sections || []).filter(function(s){ return s.tab === t.key; }).map(sectionHtml).join('') +
-          '</div>';
+          icerik.map(sectionHtml).join('') + '</div>';
       });
-      /* Sekmesi belirtilmemiş bölüm KAYBOLMAZ — ilk panelin altına düşer.
-         Sessizce yok saymak, alanı olmayan bir formu "tamam" gösterirdi. */
-      var sekmesiz = (cfg.sections || []).filter(function(s){ return !s.tab; });
-      if(sekmesiz.length) html = html.replace('</div>', sekmesiz.map(sectionHtml).join('') + '</div>');
     }else{
       (cfg.sections || []).forEach(function(s){ html += sectionHtml(s); });
     }
