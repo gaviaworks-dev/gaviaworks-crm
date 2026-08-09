@@ -1869,14 +1869,35 @@
          da basılır — alan çoğu halde zorunludur, istisnası `hint`te yazılır.
          Native `required` özniteliği işlevde basılmaz; form zaten `novalidate`. */
       var reqSabit = typeof f.required === 'function' ? false : !!f.required;
+      /* SALT OKUNUR ALAN — şartname [3.1.11]: "sistem tarafından türetilen
+         alanlar salt okunur olsun ve neden değiştirilemediği kısa yardım
+         metniyle açıklansın".
+         ⚠️ Bu sözleşme BEŞ EKRANDA YAZILIYDI AMA HİÇBİR YERDE UYGULANMIYORDU:
+         formlar `readonly:true` bildiriyor, motor bunu okumuyordu; alan
+         düzenlenebilir kalıyordu. Ekranlar bunu tek tek DOM'a dokunarak
+         (`el.readOnly = true`) çözmeye çalışmıştı — yani kural bileşende
+         değil, çağıranda yaşıyordu. Artık motorda. */
+      var salt = !!f.readonly;
       var req = (f.required ? '<span class="req" aria-hidden="true">*</span>' : '');
       var inner = '';
 
       if(f.type === 'textarea'){
         inner = '<textarea id="' + id + '" name="' + f.key + '" rows="' + (f.rows || 4) + '"' +
-                (reqSabit ? ' required' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
+                (reqSabit ? ' required' : '') + (salt ? ' readonly aria-readonly="true"' : '') +
+                (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
                 '>' + esc(v) + '</textarea>';
       }else if(f.type === 'select'){
+        /* `<select>` `readonly` özniteliğini desteklemez ve `disabled` alan
+           `read()` tarafından okunamaz. Salt okunur seçim, DEĞERİ TAŞIYAN gizli
+           bir alanla eşlenir; görünen seçim yalnız gösterim içindir. */
+        if(salt){
+          var etiket = v;
+          (f.options || []).forEach(function(o){
+            if(typeof o !== 'string' && String(o.value) === String(v)) etiket = o.label; });
+          inner = '<input type="hidden" name="' + f.key + '" value="' + esc(v) + '">' +
+                  '<input type="text" id="' + id + '" class="inp is-readonly" readonly aria-readonly="true" ' +
+                  'tabindex="-1" value="' + esc(etiket || '—') + '">';
+        }else
         inner = '<select id="' + id + '" name="' + f.key + '"' + (reqSabit ? ' required' : '') + '>' +
           '<option value="">' + esc(f.placeholder || 'Seçiniz') + '</option>' +
           (f.options || []).map(function(o){
@@ -1911,8 +1932,10 @@
       }else{
         var t = f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : f.type === 'email' ? 'email' :
                 f.type === 'tel' ? 'tel' : f.type === 'url' ? 'url' : 'text';
-        inner = '<input type="' + t + '" class="inp" id="' + id + '" name="' + f.key + '" value="' + esc(v) + '"' +
-                (reqSabit ? ' required' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
+        inner = '<input type="' + t + '" class="inp' + (salt ? ' is-readonly' : '') + '" id="' + id +
+                '" name="' + f.key + '" value="' + esc(v) + '"' +
+                (reqSabit ? ' required' : '') + (salt ? ' readonly aria-readonly="true"' : '') +
+                (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
                 (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') + '>';
       }
 
