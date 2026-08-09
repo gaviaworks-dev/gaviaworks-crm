@@ -395,6 +395,28 @@ GV.report({
 > | `GV.proje.maliyet` | `work.js` (`projects`) · `hr.js` (`timelogs`) · `org.js` (`employees` · `company`) · **`ops.js` (`purchases`)** |
 > | `GV.hr.*` | `org.js` (`employees` · `company`) |
 > | `GV.yenileme.*` | `misc.js` (`contracts`) · `ops.js` (`supportPackages`) · `work.js` (`activities`) |
+> | `GV.flow.*` | `org.js` (`flowEntities` · `transitions` · `roles`) · `work.js` (`activities`) |
+> | `GV.gates.*` | `org.js` (`flowEntities` · `transitions`) · `work.js` (`activities`) |
+> | `GV.approval.*` | `work.js` (`approvals` · `activities`) · `org.js` (`approvalTypes` · `approvalFlows`) · `ops.js` (`purchases` · `purchaseApprovals`) |
+> | `GV.calendar.*` | `org.js` (`holidays` · `workCalendar` · `slaWaitPolicy`) |
+> | `GV.audit.*` | `work.js` (`activities`) · `misc.js` (`logs`) |
+
+> **`GV.flow` ve `GV.gates` VARLIK KAPSAMLIDIR — tablo yalnız HER ÇAĞRIDA
+> okunanı yazar.** `GV.flow.gec('quote', …)` yalnız teklif koleksiyonunu
+> okur; `ops.js`'i hiç açmaz. Bu yüzden satırlarında yalnız sözleşmenin
+> kendisi (`org.js`) ve denetim izi (`work.js` → `activities`) yazılıdır.
+> **Varlığın kendi koleksiyonunu yüklemek ÇAĞIRAN EKRANIN sorumluluğudur** ve
+> bu zaten kendiliğinden sağlanır: teklif gösteren ekran `crm.js` yükler.
+>
+> Bu ayrım ölçülerek konuldu. İlk yazımda satırlar 14 varlığın BİRLEŞİMİNİ
+> taşıyordu ve `dep.js` 42 yanlış alarm üretti — teklif ekranından `ops.js`
+> istiyordu. Birleşimi yazmak ekseni gürültüye boğar ve gerçek bulguyu gizler.
+>
+> Gerçekten ÇOK VARLIKLI olan servisler birleşimi yazmayı sürdürür ve eksen
+> onları denetler: `GV.approval.*` (onay kuyruğu sekiz varlık tipini kapsar —
+> bu satır sayesinde `app-panel-onaylar.html`'in üç veri dosyasıyla çalıştığı,
+> yani kaynak kayda erişemediği yakalandı) ve `GV.proje.kapanisKontrol`
+> (kapanış listesi beş koleksiyon okur).
 
 > **`GV.proje.maliyet().kapsam` `sure()`dekinden BİR ADIM DAHA DARDIR:** maliyet
 > için satır sayısı değil **ölçülen maliyet** gerekir. Onaylı saati de satın
