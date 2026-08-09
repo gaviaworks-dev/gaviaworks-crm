@@ -2238,6 +2238,91 @@
   };
 
   /* ===================================================================
+     7b. KAYIT SONRASI YÖNLENDİRME — `GV.afterSave` (şartname [3.1.16])
+     -------------------------------------------------------------------
+     ÖLÇÜLEN DURUM: 38 formun tamamı kaydettikten sonra LİSTEYE dönüyordu ve
+     bu, kodda yorum satırı olarak kurallaştırılmıştı:
+       /* location.reload() YASAK — normal akış listeye dönmektir. * /
+     Yorumun DOĞRU yarısı `location.reload()` yasağıdır (L-15: mock veri
+     bellekte durur, yeniden yükleme mutasyonu siler) ve YERİNDE DURUYOR.
+     Yanlış yarısı "normal akış listeye dönmektir" hükmüydü: şartname
+     [3.1.16] kaydedilen kaydın DETAYINA gidilmesini ve o kayıtla birlikte
+     otomatik doğan alt kayıtların bağlantılarının gösterilmesini istiyor.
+     Bu paket o karşı-kararı gerekçesiyle tersine çevirir (`lessons.md` L-40).
+
+     NEDEN ORTAK YORDAM: kural 38 ayrı `kaydet()` sonunda yaşarsa 38 ayrı
+     yerde "detay var mı · yetki var mı · alt kayıt nasıl gösterilir"
+     sorusuna ayrı cevap verilir; biri diğerinden sessizce ayrılır (L-23'ün
+     aynısı). Karar TEK yordamda:
+       · hedef detay ekranı YAYINDA değilse   → listeye dönülür,
+       · kullanıcının o dosyaya yetkisi yoksa → listeye dönülür,
+       · ikisi de varsa                        → `detay?id=KOD`.
+     Dönen değer (`'detay'` / `'liste'`) çağırana bildirilir ki ölçüm ekseni
+     kararı okuyabilsin; sessiz bir düşüş "detaya gitti" sanılmasın.
+
+     ALT KAYIT BAĞLANTILARI: hedef sayfa 26 ayrı detay ekranıdır; her birine
+     "az önce ne oluştu" bloğu yazmak 26 kopya demekti. Bunun yerine mesaj
+     iskeletteki `#gvFlash` şeridine bırakılır (shell.js) ve hedef sayfa
+     açılınca BİR KEZ okunup silinir. Şerit sayfa içeriğinin dışındadır:
+     ekranın kendi mount'unu yeniden çizmesi ya da `GV.refresh()` onu silmez.
+     =================================================================== */
+  var FLASH_KEY = 'gv.aftersave';
+
+  GV.afterSave = function(cfg){
+    cfg = cfg || {};
+    var kod   = cfg.kod || '';
+    var liste = cfg.liste || '';
+    var detay = cfg.detay || '';
+    var hedef = liste, karar = 'liste';
+
+    if(detay && kod && GV.shell && GV.shell.ekranAcilabilir && GV.shell.ekranAcilabilir(detay)){
+      hedef = detay + (detay.indexOf('?') === -1 ? '?' : '&') + 'id=' + encodeURIComponent(kod);
+      karar = 'detay';
+    }
+    if(!hedef) return karar;                     /* çağıran hedef vermediyse gitme */
+
+    var alt = (cfg.alt || []).filter(function(a){ return a && a.label; });
+    if(kod || alt.length){
+      try{
+        sessionStorage.setItem(FLASH_KEY, JSON.stringify({
+          kod:kod, yeni:!!cfg.yeni, mesaj:cfg.mesaj || '', alt:alt,
+          hedef:hedef.split('?')[0], karar:karar
+        }));
+      }catch(e){ /* depolama kapalıysa şerit basılmaz, yönlendirme yine olur */ }
+    }
+    setTimeout(function(){ location.href = hedef; }, cfg.gecikme != null ? cfg.gecikme : 700);
+    return karar;
+  };
+
+  /* Şeridi bas — hedef sayfa açıldığında, bir kez. */
+  function cizFlash(){
+    var host = document.getElementById('gvFlash');
+    if(!host) return;
+    var ham = null;
+    try{ ham = sessionStorage.getItem(FLASH_KEY); }catch(e){ return; }
+    if(!ham) return;
+    try{ sessionStorage.removeItem(FLASH_KEY); }catch(e){}      /* tek kullanımlık */
+    var f;
+    try{ f = JSON.parse(ham); }catch(e){ return; }
+    /* Yanlış sayfaya düşmüş şerit basılmaz: kullanıcı yönlendirmeyi iptal edip
+       başka bir ekrana gitmiş olabilir. Kayıt zaten silindi, iz bırakmaz. */
+    if(f.hedef && f.hedef !== location.pathname.split('/').pop()) return;
+
+    host.innerHTML = GV.notice({
+      tone:'ok',
+      icon:f.yeni ? 'i-plus' : 'i-check-circle',
+      title:(f.kod ? f.kod + ' ' : '') + (f.yeni ? 'oluşturuldu' : 'güncellendi'),
+      text:f.mesaj || (f.karar === 'detay'
+        ? 'Kaydın detay ekranındasınız; alanları buradan görüntüleyebilirsiniz.'
+        : 'Bu kayıt türünün detay ekranı henüz yayında değil, listeye dönüldü.'),
+      actions:(f.alt || []).map(function(a){
+        return { label:a.label, href:a.href, cls:a.cls || 'btn-line' };
+      })
+    });
+  }
+  document.addEventListener('gv:ready', cizFlash);
+
+  /* ===================================================================
      8. AKTİVİTE TIMELINE / ONAY ZİNCİRİ
      =================================================================== */
   GV.activity = function(items){

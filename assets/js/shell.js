@@ -706,8 +706,8 @@
     { on:'app-demirbas', modul:'demirbas' },
     { on:'app-zimmet',   modul:'demirbas' }
   ];
-  function modulOf(sec, screen){
-    var dosya = location.pathname.split('/').pop();
+  function modulOf(sec, screen, dosyaAdi){
+    var dosya = dosyaAdi || location.pathname.split('/').pop();
     for(var i = 0; i < MODUL_DOSYA.length; i++){
       if(dosya.indexOf(MODUL_DOSYA[i].on) === 0) return MODUL_DOSYA[i].modul;
     }
@@ -719,16 +719,34 @@
     return sc.modul || null;
   }
 
+  /* DOSYA ADI EKSENİ — tek yordam, iki çağıran.
+     `guard` bunu açılan sayfa için sorar; `GV.afterSave` (ui.js) GİDİLECEK
+     sayfa için sorar — kaydettikten sonra kullanıcıyı göremeyeceği bir detay
+     ekranına atmamak için ([3.1.16] "yetki yoksa listeye dön"). İki yerde iki
+     kopya kural yazmak, birinin diğerinden sessizce ayrılması demekti.
+     Bu eksen yalnız DOSYA ADIYLA bilinebilenleri kapsar: dosya adına yazılmış
+     ret listesi ve dosya adı önekinden çözülen modül. `data-screen` anahtarına
+     bağlı `SCREEN_PERM` buradan sorulamaz — hedef dosyanın anahtarı okunmadan
+     bilinmez; o eksen hedef sayfa açıldığında `guard` tarafından uygulanır. */
+  function dosyaIzinli(dosya, sec, screen){
+    if(!dosya) return false;
+    if(SCREEN_DENY[dosya] && SCREEN_DENY[dosya].indexOf(Perm.role()) !== -1) return false;
+    /* `screen` yalnız AÇILAN sayfa için bilinir; hedef dosya sorulurken null
+       gelir ve modül bölümün modülüne düşer. Aynı bölümdeki form ile detay
+       ekranı aynı modüle ait olduğu için bu düşüş hedef tarafında kayıp
+       yaratmaz — `MODUL_DOSYA` önek tablosu zaten dosya adından çözüyor. */
+    if(!Perm.modul(modulOf(sec || (document.body.dataset.sec || 'panel'), screen, dosya))) return false;
+    return true;
+  }
+
   function guard(activeSec, activeScreen){
     var screenOk = !SCREEN_PERM[activeScreen] || SCREEN_PERM[activeScreen].indexOf(Perm.role()) !== -1;
     if(SCREEN_DENY[activeScreen] && SCREEN_DENY[activeScreen].indexOf(Perm.role()) !== -1) screenOk = false;
-    /* Dosya adı ekseni — form ekranı listesiyle aynı anahtarı taşıdığında. */
-    var dosya = location.pathname.split('/').pop();
-    if(SCREEN_DENY[dosya] && SCREEN_DENY[dosya].indexOf(Perm.role()) !== -1) screenOk = false;
     /* REVİZE 18 — kapalı modülün ekranı doğrudan adresle de açılmaz. Ekranın
        modülü menü kaydından okunur (tek kaynak); menüde karşılığı olmayan
-       ekran bölümün modülüne düşer. VERİ VE DOSYA YERİNDE KALIR (G-1). */
-    if(!Perm.modul(modulOf(activeSec, activeScreen))) screenOk = false;
+       ekran bölümün modülüne düşer. VERİ VE DOSYA YERİNDE KALIR (G-1).
+       Dosya adı ekseni (ret listesi + modül) `dosyaIzinli`de. */
+    if(!dosyaIzinli(location.pathname.split('/').pop(), activeSec, activeScreen)) screenOk = false;
     if(Perm.sec(activeSec) && screenOk) return true;
     var main = document.querySelector('.gv-page');
     if(!main) return false;
@@ -971,6 +989,11 @@
       '<header class="gv-top" id="gvTop"></header>' +
       '<main class="gv-main" id="gvMain"><div class="gv-page">' +
         '<nav class="gv-crumb" id="gvCrumb" aria-label="Konum"></nav>' +
+        /* Kayıt sonrası bildirim şeridi ([3.1.16]). İSKELETE aittir, sayfa
+           içeriğine değil: ekranlar kendi mount düğümlerini yeniden çizerken
+           (ve `GV.refresh()` sonrasında) bu düğüme dokunmaz, şerit yerinde
+           kalır. Dolduran yordam `GV.afterSave` / okuyan `ui.js`. */
+        '<div id="gvFlash" class="gv-flash" aria-live="polite"></div>' +
         '<div id="gvPageHead"></div>' +
       '</div></main>';
 
@@ -1166,6 +1189,9 @@
     },
     clear:function(){ try{ sessionStorage.removeItem(SS_KEY); }catch(e){} },
     counters:counters,
+    /* Hedef bir ekranın açılabilir olup olmadığı — `GV.afterSave` kullanır.
+       İki koşul: dosya yayında mı (`BUILT`) ve dosya adı ekseninde yetki var mı. */
+    ekranAcilabilir:function(href){ return isBuilt(href) && dosyaIzinli(String(href||'').split('?')[0]); },
     crumb:function(text){
       var el = document.getElementById('gvCrumb');
       if(el){ el.dataset.extra = text; renderCrumb(document.body.dataset.sec || 'panel', document.body.dataset.screen || ''); }
