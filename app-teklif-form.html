@@ -171,6 +171,14 @@ document.addEventListener('gv:ready', function(){
   }
   function kurSim(d){ return (!d || d === 'TRY') ? '₺' : d; }
 
+  /* İki ISO tarih arasındaki tam gün — sağ bağlam panelindeki geçerlilik
+     penceresi bununla ölçülür. Tarihlerden biri yoksa ölçüm yapılmaz. */
+  function gunFarki(a, b){
+    if(!a || !b) return null;
+    var d = (Date.parse(b) - Date.parse(a)) / 86400000;
+    return isFinite(d) ? Math.round(d) : null;
+  }
+
   /* =================================================================
      FORM KAYDI — koleksiyondaki ham değerler forma uygun biçime çevrilir
      ================================================================= */
@@ -296,8 +304,8 @@ document.addEventListener('gv:ready', function(){
     ust += '<section class="gv-card"><div class="gc-body">' +
       GV.notice({ tone:'info', title:'Yeni teklif oluşturuluyor',
         text:'Kaydettiğinizde sıradaki teklif numarası atanır, teklif kalemleri kalem koleksiyonuna ' +
-             'yazılır, aktivite geçmişine “Teklif oluşturuldu” satırı düşer ve teklif listesine ' +
-             'dönülür. Versiyon numarası 1’den başlar; revizyon teklif kartı üzerinden alınır.',
+             'yazılır, aktivite geçmişine “Teklif oluşturuldu” satırı düşer ve yeni açılan teklif ' +
+             'kartına gidilir. Versiyon numarası 1’den başlar; revizyon teklif kartı üzerinden alınır.',
         actions:[{ label:'Teklif listesi', href:'app-teklif.html' },
                  { label:'Ön analizler', href:'app-onanaliz.html' }] }) +
       (canFinans ? '' : GV.notice({ tone:'neutral', icon:'i-lock',
@@ -483,30 +491,30 @@ document.addEventListener('gv:ready', function(){
   ];
 
   var sections = [
-    { title:'Teklif kimliği ve müşteri',
+    { tab:'kimlik', title:'Teklif kimliği ve müşteri',
       desc:'Teklifin kime verildiği ve hangi satış kaydından doğduğu. Müşteri kartı ile satış ' +
            'fırsatından en az biri seçilmelidir.',
       fields:kimlikAlanlari },
-    { title:'Tarih ve geçerlilik',
+    { tab:'kimlik', title:'Tarih ve geçerlilik',
       desc:'Teklifin düzenlendiği tarih ve müşteriye tanınan karar süresi.',
       fields:tarihAlanlari }
   ];
 
   if(canFinans){
-    sections.push({ title:'Fiyatlandırma',
+    sections.push({ tab:'fiyat', title:'Fiyatlandırma',
       desc:'Tüm tutarlar KDV hariç girilir; KDV ve genel toplam bu üç alandan hesaplanır ve ayrıca girilmez.',
       fields:fiyatAlanlari });
   }
 
   sections.push(
-    { title:'Ticari koşullar',
+    { tab:'ticari', title:'Ticari koşullar',
       desc:'Teklif metninde müşteriye taahhüt edilen ödeme, teslim, garanti ve destek koşulları.',
       fields:ticariAlanlari },
-    { title:'Durum ve onaylar',
+    { tab:'durum', title:'Durum ve onaylar',
       desc:'Teklifin satış hunisindeki yeri salt okunurdur — durum yalnız teklif kartındaki ' +
            'iş akışı eylemlerinden değişir. Buradan yalnız müşteri onayı ve kayıt durumu yazılır.',
       fields:durumAlanlari },
-    { title:'Ekler',
+    { tab:'ekler', title:'Ekler',
       desc:'Teklif metni, kapsam dokümanı ve müşteriye gönderilen yazışma ekleri.',
       fields:[
         { key:'belgeler', label:'Teklif ekleri', type:'file', multiple:true, cols:12,
@@ -518,8 +526,84 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* =================================================================
+     SEKMELER — altı bölüm beş şeride bölünür (P2-01).
+       kimlik → “Teklif kimliği ve müşteri” + “Tarih ve geçerlilik”:
+                zorunlu alanların en büyük payı (firma · hazırlayan ·
+                versiyon · teklif tarihi · geçerlilik) burada durur,
+                normal akış ilk şeritte biter.
+       fiyat  → yalnız finans yetkisi olan rolde. Yetkisiz rolde
+                “Fiyatlandırma” bölümü forma hiç konmadığı için ŞERİDİ DE
+                eklenmez; boş panel basmak ölü kontrol bırakmaktır.
+       ticari · durum · ekler → kendi bölümleri.
+     `tab`sız bölüm bırakılmadı. Kalem tablosu ve tutar zinciri GV.form
+     alanı değildir; kendi kartlarında, formun altında durmaya devam eder.
+     ================================================================= */
+  var tabs = [{ key:'kimlik', label:'Kimlik ve tarih', icon:'i-building' }];
+  if(canFinans) tabs.push({ key:'fiyat', label:'Fiyatlandırma', icon:'i-wallet' });
+  tabs.push(
+    { key:'ticari', label:'Ticari koşullar',   icon:'i-clipboard-check' },
+    { key:'durum',  label:'Durum ve onaylar',  icon:'i-check-circle' },
+    { key:'ekler',  label:'Ekler',             icon:'i-paperclip' }
+  );
+
   var form = GV.form({
-    mount:'#formMount', id:'teklif', record:formRec, sections:sections
+    mount:'#formMount', id:'teklif', record:formRec, tabs:tabs,
+
+    /* Sağ bağlam paneli — şeritler alanları böldüğü için “bu teklif kime
+       veriliyor”, “karar süresi ne kadar” ve “durum/onay ekseni nerede”
+       soruları artık aynı anda görünmüyor; panel üçünü her sekmede yanda
+       tutar. Hepsi girilen değerlerden TÜREYEN özetlerdir.
+
+       PARA ZİNCİRİ BURAYA KONMADI — bilinçli: `araToplam` kalem listesi
+       değiştiğinde `araToplamSenkron()` tarafından doğrudan yazılıyor ve o
+       yol bir `input` olayı doğurmuyor, yani panel kalem eklendikten sonra
+       bayat kalırdı. Tutarların canlı yeri “Tutar Zinciri” kartıdır; o kart
+       kalem değişiminde `ozetCiz()` ile elle tazeleniyor.
+
+       Her tuş vuruşunda çağrılır: dinleyici bağlanmaz, arama tekil bağ
+       arayan üç yardımcıyla sınırlıdır. */
+    aside:function(v){
+      var m = musteriBul(v.musteri), l = leadBul(v.lead), a = analizBul(v.analiz);
+      var out = '';
+
+      out += GV.notice({
+        tone:(m || l) ? 'neutral' : 'warn', icon:'i-building',
+        title: m ? m.unvan : (l ? l.firma : 'Teklif henüz bir kayda bağlanmadı'),
+        text:(m ? 'Müşteri kartı ' + m.kod + ' · ' + m.durum + (m.aktif ? '' : ' (pasif)')
+                : 'Müşteri kartı seçilmedi') +
+             (l ? ' · fırsat ' + l.kod + ' · ' + l.asama : ' · satış fırsatı seçilmedi') +
+             (a ? ' · ön analiz ' + a.kod + ' · ' + a.hizmet : ' · ön analiz bağı yok') +
+             ' · teklif v' + (v.versiyon || '—') +
+             ((!m && !l) ? '. Teklif ya bir müşteri kartına ya da bir satış fırsatına bağlanmalıdır.' : '.') });
+
+      var gun = gunFarki(v.tarih, v.gecerlilik);
+      out += GV.notice({
+        tone:(gun != null && gun > 0) ? 'info' : 'warn', icon:'i-calendar',
+        title:'Karar süresi' + ((gun != null && gun > 0) ? ' · ' + gun + ' gün' : ''),
+        text:(v.tarih ? 'Teklif tarihi ' + F.date(v.tarih) : 'Teklif tarihi girilmedi') +
+             (v.gecerlilik ? ' · geçerlilik ' + F.date(v.gecerlilik) : ' · geçerlilik tarihi girilmedi') +
+             (gun == null
+               ? '. İki tarih de girilince müşteriye tanınan karar süresi hesaplanır.'
+               : gun <= 0
+                 ? '. Geçerlilik tarihi teklif tarihinden sonra olmalıdır.'
+                 : gun === 30
+                   ? '. Veri kümesindeki sekiz teklifin sekizinde bu pencere 30 gündür.'
+                   : '. Veri kümesindeki sekiz teklifin sekizinde bu pencere 30 gün; bu teklifte ' +
+                     gun + ' gün.') });
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-check-circle',
+        title:'Durum ekseni · ' + (v.durum || '—'),
+        text:'Durum bu formdan yazılmaz, yalnız teklif kartındaki iş akışı eylemlerinden değişir. ' +
+             'Müşteri onayı: ' + ((v.musteriOnay && v.musteriOnay !== '—') ? v.musteriOnay : 'müşteriye iletilmedi') +
+             ' · hazırlayan ' + (v.hazirlayan ? DB.empName(v.hazirlayan) : 'seçilmedi') +
+             ' · kayıt ' + (v.aktif ? 'aktif' : 'pasif') + '.' });
+
+      return out;
+    },
+
+    sections:sections
   });
 
   /* =================================================================
@@ -1001,8 +1085,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-teklif.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: teklif kartı yayında
+       ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Teklif kalemleri bu kaydın alt satırlarıdır, kendi ekranı olan ayrı bir
+       kayıt değil; bu yüzden alt bağlantı verilmez. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-teklif-detay.html',
+      liste: 'app-teklif.html'
+    });
   }
 
   GV.pageHead({

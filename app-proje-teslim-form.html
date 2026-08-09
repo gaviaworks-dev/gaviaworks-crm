@@ -350,7 +350,7 @@ document.addEventListener('gv:ready', function(){
     /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
     var yeniNot = GV.notice({ tone:'info', title:'Yeni teslim kaydı oluşturuluyor',
       text:'Kaydettiğinizde sıradaki teslim numarası atanır, aktivite geçmişine “Teslim kaydı ' +
-           'oluşturuldu” satırı düşülür ve teslim listesine dönülür. Bu form fatura kesmez ve ' +
+           'oluşturuldu” satırı düşülür ve yeni açılan teslim kartına gidilir. Bu form fatura kesmez ve ' +
            'taksitin durumunu değiştirmez: teslim ↔ taksit bağı kurulur, faturalama kendi ' +
            'ekranından yürür.',
       actions:[{ label:'Teslim listesi', href:'app-proje-teslim.html' }] });
@@ -425,13 +425,28 @@ document.addEventListener('gv:ready', function(){
      Modül kapsamı checkbox grubudur; proje değişince alan kümesi de değişir,
      bu yüzden form seçenek yamalamakla değil, BAŞTAN kurulur.
      ================================================================= */
+  /* =================================================================
+     SEKMELER — altı bölüm dört şeride bölünür (şartname [3.1.4]).
+     Teslim durumu ile arşiv anahtarı AYNI şeritte durur: arşivlenen kayıt
+     kararı durumla birlikte okunur. Kapsam kendi şeridindedir çünkü alan
+     kümesi seçili projeye göre doğar ve proje değişince form baştan kurulur.
+     Altı zorunlu alanın dördü ilk şerittedir; normal akış orada biter.
+     Sekmesiz bölüm bırakılmadı — altı bölümün altısı da `tab` taşır.
+     ================================================================= */
+  var tabs = [
+    { key:'kunye',  label:'Künye ve sorumluluk', icon:'i-package' },
+    { key:'onay',   label:'Durum ve onay',       icon:'i-check-circle' },
+    { key:'kapsam', label:'Kapsam',              icon:'i-layers' },
+    { key:'baglar', label:'Bağlar',              icon:'i-link' }
+  ];
+
   function bolumler(pk){
     var mods = modulListe(pk);
     var taksitler = taksitSecenek(pk);
     var kosumlar = testSecenek(pk);
 
     return [
-      { title:'Teslim kimliği',
+      { tab:'kunye', title:'Teslim kimliği',
         desc:'Neyin teslim edildiği ve hangi projeye ait olduğu. Teslim numarası kaydederken ' +
              'sistem tarafından atanır, elle girilmez.',
         fields:[
@@ -460,7 +475,7 @@ document.addEventListener('gv:ready', function(){
             } }
         ]},
 
-      { title:'Durum ve müşteri onayı',
+      { tab:'onay', title:'Durum ve müşteri onayı',
         desc:'Teslim durumu işin kendi ekseni, müşteri onayı kabul ekseni — ikisi ayrı alandır. ' +
              'Müşteri onayı bir DURUM değeridir (' + ONAYLAR.join(' · ') + '); “—” yazılmaz.',
         fields:[
@@ -491,7 +506,7 @@ document.addEventListener('gv:ready', function(){
             } }
         ]},
 
-      { title:'Sorumluluk ve not',
+      { tab:'kunye', title:'Sorumluluk ve not',
         desc:'Teslimi yapan çalışan ve teslimle birlikte iletilen kısa not.',
         fields:[
           { key:'teslimEden', label:'Teslim eden', type:'select', options:KISILER, required:true, cols:6,
@@ -503,7 +518,7 @@ document.addEventListener('gv:ready', function(){
                  'bağlı kabul koşumunda tutulur.' }
         ]},
 
-      { title:'Kapsam — modüller',
+      { tab:'kapsam', title:'Kapsam — modüller',
         desc:pk
           ? (mods.length
               ? DB.projName(pk) + ' projesinin ' + mods.length + ' modülü var; teslimin kapsadıklarını ' +
@@ -518,7 +533,7 @@ document.addEventListener('gv:ready', function(){
             checkLabel:m.ad + ' · ' + m.kod + ' · ' + m.durum + ' · %' + m.ilerleme };
         })},
 
-      { title:'Bağlar',
+      { tab:'baglar', title:'Bağlar',
         desc:'Taksit ve kabul koşumu TEKİL bağdır ve veride yazılır; tarih yakınlığından ' +
              'türetilmez. Seçenekler yalnız aynı projenin kayıtlarıdır.',
         fields:[
@@ -554,7 +569,7 @@ document.addEventListener('gv:ready', function(){
             } }
         ]},
 
-      { title:'Kayıt durumu',
+      { tab:'onay', title:'Kayıt durumu',
         desc:'Liste bileşeni pasif kaydı arşiv sayar; arşivlenen teslim yalnız “Arşivlenenleri ' +
              'göster” açıkken listelenir.',
         fields:[
@@ -576,7 +591,87 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var form = null;
   function kurForm(rec){
-    form = GV.form({ mount:'#formMount', id:'teslim', record:rec, sections:bolumler(rec.proje || '') });
+    /* Kapsam şeridinin modül kümesi kurulum başına BİR kez okunur; sağ panel
+       onu kapanışından kullanır, her tuş vuruşunda koleksiyon taramaz. */
+    var mods = modulListe(rec.proje || '');
+
+    form = GV.form({
+      mount:'#formMount', id:'teslim', record:rec, tabs:tabs, sections:bolumler(rec.proje || ''),
+
+      /* Sağ bağlam paneli (şartname [3.1.15]) — girilen değerlerden TÜREYEN ve
+         kaydetmeden önce görülmesi gereken üç şey: teslimin künyesi ve
+         tarihinin veri eksenine göre nerede durduğu, durum ↔ müşteri onayı ↔
+         onay tarihi ekseninin çelişip çelişmediği, kapsamın ve tekil bağların
+         kayda ne yazacağı. Sekmeler bölümleri ayırdıktan sonra bu üç ölçüm
+         aynı anda görünmüyordu; panel onları tek yerde tutar.
+         Panel yalnız OKUR: teslim kabul/revizyon kararı burada değil, teslim
+         kartındaki akış eylemlerindedir. Her tuş vuruşunda çağrılır —
+         dinleyici bağlanmaz, tekil anahtar aramasından fazlası yapılmaz. */
+      aside:function(v){
+        var out = '';
+        var p = v.proje ? DB.proj(v.proje) : null;
+        var gun = v.tarih ? F.days(v.tarih) : null;
+        var edildi = KABUL.indexOf(v.durum) !== -1;
+        var geciken = !edildi && gun != null && gun < 0;
+
+        out += GV.notice({
+          tone:geciken ? 'warn' : 'neutral', icon:'i-package',
+          title:String(v.ad || '').trim() || (duzenle ? kayit.kod : 'Teslim adı girilmedi'),
+          text:(p ? p.ad + ' · ' + p.kod + (p.musteriAd ? ' · müşteri ' + p.musteriAd : '')
+                  : 'Proje seçilmedi') +
+               ' · teslim tarihi ' + (v.tarih ? F.date(v.tarih) : 'girilmedi') +
+               (gun == null ? '.'
+                 : edildi ? ' · teslim edilmiş sayılan bir durumda (' + v.durum + ').'
+                 : gun > 0 ? ' · ' + gun + ' gün sonrası için planlı.'
+                 : gun < 0 ? ' · tarih ' + (-gun) + ' gün geçti ve teslim hâlâ “' + (v.durum || '—') +
+                             '” durumunda; gecikme ayrı bir durum değil, bu tarihten türetilir.'
+                 : ' · bugün.') });
+
+        var onayli = v.musteriOnay === 'Onaylandı';
+        var onayGun = (v.onayTarihi && v.tarih) ? F.days(v.onayTarihi, v.tarih) : null;
+        var onayCelisik = (onayli && !v.onayTarihi) || (!onayli && !!v.onayTarihi);
+        out += GV.notice({
+          tone:onayCelisik ? 'warn' : (onayli ? 'ok' : 'info'), icon:'i-check-circle',
+          title:'Durum ' + (v.durum || '—') + ' · müşteri onayı ' + (v.musteriOnay || '—'),
+          text:(v.onayTarihi
+                  ? 'Onay tarihi ' + F.date(v.onayTarihi) +
+                    (onayGun == null ? '' : ' · teslimden ' + onayGun + ' gün sonra') + '. '
+                  : 'Onay tarihi girilmedi. ') +
+               (onayCelisik
+                  ? (onayli
+                      ? 'Onayı alınmış teslimde onay tarihi zorunludur.'
+                      : 'Onay tarihi yalnız müşteri onayı “Onaylandı” olan teslimde yazılır.')
+                  : (onayli && !edildi
+                      ? 'Müşteri onayı alınmış ama teslim durumu henüz kabul eksenine geçmemiş; durum bu ' +
+                        'formdan değil, teslim kartındaki akış eylemlerinden değişir.'
+                      : 'Teslim durumu iş akışı eylemlerinden, müşteri onayı bu alandan yürür; ikisi ayrı eksendir.')) +
+               (v.aktif ? '' : ' Kayıt arşive düşecek; yalnız “Arşivlenenleri göster” açıkken listelenir.') });
+
+        var secili = mods.filter(function(m){ return v[modKey(m.kod)] === true; });
+        var t = v.milestone ? ms(v.milestone) : null;
+        var k = v.test ? tst(v.test) : null;
+        out += GV.notice({
+          tone:'info', icon:'i-layers',
+          title:!v.proje ? 'Kapsam · proje seçilmedi'
+                         : (mods.length ? 'Kapsam · ' + secili.length + ' / ' + mods.length + ' modül'
+                                        : 'Kapsam · proje ekseni'),
+          text:(!v.proje
+                  ? 'Modül kapsamı seçili projenin modüllerinden işaretlenir; önce proje seçin. '
+                  : mods.length
+                    ? (secili.length
+                        ? 'Kayda yazılacak modüller: ' + secili.map(function(m){ return m.ad; }).join(', ') + '. '
+                        : 'Hiç modül işaretlenmedi; kapsam proje ekseninde okunur — bu geçerli bir durumdur. ')
+                    : 'Seçili projenin veride modül kırılımı yok; kapsam proje ekseninde okunur. ') +
+               (t
+                  ? 'Taksit bağı ' + t.kod + ' · ' + t.taksit + '. taksit' +
+                    (canFinans ? ' · ' + F.money(t.odeme) + ' (KDV hariç)' : '') + '. '
+                  : 'Taksit bağı yok — bu teslim bir ödeme adımına bağlanmıyor. ') +
+               (k ? 'Kabul koşumu ' + k.kod + ' · ' + k.durum + '.'
+                  : 'Kabul koşumu seçilmedi.') });
+
+        return out;
+      }
+    });
     /* DURUM SALT OKUNUR — değeri okunur, kullanıcı değiştiremez. `read()` pasif
        alanın değerini de okuduğu için kaydederken durum kaybolmaz; yalnız
        ekrandan yazma yolu kapanır (tek yazma yolu `GV.flow.gec`).
@@ -731,8 +826,22 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-proje-teslim.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: teslim kartı yayında
+       ve yetki varsa detaya, yoksa listeye (şartname [3.1.16]). Bu ekran
+       `musteri` rolüne kapalıdır; kapıyı da `GV.afterSave` yoklar.
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form teslim kaydından başka KAYIT üretmez: fatura kesilmez, taksitin
+       durumu değişmez, bağ hedeflerine yalnız aktivite satırı düşer — o yüzden
+       alt bağlantı verilmez. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-proje-teslim-detay.html',
+      liste: 'app-proje-teslim.html'
+    });
   }
 
   GV.pageHead({

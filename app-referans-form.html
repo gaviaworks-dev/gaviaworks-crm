@@ -320,6 +320,7 @@ document.addEventListener('gv:ready', function(){
   }
 
   var komisyonBolumu = {
+    tab:'komisyon',
     title:'Komisyon ve kazanç',
     desc:'Komisyon modeli bu kartta tanımlanır; tutarlar komisyon kayıtlarından gelir ve onlarla ' +
          'uyuşmak zorundadır. Tüm tutarlar KDV hariçtir.',
@@ -368,7 +369,7 @@ document.addEventListener('gv:ready', function(){
   };
 
   var sections = [
-    { title:'Kimlik ve referans türü',
+    { tab:'kimlik', title:'Kimlik ve referans türü',
       desc:'Yönlendirenin adı ve hangi referans kanalına ait olduğu. Referans türü ' +
            DB.refTypes.length + ' değerlik sözlükten seçilir; serbest metin girilmez.',
       fields:[
@@ -387,7 +388,7 @@ document.addEventListener('gv:ready', function(){
         { key:'pozisyon', label:'Pozisyon', type:'text', cols:6, placeholder:'Örn. Bilgi İşlem Müdürü' }
       ]},
 
-    { title:'İletişim ve şirket içi sahiplik',
+    { tab:'kimlik', title:'İletişim ve şirket içi sahiplik',
       desc:'Yönlendirenle teması yürüten kişi ve iletişim bilgileri.',
       fields:[
         { key:'tel', label:'Telefon', type:'tel', cols:4, placeholder:'+90 5xx xxx xx xx' },
@@ -396,7 +397,7 @@ document.addEventListener('gv:ready', function(){
           hint:'Bu kaynakla ilişkiyi yürüten çalışan.' }
       ]},
 
-    { title:'Yönlendirme performansı',
+    { tab:'performans', title:'Yönlendirme performansı',
       desc:'Kaynağın ömür boyu sayaçları. Dönüşüm oranı bu sayaçlardan hesaplanır.',
       fields:performansAlanlari }
   ];
@@ -404,7 +405,7 @@ document.addEventListener('gv:ready', function(){
   if(canFinans) sections.push(komisyonBolumu);
 
   sections.push(
-    { title:'Görüşme notları ve belgeler',
+    { tab:'kayit', title:'Görüşme notları ve belgeler',
       desc:'Kaynakla yapılan görüşmelerin özeti ve varsa sözleşme, protokol gibi belgeler.',
       fields:[
         { key:'not', label:'Görüşme notları', type:'textarea', rows:4, cols:12,
@@ -414,7 +415,7 @@ document.addEventListener('gv:ready', function(){
                'yazılmaz — belgeler Doküman Yönetimi ekranında tutulur.' }
       ]},
 
-    { title:'Kayıt durumu',
+    { tab:'kayit', title:'Kayıt durumu',
       desc:'Kaynağın aktif kullanımda olup olmadığı. Liste sekmeleri bu iki alanı okur.',
       fields:[
         { key:'durum', label:'Kaynak durumu', type:'select', options:DURUMLAR, required:true, cols:6,
@@ -432,8 +433,87 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* =================================================================
+     SEKMELER — altı bölüm dört şeride bölünür. Kimlik ile iletişim aynı
+     şeritte durur: ikisi birlikte zorunlu alanların en büyük payını
+     (ad · tür · sorumlu) taşır ve normal akış orada başlar. Notlar ile
+     kayıt durumu da tek şeride girer; ikisi de kendi başına iki alanlık
+     panel açacak kadar küçüktür.
+     Komisyon şeridi YETKİYE BAĞLIDIR: finans yetkisi olmayan rolde
+     komisyon bölümü forma hiç konmaz, o yüzden sekmesi de kurulmaz —
+     boş panel basılmaz (üç sekme kalır). Sekmesiz bölüm bırakılmadı.
+     ================================================================= */
+  var tabs = [
+    { key:'kimlik',     label:'Kimlik ve iletişim',   icon:'i-user' },
+    { key:'performans', label:'Yönlendirme performansı', icon:'i-chart-bar' }
+  ];
+  if(canFinans) tabs.push({ key:'komisyon', label:'Komisyon ve kazanç', icon:'i-percent' });
+  tabs.push({ key:'kayit', label:'Notlar ve durum', icon:'i-clipboard' });
+
   var form = GV.form({
-    mount:'#formMount', id:'referans', record:formRec, sections:sections
+    mount:'#formMount', id:'referans', record:formRec, tabs:tabs, sections:sections,
+
+    /* Sağ bağlam paneli — girilen değerlerden TÜREYEN, kaydetmeden önce
+       görülmesi gereken özet: kaydın künyesi, sayaçlardan hesaplanan
+       dönüşüm oranı, komisyon modelinin kendi tutarıyla tutarlılığı ve
+       durum/kayıt anahtarlarının çelişip çelişmediği.
+       Komisyon kayıtlarından gelen üç eksen (toplam · ödenen · bekleyen)
+       bu formun YAZDIĞI değer değil, doğrulama kaynağıdır (ders L-08);
+       burada yalnız formdaki değerle karşılaştırılır, yeniden hesaplanmaz.
+       Her tuş vuruşunda çağrılır: dinleyici bağlanmaz, DB taraması
+       yapılmaz — bağlı komisyon toplamları yukarıda bir kez hesaplandı. */
+    aside:function(v){
+      var out = '';
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-user',
+        title:v.ad || (duzenle ? kayit.ad : 'Yeni yönlendiren kaydı'),
+        text:(v.tur || 'Referans türü seçilmedi') +
+             (v.firma ? ' · ' + v.firma : '') +
+             (v.pozisyon ? ' · ' + v.pozisyon : '') +
+             ' · sorumlu ' + (v.sorumlu ? DB.empName(v.sorumlu) : 'seçilmedi') + '.' });
+
+      var y = sayi(v.yonlendirme), k = sayi(v.kazanilan), kb = sayi(v.kaybedilen);
+      var kalan = y - k - kb;
+      out += GV.notice({
+        tone:kalan < 0 ? 'warn' : 'info', icon:'i-chart-bar',
+        title:'Dönüşüm oranı · %' + donusumHesapla(y, k),
+        text:y + ' yönlendirmenin ' + k + ' tanesi kazanıldı, ' + kb + ' tanesi kaybedildi. ' +
+             (kalan < 0
+               ? 'Kazanılan ve kaybedilen toplamı yönlendirme sayısını aşıyor; kaydetmeye izin verilmez.'
+               : kalan + ' yönlendirme henüz sonuçlanmamış sayılır. Dönüşüm oranı bu iki sayaçtan hesaplanır, elle yazılmaz.') });
+
+      if(canFinans){
+        var mdl = v.komisyonModeli || 'Yok';
+        var mdlMetin = mdl === 'Ciro yüzdesi' ? 'ciro üzerinden %' + sayi(v.komisyonOrani)
+                     : mdl === 'Sabit bedel'  ? 'yönlendirme başına ' + F.money(sayi(v.sabitBedel))
+                     : 'komisyon ödenmiyor';
+        var tutar = sayi(v.komisyonToplam), odn = sayi(v.odenen), bkl = sayi(v.bekleyen);
+        var uyum = tutar === komKazanc && odn === komOdenen && bkl === komBekleyen && tutar === odn + bkl;
+        out += GV.notice({
+          tone:uyum ? 'ok' : 'warn', icon:'i-percent',
+          title:'Komisyon modeli · ' + mdl,
+          text:'Bu kaynakta ' + mdlMetin + '. Formdaki kazanç ' + F.money(tutar) + ' (' +
+               F.money(odn) + ' ödenen · ' + F.money(bkl) + ' bekleyen). ' +
+               (uyum
+                 ? bagliKom.length + ' komisyon kaydıyla uyuşuyor.'
+                 : 'Komisyon kayıtlarının toplamı ' + F.money(komKazanc) + ' (' + F.money(komOdenen) +
+                   ' ödenen · ' + F.money(komBekleyen) + ' bekleyen) — uyuşmayan alan kaydetmeyi engeller.') });
+      }
+
+      var dur = v.durum || '', akt = !!v.aktif;
+      var cakisma = (akt && dur === 'Pasif') || (!akt && dur === 'Aktif');
+      out += GV.notice({
+        tone:cakisma ? 'warn' : 'ok', icon:'i-shield',
+        title:'Durum ekseni' + (dur ? ' · ' + dur : ''),
+        text:(dur ? '' : 'Kaynak durumu henüz seçilmedi. ') +
+             'Kayıt ' + (akt ? 'aktif' : 'pasif') + '. ' +
+             (cakisma
+               ? 'Durum ile kayıt anahtarı çelişiyor: “Pasif” kaynak aktif, “Aktif” kaynak pasif işaretlenemez.'
+               : 'Liste sekmeleri bu iki ekseni okur; şu an çelişki yok.') });
+
+      return out;
+    }
   });
 
   /* Dönüşüm oranı iki sayaçtan türer; kullanıcı sayaçları değiştirdikçe alan
@@ -558,8 +638,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-referans.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: yönlendiren kartı
+       yayında ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form yönlendiren kaydından başka kayıt üretmiyor; komisyon kayıtları
+       Komisyon Kazançları ekranından açılır, bu yüzden alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-referans-detay.html',
+      liste: 'app-referans.html'
+    });
   }
 
   GV.pageHead({

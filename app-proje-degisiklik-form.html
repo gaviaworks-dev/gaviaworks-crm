@@ -380,7 +380,7 @@ document.addEventListener('gv:ready', function(){
     /* ---- Yeni kayıt: ne olacağı + adres parametresinin sonucu ---- */
     var yeniNot = GV.notice({ tone:'info', title:'Yeni değişiklik talebi oluşturuluyor',
       text:'Kaydettiğinizde sıradaki talep numarası atanır, aktivite geçmişine “Değişiklik talebi ' +
-           'oluşturuldu” satırı düşülür ve talep listesine dönülür. Form onay kuyruğunda adım ' +
+           'oluşturuldu” satırı düşülür ve yeni açılan talep kartına gidilir. Form onay kuyruğunda adım ' +
            'AÇMAZ ve onay zinciri kurmaz: onaylayan ile onay tarihi onay kaydının ' +
            'alanlarıdır, değişiklik talebi kaydında karşılıkları yoktur. Form görev de üretmez.',
       actions:[{ label:'Değişiklik talepleri', href:'app-proje-degisiklik.html' }] });
@@ -443,7 +443,7 @@ document.addEventListener('gv:ready', function(){
   }
 
   var sections = [
-    { title:'Talep kimliği',
+    { tab:'kimlik', title:'Talep kimliği',
       desc:'Talebin başlığı, hangi projeye ait olduğu ve kimin ilettiği. Talep numarası ' +
            'kaydederken sistem tarafından atanır, elle girilmez.',
       fields:[
@@ -477,7 +477,7 @@ document.addEventListener('gv:ready', function(){
                        : 'Oturumdaki kullanıcı seçili geldi; değiştirebilirsiniz.' }
       ]},
 
-    { title:'Kapsam ve karar',
+    { tab:'karar', title:'Kapsam ve karar',
       desc:'Kapsam değerlendirmesi talebin ek bedel doğurup doğurmayacağını belirler; karar alanı ' +
            'ise verilen kararın gerekçesidir. Ölçüm: ' + toplamTalep + ' talebin ' + kapsamDisi +
            ' tanesi kapsam dışı.',
@@ -514,7 +514,7 @@ document.addEventListener('gv:ready', function(){
           } }
       ]},
 
-    { title:'Etki',
+    { tab:'etki', title:'Etki',
       desc:'Süre etkisi SAAT eksenindedir (gün karşılığı 8 sa/gün dönüşümüyle türetilir). Maliyet ' +
            'etkisi müşteriye yansıyacak NET bedeldir ve sözleşme netiyle aynı eksende yazılır; ' +
            'projenin iç bütçesiyle aynı satırda toplanmaz.',
@@ -542,7 +542,7 @@ document.addEventListener('gv:ready', function(){
              } }]
         : []) },
 
-    { title:'Bağ',
+    { tab:'bag', title:'Bağ',
       desc:'Talebi doğuran destek talebi (DST-*) veride yazılı tekil bağdır; tarih ya da metin ' +
            'yakınlığından türetilmez. Bağ değişiklik talebinin üstünde tutulur, destek talebinde ' +
            'ayna alan açılmaz.',
@@ -563,7 +563,7 @@ document.addEventListener('gv:ready', function(){
           } }
       ]},
 
-    { title:'Kayıt durumu',
+    { tab:'bag', title:'Kayıt durumu',
       desc:'Liste bileşeni pasif kaydı arşiv sayar; arşivlenen talep yalnız “Arşivlenenleri göster” ' +
            'açıkken listelenir.',
       fields:[
@@ -584,8 +584,94 @@ document.addEventListener('gv:ready', function(){
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){
     if(f.required || f.key === 'kapsamIci') zorunlu.push(f.label); }); });
 
+  /* =================================================================
+     SEKMELER — beş bölüm dört şeride bölünür. “Bağ” ile “Kayıt durumu”
+     bölümlerinin ikisi de tek alanlıdır; kendi başlarına panel açacak kadar
+     büyük değiller, aynı şeritte dururlar. Zorunlu alanların beşi (başlık ·
+     proje · tarih · taraf · sorumlu) ilk şerittedir, normal akış orada başlar.
+     Sekmesiz bölüm bırakılmadı.
+     ================================================================= */
+  var TABS = [
+    { key:'kimlik', label:'Talep kimliği',       icon:'i-clipboard' },
+    { key:'karar',  label:'Kapsam ve karar',     icon:'i-stamp' },
+    { key:'etki',   label:'Etki',                icon:'i-chart-bar' },
+    { key:'bag',    label:'Bağ ve kayıt durumu', icon:'i-link' }
+  ];
+
+  /* Proje ve sözleşme aramaları tuş başına tekrarlanmasın diye proje kodu
+     ekseninde önbelleğe alınır — sağ panel her `input` olayında yeniden çizilir. */
+  var prjKes = {}, sozKes = {};
+  function prjBul(k){ if(!(k in prjKes)) prjKes[k] = k ? DB.proj(k) : null; return prjKes[k]; }
+  function sozBul(k){ if(!(k in sozKes)) sozKes[k] = sozlesmeOf(k); return sozKes[k]; }
+
+  /* =================================================================
+     SAĞ BAĞLAM PANELİ — girilen değerlerden TÜREYEN, kaydetmeden önce
+     görülmesi gereken özet: etki düzeyi (kayıtta `etki` alanı YOKTUR, süre ve
+     bedel sapmasından hesaplanır), süre etkisinin adam-gün karşılığı ve maliyet
+     etkisinin sözleşme netine oranı. Finans yetkisi yoksa bedel ekseni hiç
+     hesaplanmaz — maskeli tutar oran üzerinden sızmasın (kayıt özeti kartındaki
+     kuralın aynısı). Panel kayda hiçbir şey yazmaz.
+     ================================================================= */
+  function yanOzet(v){
+    var pKod  = v.proje || '';
+    var p     = prjBul(pKod), soz = sozBul(pKod);
+    var sure  = Number(v.etkiSure || 0);
+    if(!isFinite(sure) || sure < 0) sure = 0;
+    var bedel = canFinans ? Number(v.etkiMaliyet || 0) : 0;
+    if(!isFinite(bedel) || bedel < 0) bedel = 0;
+
+    var sozNet     = soz ? soz.tutar : (p ? p.sozlesmeTutari : null);
+    var sureSapma  = (p && p.tahminiSure) ? sure / p.tahminiSure * 100 : null;
+    var bedelSapma = (canFinans && sozNet) ? bedel / sozNet * 100 : null;
+    var sapma      = Math.max(sureSapma || 0, bedelSapma || 0);
+    var duzey = sapma >= 20 ? DB.impacts[0] : sapma >= 10 ? DB.impacts[1]
+              : sapma >= 3 ? DB.impacts[2] : DB.impacts[3];
+
+    var out = GV.notice({
+      tone:sapma >= 20 ? 'danger' : sapma >= 10 ? 'warn' : sapma >= 3 ? 'info' : 'neutral',
+      icon:'i-chart-bar',
+      title:'Hesaplanan etki düzeyi · ' + duzey,
+      text:(p ? p.ad + ' · ' : pKod ? pKod + ' · ' : 'Proje seçilmedi · ') +
+           (sureSapma == null
+             ? 'projenin tahmini süresi yazılı olmadığı için süre sapması hesaplanamıyor'
+             : 'süre sapması %' + F.num(sureSapma, 1)) + ' · ' +
+           (!canFinans
+             ? 'bedel sapması finans yetkisi ister'
+             : bedelSapma == null
+               ? 'karşılaştırılacak sözleşme neti yok, bedel sapması hesaplanamıyor'
+               : 'bedel sapması %' + F.num(bedelSapma, 1)) +
+           '. Düzey kayda YAZILMAZ; iki sapmanın büyüğünden türetilir.' });
+
+    out += GV.notice({
+      tone:'neutral', icon:'i-timer',
+      title:'Süre etkisi · ' + F.hours(sure),
+      text:'≈ ' + F.num(sure / 8, 1) + ' adam-gün (8 sa/gün ile türetildi). ' +
+           (p && p.tahminiSure
+             ? 'Projenin tahmini süresi ' + F.hours(p.tahminiSure) + '.'
+             : 'Projenin tahmini süresi yazılı değil; orana çevrilemiyor.') });
+
+    if(canFinans){
+      var ici = v.kapsamIci === KAPSAM_ICI;
+      out += GV.notice({
+        tone:(bedel > 0 && ici) ? 'warn' : bedel > 0 ? 'info' : 'neutral',
+        icon:'i-wallet',
+        title:'Maliyet etkisi · ' + F.money(bedel) + ' (KDV hariç · net)',
+        text:(sozNet
+               ? 'Sözleşme neti ' + F.money(sozNet) + (soz ? ' · ' + soz.kod : ' · proje kartından') + '. '
+               : 'Projenin aktif sözleşmesi yok; bedel bir sözleşme netiyle karşılaştırılamıyor. ') +
+             (bedel > 0
+               ? (ici
+                   ? 'Kapsam içi işaretli talep ek bedel doğurmaz — kapsam değerlendirmesi “Kapsam dışı” olmalıdır.'
+                   : 'Bedele yansıma zeyilname ile yürür; sözleşme kaydı bu formdan güncellenmez.')
+               : 'Maliyet etkisi yok olarak kaydedilecek.') });
+    }
+
+    return out;
+  }
+
   var form = GV.form({
-    mount:'#formMount', id:'degisiklik', record:formRec, sections:sections
+    mount:'#formMount', id:'degisiklik', record:formRec, tabs:TABS,
+    aside:yanOzet, sections:sections
   });
 
   /* DURUM ALANI SALT OKUNUR. Bileşende `readonly` alan tipi yok; alan
@@ -737,8 +823,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-proje-degisiklik.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden yükleme
+       mutasyonu siler. Hedefi GV.afterSave seçer: talep kartı yayında ve yetki
+       varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu yüzden
+       düzenleme yolunda değişken vardır ama değeri yoktur) — düzenlemede kaydın
+       kendi numarası kullanılır.
+       Form onay adımı, görev ya da başka bir KAYIT üretmiyor; destek talebine
+       düşen satır aktivite kaydıdır, ayrı kayıt değildir — alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-proje-degisiklik-detay.html',
+      liste: 'app-proje-degisiklik.html'
+    });
   }
 
   GV.pageHead({

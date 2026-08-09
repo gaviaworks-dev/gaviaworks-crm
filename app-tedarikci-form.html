@@ -347,7 +347,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var sections = [];
 
-  sections.push({ title:'Tedarikçi kimliği',
+  sections.push({ tab:'kimlik', title:'Tedarikçi kimliği',
     desc:'Firmanın resmi ünvanı, çalıştığı kategori ve vergi kimliği. Tedarikçi kodu kaydederken ' +
          'sistem tarafından atanır, elle girilmez.',
     fields:[
@@ -385,7 +385,7 @@ document.addEventListener('gv:ready', function(){
         hint:'Listede ünvanın altında görünen kısa adres; yurt dışı tedarikçide ülke adı yazılır.' }
     ]});
 
-  sections.push({ title:'İletişim',
+  sections.push({ tab:'kimlik', title:'İletişim',
     desc:'Sipariş ve teklif yazışmalarının yürütüldüğü kanal. Kurumsal (self-servis) tedarikçilerde ' +
          'kişi bazlı yetkili ve telefon bulunmayabilir; e-posta her kayıtta zorunludur.',
     fields:[
@@ -412,7 +412,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Ticari koşullar',
+  sections.push({ tab:'ticari', title:'Ticari koşullar',
     desc:'Siparişlerin hangi ödeme vadesiyle verildiği ve tedarikçiyle ömür boyu kaç sipariş ' +
          'yürütüldüğü. Sipariş tutarları bu formda yazılmaz; sipariş kayıtlarından okunur.',
     fields:[
@@ -437,7 +437,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Değerlendirme',
+  sections.push({ tab:'puan', title:'Değerlendirme',
     desc:'Tedarikçi genel puanı tüm sipariş geçmişinin karnesidir: teslim zamanlaması, kalite, satış ' +
          'sonrası destek ve ödeme uyumu. Tek bir teklife verilen teklif puanı BAŞKA bir eksendir ve ' +
          'bu formda yer almaz.',
@@ -455,7 +455,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Durum',
+  sections.push({ tab:'durum', title:'Durum',
     desc:'Tedarikçi durumu çalışma ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
     fields:[
       { key:'durum', label:'Tedarikçi durumu', type:'select', options:DURUMLAR, required:true, cols:6,
@@ -476,8 +476,65 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* =================================================================
+     SEKMELER — beş bölüm dört şeride bölünür. Kimlik ile iletişim aynı
+     şeritte durur: zorunlu alanların yarısı (ünvan · kategori · e-posta)
+     oradadır, normal akış ilk şeritte başlar. Ticari koşul, değerlendirme
+     ve durum kendi şeritlerinde kalır; üçü de birbirinden ayrı eksen
+     (vade/sayaç · puan · arşiv) ve tek panelde karışırlar.
+     Yetkiye bağlı gizlenen bölüm yok: finans kısıtı alan değil, aşağıdaki
+     iş hacmi KARTINI etkiler; o kart formun dışındadır, bu yüzden hiçbir
+     sekme yetkiye bağlı düşmez. Sekmesiz bölüm bırakılmadı.
+     ================================================================= */
+  var tabs = [
+    { key:'kimlik', label:'Kimlik ve iletişim', icon:'i-building' },
+    { key:'ticari', label:'Ticari koşullar',    icon:'i-receipt' },
+    { key:'puan',   label:'Değerlendirme',      icon:'i-award' },
+    { key:'durum',  label:'Durum',              icon:'i-shield' }
+  ];
+
   var form = GV.form({
-    mount:'#formMount', id:'tedarikci', record:formRec, sections:sections
+    mount:'#formMount', id:'tedarikci', record:formRec, tabs:tabs, sections:sections,
+
+    /* Sağ bağlam paneli — sayfanın KENDİ canlı özet kartlarıyla (Puan
+       Eksenleri · Ömür Boyu İş Hacmi) çakışmaz: o iki kart puan bandını ve
+       sipariş kayıtlarından hesaplanan hacmi anlatır, bu panel ise sekmeye
+       bakmadan kaydın künyesini ve durum/arşiv ekseninin sonucunu gösterir —
+       ikisi de artık gizli bir sekmede kalabilecek alanlardır. Tutar ve puan
+       satırları burada TEKRARLANMAZ.
+       Her tuş vuruşunda çağrılır: dinleyici bağlanmaz, DB taraması yapılmaz —
+       sipariş/teklif sayıları yukarıda bir kez hesaplandı. */
+    aside:function(v){
+      var vno  = String(v.vergiNo || '').trim();
+      var ytk  = String(v.yetkili || '').trim();
+      var out  = GV.notice({
+        tone:'neutral', icon:'i-building',
+        title:v.unvan || (duzenle ? kayit.unvan : 'Yeni tedarikçi kaydı'),
+        text:(v.kategori || 'Kategori seçilmedi') + ' · ' +
+             (v.odemeVadesi ? 'vade ' + v.odemeVadesi : 'ödeme vadesi seçilmedi') + ' · ' +
+             (vno ? 'vergi no ' + vno : 'vergi numarası yok — yurt dışı tedarikçi sayılır') + ' · ' +
+             (ytk ? 'yetkili ' + ytk : 'kişi bazlı yetkili yok — kurumsal hesap') + ' · ' +
+             (String(v.eposta || '').trim() || 'e-posta girilmedi') + '.' });
+
+      var dur = v.durum || '', akt = !!v.aktif;
+      var kapaniyor = dur === 'Pasif' || !akt;
+      var cakisma = !akt && dur === 'Aktif';
+      out += GV.notice({
+        tone:cakisma ? 'warn' : kapaniyor ? 'info' : 'ok',
+        icon:'i-shield',
+        title:'Durum ekseni' + (dur ? ' · ' + dur : '') + (akt ? '' : ' · arşiv'),
+        text:(dur ? '' : 'Tedarikçi durumu henüz seçilmedi. ') +
+             (cakisma
+               ? 'Aktif tedarikçi arşivlenemez; önce tedarikçi durumunu “Pasif” yapın.'
+               : kapaniyor
+                 ? 'Tedarikçi yeni teklif ve sipariş seçimlerinde listelenmeyecek' +
+                   (duzenle && acikSiparis.length
+                     ? '; ' + acikSiparis.length + ' açık siparişin teslim takibi yine de sürer.'
+                     : '; geçmiş sipariş ve teklif kayıtları silinmez.')
+                 : 'Tedarikçi teklif ve sipariş seçimlerinde listelenir, listelerin “Aktif” sekmesinde durur.') });
+
+      return out;
+    }
   });
 
   /* =================================================================
@@ -754,8 +811,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-tedarikci.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: tedarikçi kartı
+       yayında ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form tedarikçi kaydından başka kayıt üretmez: sipariş ve teklif
+       kayıtları kendi ekranlarında doğar, bu yüzden alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-tedarikci-detay.html',
+      liste: 'app-tedarikci.html'
+    });
   }
 
   function kaydet(){
