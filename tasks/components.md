@@ -628,3 +628,134 @@ Bağın **ekranda göründüğü** ayrı bir sorudur ve `tasks/qa/bag.js` ile ö
 sprint/modül/koşum **aynı projede** mi · bir koşuma bağlı hata sayısı `basarisiz`i aşıyor mu ·
 bir siparişin demirbaş grubunun Σ `alisFiyati`'ı siparişin **netine** eşit mi ·
 `DB.tasks[].hata` ayna alanı doğmuş mu.
+
+---
+
+# CLOUD TURU — MOTOR SÖZLEŞMELERİ
+
+Bu bölüm şartname (`tasks/cloud-talimati.md`) uyarınca kurulan ortak
+motorların **bağlayıcı sözleşmesidir**. Ekran bu yordamları çağırır;
+kendi mutasyonunu yazmaz.
+
+## ⚠️ DURUŞ DEĞİŞTİ — kapılar artık engelliyor
+
+Önceki turlarda kod bilinçli olarak **"uyar ama engelleme"** felsefesiyle
+yazılmıştı ve `domain.js` bunu yazılı bir karar olarak savunuyordu:
+
+> *"Kapanış ENGELLENMEZ… Doküman 'kullanıcıya sade bir checklist göster'
+> diyor, 'kapanışı kilitle' demiyor."*
+
+Cloud şartnamesi bunun tersini emrediyor ([20.2.7] · [20.2.5] · [8.1.6] ·
+[11.1.4] · [9.5.5]) ve Faz 0 ölçümü duruşun tek madde değil **sistemik**
+olduğunu gösterdi. Beş kapı kapatıldı:
+
+| Kapı | Eskiden | Şimdi |
+|---|---|---|
+| Proje kapanışı | gerekçeyle geçiliyordu | **reddediyor** (ADR-04) |
+| Teslim onayı | `GV.notice` basıp geçiyordu | **reddediyor** (ADR-05) |
+| Sözleşme aktivasyonu | serbest seçiliyordu | imza + plan dengesi şart |
+| İzin bakiyesi | aşan gün sessizce yutuluyordu | **reddediyor** (ADR-06) |
+| Bakım kotası | hiç düşmüyordu | düşüyor, aşım onaya bağlı (ADR-10) |
+
+**İstisna yolu tektir:** `sahip` / `genelmudur` rolü + neden kodu + açıklama.
+İstisna aktiviteye `YÖNETİCİ İSTİSNASI` önekiyle yazılır. Yeni ekran yazarken
+bu dil sürdürülür; "uyarı basıp geçme" deseni artık kullanılmaz.
+
+## GV.flow — durum geçişi
+
+```js
+GV.flow.gec(tur, kod, hedef, ek, opts)   // TEK mutasyon noktası
+GV.flow.adimlar(tur, kod)                // yapılabilir geçişler → buton
+GV.flow.kural(tur, durum) · kayit(tur, kod) · denetle(tur)
+```
+`tur` ∈ `DB.flowEntities` anahtarları (14 varlık).
+`opts = { not, neden, istisna }`. Sonuç:
+`{ok:true, kayit, eski, yeni, istisna}` ya da
+`{ok:false, why:'yetki'|'zorunlu'|'gerekce'|'kapi', mesaj, istisnaMumkun, roller, eksik}`.
+Kullanıcı mesajı için **`GV.flowHata(r)`** çağrılır — çeviri tek yerdedir.
+
+Sözleşme `DB.transitions[tur][durum]` içinde yaşar:
+`next · yetki · zorunlu · gerekce · girisGerekce · kapi · istisnaRol ·
+anaHedef · etiket · tone · terminal`.
+`gerekce` = **bu durumdan çıkmak** gerekçe ister;
+`girisGerekce` = **bu duruma girmek** gerekçe ister. İkisi ayrıdır.
+
+## GV.approval — onay
+
+```js
+GV.approval.karar(onayKod, 'Onaylandı'|'Reddedildi'|'İade', {neden, not})
+GV.approval.adim(tur, kayitKod)   // {adim, toplam, siradaki, sonuclandi}
+```
+Karar üç işi **tek işlemde** yapar: kuyruk kaydı + zincir adımı + kaynak
+kaydın geçişi. Kaynak geçemezse onay da geri alınır — yarım sonuç bırakılmaz.
+`onayAdim`/`onayToplam` **saklanmaz**, zincirden türetilir ([6.3.10]).
+
+## GV.fin — para
+
+```js
+GV.fin.tahsilEt(kod, {tarih, yontem, hesap, dekont, valor})  // NAKİT OLAYI
+GV.fin.tahsisEt(tahsilat, fatura, tutar)                     // çoklu tahsis
+GV.fin.tahsisKaldir(tahsilat, fatura)
+GV.fin.balance(fatura)      // TEK bakiye yordamı — altı kopya formülün yerine
+GV.fin.odemeDurum(fatura) · gecikti(fatura) · gecikmeGun(fatura)
+```
+**Yön tektir:** para hareketi → tahsis → fatura durumu.
+Fatura durumu elle yazılmaz; `durumTazele` tahsis toplamından türetir.
+Gecikme **ayrı eksendir** (`fatura.gecikti`), ödeme durumunu yutmaz.
+Tahsis edilebilmesi için tahsilatın `tahsilEdildi` olması şarttır — alacak
+kaydının varlığı paranın geldiği anlamına gelmez.
+
+## GV.calendar — iş takvimi ve SLA
+
+```js
+GV.calendar.isGunu(bas, bit)          // hafta sonu + tatil düşülür
+GV.calendar.mesaiDakika(bas, bit)     // öğle arası düşülür
+GV.calendar.gecenDakika(kayit, politika)  // {ham, duran, net, eksen}
+GV.calendar.beklemeBaslat(kayit, neden, not) · beklemeBitir(kayit)
+```
+Bekleme aralıkları **her hâlde** saklanır; SLA'yı durdurup durdurmadığı
+`DB.slaWaitPolicy` ile ayrı karara bağlıdır (ADR-11).
+
+## GV.hr — maliyet oranı
+
+```js
+GV.hr.icMaliyet(kod, tarih)   // tarih verilmezse bugün, guvenilir:false
+GV.hr.kayitOrani(zamanKaydi)  // önce oranSnapshot, sonra tarihli maaş
+```
+Zaman çizelgesi satırı **onaylanırken** oran donar (`oranSnapshot`) ve bir
+daha değişmez. Maaş zammı geçmiş proje kârlılığını artık değiştiremez.
+
+## GV.action — ortak eylem penceresi
+
+```js
+GV.action({ eylem, kayit, sonuc, gerekce, nedenTuru, ek,
+            onaycilar, etkilenen, geriDonusYok, run })
+```
+Sekiz eylemin (Onayla · Reddet · İade Et · Revizyon İste · İptal Et ·
+Geri Çek · Devret · Yeniden Aç) tek penceresi. Geçişi **kendi yürütmez**,
+`run(veri)` çağırır. `run` yoksa başarı **varsayılmaz** (L-23).
+
+## GV.audit — denetim izi
+
+```js
+GV.audit.yaz({kayit, metin|islem, eski, yeni, tone, icon, modul, ip})
+GV.audit.oku(kayitKod, limit)   // iki defteri birleştirir
+```
+Aktör çağırandan değil **oturumdan** alınır. Kayıt kodu uydurulmaz.
+
+## GV.form — sekme ve sağ panel
+
+```js
+GV.form({ mount, sections, tabs:[{key,label,icon}], aside:function(v){…} })
+```
+`tabs` verilmeyen form eski düz düzeninde kalır (geçiş tek tek yapılır).
+`section.tab` bölümü sekmeye bağlar. Hatalı alan gizli sekmedeyse özet
+sekme adını yazar, sekme rozeti sayıyı gösterir ve odak o sekmeye geçer.
+
+## Ölçüm
+
+```bash
+node tasks/qa/flow.js             # sözleşme denetimi — 0 bulgu olmalı
+node tasks/qa/flow.js --selftest  # eksenin kendisi bozuk kopyada sınanır
+```
+`app-veri-kalitesi.html` aynı denetimleri üründe koşturur.
