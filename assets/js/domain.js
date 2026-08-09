@@ -2155,4 +2155,200 @@
     log(p.kod, 'Kapanışta bakım paketi açıldı', '', pkt.kod, 'ok', 'i-link');
     return { ok:true, paket:pkt.kod, bitis:bitis, sozlesme:pkt.sozlesme };
   };
+
+  /* ===================================================================
+     GV.notes — KİŞİSEL NOT SERVİSİ (şartname §15 · ADR-13 · ADR-14)
+     -------------------------------------------------------------------
+     Bu servis diğer bütün `GV.*` yordamlarından BİR YÖNÜYLE AYRILIR:
+     kapsamı `GV.perm` rol matrisinden gelmez. Rol matrisi "bu rol bu modülü
+     görebilir mi" sorusunu cevaplar; kişisel notta soru bu değildir —
+     **sahibi değilsen göremezsin, rolün ne olursa olsun.** `sahip` ve
+     `sistem` dahil. Şartname [15.4.1] bunu böyle istiyor, ADR-13 de öyle
+     karara bağladı.
+
+     Bu yüzden burada TEK kapı var: `benim()`. Ekranlar `DB.personalNotes`e
+     DOĞRUDAN dokunmaz; hepsi bu yordamdan geçer. İki ayrı süzgeç yolu
+     açılırsa biri diğerinden sessizce ayrılır (ders L-40).
+
+     ⚠️ PROTOTİP SINIRI: süzgeç istemcide. Konsolu açan biri koleksiyonu
+     okur. Gerçek izolasyon sunucu tarafı `owner_user_id` kapsamıyla gelir
+     ([15.4.1]–[15.4.3], backend payı) ve modül canlıya çıkmadan kapatılması
+     zorunludur. Bu sınır EKRANDA söylenmez, burada ve raporda yazılıdır.
+     =================================================================== */
+  GV.notes = (function(){
+
+    function oturum(){
+      return (GV.session && GV.session.emp) || null;
+    }
+
+    /* Yumuşak silinmiş kayıt ADR-14 gereği 7 gün geri alınabilir; süresi
+       dolan kayıt listelerde hiç görünmez ama veriden de silinmez —
+       prototipte "kalıcı silme" yapan bir yordam yok, olmayan bir yeteneği
+       varmış gibi göstermek yasak ([2.0.12]). */
+    function cope(n){
+      if(!n.silinme) return false;
+      /* `Fmt` domain.js'te tanımlı DEĞİL; biçimleyici ui.js'te yaşıyor ve
+         `GV.fmt` olarak dışa veriliyor. Gün farkı buradan okunur — ikinci bir
+         tarih aritmetiği yazmak, iki farklı "bugün" tanımı doğururdu. */
+      var gun = Math.abs((GV.fmt && GV.fmt.days ? GV.fmt.days(String(n.silinme).slice(0,10)) : 0) || 0);
+      return gun <= (DB.noteTrashDays || 7);
+    }
+
+    /* TEK KAPI — sahibinin kayıtları. Oturum yoksa BOŞ döner: "oturum yoksa
+       hepsini göster" yedeği, tam olarak kapatmaya çalıştığımız açıktır. */
+    function benim(opts){
+      opts = opts || {};
+      var emp = oturum();
+      if(!emp) return [];
+      return (DB.personalNotes || []).filter(function(n){
+        if(n.owner !== emp) return false;
+        if(n.silinme) return opts.cop === true && cope(n);
+        return opts.cop !== true;
+      });
+    }
+
+    function bul(kod){
+      var emp = oturum();
+      if(!emp || !kod) return null;
+      var n = (DB.personalNotes || []).filter(function(x){ return x.kod === kod; })[0];
+      /* Başkasının notunun ID'si verildiğinde "yetkin yok" DEMEZ, "yok" der:
+         hata mesajı bile kaydın VARLIĞINI sızdırmamalı ([15.5.1] · [15.4.3]). */
+      if(!n || n.owner !== emp) return null;
+      if(n.silinme && !cope(n)) return null;
+      return n;
+    }
+
+    function maddeler(kod){
+      var n = bul(kod);
+      if(!n) return [];
+      return (DB.personalNoteChecklistItems || []).filter(function(m){
+        return m.not === kod && m.owner === n.owner;
+      }).sort(function(a,b){ return (a.sira || 0) - (b.sira || 0); });
+    }
+
+    function yeniKod(list, onek){
+      var max = 0;
+      (list || []).forEach(function(x){
+        var m = new RegExp('^' + onek + '-(\\d+)$').exec(x.kod || '');
+        if(m) max = Math.max(max, +m[1]);
+      });
+      return onek + '-' + String(max + 1).padStart(3, '0');
+    }
+
+    function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
+
+    /* [15.5.3] — SAHİPLİK OTURUMDAN ATANIR. Çağıran `owner` gönderirse
+       SESSİZCE YOK SAYILIR; reddetmek yerine ezmek seçildi çünkü bu bir
+       kullanıcı hatası değil, çağıranın hiç sormaması gereken bir alandır. */
+    function olustur(v){
+      var emp = oturum();
+      if(!emp) return null;
+      v = v || {};
+      var n = {
+        kod:yeniKod(DB.personalNotes, 'NOT'),
+        owner:emp,
+        baslik:v.baslik || v.title || '',
+        body:v.body || '',
+        durum:(DB.noteStatuses || []).indexOf(v.durum) !== -1 ? v.durum : 'Açık',
+        oncelik:(DB.notePriorities || []).indexOf(v.oncelik) !== -1 ? v.oncelik : 'Orta',
+        kategori:(DB.noteCategories || []).indexOf(v.kategori) !== -1 ? v.kategori : 'Kişisel',
+        renk:(DB.noteColors || []).indexOf(v.renk) !== -1 ? v.renk : 'mavi',
+        sabit:!!v.sabit,
+        bitis:v.bitis || null, hatirlatma:v.hatirlatma || null,
+        sira:benim().length + 1,
+        olusturma:simdi(), guncelleme:simdi(),
+        tamamlanma:null, arsivlenme:null, silinme:null
+      };
+      (DB.personalNotes || (DB.personalNotes = [])).unshift(n);
+      /* ⚠️ AUDIT YAZILMAZ ([15.5.5] · ADR-13). Kurumsal defter kişisel not
+         metnini taşımaz — olay metadata'sı bile kaydın varlığını başkasına
+         duyurur. Bu, `GV.audit.yaz` çağrısının BİLEREK yokluğudur. */
+      return n;
+    }
+
+    function guncelle(kod, v){
+      var n = bul(kod);
+      if(!n) return null;
+      ['baslik','body','durum','oncelik','kategori','renk','sabit','bitis','hatirlatma'].forEach(function(k){
+        if(v[k] !== undefined) n[k] = v[k];
+      });
+      n.owner = n.owner;                 /* sahiplik DEĞİŞMEZ ([15.3.1]) */
+      n.guncelleme = simdi();
+      if(n.durum === 'Tamamlandı' && !n.tamamlanma) n.tamamlanma = simdi();
+      if(n.durum !== 'Tamamlandı') n.tamamlanma = null;      /* [15.5.4] geri alınca temizlenir */
+      if(n.durum === 'Arşiv' && !n.arsivlenme) n.arsivlenme = simdi();
+      if(n.durum !== 'Arşiv') n.arsivlenme = null;
+      return n;
+    }
+
+    /* [15.5.4] — işaretlenince `isaretTarihi` yazılır, geri alınca temizlenir. */
+    function madde(kodMadde, isaretli){
+      var emp = oturum();
+      if(!emp) return null;
+      var m = (DB.personalNoteChecklistItems || []).filter(function(x){ return x.kod === kodMadde; })[0];
+      if(!m || m.owner !== emp) return null;
+      m.isaretli = !!isaretli;
+      m.isaretTarihi = m.isaretli ? simdi() : null;
+      return m;
+    }
+
+    function maddeEkle(kod, metin){
+      var n = bul(kod);
+      if(!n || !metin) return null;
+      var m = { kod:yeniKod(DB.personalNoteChecklistItems, 'NKL'), not:n.kod,
+                owner:n.owner, metin:metin, isaretli:false, isaretTarihi:null,
+                sira:maddeler(kod).length + 1 };
+      (DB.personalNoteChecklistItems || (DB.personalNoteChecklistItems = [])).push(m);
+      return m;
+    }
+
+    /* ADR-14 — yumuşak silme. Geri alma süresi çağırana DÖNDÜRÜLÜR ki ekran
+       kullanıcıya yazabilsin; süre kodun içinde saklı kalmaz. */
+    function sil(kod){
+      var n = bul(kod);
+      if(!n) return null;
+      n.silinme = simdi();
+      return { kod:n.kod, gun:DB.noteTrashDays || 7 };
+    }
+    function geriAl(kod){
+      var emp = oturum();
+      var n = (DB.personalNotes || []).filter(function(x){ return x.kod === kod; })[0];
+      if(!n || !emp || n.owner !== emp || !cope(n)) return null;
+      n.silinme = null;
+      n.guncelleme = simdi();
+      return n;
+    }
+
+    /* Arama YALNIZ Notlarım içinde ve YALNIZ sahibinin kayıtlarında
+       ([15.5.1] · ADR-13). Genel arama bu yordamı çağırmaz — çağırmadığı
+       `tasks/qa/notes-isolation.js` N3 ekseniyle ölçülür. */
+    function ara(q){
+      q = String(q || '').toLocaleLowerCase('tr');
+      if(!q) return benim();
+      return benim().filter(function(n){
+        return String(n.baslik || '').toLocaleLowerCase('tr').indexOf(q) !== -1 ||
+               String(n.body || '').toLocaleLowerCase('tr').indexOf(q) !== -1;
+      });
+    }
+
+    /* Görünümler — [15.1.x]: Tümü · Açık · Bugün · Yaklaşan · Tamamlanan · Arşiv */
+    function gorunum(key){
+      var list = benim();
+      var bugun = DB.today;
+      if(key === 'acik')      return list.filter(function(n){ return n.durum === 'Açık'; });
+      if(key === 'bugun')     return list.filter(function(n){ return n.durum === 'Açık' && n.bitis === bugun; });
+      if(key === 'yaklasan')  return list.filter(function(n){ return n.durum === 'Açık' && n.bitis && n.bitis > bugun; });
+      if(key === 'gecikmis')  return list.filter(function(n){ return n.durum === 'Açık' && n.bitis && n.bitis < bugun; });
+      if(key === 'tamam')     return list.filter(function(n){ return n.durum === 'Tamamlandı'; });
+      if(key === 'arsiv')     return list.filter(function(n){ return n.durum === 'Arşiv'; });
+      if(key === 'cop')       return benim({ cop:true });
+      return list.filter(function(n){ return n.durum !== 'Arşiv'; });
+    }
+
+    return { benim:benim, bul:bul, maddeler:maddeler, olustur:olustur,
+             guncelle:guncelle, madde:madde, maddeEkle:maddeEkle,
+             sil:sil, geriAl:geriAl, ara:ara, gorunum:gorunum,
+             sahip:oturum };
+  })();
+
 })();
