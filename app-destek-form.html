@@ -398,7 +398,8 @@ document.addEventListener('gv:ready', function(){
     var yeniNot = GV.notice({ tone:'info', title:'Yeni destek kaydı açılıyor',
       text:'Kaydettiğinizde sıradaki destek numarası atanır, SLA seçtiğiniz kategori ve önceliğe göre ' +
            'politika tablosundan türetilir, SLA durumu ilk yanıt ve çözüm eksenlerinden hesaplanır ve ' +
-           'aktivite geçmişine “Kayıt oluşturuldu” satırı yazılır. Ardından destek listesine dönülür.',
+           'aktivite geçmişine “Kayıt oluşturuldu” satırı yazılır. Ardından yeni açılan destek ' +
+           'kartına gidilir.',
       actions:[{ label:'Destek listesi', href:'app-destek.html' }] });
 
     var musteriNot = '';
@@ -463,7 +464,7 @@ document.addEventListener('gv:ready', function(){
      ALANLAR
      ================================================================= */
   var sections = [
-    { title:'Talep sahibi ve bağlam',
+    { tab:'talep', title:'Talep sahibi ve bağlam',
       desc:'Talebin hangi müşteriden, hangi yetkiliden ve hangi proje kapsamında geldiği. ' +
            'Proje ve yetkili listeleri seçilen müşteriye göre daralır; başka müşterinin kaydı seçilemez.',
       fields:[
@@ -499,7 +500,7 @@ document.addEventListener('gv:ready', function(){
           hint:'Talebi üstlenen çalışan; SLA eskalasyonu bu kişiden başlar.' })
       ].filter(Boolean)},
 
-    { title:'Talep içeriği ve SLA ekseni',
+    { tab:'talep', title:'Talep içeriği ve SLA ekseni',
       desc:'Kategori ve öncelik SLA politikası tablosunun iki eksenidir: bu ikisi seçilince talebin SLA’sı ' +
            'tablodan türetilir, kullanıcı SLA’yı serbest yazamaz.',
       fields:[
@@ -522,7 +523,7 @@ document.addEventListener('gv:ready', function(){
           hint:'Sorunun işi ne kadar durdurduğu. SLA hesabına girmez, raporlamada kullanılır.' }
       ]},
 
-    { title:'Zaman ekseni',
+    { tab:'zaman', title:'Zaman ekseni',
       desc:'Açılış ve ilk yanıt anı ile çözüm süresi. Müdahale süresi bu ikisinden hesaplanır; ' +
            'SLA tüketimi de buradan çıkar. Çözüm anı veride tutulmadığı için çözüm süresi dakika girilir.',
       fields:[
@@ -569,7 +570,7 @@ document.addEventListener('gv:ready', function(){
           hint:'Talebe harcanan iş gücü. Bakım paketi kotası bu formdan düşülmez — kota paket ekranından yönetilir.' }
       ]},
 
-    { title:'Durum ve ücretlendirme',
+    { tab:'durum', title:'Durum ve ücretlendirme',
       desc:'Talebin süreçteki durumu SALT OKUNUR gösterilir: durum iş akışı eylemlerinden ' +
            '(talep kartındaki adım düğmeleri) değişir, bu formdan yazılamaz. Ücretlendirme ve ' +
            'kaydın listelerde görünüp görünmeyeceği burada belirlenir.',
@@ -600,7 +601,75 @@ document.addEventListener('gv:ready', function(){
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
   var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
 
-  var form = GV.form({ mount:'#formMount', id:'destek', record:formRec, sections:sections });
+  /* =================================================================
+     SEKMELER — dört bölüm üç şeride bölünür. Talep sahibi ile talep
+     içeriği aynı şeritte durur: SLA matrisinin iki ekseni (kategori,
+     öncelik) müşteri seçimiyle birlikte girilir ve zorunlu alanların
+     onu ilk sekmede biter — normal akış orada tamamlanır. Zaman ekseni
+     ve durum/ücretlendirme kendi şeritlerini alır; ikisi de talep
+     açılırken değil, talep ilerledikçe doldurulan alanlardır.
+     Sekmesiz bölüm bırakılmadı.
+     ================================================================= */
+  var tabs = [
+    { key:'talep', label:'Talep',          icon:'i-support' },
+    { key:'zaman', label:'Zaman ekseni',   icon:'i-clock' },
+    { key:'durum', label:'Durum ve ücret', icon:'i-flag' }
+  ];
+
+  var form = GV.form({
+    mount:'#formMount', id:'destek', record:formRec, sections:sections, tabs:tabs,
+
+    /* Sağ bağlam paneli — SLA hedefi ve kalan destek süresi girilen
+       değerlerden TÜREYEN, kaydetmeden önce görülmesi gereken özettir.
+       Aşağıdaki “Türetilen Alanlar” kartı tam dökümü verir; buradaki
+       şerit onun sekme değiştirilse de görünür kalan kısa hâlidir.
+       Türetim aynı yordamdan (turet) okunur ki ikisi ayrışmasın.
+       Her tuş vuruşunda çağrılır: içinde dinleyici bağlanmaz, arama
+       yalnız küçük sözlük koleksiyonlarında yapılır. */
+    aside:function(v){
+      var d = {
+        musteri:v.musteri, kategori:v.kategori, oncelik:v.oncelik, durum:v.durum,
+        acilis:anIso(v.acilisTarih, v.acilisSaat),
+        ilkYanit:anIso(v.ilkYanitTarih, v.ilkYanitSaat),
+        cozumSuresi:bosSayi(v.cozumSuresi)
+      };
+      var t = turet(d), out = '';
+
+      if(!d.kategori || !d.oncelik){
+        out += GV.notice({ tone:'neutral', icon:'i-hourglass', title:'SLA henüz türetilemedi',
+          text:'SLA politikası kategori × öncelik matrisinden gelir. İki alan da seçilince hedef ' +
+               'süreler ve kayda yazılacak SLA durumu burada görünür.' });
+      }else if(!t.politika){
+        out += GV.notice({ tone:'danger', icon:'i-alert', title:'Eşleşen SLA politikası yok',
+          text:d.kategori + ' × ' + d.oncelik + ' için politika tablosunda satır yok; bu ' +
+               'kombinasyonla kayıt açılamaz. Kategori ya da önceliği değiştirin.' });
+      }else{
+        out += GV.notice({
+          tone:t.slaDurum === 'İhlal edildi' ? 'danger' : t.slaDurum === 'Risk altında' ? 'warn' : 'ok',
+          icon:'i-hourglass', title:t.sla + ' · ' + t.slaDurum,
+          text:'İlk yanıt ' + sure(t.yanitGecen) + ' / ' + sure(t.yanitHedef) +
+               ' (%' + Math.round(t.yanitOran * 100) + ') · çözüm ' + sure(t.cozumGecen) + ' / ' +
+               sure(t.cozumHedef) + ' (%' + Math.round(t.cozumOran * 100) + ') · belirleyici eksen ' +
+               t.eksen + '. Kayda yazılan değer budur, elle girilmez.' });
+      }
+
+      if(!d.musteri){
+        out += GV.notice({ tone:'neutral', icon:'i-building', title:'Müşteri seçilmedi',
+          text:'Bakım paketi, kalan destek süresi, proje ve yetkili listeleri müşteri seçimiyle belirlenir.' });
+      }else if(!t.paket){
+        out += GV.notice({ tone:'warn', icon:'i-wallet', title:'Bu müşterinin bakım paketi yok',
+          text:'Kayda bakım paketi “—”, kalan destek 0 saat olarak yazılacak. Talep bakım kapsamı ' +
+               'dışındadır; ücretlendirme kutusunu buna göre işaretleyin.' });
+      }else{
+        out += GV.notice({ tone:'info', icon:'i-wallet',
+          title:t.paket.ad + ' · ' + t.paket.durum,
+          text:'Kayda yazılacak kalan destek ' + F.hours(t.kalanDestek) + ' · bu talebe girilen ' +
+               'harcanan süre ' + F.hours(sayi(v.harcananSure)) + '. Kota bu formdan düşülmez, ' +
+               'bakım paketi ekranından yönetilir.' });
+      }
+      return out;
+    }
+  });
 
   /* DURUM ALANI SALT OKUNUR. Bileşende `readonly` alan tipi yok; alan
      kurulduktan sonra devre dışı bırakılır. `form.read()` değeri `el.value`
@@ -892,8 +961,21 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-destek.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: destek kartı
+       yayında ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form destek kaydının kendisinden başka kayıt üretmiyor; görev,
+       hata ve değişiklik talebi destek listesindeki “Dönüştür” akışından
+       doğar, bu yüzden alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-destek-detay.html',
+      liste: 'app-destek.html'
+    });
   }
 
   GV.pageHead({

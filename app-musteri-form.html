@@ -247,7 +247,8 @@ document.addEventListener('gv:ready', function(){
       GV.notice({ tone:'info', title:'Yeni müşteri kartı oluşturuluyor',
         text:'Kaydettiğinizde sıradaki müşteri kodu atanır, ilk kayıt tarihi ' + F.date(DB.today) +
              ' olarak yazılır ve ciro, tahsilat, proje, memnuniyet sayaçları sıfırdan başlar. ' +
-             'Yetkili, teklif ve proje kayıtları müşteri oluşturulduktan sonra kendi ekranlarından eklenir.' }) +
+             'Yetkili, teklif ve proje kayıtları müşteri oluşturulduktan sonra kendi ekranlarından eklenir. ' +
+             'Kaydettikten sonra yeni açılan müşteri kartına gidilir.' }) +
       '</div></section>';
   }
 
@@ -278,10 +279,78 @@ document.addEventListener('gv:ready', function(){
     return { key:'hzm' + i, type:'checkbox', label:s, checkLabel:s, cols:4 };
   });
 
+  /* =================================================================
+     SEKMELER — yedi bölüm beş şeride bölünür. Vergi bilgisi kimlikle,
+     ilgilenilen hizmetler ticari ilişkiyle aynı şeritte durur; ikisi de
+     kendi başına tek alanlık panel açacak kadar küçüktür. Kimlik şeridi
+     zorunlu alanların en büyük payını (5) taşır, normal akış orada
+     başlar. Sekmesiz bölüm bırakılmadı.
+     TÜRETİLEN SAYAÇLAR (projeSayisi · aktifProje · toplamCiro ·
+     bekleyenTahsilat · memnuniyet) forma alan olarak KONULMAZ (ders
+     L-08); düzenleme modunda yukarıdaki “Türetilmiş Sayaçlar” kartında
+     salt okunur gösterilir ve yeni kayıtta sıfırdan başlar.
+     ================================================================= */
+  var tabs = [
+    { key:'kimlik',   label:'Kimlik ve vergi', icon:'i-building' },
+    { key:'iletisim', label:'İletişim',        icon:'i-phone' },
+    { key:'ticari',   label:'Ticari ilişki',   icon:'i-briefcase' },
+    { key:'durum',    label:'Risk ve durum',   icon:'i-shield' },
+    { key:'takip',    label:'Notlar ve takip', icon:'i-clipboard' }
+  ];
+
   var form = GV.form({
-    mount:'#formMount', id:'musteri', record:formRec,
+    mount:'#formMount', id:'musteri', record:formRec, tabs:tabs,
+
+    /* Sağ bağlam paneli — girilen değerlerden TÜREYEN, kaydetmeden önce
+       görülmesi gereken özet: kartın listelerde nasıl görüneceği, vergi
+       numarasının hangi eksene düştüğü, durum/kayıt/arşiv anahtarlarının
+       çelişip çelişmediği ve kayda yazılacak hizmet listesi. Türetilmiş
+       sayaçlar burada TEKRARLANMAZ — onlar bu formun yazdığı değer değil.
+       Her tuş vuruşunda çağrılır: dinleyici bağlanmaz, arama yalnız
+       sözlük dizilerinde yapılır. */
+    aside:function(v){
+      var out = '';
+
+      var vkn = String(v.vergiNo || '').replace(/\s/g, '');
+      var vknTur = /^\d{10}$/.test(vkn) ? '10 haneli vergi kimlik numarası'
+                 : /^\d{11}$/.test(vkn) ? '11 haneli TC kimlik numarası'
+                 : vkn                   ? 'hane sayısı tutmuyor · ' + vkn.length + ' hane'
+                 : 'vergi numarası girilmedi';
+      out += GV.notice({
+        tone:'neutral', icon:'i-building',
+        title:v.kisa || v.unvan || (duzenle ? kayit.kisa : 'Yeni müşteri kartı'),
+        text:(v.unvan || 'Ticari unvan girilmedi') +
+             (v.sektor ? ' · ' + v.sektor : '') +
+             (v.buyukluk ? ' · ' + v.buyukluk + ' çalışan' : '') +
+             ' · ' + vknTur +
+             '. Liste, kart ve raporlarda kısa ad görünür.' });
+
+      var dur = v.durum || '', akt = !!v.aktif, ars = !!v.arsiv;
+      var cakisma = (akt && dur === 'Pasif') || (!akt && dur === 'Aktif') || (ars && dur !== 'Pasif');
+      out += GV.notice({
+        tone:cakisma ? 'warn' : 'ok', icon:'i-shield',
+        title:'Durum ekseni' + (dur ? ' · ' + dur : ''),
+        text:(dur ? '' : 'Müşteri durumu henüz seçilmedi. ') +
+             'Kayıt ' + (akt ? 'aktif' : 'pasif') + (ars ? ', arşivde' : '') +
+             (v.risk ? ' · risk ' + v.risk : '') + '. ' +
+             (cakisma
+               ? 'Durum ile kayıt/arşiv anahtarları çelişiyor: “Aktif” durumdaki kayıt pasif, ' +
+                 '“Pasif” durumdaki kayıt aktif işaretlenemez ve arşive alınan kayıt “Pasif” olmalıdır.'
+               : 'Liste sekmeleri bu iki ekseni okur; şu an çelişki yok.') });
+
+      var secili = DB.services.filter(function(s, i){ return !!v['hzm' + i]; });
+      out += GV.notice({
+        tone:'info', icon:'i-tag',
+        title:'Kayda yazılacak hizmetler · ' + secili.length,
+        text:(secili.length ? secili.join(', ') : 'Hizmet seçilmedi — kayıt boş hizmet listesiyle açılır.') +
+             (v.sorumlu ? ' · temsilci ' + DB.empName(v.sorumlu) : ' · müşteri temsilcisi seçilmedi') +
+             (v.kaynak ? ' · kazanım kaynağı ' + v.kaynak : '') });
+
+      return out;
+    },
+
     sections:[
-      { title:'Kimlik ve unvan', desc:'Müşterinin resmî ticari unvanı ve listelerde görünen kısa adı.', fields:[
+      { tab:'kimlik', title:'Kimlik ve unvan', desc:'Müşterinin resmî ticari unvanı ve listelerde görünen kısa adı.', fields:[
         { key:'unvan', label:'Ticari unvan', type:'text', required:true, cols:6,
           placeholder:'Örn. Deniz Lojistik A.Ş.' },
         { key:'kisa', label:'Kısa ad', type:'text', required:true, cols:3,
@@ -289,7 +358,7 @@ document.addEventListener('gv:ready', function(){
         { key:'buyukluk', label:'Çalışan sayısı', type:'select', options:BUYUKLUK, required:true, cols:3 }
       ]},
 
-      { title:'Vergi ve fatura bilgisi', desc:'Fatura ve tahsilat ekranları bu alanları okur.', fields:[
+      { tab:'kimlik', title:'Vergi ve fatura bilgisi', desc:'Fatura ve tahsilat ekranları bu alanları okur.', fields:[
         { key:'vergiNo', label:'Vergi kimlik numarası', type:'text', required:true, cols:6,
           hint:'10 haneli VKN ya da 11 haneli TC kimlik numarası.',
           validate:function(v){
@@ -301,7 +370,7 @@ document.addEventListener('gv:ready', function(){
         { key:'vergiDairesi', label:'Vergi dairesi', type:'text', required:true, cols:6 }
       ]},
 
-      { title:'İletişim ve adres', desc:'Kurumsal iletişim bilgileri. Kişi bazlı bilgiler Yetkililer ekranında tutulur.', fields:[
+      { tab:'iletisim', title:'İletişim ve adres', desc:'Kurumsal iletişim bilgileri. Kişi bazlı bilgiler Yetkililer ekranında tutulur.', fields:[
         { key:'tel', label:'Telefon', type:'tel', required:true, cols:4, placeholder:'+90 216 000 00 00' },
         { key:'eposta', label:'E-posta', type:'email', required:true, cols:4, placeholder:'info@ornek.com' },
         { key:'web', label:'Web sitesi', type:'text', cols:4, placeholder:'ornek.com',
@@ -313,7 +382,7 @@ document.addEventListener('gv:ready', function(){
         { key:'adres', label:'Adres', type:'text', cols:12, placeholder:'İlçe, İl' }
       ]},
 
-      { title:'Ticari ilişki', desc:'Müşterinin sektörü, ilişkiyi yürüten temsilci ve kaydın nereden geldiği.', fields:[
+      { tab:'ticari', title:'Ticari ilişki', desc:'Müşterinin sektörü, ilişkiyi yürüten temsilci ve kaydın nereden geldiği.', fields:[
         { key:'sektor', label:'Sektör', type:'select', options:DB.sectors, required:true, cols:4 },
         { key:'sorumlu', label:'Müşteri temsilcisi', type:'select', options:TEMSILCILER, required:true, cols:4 },
         { key:'kaynak', label:'Kazanım kaynağı', type:'select', options:KAYNAKLAR, required:true, cols:4 },
@@ -322,10 +391,10 @@ document.addEventListener('gv:ready', function(){
           hint:'Referans kaynakları ve yönlendiren kişiler Referans Yönetimi ekranından yönetilir.' }
       ]},
 
-      { title:'İlgilenilen hizmetler', desc:'Müşterinin ilgilendiği hizmet hatları. Mevcut kayıtlarda bu bilgi henüz doldurulmamış olabilir.',
+      { tab:'ticari', title:'İlgilenilen hizmetler', desc:'Müşterinin ilgilendiği hizmet hatları. Mevcut kayıtlarda bu bilgi henüz doldurulmamış olabilir.',
         fields:hizmetAlanlari },
 
-      { title:'Risk ve durum', desc:'Müşteri ilişkisinin durumu ve tahsilat riski. Liste sekmeleri bu iki alanı kullanır.', fields:[
+      { tab:'durum', title:'Risk ve durum', desc:'Müşteri ilişkisinin durumu ve tahsilat riski. Liste sekmeleri bu iki alanı kullanır.', fields:[
         { key:'durum', label:'Müşteri durumu', type:'select', options:DURUMLAR, required:true, cols:6 },
         { key:'risk', label:'Risk seviyesi', type:'select', options:RISKLER, required:true, cols:6,
           hint:'Tahsilat geçmişi ve memnuniyet ölçümüne göre elle belirlenir.' },
@@ -343,7 +412,7 @@ document.addEventListener('gv:ready', function(){
           } }
       ]},
 
-      { title:'Notlar ve takip', desc:'Bir sonraki temas planı ve kartı sınıflandıran serbest etiketler.', fields:[
+      { tab:'takip', title:'Notlar ve takip', desc:'Bir sonraki temas planı ve kartı sınıflandıran serbest etiketler.', fields:[
         { key:'sonrakiAksiyon', label:'Sonraki aksiyon', type:'text', cols:6,
           placeholder:'Örn. Q4 bakım yenilemesi görüşmesi',
           validate:function(v, d){
@@ -439,8 +508,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-musteri.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: müşteri kartı
+       yayında ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form müşteri kartından başka kayıt üretmiyor; yetkili, teklif ve
+       proje kendi ekranlarından açılır, bu yüzden alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-musteri-detay.html',
+      liste: 'app-musteri.html'
+    });
   }
 
   GV.pageHead({
