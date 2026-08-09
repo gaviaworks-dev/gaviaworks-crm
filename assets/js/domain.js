@@ -165,7 +165,19 @@
     /* Sözleşme aktivasyonu — imza + ödeme planı dengesi [8.1.6] */
     sozlesmeAktif:function(c){
       if(!c.imzaTarihi) return { ok:false, why:'İmza tarihi olmadan sözleşme aktive edilemez' };
-      var taksit = (window.DB && DB.projectMilestones || []).filter(function(m){ return m.sozlesme === c.kod; });
+      /* ⚠️ Ödeme planı `DB.milestones` içinde yaşar, `DB.projectMilestones`
+         içinde değil — `work.js:406` ikisini bilerek ayırıyor: biri ödeme
+         defteri, öbürü tutarsız proje olayı. Yanlış koleksiyonu okumak
+         diziyi HER ZAMAN boş bırakıyor, yani kapı dengeli bir planı da
+         "ödeme planı yok" diye reddediyordu.
+
+         AYRICA: koleksiyon yüklü değilse "plan yok" DEMEK YANLIŞTIR —
+         ölçülemedi demektir (L-13 · L-25). Ekran bu ikisini karıştırırsa
+         kullanıcıya olmayan bir eksiklik bildirilir. */
+      if(!window.DB || !DB.milestones)
+        return { ok:false, olculemedi:true,
+                 why:'Ödeme planı defteri bu ekranda yüklü değil — aktivasyon kontrolü yapılamadı.' };
+      var taksit = DB.milestones.filter(function(m){ return m.sozlesme === c.kod; });
       if(!taksit.length) return { ok:false, why:'Ödeme planı yok — aktivasyon için en az bir taksit tanımlı olmalı' };
       var toplam = taksit.reduce(function(s,m){ return s + (m.odeme || 0); }, 0);
       var fark = Math.abs(toplam - (c.tutar || 0));

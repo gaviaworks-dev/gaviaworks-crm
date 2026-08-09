@@ -831,6 +831,8 @@
     'app-tahsilat-detay.html',
     'app-tahsilat-form.html',
     'app-veri-kalitesi.html',
+    'app-odemeplani-form.html',
+    'app-odemeplani-detay.html',
     'app-butce.html',
     'app-sohbet.html',
     'app-ajanda.html',
