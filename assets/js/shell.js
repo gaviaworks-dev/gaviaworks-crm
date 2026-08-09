@@ -460,7 +460,7 @@
       onay:      (D.approvals || []).filter(function(x){ return x.durum === 'Bekliyor'; }).length,
       bildirim:  (D.notifications || []).filter(function(x){ return !x.okundu; }).length,
       lead:      (D.leads || []).filter(function(x){ return x.asama === 'Yeni talep'; }).length,
-      teklif:    (D.quotes || []).filter(function(x){ return x.durum === 'İletildi' || x.durum === 'Müşteri değerlendirmesinde'; }).length,
+      teklif:    (D.quotes || []).filter(function(x){ return ['Gönderildi','Müşteri İncelemesi','Müzakere/Revizyon'].indexOf(x.durum) !== -1; }).length,
       hata:      (D.bugs || []).filter(function(x){ return x.durum !== 'Kapandı'; }).length,
       istalebi:  (D.deptRequests || []).filter(function(x){ return x.durum === 'Bekliyor' || x.durum === 'Devam ediyor'; }).length,
       /* REVİZE 09 — kapalı durum listesi VERİ katmanında (`ops.js`).

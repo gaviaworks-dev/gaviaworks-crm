@@ -330,12 +330,12 @@ DB.purchases = [
     kategori:'Bilgisayar', aciklama:'Yeni geliştirici ve yedek cihaz ihtiyacı', ozellik:'M3 Pro · 18 GB · 512 GB',
     miktar:2, tahminiMaliyet:186000, ihtiyacTarihi:'2026-08-20', oncelik:'Yüksek',
     gerekce:'Mevcut cihazlar 3 yaşını doldurdu, derleme süreleri arttı', butceKodu:'BTC-DONANIM-2026',
-    durum:'Onay bekliyor', olusturma:'2026-07-30', onayAdim:2, onayToplam:3, aktif:true },
+    durum:'Onaya Gönderildi', olusturma:'2026-07-30', onayAdim:2, onayToplam:3, aktif:true },
   { kod:'SAT-2026-015', talepEden:'EMP-004', dep:'DEP-06', proje:null, urun:'Figma Organization lisans yenileme',
     kategori:'Yazılım lisansı', aciklama:'Yıllık lisans 31 Ağustos\'ta doluyor', ozellik:'8 düzenleyici koltuk',
     miktar:1, tahminiMaliyet:42000, ihtiyacTarihi:'2026-08-25', oncelik:'Yüksek',
     gerekce:'Tasarım ekibinin ana aracı', butceKodu:'BTC-YAZILIM-2026',
-    durum:'Onay bekliyor', olusturma:'2026-08-01', onayAdim:1, onayToplam:2, aktif:true },
+    durum:'Onaya Gönderildi', olusturma:'2026-08-01', onayAdim:1, onayToplam:2, aktif:true },
   { kod:'SAT-2026-016', talepEden:'EMP-006', dep:'DEP-07', proje:null, urun:'27 inç 4K monitör',
     kategori:'Monitör', aciklama:'Çift ekran çalışma ihtiyacı', ozellik:'27 inç · 4K · USB-C',
     miktar:1, tahminiMaliyet:21000, ihtiyacTarihi:'2026-08-22', oncelik:'Düşük',
@@ -345,17 +345,17 @@ DB.purchases = [
     kategori:'Diğer', aciklama:'Aylık kırtasiye ve temizlik', ozellik:'—',
     miktar:1, tahminiMaliyet:8400, ihtiyacTarihi:'2026-08-10', oncelik:'Düşük',
     gerekce:'Rutin ihtiyaç', butceKodu:'BTC-IDARI-2026',
-    durum:'Sipariş verildi', olusturma:'2026-07-25', onayAdim:2, onayToplam:2, aktif:true },
+    durum:'Sipariş', olusturma:'2026-07-25', onayAdim:2, onayToplam:2, aktif:true },
   { kod:'SAT-2026-012', talepEden:'EMP-011', dep:'DEP-17', proje:null, urun:'Ergonomik ofis sandalyesi',
     kategori:'Ofis mobilyası', aciklama:'3 adet yenileme', ozellik:'Bel destekli, ayarlanabilir',
     miktar:3, tahminiMaliyet:28500, ihtiyacTarihi:'2026-08-05', oncelik:'Düşük',
     gerekce:'Mevcut sandalyeler yıprandı', butceKodu:'BTC-IDARI-2026',
-    durum:'Teslim alındı', olusturma:'2026-07-14', onayAdim:2, onayToplam:2, aktif:true },
+    durum:'Tam Teslim', olusturma:'2026-07-14', onayAdim:2, onayToplam:2, aktif:true },
   { kod:'SAT-2026-011', talepEden:'EMP-010', dep:'DEP-12', proje:'PRJ-2026-002', urun:'OpenAI API kredi paketi',
     kategori:'Kurumsal abonelik', aciklama:'Anka Finans projesi için model kullanımı', ozellik:'—',
     miktar:1, tahminiMaliyet:64000, ihtiyacTarihi:'2026-07-20', oncelik:'Yüksek',
     gerekce:'Proje bağımlılığı', butceKodu:'BTC-PRJ-002',
-    durum:'Teslim alındı', olusturma:'2026-07-10', onayAdim:2, onayToplam:2, aktif:true },
+    durum:'Tam Teslim', olusturma:'2026-07-10', onayAdim:2, onayToplam:2, aktif:true },
   /* Araç satın alma talebi — §22 madde 24'ün ("Satın alma → Araç") tek yazılı örneği.
      Tutar yüksek olduğu için üç makamlı onaydan geçti (`onayToplam:3`); süreç
      tamamlandığı için adım dökümü modellenmemiştir (yukarıdaki eksen notu). */
@@ -363,7 +363,7 @@ DB.purchases = [
     kategori:'Araç', aciklama:'Satış ekibi için hibrit binek araç', ozellik:'1.8 Hibrit · Otomatik · Lacivert',
     miktar:1, tahminiMaliyet:1680000, ihtiyacTarihi:'2025-03-31', oncelik:'Orta',
     gerekce:'Satış ekibinin müşteri ziyaretleri artıyor, yakıt maliyeti düşürülecek', butceKodu:'BTC-IDARI-2025',
-    durum:'Teslim alındı', olusturma:'2025-02-24', onayAdim:3, onayToplam:3, aktif:true }
+    durum:'Tam Teslim', olusturma:'2025-02-24', onayAdim:3, onayToplam:3, aktif:true }
 ];
 
 /* ---- Satın alma onay zincirleri ---------------------------------------- */
@@ -409,7 +409,7 @@ DB.supplierQuotes = [
 /* ---- Siparişler ----------------------------------------------------------
    PARA EKSENİ: `tutar` **NET** · `vergi` KDV · `toplam` **BRÜT** (`tutar + vergi`).
    `teslimTarihi` çift anlamlıdır: sipariş henüz teslim alınmadıysa **planlanan**,
-   `durum:'Teslim alındı'` ise **gerçekleşen** tarihtir — ekranda hangisi olduğu yazılır.
+   `durum:'Tam Teslim'` ise **gerçekleşen** tarihtir — ekranda hangisi olduğu yazılır.
    DEMİRBAŞ BAĞI tek yönlüdür ve **`DB.assets[].siparis`** tarafında tutulur; siparişte
    ayna alan yoktur. Bir siparişin demirbaş grubu `assets.filter(a => a.siparis === kod)`
    ile okunur. `SIP-2026-008` → DMB-2026-013/014/015 (Σ net 28.500 = siparişin neti).
@@ -423,19 +423,19 @@ DB.orders = [
      verildi', çünkü kalan kalem beklenmektedir; `teslimTarihi` PLANLANAN tarihtir ve
      `kismiTeslimTarihi` ilk parti tarihini ayrı tutar (ikisi karışmaz). */
   { kod:'SIP-2026-009', talep:'SAT-2026-013', tedarikci:'TDR-005', tarih:'2026-07-26', teslimTarihi:'2026-08-08',
-    tutar:8400, vergi:1680, toplam:10080, doviz:'TRY', durum:'Sipariş verildi', fatura:null, irsaliye:'IRS-4498',
+    tutar:8400, vergi:1680, toplam:10080, doviz:'TRY', durum:'Sipariş', fatura:null, irsaliye:'IRS-4498',
     teslimKontrol:'Eksik', kismiTeslimTarihi:'2026-08-01', aktif:true },
   { kod:'SIP-2026-008', talep:'SAT-2026-012', tedarikci:'TDR-005', tarih:'2026-07-16', teslimTarihi:'2026-07-30',
-    tutar:28500, vergi:5700, toplam:34200, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-TDR-1188',
+    tutar:28500, vergi:5700, toplam:34200, doviz:'TRY', durum:'Tam Teslim', fatura:'FTR-TDR-1188',
     irsaliye:'IRS-4471', teslimKontrol:'Tam', aktif:true },
   { kod:'SIP-2026-007', talep:'SAT-2026-011', tedarikci:'TDR-004', tarih:'2026-07-12', teslimTarihi:'2026-07-12',
-    tutar:64000, vergi:12800, toplam:76800, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-AWS-0712',
+    tutar:64000, vergi:12800, toplam:76800, doviz:'TRY', durum:'Tam Teslim', fatura:'FTR-AWS-0712',
     irsaliye:'—', teslimKontrol:'Tam', aktif:true },
   /* Araç doğuran sipariş (§22 madde 24). Demirbaş tarafındaki `DB.assets[].siparis`
      ile aynı desen: bağ ARACIN üstünde (`DB.vehicles[].siparis`), siparişte ayna
      alan yoktur. Siparişin **neti** aracın `alisBedeli`ne eşittir — canon eksen 21. */
   { kod:'SIP-2025-006', talep:'SAT-2025-010', tedarikci:'TDR-007', tarih:'2025-03-06', teslimTarihi:'2025-03-20',
-    tutar:1680000, vergi:336000, toplam:2016000, doviz:'TRY', durum:'Teslim alındı', fatura:'FTR-TOY-3320',
+    tutar:1680000, vergi:336000, toplam:2016000, doviz:'TRY', durum:'Tam Teslim', fatura:'FTR-TOY-3320',
     irsaliye:'IRS-2210', teslimKontrol:'Tam', aktif:true }
 ];
 
@@ -506,8 +506,23 @@ DB.orderReturns = [
    görevde/sprintte/kararda, `Açık` ve `Kapandı` hatada, `Müşteri bekleniyor`
    görevde yaşamayı sürdürüyor (L-33). `GV.badge` ton haritasından hiçbiri
    kaldırılmadı; yalnız üç yeni ad eklendi. */
-DB.ticketStatuses  = ['Yeni','Atandı','Çalışılıyor','Müşteri bekleniyor',
-  'Çözüldü','Kapatıldı','Yeniden Açıldı'];
+/* CLOUD TURU · ADR-19 — sözlük şartname [9.5.1]'e hizalandı ve bekleme
+   ekseni durumdan çıkarıldı. `Müşteri bekleniyor` bir DURUM değil, bir
+   BEKLEME NEDENİdir: talep "devam ediyor" olmayı sürdürür, yalnız bir şeyi
+   bekler — görev ekseninde beş oturumdur böyle modelleniyor (`DB.taskWaitReasons`),
+   destek ekseni geride kalmıştı. Taşınan tek kayda (DST-2026-120)
+   `beklemeNedeni:'Müşteri'` yazıldı; bilgi kaybolmadı.
+   `Çalışılıyor`→`Devam ediyor`, `Kapatıldı`→`Kapandı`; `Triage` ve
+   `Müşteri Onayı` eklendi. Geçiş kuralı `DB.transitions.ticket`. */
+DB.ticketStatuses  = ['Yeni','Triage','Atandı','Devam ediyor','Çözüldü',
+  'Müşteri Onayı','Kapandı','Yeniden Açıldı'];
+/* Destek bekleme nedeni — görev ekseniyle aynı sözlük, aynı anlam.
+   `DB.taskWaitReasons`e REFERANS verilmiyor: yükleme sırası sayfadan sayfaya
+   değişiyor (18 ekranda `ops.js` `work.js`'ten ÖNCE geliyor) ve referans o
+   ekranlarda `undefined` olurdu. İki liste aynı kalmalı; `canon` ekseni
+   eşitliği denetler. */
+DB.ticketWaitReasons = ['Müşteri','Departman','Bilgi','Dosya','Teknik Karar',
+  'Yönetici Onayı','Diğer'];
 
 /* Talebin geldiği kanal. 7 kaydın 7'sinde `Müşteri portalı` ve bu UYDURMA
    DEĞİL, yazılı bir kuraldan türetme: `acan` alanı 7/7 kayıtta bir `YTK-*`
@@ -519,7 +534,7 @@ DB.ticketStatuses  = ['Yeni','Atandı','Çalışılıyor','Müşteri bekleniyor'
    yüklenmeden önce kurar ve ona bağımlı olamaz. Liste iki yerde yaşasaydı
    (biri shell'de, biri domain'de) tam da REVİZE 09'un kapattığı kusur geri
    gelirdi. Tek kaynak burası; `GV.destek.kapaliDurumlar()` da bunu okur. */
-DB.ticketClosedStatuses = ['Çözüldü','Kapatıldı'];
+DB.ticketClosedStatuses = ['Çözüldü','Müşteri Onayı','Kapandı'];
 
 DB.ticketChannels  = ['Müşteri portalı','E-posta','Telefon','Canlı destek',
   'Toplantı','Saha ziyareti','Diğer'];
@@ -528,7 +543,7 @@ DB.tickets = [
   { kod:'DST-2026-118', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis', proje:'PRJ-2026-006',
     baslik:'Randevu formunda tarih seçici mobilde açılmıyor', kategori:'Hata', oncelik:'Kritik', etki:'Yüksek',
     sla:'4 saat', sorumlu:'EMP-013', acan:'YTK-012', acilis:'2026-08-02T20:15',
-    ilkYanit:'2026-08-02T20:51', mudahaleSuresi:36, cozumSuresi:null, durum:'Çalışılıyor',
+    ilkYanit:'2026-08-02T20:51', mudahaleSuresi:36, cozumSuresi:null, durum:'Devam ediyor',
     harcananSure:3.5, ucretli:false, bakimPaketi:'Standart', kalanDestek:12, memnuniyet:null,
     slaDurum:'Risk altında',
     kanal:'Müşteri portalı', aciklama:'Bağlı hata kaydından türetildi (HTA-2026-074): “Tarih seçici mobilde açılmıyor” · ortam Safari iOS · tekrarlanabilirlik Her zaman',
@@ -536,7 +551,7 @@ DB.tickets = [
   { kod:'DST-2026-119', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu', proje:'PRJ-2026-001',
     baslik:'Test ortamında bildirimler gelmiyor', kategori:'Hata', oncelik:'Yüksek', etki:'Orta',
     sla:'8 saat', sorumlu:'EMP-013', acan:'YTK-004', acilis:'2026-08-02T19:00',
-    ilkYanit:'2026-08-02T19:45', mudahaleSuresi:45, cozumSuresi:null, durum:'Çalışılıyor',
+    ilkYanit:'2026-08-02T19:45', mudahaleSuresi:45, cozumSuresi:null, durum:'Devam ediyor',
     harcananSure:2, ucretli:false, bakimPaketi:'Kurumsal', kalanDestek:38, memnuniyet:null,
     slaDurum:'Zamanında',
     kanal:'Müşteri portalı', aciklama:null,
@@ -544,7 +559,7 @@ DB.tickets = [
   { kod:'DST-2026-120', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.', proje:'PRJ-2025-008',
     baslik:'Sevkiyat raporuna araç filtresi eklenmesi', kategori:'Geliştirme talebi', oncelik:'Orta', etki:'Düşük',
     sla:'3 gün', sorumlu:'EMP-013', acan:'YTK-002', acilis:'2026-07-30T13:00',
-    ilkYanit:'2026-07-30T15:30', mudahaleSuresi:150, cozumSuresi:null, durum:'Müşteri bekleniyor',
+    ilkYanit:'2026-07-30T15:30', mudahaleSuresi:150, cozumSuresi:null, durum:'Devam ediyor', beklemeNedeni:'Müşteri',
     harcananSure:1, ucretli:true, bakimPaketi:'Kurumsal', kalanDestek:62, memnuniyet:null,
     slaDurum:'İhlal edildi',
     kanal:'Müşteri portalı', aciklama:null,
@@ -560,7 +575,7 @@ DB.tickets = [
   { kod:'DST-2026-122', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', proje:'PRJ-2026-003',
     baslik:'İş emri listesinde tarih filtresi çalışmıyor', kategori:'Hata', oncelik:'Orta', etki:'Orta',
     sla:'8 saat', sorumlu:'EMP-013', acan:'YTK-008', acilis:'2026-07-18T09:00',
-    ilkYanit:'2026-07-18T09:22', mudahaleSuresi:22, cozumSuresi:300, durum:'Kapatıldı',
+    ilkYanit:'2026-07-18T09:22', mudahaleSuresi:22, cozumSuresi:300, durum:'Kapandı',
     harcananSure:6, ucretli:false, bakimPaketi:'Kurumsal', kalanDestek:44, memnuniyet:4,
     slaDurum:'Zamanında',
     kanal:'Müşteri portalı', aciklama:'Bağlı hata kaydından türetildi (HTA-2026-075): “İş emri filtresi tarih aralığını yok sayıyor” · ortam Web · tekrarlanabilirlik Her zaman',
@@ -576,7 +591,7 @@ DB.tickets = [
   { kod:'DST-2026-117', musteri:'MUS-2025-003', musteriAd:'Anadolu Perakende Ticaret Ltd.', proje:null,
     baslik:'Fatura kopyası talebi', kategori:'Bilgi talebi', oncelik:'Düşük', etki:'Düşük',
     sla:'2 gün', sorumlu:'EMP-012', acan:'YTK-005', acilis:'2026-06-20T13:00',
-    ilkYanit:'2026-06-20T14:10', mudahaleSuresi:70, cozumSuresi:130, durum:'Kapatıldı',
+    ilkYanit:'2026-06-20T14:10', mudahaleSuresi:70, cozumSuresi:130, durum:'Kapandı',
     harcananSure:0.5, ucretli:false, bakimPaketi:'—', kalanDestek:0, memnuniyet:3,
     slaDurum:'Zamanında',
     kanal:'Müşteri portalı', aciklama:null,

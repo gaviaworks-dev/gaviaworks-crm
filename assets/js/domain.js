@@ -41,6 +41,297 @@
   }
 
   /* ===================================================================
+     MERKEZÎ DURUM GEÇİŞ MOTORU — şartname §6.1 (CLOUD TURU)
+     -------------------------------------------------------------------
+     Ölçüm: geçiş motoru tek varlıkta yaşıyordu (`GV.task.transition`).
+     Kalan 11 modül durumu form ekranındaki serbest `<select>` ile yazıyordu;
+     28 ekran bunu yapıyordu. Sonucu: ön analiz herhangi bir durumdan
+     `Onaylandı`ya atlayabiliyor, destek `Yeni`den `Kapatıldı`ya
+     geçebiliyordu — yani sözlük vardı, kural yoktu.
+
+     Bu motor `DB.transitions` sözleşmesini TÜM varlıklara uygular.
+     Ekran artık durum yazmaz; `GV.flow.gec()` çağırır ve sonucu basar.
+
+     GÖREV BİLEREK AYRI TABLODA KALDI (`DB.taskTransitions`): beş oturumdur
+     çalışıyor, `onayGerekli` türetimi ve bekleme ekseni gibi göreve özgü
+     kuralları var. Motor onu olduğu yerden okur — çalışan bir şeyi taşımak
+     için yeniden yazmak, şartname [0.0.4]'ün yasakladığı iştir.
+     =================================================================== */
+
+  /* Ek engel yordamları. Tablo `kapi:'ad'` yazar, motor burayı çağırır.
+     `{ok:false, why:…}` dönerse geçiş reddedilir; `istisnaRol` listesindeki
+     rol gerekçe + neden kodu ile geçebilir (ADR-04 · ADR-05). */
+  var Gates = {
+    /* Proje "Aktif" ön koşulları — şartname [5.2.3] */
+    projeAktif:function(p){
+      var eksik = [];
+      if(!p.pm)         eksik.push('proje yöneticisi');
+      if(!p.baslangic || !p.bitis) eksik.push('başlangıç/bitiş tarihi');
+      if(!p.musteri && p.kaynak === 'Müşteri Sözleşmesi') eksik.push('müşteri');
+      if(p.kaynak === 'Müşteri Sözleşmesi' && !p.sozlesme) eksik.push('sözleşme bağı');
+      return eksik.length ? { ok:false, why:'Aktife almak için eksik: ' + eksik.join(', ') } : { ok:true };
+    },
+    /* Proje "Teslim" — açık kritik hata / başarısız zorunlu test [5.2.5] */
+    projeTeslim:function(p){
+      var acik = (window.DB && DB.bugs || []).filter(function(b){
+        return b.proje === p.kod && b.siddet === 'Kritik' &&
+               ['Kapandı','Reddedildi','Mükerrer'].indexOf(b.durum) === -1; });
+      return acik.length
+        ? { ok:false, why:'Projede ' + acik.length + ' açık kritik hata var: ' + acik.map(function(b){ return b.kod; }).join(', ') }
+        : { ok:true };
+    },
+    /* Proje kapanış listesi — ADR-04: ENGELLER (eski karar engellemiyordu) */
+    projeKapanis:function(p){
+      var k = (GV.proje && GV.proje.kapanisKontrol) ? GV.proje.kapanisKontrol(p.kod) : null;
+      if(!k || !k.length) return { ok:true };
+      var kalan = k.filter(function(m){ return m.olculdu && !m.gecti; });
+      if(kalan.length)
+        return { ok:false, why:'Kapanış listesi tamamlanmadı: ' + kalan.map(function(m){ return m.etiket; }).join(' · ') };
+      /* Ölçülemeyen madde kilit saymaz ama gerekçe ister (ADR-04) */
+      var olculemez = k.filter(function(m){ return !m.olculdu; });
+      return olculemez.length
+        ? { ok:true, uyari:'Kaydı olmadığı için ölçülemeyen ' + olculemez.length + ' madde var — gerekçe zorunlu', gerekceZorunlu:true }
+        : { ok:true };
+    },
+    /* Sözleşme aktivasyonu — imza + ödeme planı dengesi [8.1.6] */
+    sozlesmeAktif:function(c){
+      if(!c.imzaTarihi) return { ok:false, why:'İmza tarihi olmadan sözleşme aktive edilemez' };
+      var taksit = (window.DB && DB.projectMilestones || []).filter(function(m){ return m.sozlesme === c.kod; });
+      if(!taksit.length) return { ok:false, why:'Ödeme planı yok — aktivasyon için en az bir taksit tanımlı olmalı' };
+      var toplam = taksit.reduce(function(s,m){ return s + (m.odeme || 0); }, 0);
+      var fark = Math.abs(toplam - (c.tutar || 0));
+      return fark > 1
+        ? { ok:false, why:'Ödeme planı toplamı sözleşme tutarıyla uyuşmuyor (fark ' + fark.toLocaleString('tr-TR') + ' ₺)' }
+        : { ok:true };
+    },
+    /* Teklif yalnız onaylı ön analizden — şartname [7.2.3] */
+    teklifOnAnaliz:function(q){
+      if(!q.analiz) return { ok:false, why:'Teklif onaylı bir ön analize bağlı olmalı' };
+      var a = (window.DB && DB.analyses || []).filter(function(x){ return x.kod === q.analiz; })[0];
+      if(!a) return { ok:false, why:'Bağlı ön analiz kaydı bulunamadı: ' + q.analiz };
+      return a.durum === 'Onaylandı'
+        ? { ok:true }
+        : { ok:false, why:'Ön analiz "' + a.durum + '" durumunda — teklif için onaylanmış olmalı' };
+    },
+    /* Teslim: açık kritik hata engeli — ADR-05 (eski karar yalnız uyarıyordu) */
+    teslimKritikHata:function(d){
+      var acik = (window.DB && DB.bugs || []).filter(function(b){
+        return b.proje === d.proje && b.siddet === 'Kritik' &&
+               ['Kapandı','Reddedildi','Mükerrer'].indexOf(b.durum) === -1; });
+      return acik.length
+        ? { ok:false, why:'Projede ' + acik.length + ' açık kritik hata var — teslim müşteri onayını riske atar: ' + acik.map(function(b){ return b.kod; }).join(', ') }
+        : { ok:true };
+    },
+    /* İzin bakiyesi — ADR-06: bakiyeyi aşan onay ENGELLENİR.
+       Eski kod `Math.min(bakiye, gun)` ile aşan günü sessizce yutuyordu. */
+    izinBakiye:function(l){
+      var e = (window.DB && DB.employees || []).filter(function(x){ return x.kod === l.personel; })[0];
+      if(!e) return { ok:true };
+      if(l.tur === 'Ücretsiz izin') return { ok:true };
+      var gun = (GV.calendar && GV.calendar.isGunu) ? GV.calendar.isGunu(l.baslangic, l.bitis) : (l.gun || 0);
+      return gun > (e.izinBakiye || 0)
+        ? { ok:false, why:'Bakiye yetersiz: ' + gun + ' iş günü isteniyor, kalan ' + (e.izinBakiye || 0) + ' gün. Gün sayısını düşürün ya da izni "Ücretsiz izin" türüne çevirin.' }
+        : { ok:true };
+    },
+    /* Destek kapanışı: bakım kotası aşımı — ADR-10 */
+    destekKota:function(t){
+      if(t.ucretli) return { ok:true };
+      var p = (GV.destek && GV.destek.paketOf) ? GV.destek.paketOf(t) : null;
+      if(!p) return { ok:true };
+      var harcanan = t.harcananSure || 0;
+      return harcanan > (p.kalan || 0)
+        ? { ok:false, why:'Bakım kotası yetersiz: ' + harcanan + ' saat düşülecek, pakette ' + (p.kalan || 0) + ' saat kaldı. Aşım onayı gerekiyor.' }
+        : { ok:true };
+    }
+  };
+
+  var Flow = {
+    /* Varlık tanımı — koleksiyon adı hiçbir yordamda gömülü değil */
+    tanim:function(tur){ return (window.DB && DB.flowEntities && DB.flowEntities[tur]) || null; },
+
+    /* Kayıt bul. Görev kendi koleksiyonunda; diğerleri `flowEntities`'ten. */
+    kayit:function(tur, kod){
+      var t = Flow.tanim(tur);
+      if(!t || !window.DB || !DB[t.koleksiyon]) return null;
+      return DB[t.koleksiyon].filter(function(x){ return x.kod === kod; })[0] || null;
+    },
+
+    /* Durum alanının adı — fatura `belgeDurum`, diğerleri `durum` */
+    alan:function(tur){ var t = Flow.tanim(tur); return t ? t.alan : 'durum'; },
+
+    /* Geçiş tablosu. Görev tablosu ayrı yerde yaşıyor; motor ikisini de okur. */
+    tablo:function(tur){
+      if(tur === 'task') return (window.DB && DB.taskTransitions) || null;
+      return (window.DB && DB.transitions && DB.transitions[tur]) || null;
+    },
+
+    kural:function(tur, durum){
+      var tb = Flow.tablo(tur);
+      return (tb && tb[durum]) || null;
+    },
+
+    /* Yetki: rol anahtarı VE ilişki anahtarı çözülür.
+       `'pm'` bir roldür ("pm rolündeki herkes"), `'sorumlu'` bir ilişkidir
+       ("BU kaydın sorumlusu"). Karıştırmak her kullanıcıyı her kaydın
+       sorumlusu yapardı — görev motorundaki ayrım buraya genelleştirildi. */
+    yetkili:function(rec, kural){
+      if(!rec || !kural || !kural.yetki || !kural.yetki.length) return false;
+      var me  = (GV.session && GV.session.emp) || null;
+      var rol = (GV.perm && GV.perm.role) ? GV.perm.role() : null;
+      return kural.yetki.some(function(k){
+        if(k === 'sorumlu')     return me && (rec.sorumlu === me || rec.pm === me);
+        if(k === 'kontrolEden') return me && rec.kontrolEden === me;
+        if(k === 'onaylayan')   return me && rec.onaylayan === me;
+        if(k === 'veren')       return me && (rec.veren === me || rec.talepEden === me || rec.personel === me);
+        return rol === k;
+      });
+    },
+
+    eksikAlanlar:function(rec, kural, ek){
+      if(!kural || !kural.zorunlu || !kural.zorunlu.length) return [];
+      ek = ek || {};
+      return kural.zorunlu.filter(function(a){
+        var v = (a in ek) ? ek[a] : rec[a];
+        return v == null || v === '' || (Array.isArray(v) && !v.length);
+      });
+    },
+
+    /* Bu kayıt + bu oturum için yapılabilir geçişler. Ekran buradan buton üretir. */
+    adimlar:function(tur, kod){
+      if(tur === 'task') return GV.task.nextSteps(kod);
+      var rec = Flow.kayit(tur, kod); if(!rec) return [];
+      var kural = Flow.kural(tur, rec[Flow.alan(tur)]);
+      if(!kural || !kural.next || !kural.next.length) return [];
+      var izin = Flow.yetkili(rec, kural);
+      var eksik = Flow.eksikAlanlar(rec, kural);
+      return kural.next.map(function(hedef){
+        var hk = Flow.kural(tur, hedef) || {};
+        return {
+          hedef:hedef,
+          etiket:(kural.next.length === 1 || hedef === kural.next[0]) ? (kural.etiket || hedef) : hedef,
+          tone:/Onay|Kabul|Tamam|Aktif|Kapandı|Kapat|Ödendi/.test(hedef) ? 'btn-ok'
+             : /İptal|Ret|Fesih|Feshedildi|Kaybedildi|Engel/.test(hedef) ? 'btn-danger-line'
+             : /Revizyon|Revize|İade|Geri|Arşiv|Askı/.test(hedef) ? 'btn-line' : 'btn-acc',
+          izin:izin, eksik:eksik,
+          gerekce:!!(kural.gerekce || hk.gerekce),
+          kapi:kural.kapi || null,
+          istisnaRol:kural.istisnaRol || []
+        };
+      });
+    },
+
+    /* TEK MUTASYON NOKTASI. Ekran durum yazmaz, burayı çağırır.
+       opts: { not, neden, ek, istisna } — `istisna:true` yalnız `istisnaRol`
+       listesindeki rol için ve yalnız neden kodu ile geçerlidir. */
+    gec:function(tur, kod, hedef, ek, opts){
+      opts = opts || {};
+      if(tur === 'task') return GV.task.transition(kod, hedef, ek, opts.not);
+      var rec = Flow.kayit(tur, kod);
+      if(!rec) return { ok:false, why:'kayıt yok: ' + kod };
+      var alan = Flow.alan(tur), eski = rec[alan];
+      var kural = Flow.kural(tur, eski);
+      if(!kural) return { ok:false, why:'"' + eski + '" için geçiş kuralı tanımlı değil' };
+      if(!kural.next || kural.next.indexOf(hedef) === -1)
+        return { ok:false, why:'"' + eski + '" durumundan "' + hedef + '" durumuna geçilemez' };
+      if(!Flow.yetkili(rec, kural))
+        return { ok:false, why:'yetki', roller:kural.yetki };
+      var eksik = Flow.eksikAlanlar(rec, kural, ek);
+      if(eksik.length) return { ok:false, why:'zorunlu', eksik:eksik };
+
+      /* Gerekçe zorunluluğu — şartname [2.0.6]: neden KODU + açıklama */
+      var hk = Flow.kural(tur, hedef) || {};
+      if((kural.gerekce || hk.gerekce) && !opts.neden)
+        return { ok:false, why:'gerekce', mesaj:'Bu işlem için neden kodu ve açıklama zorunludur' };
+
+      /* Ek engel kapısı */
+      var kapiUyari = null;
+      if(kural.kapi && Gates[kural.kapi]){
+        var g = Gates[kural.kapi](rec);
+        if(!g.ok){
+          var rol = (GV.perm && GV.perm.role) ? GV.perm.role() : null;
+          var istisnaVar = (kural.istisnaRol || []).indexOf(rol) !== -1;
+          if(!istisnaVar || !opts.istisna || !opts.neden)
+            return { ok:false, why:'kapi', mesaj:g.why,
+                     istisnaMumkun:istisnaVar,
+                     roller:kural.istisnaRol || [] };
+          kapiUyari = 'YÖNETİCİ İSTİSNASI — ' + g.why;
+        } else if(g.gerekceZorunlu && !opts.neden){
+          return { ok:false, why:'gerekce', mesaj:g.uyari };
+        } else if(g.uyari){ kapiUyari = g.uyari; }
+      }
+
+      if(ek) Object.keys(ek).forEach(function(k){ rec[k] = ek[k]; });
+      rec[alan] = hedef;
+      if(opts.neden){ rec.sonNedenKodu = opts.neden; rec.sonNedenAciklama = opts.not || ''; }
+
+      /* Yan etkiler tek yerde — ekranda değil */
+      Flow.yanEtki(tur, rec, eski, hedef);
+
+      log(rec.kod,
+          (kapiUyari ? kapiUyari + ' · ' : '') + 'Durum değiştirildi' +
+          (opts.neden ? ' [' + opts.neden + ']' : '') + (opts.not ? ' — ' + opts.not : ''),
+          eski, hedef,
+          kapiUyari ? 'warn' : /Onay|Kabul|Tamam|Aktif|Kapandı/.test(hedef) ? 'ok'
+            : /İptal|Ret|Fesih|Kaybedildi/.test(hedef) ? 'danger' : 'info',
+          'i-refresh');
+      return { ok:true, kayit:rec, eski:eski, yeni:hedef,
+               istisna:!!kapiUyari, bildirim:kural.bildirim || [] };
+    },
+
+    /* Geçişin bağlı kayıtlarda doğurduğu sonuçlar. Şartname [6.1.6]:
+       "oluşacak domain olayları ve bağlı kayıtlar" sözleşmenin parçasıdır. */
+    yanEtki:function(tur, rec, eski, hedef){
+      /* İzin onayı → bakiye düşümü. ADR-06: kapı zaten aşımı engelledi,
+         burada clamp YOK — düşen gün gerçek gündür. */
+      if(tur === 'leave' && hedef === 'Onaylandı'){
+        var e = (DB.employees || []).filter(function(x){ return x.kod === rec.personel; })[0];
+        if(e && rec.tur !== 'Ücretsiz izin'){
+          var g = (GV.calendar && GV.calendar.isGunu) ? GV.calendar.isGunu(rec.baslangic, rec.bitis) : (rec.gun || 0);
+          rec.dusenGun = g;
+          e.izinBakiye = (e.izinBakiye || 0) - g;
+        }
+      }
+      /* İzin iptali → bakiye iadesi (eski kodda hiç yoktu) */
+      if(tur === 'leave' && eski === 'Onaylandı' && hedef === 'İptal edildi'){
+        var e2 = (DB.employees || []).filter(function(x){ return x.kod === rec.personel; })[0];
+        if(e2 && rec.dusenGun){ e2.izinBakiye = (e2.izinBakiye || 0) + rec.dusenGun; rec.dusenGun = 0; }
+      }
+      /* Departman talebi göreve dönüşünce görev bağı zorunlu (ADR-03) */
+      if(tur === 'request' && hedef === 'Göreve Dönüştürüldü' && !rec.gorev)
+        rec.gorevBekliyor = true;
+      /* Destek kapanışı → bakım kotası düşümü (ADR-10). Kapı aşımı engelledi. */
+      if(tur === 'ticket' && hedef === 'Kapandı' && !rec.ucretli){
+        var p = (GV.destek && GV.destek.paketOf) ? GV.destek.paketOf(rec) : null;
+        if(p && rec.harcananSure){
+          p.kullanilan = (p.kullanilan || 0) + rec.harcananSure;
+          p.kalan = (p.kalan || 0) - rec.harcananSure;
+          rec.kotadanDusuldu = rec.harcananSure;
+        }
+      }
+      /* Fatura belge iptali/iadesi → ödeme durumu yeniden türetilir */
+      if(tur === 'invoice' && GV.fin && GV.fin.durumTazele) GV.fin.durumTazele(rec);
+    },
+
+    /* Bir durum sözlüğünün tabloyla tutarlı olup olmadığı — canon ekseni için */
+    denetle:function(tur){
+      var tb = Flow.tablo(tur), t = Flow.tanim(tur);
+      if(!tb || !t || !window.DB || !DB[t.koleksiyon]) return null;
+      var bilinmeyen = [], yetim = [];
+      DB[t.koleksiyon].forEach(function(r){
+        if(!tb[r[t.alan]] && bilinmeyen.indexOf(r[t.alan]) === -1) bilinmeyen.push(r[t.alan]);
+      });
+      Object.keys(tb).forEach(function(d){
+        var k = tb[d];
+        (k.next || []).forEach(function(h){ if(!tb[h] && yetim.indexOf(h) === -1) yetim.push(h); });
+      });
+      return { tur:tur, kayit:DB[t.koleksiyon].length, bilinmeyenDurum:bilinmeyen, tablodaOlmayanHedef:yetim };
+    }
+  };
+
+  GV.flow  = Flow;
+  GV.gates = Gates;
+
+  /* ===================================================================
      FİNANS — fatura ↔ tahsilat ↔ taksit zinciri (VB-06 · VB-25)
      Zincir: sözleşme → taksit(milestone) → fatura → tahsilat(payment).
      Kapanış hangi uçtan tetiklenirse tetiklensin **tamamı** kapanır ve
@@ -542,14 +833,14 @@
        `kapali` = KAYIT kapandı (tamamlandı ya da iptal edildi).
        `bitti`  = İŞ teslim edildi — kapanış kaydı henüz yapılmamış olabilir.
                   Eski `durum !== 'Teslim'` cümlesinin birebir karşılığı budur;
-                  `Teslim Sürecinde` iş bitmiş ama defter kapanmamış projedir
+                  `Teslim` iş bitmiş ama defter kapanmamış projedir
                   (R07 kapanış akışının hedefi tam olarak o aralıktır).
        `arsivli`= kaydın defterden çekilmiş olması — ayrı eksendir; arşivli
                   olmayan tamamlanmış proje de mümkündür.
        `acik`   = işi bitmemiş ve arşivlenmemiş. Liste sekmeleri, dashboard
                   sayaçları ve "aktif proje" KPI'ları bunu çağırır. */
     kapaliDurumlar:['Tamamlandı','İptal Edildi'],
-    teslimDurumlari:['Teslim Sürecinde','Tamamlandı'],
+    teslimDurumlari:['Teslim','Kapanış','Tamamlandı'],
 
     kapali:function(p){
       p = Proje.kayit(p);
@@ -797,7 +1088,7 @@
      KALEMLERİN KAYNAĞI — ve kaynağı olmayan kalem
      · personel   Σ(onaylı saat × iç maliyet), kadrolu personel
      · disKaynak  aynı hesap, hizmet sözleşmeli personel
-     · satinAlma  Σ `DB.purchases[proje==kod && durum=='Teslim alındı']`
+     · satinAlma  Σ `DB.purchases[proje==kod && durum=='Tam Teslim']`
                   — talep aşamasındaki kayıt henüz maliyet değildir
      · diger      **KAYNAK YOK.** projeye bağlı ayrı bir gider koleksiyonu bilerek AÇILMADI
                   (talimat: "yeni finans modülü oluşturma"); projeye bağlı
@@ -828,7 +1119,7 @@
     });
 
     var satinAlma = (DB.purchases || []).filter(function(x){
-      return x.proje === kod && x.durum === 'Teslim alındı'; })
+      return x.proje === kod && ['Tam Teslim','Kapandı'].indexOf(x.durum) !== -1; })
       .reduce(function(a, x){ return a + (x.tahminiMaliyet || 0); }, 0);
 
     personel = Math.round(personel); disKaynak = Math.round(disKaynak);
@@ -862,9 +1153,24 @@
      bir maddeyi yeşile yazmak, kapanışı olmayan bir güvenceyle onaylatmak
      olurdu (L-13 · L-25). Ekran onu ayrı tonla basar.
 
-     Kapanış ENGELLENMEZ: geçmeyen madde uyarır, kullanıcı gerekçe yazarak
-     kapatır ve gerekçe aktiviteye girer. Doküman "kullanıcıya sade bir
-     checklist göster" diyor, "kapanışı kilitle" demiyor.
+     ⚠️ DURUŞ DEĞİŞTİ — CLOUD TURU · ADR-04.
+     Eskiden burada şu yazıyordu: "Kapanış ENGELLENMEZ: geçmeyen madde uyarır,
+     kullanıcı gerekçe yazarak kapatır. Doküman 'kullanıcıya sade bir checklist
+     göster' diyor, 'kapanışı kilitle' demiyor."
+
+     Cloud şartnamesi [20.2.7] bunun tersini emrediyor: "Proje kapanış kontrol
+     listesi tamamlanmadan projeyi tamamlamayı engelle." Faz 0 ölçümü bu
+     duruşun tek madde değil SİSTEMİK olduğunu gösterdi — aynı "uyar ama
+     engelleme" deseni teslimde, sözleşme aktivasyonunda ve bakım kotasında
+     da tekrarlıyordu; dördü birlikte kapatıldı.
+
+     Yeni kural:
+       · ÖLÇÜLEBİLEN ve geçmeyen madde varsa kapanış REDDEDİLİR.
+       · `sahip` / `gm` rolü neden kodu + açıklama ile geçebilir; istisna
+         aktiviteye "YÖNETİCİ İSTİSNASI" olarak yazılır.
+       · ÖLÇÜLEMEYEN madde (`olculdu:false`) kilit saymaz — veri yokluğunu
+         ihlal saymak, kaydı hiç olmayan eski projeleri kapatılamaz yapardı —
+         ama gerekçe ister.
      =================================================================== */
   var GOREV_ACIK = ['Tamamlandı', 'İptal edildi', 'Arşivlendi'];
 
@@ -939,19 +1245,43 @@
     ];
   };
 
-  /* Kapanışın KENDİSİ. Kontrolden geçmemiş madde varsa `gerekce` ZORUNLUDUR;
-     gerekçe uydurulmaz, kullanıcıdan alınır ve aktiviteye yazılır. */
-  Proje.kapat = function(kod, gerekce, tarih){
+  /* Kapanışın KENDİSİ — ADR-04 sonrası ENGELLEYİCİ.
+     `opts = { neden, aciklama, istisna }`. Geriye uyum için ikinci argüman
+     düz metin de olabilir (eski çağrı biçimi); o zaman açıklama sayılır. */
+  Proje.kapat = function(kod, opts, tarih){
+    if(typeof opts === 'string' || opts == null) opts = { aciklama:opts || '' };
     var p = Proje.kayit(kod);
     if(!p) return { ok:false, why:'kayıt yok' };
     if(Proje.kapali(p)) return { ok:false, why:'zaten kapalı', durum:p.durum };
     if(!can('duzenle')) return { ok:false, why:'yetki', roller:['pm','gm','sahip'] };
 
     var kontrol = Proje.kapanisKontrol(p.kod);
-    var gecmeyen = kontrol.filter(function(k){ return k.olculdu && !k.gecti; });
-    if(gecmeyen.length && !String(gerekce || '').trim())
-      return { ok:false, why:'gerekçe', eksik:gecmeyen.map(function(k){ return k.etiket; }) };
+    var gecmeyen  = kontrol.filter(function(k){ return k.olculdu && !k.gecti; });
+    var olculemez = kontrol.filter(function(k){ return !k.olculdu; });
+    var rol = (GV.perm && GV.perm.role) ? GV.perm.role() : null;
+    var istisnaRol = ['sahip','gm'].indexOf(rol) !== -1;
 
+    /* ADR-04 · KAPI: ölçülebilen ve geçmeyen madde kapanışı REDDEDER.
+       Yalnız sahip/gm neden kodu + açıklama ile geçebilir. */
+    if(gecmeyen.length){
+      if(!istisnaRol)
+        return { ok:false, why:'kapali', roller:['sahip','gm'],
+                 eksik:gecmeyen.map(function(k){ return k.etiket; }),
+                 mesaj:'Kapanış kontrolünde geçmeyen ' + gecmeyen.length +
+                       ' madde var. Bu maddeler tamamlanmadan proje kapatılamaz.' };
+      if(!opts.istisna || !opts.neden || !String(opts.aciklama || '').trim())
+        return { ok:false, why:'istisna', istisnaMumkun:true,
+                 eksik:gecmeyen.map(function(k){ return k.etiket; }),
+                 mesaj:'Yönetici istisnası için neden kodu ve açıklama zorunludur.' };
+    }
+    /* Ölçülemeyen madde kilit saymaz ama gerekçe ister */
+    if(!gecmeyen.length && olculemez.length && !String(opts.aciklama || '').trim())
+      return { ok:false, why:'gerekçe',
+               eksik:olculemez.map(function(k){ return k.etiket; }),
+               mesaj:'Kaydı olmadığı için ölçülemeyen ' + olculemez.length +
+                     ' madde var — kapanış gerekçesi zorunlu.' };
+
+    var gerekce = String(opts.aciklama || '');
     var gun = tarih || DB.today;
     var eski = p.durum;
     p.durum = 'Tamamlandı';
@@ -962,12 +1292,17 @@
 
     /* Aktivite ortak `log()` ile yazılır: kişi KOD olarak durur (VB-12) ve
        eski → yeni ekseni timeline'da görünür. Ekran ikinci bir kayıt yazmaz. */
-    log(p.kod, 'Proje kapatıldı — gerçekleşen bitiş ' + gun +
+    if(opts.neden){ p.sonNedenKodu = opts.neden; p.sonNedenAciklama = gerekce; }
+    log(p.kod, (gecmeyen.length ? 'YÖNETİCİ İSTİSNASI — ' : '') +
+        'Proje kapatıldı — gerçekleşen bitiş ' + gun +
         (gecmeyen.length
-          ? ' · kapanış kontrolünde geçmeyen ' + gecmeyen.length + ' madde gerekçeyle geçildi: ' + gerekce
-          : ' · kapanış kontrolünün ölçülebilen maddelerinin tamamı geçti'),
+          ? ' · kapanış kontrolünde geçmeyen ' + gecmeyen.length + ' madde [' +
+            opts.neden + '] gerekçesiyle geçildi: ' + gerekce
+          : olculemez.length
+            ? ' · ölçülemeyen ' + olculemez.length + ' madde gerekçeyle kapatıldı: ' + gerekce
+            : ' · kapanış kontrolünün ölçülebilen maddelerinin tamamı geçti'),
         eski, 'Tamamlandı', gecmeyen.length ? 'warn' : 'ok', 'i-check-circle');
-    return { ok:true, kod:p.kod, tarih:gun, gecmeyen:gecmeyen.length };
+    return { ok:true, kod:p.kod, tarih:gun, gecmeyen:gecmeyen.length, istisna:!!gecmeyen.length };
   };
 
   /* ===================================================================

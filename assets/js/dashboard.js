@@ -174,7 +174,7 @@
     /* Referansla gelen = yönlendiren kaydı olan her aday (kaynak etiketi
        "Referans", "İş ortağı", "Danışman", "Etkinlik" vb. olabilir) */
     var refLeads = leads.filter(function(l){ return !!l.referans; });
-    var openQuotes = DB.quotes.filter(function(q){ return ['İletildi','Müşteri değerlendirmesinde','Teklif hazırlanıyor','Taslak'].indexOf(q.durum) !== -1; });
+    var openQuotes = DB.quotes.filter(function(q){ return ['Taslak','İç Onay','Onaylandı','Gönderildi','Müşteri İncelemesi','Müzakere/Revizyon'].indexOf(q.durum) !== -1; });
     var latePay = DB.payments.filter(function(p){ return p.durum === 'Gecikti'; });
     var riskCust = cust.filter(function(c){ return c.risk === 'Yüksek' || c.durum === 'Riskli'; });
     var policyWarn = DB.policies.filter(function(p){ return p.kalanGun <= 60; });
@@ -616,7 +616,7 @@
     var newReq = pr.filter(function(p){ return p.durum === 'Taslak' || p.durum === 'Onay bekliyor'; });
     var waitApproval = pr.filter(function(p){ return p.durum === 'Onay bekliyor'; });
     var waitQuote = pr.filter(function(p){ return p.durum === 'Teklif bekleniyor' || (p.durum === 'Onay bekliyor' && !DB.supplierQuotes.some(function(q){ return q.talep === p.kod; })); });
-    var lateOrders = DB.orders.filter(function(o){ return o.durum === 'Sipariş verildi' && days(o.teslimTarihi) < 0; });
+    var lateOrders = DB.orders.filter(function(o){ return ['Sipariş','Kısmi Teslim'].indexOf(o.durum) !== -1 && days(o.teslimTarihi) < 0; });
     var waitAssign = DB.assets.filter(function(a){ return a.durum === 'Depoda'; });
     var maintSoon = DB.maintenance.filter(function(m){ return m.durum === 'Yaklaşıyor' || m.durum === 'Serviste'; });
     var inspSoon = DB.inspections.filter(function(i){ return i.kalanGun <= 60; });

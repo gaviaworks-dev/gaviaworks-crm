@@ -53,8 +53,13 @@ DB.impacts = ['Çok yüksek','Yüksek','Orta','Düşük'];
    Faz alanına uydurma değer YAZILMADI (L-13): kapanmış 7 projenin ne modülü
    ne görevi ne sprinti var, yani hangi fazda bittikleri türetilebilir bir
    bilgi değil. `faz:null` "faz kaydı yok" demektir, ekranlar öyle basar. */
-DB.projectStatuses = ['Planlama','Aktif','Kontrol / Test','Teslim Sürecinde',
-  'Askıda','Tamamlandı','İptal Edildi'];
+/* CLOUD TURU · ADR-01 — sözlük şartname [5.2.1]'e hizalandı.
+   `Planlama`→`Plan` · `Kontrol / Test`→`Test/Kabul` · `Teslim Sürecinde`→`Teslim`
+   · `Askıda`→`Beklemede`; `Başlatma Onayı` ve `Kapanış` eklendi. Taşınan üç
+   kayıt `DB.statusMigration.project` haritasında eski adıyla durur.
+   Geçiş kuralı `DB.transitions.project` — durum artık serbest seçilmez. */
+DB.projectStatuses = ['Plan','Başlatma Onayı','Aktif','Beklemede','Test/Kabul',
+  'Teslim','Kapanış','Tamamlandı','İptal Edildi','Arşivlendi'];
 DB.healthLevels    = ['İyi','Dikkat','Riskli'];
 /* Faz ekseni İKİ AİLEDİR ve ikisi de meşrudur (talimat REVİZE 05): iş
    kırılımı fazı (`Analiz · Tasarım · Geliştirme · Test`) ya da numaralı faz
@@ -75,9 +80,15 @@ DB.projectSources  = ['Müşteri Sözleşmesi','İç Proje','Satış Öncesi / P
    silmeden önce o adı kullanan HER koleksiyon aranır). 15 modülün 15'i bu
    dört değerden birini taşıyor; sözlüğü yoktu, açıldı. */
 DB.moduleStatuses  = ['Planlama','Geliştirme','Test','Tamamlandı'];
-DB.bugStatuses     = ['Açık','Devam ediyor','Kapandı'];
+/* CLOUD TURU — şartname [9.2.1]/[9.2.2]. `Açık`→`Yeni`; ara ve yan
+   durumlar eklendi. Geçiş kuralı `DB.transitions.bug`. */
+DB.bugStatuses     = ['Yeni','Triage','Atandı','Devam ediyor','Düzeltildi',
+  'Yeniden Test','Kapandı','Yeniden Açıldı','Reddedildi','Mükerrer'];
 DB.reproLevels     = ['Her zaman','Bazen','Nadiren','Tekrarlanamadı'];
-DB.testResults     = ['Başarılı','Kısmi','Başarısız'];
+/* CLOUD TURU — şartname [9.1.3] `Passed/Failed/Blocked/Not Run` istiyor.
+   Türkçe karşılıkları alındı; `Kısmi` şartnamede yok ama veride kullanılan
+   bir sonuç değildi (0 kayıt) — çıkarıldı, `Engellendi` ve `Koşulmadı` geldi. */
+DB.testResults     = ['Başarılı','Başarısız','Engellendi','Koşulmadı'];
 
 /* Durum geçiş kuralları — yetki + zorunlu alan + bildirim (REVİZE 02)
    ─────────────────────────────────────────────────────────────────────
@@ -171,7 +182,7 @@ DB.taskActionLabels = {
    kartında), bu proje kaynağıdır. */
 DB.projects = [
   { kod:'PRJ-2026-001', ad:'Vitalis Hasta Randevu Mobil Uygulaması', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu',
-    pm:'EMP-003', ekip:['EMP-004','EMP-008','EMP-005','EMP-009'], durum:'Kontrol / Test', saglik:'Riskli',
+    pm:'EMP-003', ekip:['EMP-004','EMP-008','EMP-005','EMP-009'], durum:'Test/Kabul', saglik:'Riskli',
     baslangic:'2026-03-02', planlananBitis:'2026-08-14', gercekBitis:null, ilerleme:82,
     sozlesmeTutari:880000, butce:540000, tahminiSure:1240,
     kaynak:'Müşteri Sözleşmesi', tur:'Mobil Uygulama', oncelik:'Yüksek', faz:'Faz 1',
@@ -201,7 +212,7 @@ DB.projects = [
     riskler:['Kapsam büyümesi','Logo entegrasyon dokümantasyonu yetersiz'],
     gecikmeNedeni:'Faz 2 kapsam tartışması Faz 1 testini yavaşlattı', sonGuncelleme:'2026-08-01' },
   { kod:'PRJ-2026-004', ad:'Öz Gıda Üretim Takip ve Fire Raporlama', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.',
-    pm:'EMP-003', ekip:['EMP-006','EMP-005'], durum:'Teslim Sürecinde', saglik:'İyi',
+    pm:'EMP-003', ekip:['EMP-006','EMP-005'], durum:'Teslim', saglik:'İyi',
     baslangic:'2026-05-18', planlananBitis:'2026-07-24', gercekBitis:'2026-07-22', ilerleme:100,
     sozlesmeTutari:295000, butce:210000, tahminiSure:460,
     kaynak:'Müşteri Sözleşmesi', tur:'Süreç Otomasyonu', oncelik:'Orta', faz:'Faz 1',
@@ -229,7 +240,7 @@ DB.projects = [
     riskler:['Bütçe %16 aşıldı','Müşteri memnuniyeti düşük','7 revizyon turu'],
     gecikmeNedeni:'Kapsam dışı revizyon talepleri kabul edildi', sonGuncelleme:'2026-07-29' },
   { kod:'PRJ-2026-007', ad:'Ege Eğitim Veli Portalı', musteri:'MUS-2025-004', musteriAd:'Ege Eğitim Kurumları',
-    pm:'EMP-003', ekip:['EMP-006','EMP-004'], durum:'Planlama', saglik:'İyi',
+    pm:'EMP-003', ekip:['EMP-006','EMP-004'], durum:'Plan', saglik:'İyi',
     baslangic:'2026-08-18', planlananBitis:'2026-10-16', gercekBitis:null, ilerleme:6,
     sozlesmeTutari:336000, butce:200000, tahminiSure:420,
     kaynak:'Satış Öncesi / PoC', tur:'Web Uygulaması', oncelik:'Orta', faz:'Faz 1',
@@ -813,32 +824,32 @@ DB.deptRequests = [
     tur:'Ön analiz talebi', musteri:null, proje:null, baslik:'Zirve Market POS entegrasyon fizibilitesi',
     aciklama:'Mevcut POS sağlayıcısının API kısıtları değerlendirilsin.', oncelik:'Yüksek',
     termin:'2026-08-04', beklenenCikti:'Yazılı fizibilite notu', kabulKriteri:'Risk ve efor tahmini içermeli',
-    durum:'Devam ediyor', onay:'Onaylandı', olusturma:'2026-07-31', tamamlanma:null, aktif:true },
+    durum:'Göreve Dönüştürüldü', onay:'Onaylandı', olusturma:'2026-07-31', tamamlanma:null, aktif:true },
   { kod:'TLP-2026-042', talepEdenDep:'DEP-05', talepEdilenDep:'DEP-06', talepEden:'EMP-003', sorumlu:'EMP-004',
     tur:'Ekran tasarım talebi', musteri:'MUS-2025-005', proje:'PRJ-2026-003',
     baslik:'Rapor merkezi 8 ekran tasarımı', aciklama:'Faz 1 rapor modülü ekranları.', oncelik:'Orta',
     termin:'2026-08-16', beklenenCikti:'Figma dosyası', kabulKriteri:'3 kırılımda tasarım',
-    durum:'Bekliyor', onay:'Onaylandı', olusturma:'2026-08-01', tamamlanma:null, aktif:true },
+    durum:'Gönderildi', onay:'Onaylandı', olusturma:'2026-08-01', tamamlanma:null, aktif:true },
   { kod:'TLP-2026-043', talepEdenDep:'DEP-08', talepEdilenDep:'DEP-11', talepEden:'EMP-005', sorumlu:'EMP-009',
     tur:'Test talebi', musteri:'MUS-2025-005', proje:'PRJ-2026-003',
     baslik:'Faz 1 kabul testi senaryoları', aciklama:'Müşteri kabul testi öncesi senaryo seti.', oncelik:'Orta',
     termin:'2026-08-20', beklenenCikti:'Senaryo dokümanı', kabulKriteri:'Ana akışların tamamı',
-    durum:'Bekliyor', onay:'Bekliyor', olusturma:'2026-08-02', tamamlanma:null, aktif:true },
+    durum:'Gönderildi', onay:'Bekliyor', olusturma:'2026-08-02', tamamlanma:null, aktif:true },
   { kod:'TLP-2026-044', talepEdenDep:'DEP-13', talepEdilenDep:'DEP-07', talepEden:'EMP-013', sorumlu:'EMP-006',
     tur:'Hata çözüm talebi', musteri:'MUS-2026-010', proje:'PRJ-2026-006',
     baslik:'Randevu formunda tarih seçici mobilde açılmıyor', aciklama:'Müşteri destek kaydından geldi.',
     oncelik:'Kritik', termin:'2026-08-05', beklenenCikti:'Düzeltme', kabulKriteri:'iOS ve Android doğrulama',
-    durum:'Devam ediyor', onay:'Onaylandı', olusturma:'2026-07-30', tamamlanma:null, aktif:true },
+    durum:'Göreve Dönüştürüldü', onay:'Onaylandı', olusturma:'2026-07-30', tamamlanma:null, aktif:true },
   { kod:'TLP-2026-045', talepEdenDep:'DEP-07', talepEdilenDep:'DEP-16', talepEden:'EMP-006', sorumlu:'EMP-012',
     tur:'Ekipman talebi', musteri:null, proje:null, baslik:'Test için ikinci monitör',
     aciklama:'Çift ekran çalışma ihtiyacı.', oncelik:'Düşük', termin:'2026-08-22',
     beklenenCikti:'Zimmetli monitör', kabulKriteri:'27 inç, USB-C',
-    durum:'Bekliyor', onay:'Bekliyor', olusturma:'2026-07-29', tamamlanma:null, aktif:true },
+    durum:'Gönderildi', onay:'Bekliyor', olusturma:'2026-07-29', tamamlanma:null, aktif:true },
   { kod:'TLP-2026-040', talepEdenDep:'DEP-15', talepEdilenDep:'DEP-02', talepEden:'EMP-012', sorumlu:'EMP-002',
     tur:'Eksik bilgi talebi', musteri:'MUS-2025-003', proje:null,
     baslik:'Anadolu Perakende fatura adresi güncellenmeli', aciklama:'e-Fatura reddedildi.',
     oncelik:'Yüksek', termin:'2026-07-28', beklenenCikti:'Güncel adres', kabulKriteri:'Yazılı teyit',
-    durum:'Tamamlandı', onay:'Onaylandı', olusturma:'2026-07-24', tamamlanma:'2026-07-27', aktif:true }
+    durum:'Kabul', onay:'Onaylandı', olusturma:'2026-07-24', tamamlanma:'2026-07-27', aktif:true }
 ];
 
 /* ---- Hatalar ----------------------------------------------------------- */
@@ -858,11 +869,11 @@ DB.bugs = [
     bulunma:'2026-07-30', cozum:null, ortam:'iOS 17.4', tekrarlanabilir:'Her zaman', gorev:'GRV-2026-101',
     test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-072', proje:'PRJ-2026-001', baslik:'Randevu listesi 50+ kayıtta yavaşlıyor', modul:'MOD-001',
-    siddet:'Orta', oncelik:'Orta', durum:'Açık', bulan:'EMP-009', sorumlu:'EMP-008',
+    siddet:'Orta', oncelik:'Orta', durum:'Yeni', bulan:'EMP-009', sorumlu:'EMP-008',
     bulunma:'2026-07-30', cozum:null, ortam:'Android 14', tekrarlanabilir:'Bazen', gorev:null,
     test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-073', proje:'PRJ-2026-001', baslik:'Bildirim zamanı yanlış saat diliminde', modul:'MOD-003',
-    siddet:'Yüksek', oncelik:'Yüksek', durum:'Açık', bulan:'EMP-009', sorumlu:'EMP-005',
+    siddet:'Yüksek', oncelik:'Yüksek', durum:'Yeni', bulan:'EMP-009', sorumlu:'EMP-005',
     bulunma:'2026-07-31', cozum:null, ortam:'Tümü', tekrarlanabilir:'Her zaman', gorev:null,
     test:'TST-2026-018', sprint:'SPR-2026-018', destek:null, aktif:true },
   { kod:'HTA-2026-074', proje:'PRJ-2026-006', baslik:'Tarih seçici mobilde açılmıyor', modul:'MOD-015',
@@ -874,7 +885,7 @@ DB.bugs = [
     bulunma:'2026-07-18', cozum:'2026-07-24', ortam:'Web', tekrarlanabilir:'Her zaman', gorev:null,
     test:null, sprint:'SPR-2026-020', destek:'DST-2026-122', aktif:true },
   { kod:'HTA-2026-076', proje:'PRJ-2026-005', baslik:'Takvimde geçmiş tarihler seçilebiliyor', modul:'MOD-013',
-    siddet:'Düşük', oncelik:'Düşük', durum:'Açık', bulan:'EMP-016', sorumlu:'EMP-006',
+    siddet:'Düşük', oncelik:'Düşük', durum:'Yeni', bulan:'EMP-016', sorumlu:'EMP-006',
     bulunma:'2026-08-01', cozum:null, ortam:'Web', tekrarlanabilir:'Her zaman', gorev:null,
     test:null, sprint:'SPR-2026-022', destek:null, aktif:true }
 ];
@@ -921,19 +932,19 @@ DB.tests = [
    kırılımı veride yok (PRJ-2026-004), teslim proje ekseninde okunur.
    `test` = teslimi kabule bağlayan test koşumu; null = teslim bir kabul koşumuna bağlı değil. */
 DB.deliveries = [
-  { kod:'TSL-2026-031', proje:'PRJ-2026-001', milestone:'MS-001', ad:'Beta sürüm (v0.9)', tarih:'2026-07-10', durum:'Onaylandı',
+  { kod:'TSL-2026-031', proje:'PRJ-2026-001', milestone:'MS-001', ad:'Beta sürüm (v0.9)', tarih:'2026-07-10', durum:'Kabul',
     teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-14', not:'Test cihazlarına dağıtıldı',
     moduller:['MOD-001','MOD-002','MOD-003'], test:null, aktif:true },
-  { kod:'TSL-2026-032', proje:'PRJ-2026-004', milestone:'MS-009', ad:'Üretim takip v1.0 canlı', tarih:'2026-07-22', durum:'Onaylandı',
+  { kod:'TSL-2026-032', proje:'PRJ-2026-004', milestone:'MS-009', ad:'Üretim takip v1.0 canlı', tarih:'2026-07-22', durum:'Kabul',
     teslimEden:'EMP-003', musteriOnay:'Onaylandı', onayTarihi:'2026-07-25', not:'Sorunsuz geçiş',
     moduller:[], test:null, aktif:true },
-  { kod:'TSL-2026-033', proje:'PRJ-2026-002', milestone:'MS-003', ad:'POC sonuç paketi', tarih:'2026-07-25', durum:'Onaylandı',
+  { kod:'TSL-2026-033', proje:'PRJ-2026-002', milestone:'MS-003', ad:'POC sonuç paketi', tarih:'2026-07-25', durum:'Kabul',
     teslimEden:'EMP-007', musteriOnay:'Onaylandı', onayTarihi:'2026-07-29', not:'Doğruluk %87',
     moduller:['MOD-005','MOD-006'], test:null, aktif:true },
-  { kod:'TSL-2026-034', proje:'PRJ-2026-003', milestone:'MS-005', ad:'Faz 1 modül paketi', tarih:'2026-08-29', durum:'Planlandı',
+  { kod:'TSL-2026-034', proje:'PRJ-2026-003', milestone:'MS-005', ad:'Faz 1 modül paketi', tarih:'2026-08-29', durum:'Taslak',
     teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Kabul testi sonrası',
     moduller:['MOD-009','MOD-010','MOD-011'], test:'TST-2026-022', aktif:true },
-  { kod:'TSL-2026-035', proje:'PRJ-2026-006', milestone:'MS-008', ad:'Randevu sistemi canlı', tarih:'2026-06-26', durum:'Gecikti',
+  { kod:'TSL-2026-035', proje:'PRJ-2026-006', milestone:'MS-008', ad:'Randevu sistemi canlı', tarih:'2026-06-26', durum:'Müşteriye Gönderildi',
     teslimEden:'EMP-003', musteriOnay:'Bekliyor', onayTarihi:null, not:'Revizyon turu devam ediyor',
     moduller:['MOD-015'], test:null, aktif:true }
 ];
@@ -953,7 +964,7 @@ DB.deliveries = [
    `destek` null = değişiklik talebi bir destek talebinden doğmadı. */
 DB.changeRequests = [
   { kod:'DGS-2026-012', proje:'PRJ-2026-006', baslik:'Randevu adımlarının sırası değiştirilsin',
-    talep:'Müşteri', tarih:'2026-07-25', etkiSure:12, etkiMaliyet:38000, durum:'Onay bekliyor',
+    talep:'Müşteri', tarih:'2026-07-25', etkiSure:12, etkiMaliyet:38000, durum:'İç Onay',
     kapsamIci:false, karar:'Ek teklif gerekiyor', sorumlu:'EMP-003', destek:null, aktif:true },
   { kod:'DGS-2026-013', proje:'PRJ-2026-003', baslik:'Rapor merkezine 3 yeni rapor eklensin',
     talep:'Müşteri', tarih:'2026-07-18', etkiSure:60, etkiMaliyet:145000, durum:'Onaylandı',
@@ -962,13 +973,13 @@ DB.changeRequests = [
     talep:'Müşteri', tarih:'2026-07-12', etkiSure:6, etkiMaliyet:0, durum:'Reddedildi',
     kapsamIci:false, karar:'Store yayını sonrası değerlendirilecek', sorumlu:'EMP-003', destek:null, aktif:true },
   { kod:'DGS-2026-015', proje:'PRJ-2026-005', baslik:'Ödeme sağlayıcı iyzico yerine PayTR olsun',
-    talep:'Müşteri', tarih:'2026-07-28', etkiSure:16, etkiMaliyet:22000, durum:'Değerlendiriliyor',
+    talep:'Müşteri', tarih:'2026-07-28', etkiSure:16, etkiMaliyet:22000, durum:'Etki Analizi',
     kapsamIci:false, karar:'—', sorumlu:'EMP-003', destek:null, aktif:true },
   /* Destek talebinden doğan değişiklik talebi (§18 · §22 madde 17).
      DST-2026-120 kapsam dışı ve ücretli bir "Geliştirme talebi"ydi; değerlendirme
      ek teklif yoluna girdi. `etkiMaliyet` NET eksende (KDV hariç). */
   { kod:'DGS-2026-016', proje:'PRJ-2025-008', baslik:'Sevkiyat raporuna araç filtresi eklensin',
-    talep:'Müşteri', tarih:'2026-07-30', etkiSure:10, etkiMaliyet:18000, durum:'Onay bekliyor',
+    talep:'Müşteri', tarih:'2026-07-30', etkiSure:10, etkiMaliyet:18000, durum:'İç Onay',
     kapsamIci:false, karar:'Ek teklif gerekiyor', sorumlu:'EMP-003', destek:'DST-2026-120', aktif:true }
 ];
 

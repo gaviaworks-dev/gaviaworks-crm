@@ -175,6 +175,24 @@
        `İptal` zaten yukarıda genel eksende tanımlı. */
     'Planlama':'info', 'Geliştirme':'accent', 'Test':'purple', 'Askıda':'warn',
     'Kontrol / Test':'purple', 'Teslim Sürecinde':'info', 'İptal Edildi':'neutral',
+    /* CLOUD TURU — şartnameye hizalanan yeni durum adları. Eski adlar
+       SİLİNMEDİ (L-33): `Teslim Sürecinde` ve `Kontrol / Test` başka
+       koleksiyonlarda ve geçmiş aktivite kayıtlarında yaşamayı sürdürüyor. */
+    'Plan':'neutral', 'Başlatma Onayı':'warn', 'Beklemede':'warn', 'Test/Kabul':'purple',
+    'Kapanış':'info', 'Arşivlendi':'neutral',
+    'İç İnceleme':'warn', 'Müşteri İncelemesi':'warn', 'İmza':'purple', 'Askıda':'warn',
+    'Yenileme/Zeyil':'info', 'Feshedildi':'danger',
+    'İç Onay':'warn', 'Gönderildi':'purple', 'Müzakere/Revizyon':'warn', 'Süresi Doldu':'neutral',
+    'Teknik İnceleme':'warn', 'İade/Revizyon':'warn',
+    'Triage':'warn', 'Düzeltildi':'ok', 'Yeniden Test':'purple', 'Mükerrer':'neutral',
+    'Müşteri Onayı':'warn', 'Kapandı':'ok',
+    'Onaya Gönderildi':'warn', 'İnceleme':'warn', 'RFQ/Satın Alma':'info', 'Sipariş':'info',
+    'Kısmi Teslim':'warn', 'Tam Teslim':'ok',
+    'İç Kontrol':'warn', 'Müşteriye Gönderildi':'purple', 'Kabul':'ok', 'Kısmi Kabul':'warn',
+    'Geri Çekildi':'neutral', 'Etki Analizi':'warn', 'Ticari Onay':'warn', 'Uygulama':'accent',
+    'Ek Bilgi/Revizyon':'warn', 'Göreve Dönüştürüldü':'ok',
+    'Vadesi Geçti':'danger', 'Kısmi Ödendi':'warn',
+    'Engellendi':'danger', 'Koşulmadı':'neutral',
     'Gecikti':'danger', 'Yaklaşıyor':'warn', 'Zamanında':'ok', 'Tamam':'ok',
     'Ödendi':'ok', 'Kısmi':'warn', 'Ödenmedi':'danger', 'İletildi':'purple',
     'Serviste':'warn', 'Tahsisli':'info', 'Ortak kullanım':'accent', 'Kiralık':'info',
