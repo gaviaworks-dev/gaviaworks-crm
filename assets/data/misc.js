@@ -624,3 +624,26 @@ DB.paymentAllocations = [
   { tahsilat:'THS-2026-040', fatura:'FTR-2026-026', tutar:300000, tarih:'2026-07-04', yontem:'Havale', turetilmis:true },
   { tahsilat:'THS-2026-048', fatura:'FTR-2026-022', tutar:106200, tarih:'2026-07-29', yontem:'Havale', turetilmis:true }
 ];
+
+/* =====================================================================
+   ENTEGRASYON HATA KUYRUĞU — şartname [13.0.13] · P0
+   ---------------------------------------------------------------------
+   ⚠️ KOLEKSİYON BOŞ VE BU BİLEREK BÖYLEDİR.
+   Şartname bu ekranı P0 sayıyor: kullanıcı hatayı, etkilenen kaydı, deneme
+   sayısını, son mesajı, güvenli payload özetini, önerilen çözümü ve tekrar
+   çalıştırma sonucunu görebilmeli.
+
+   Bu prototipte GERÇEK BİR ENTEGRASYON KOŞUMU YOK — `DB.integrations`
+   yalnız bağlantı tanımlarını taşıyor, hiçbiri çalışmıyor. Dolayısıyla
+   yazılabilecek tek dürüst değer boş listedir. Örnek hata kaydı uydurmak,
+   çalışmayan bir entegrasyonun çalıştığını ve hata verdiğini iddia etmek
+   olurdu (L-13).
+
+   Boş liste ile ÖLÇÜLEMEDİ aynı şey değildir ve ekranlar ikisini ayırır:
+   `app-veri-kalitesi.html` K6 kontrolü "koşum kaydı yok, kontrol yapılamadı"
+   der — "hata yok" demez.
+
+   Şema (kayıt yazıldığında): kod · entegrasyon · olayTipi · kayit · deneme ·
+   sonMesaj · payloadOzet · onerilenCozum · durum · ilkGorulme · sonGorulme ·
+   replaySonuc. Sunucu tarafı kuyruk gelene kadar bu liste dolmaz. */
+DB.integrationErrors = [];
