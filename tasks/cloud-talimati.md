@@ -1,5 +1,17 @@
 # GaviaWorks Cloud Tam Revizyon ve Uygulama Promptu
 
+> **Ad hakkında — deşifre hatası.** Bu turun ve bu dosyanın adındaki "Cloud"
+> bir **deşifre hatasıdır**: ses kaydında **"Claude"** denmiş, metne "Cloud"
+> olarak geçmiş. Kapsam **bulut altyapısı değildir** — ne bulut mimarisi, ne
+> dağıtım, ne barındırma. Kasıt **üretime hazırlık**: prototipin sunucu
+> doğrulaması, kalıcı veri modeli, satır/alan yetkisi, denetim izi ve otomatik
+> testleri olan bir ürüne dönüştürülmesi.
+>
+> Dosya adları **bilerek değiştirilmedi**: `tasks/cloud-*.md`, `docs/P-cloud-*`,
+> `docs/Q-cloud-*` adlarıyla commit geçmişinde, plan referanslarında ve
+> `handoff.md` içinde geçiyor. Adı düzeltmek bu bağların hepsini kırardı;
+> yanlış olan ad değil, adın çağrıştırdığı kapsamdır ve bu not onu kapatır.
+
 ## Kullanım amacı
 
 Bu doküman, **GaviaWorks – Yazılım ve Yapay Zekâ Şirketleri İçin CRM, Proje ve Operasyon Yönetim Platformu** prototipinin üretime hazır bir ürüne dönüştürülmesi için Cloud/AI geliştiriciye verilecek tek parça ana uygulama promptudur. Aşağıdaki maddeler öneri değil, aksi açıkça belirtilmedikçe bağlayıcı ürün, tasarım, veri, yetki, iş akışı ve kabul kriteridir.

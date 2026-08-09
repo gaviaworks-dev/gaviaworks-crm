@@ -1,5 +1,17 @@
 # Q. Cloud Turu — Kapanış Raporu
 
+> **Ad hakkında — deşifre hatası.** Bu turun ve bu dosyanın adındaki "Cloud"
+> bir **deşifre hatasıdır**: ses kaydında **"Claude"** denmiş, metne "Cloud"
+> olarak geçmiş. Kapsam **bulut altyapısı değildir** — ne bulut mimarisi, ne
+> dağıtım, ne barındırma. Kasıt **üretime hazırlık**: prototipin sunucu
+> doğrulaması, kalıcı veri modeli, satır/alan yetkisi, denetim izi ve otomatik
+> testleri olan bir ürüne dönüştürülmesi.
+>
+> Dosya adları **bilerek değiştirilmedi**: `tasks/cloud-*.md`, `docs/P-cloud-*`,
+> `docs/Q-cloud-*` adlarıyla commit geçmişinde, plan referanslarında ve
+> `handoff.md` içinde geçiyor. Adı düzeltmek bu bağların hepsini kırardı;
+> yanlış olan ad değil, adın çağrıştırdığı kapsamdır ve bu not onu kapatır.
+
 **Kaynak şartname:** `tasks/cloud-talimati.md` (23 bölüm · 519 madde)
 **Ölçüm:** `docs/P-cloud-gap-analizi.md` · **Kararlar:** `tasks/cloud-kararlar.md`
 **Plan:** `tasks/cloud-plan.md` · **Açık sorular:** `tasks/cloud-acik-sorular.md`
