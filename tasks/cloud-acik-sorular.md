@@ -258,4 +258,4 @@ Bugün 105/105 raporda grafik var; "sırf görsel olsun diye ekleme" ölçütü 
 | AS-6 Kapsam, konumlandırma, tasarım kaynağı | 7 |
 | **TOPLAM** | **50** |
 
-⛔ işaretli, uygulama öncesi zorunlu karar: **15 madde**
+Öncelik dağılımı: ⛔ uygulama öncesi zorunlu **17** · ⚠️ ilgili iş paketi öncesi **30** · ○ ertelenebilir **3**
