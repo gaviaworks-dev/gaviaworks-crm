@@ -15,6 +15,41 @@ Plan bunu şöyle karşılıyor: her paket **prototip payı** ve **backend payı
 
 ---
 
+## Uygulama durumu — canlı
+
+Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/flow.js`.
+
+| Paket | Durum | Kanıt |
+|---|---|---|
+| P0-00 Faz 0 çıktıları | ✅ bitti | 5 belge · 519 madde ölçüldü |
+| P1-01 Merkezî geçiş motoru | ✅ bitti | `GV.flow` · 14 varlık · `flow.js` 0 bulgu |
+| P1-02 Ortak eylem penceresi | ✅ bitti | `GV.action` · 7 bileşen · boş gönderim reddediliyor |
+| P1-03 Onay motoru | ✅ bitti | `GV.approval` · zincir 1/3→3/3 · kaynak kayıt geçiyor |
+| P1-04 Yetki + tek audit defteri | ⏳ kısmi | `GV.flow`/`GV.approval` log yazıyor; `DB.logs` hâlâ ayrı |
+| P1-05 Finansal kanonik kaynak | ✅ bitti | `DB.paymentAllocations` · tek `GV.fin.balance` |
+| P1-06 İş takvimi / SLA | ✅ bitti | `GV.calendar` · `DB.holidays` · bekleme politikası |
+| P1-07 Veri kalitesi sayfası | ⏳ ajanda | — |
+| P1-08 Entegrasyon hata kuyruğu | ⛔ başlanmadı | — |
+| P1-09 Notlarım test ağı | ⛔ başlanmadı | modül yazılmadan test yazılacak |
+| P2-01 CreateEditPage | ✅ motor bitti | `GV.form` sekme + sağ panel + sekme bazlı hata |
+| P2-02 Kayıt sonrası detay | ⛔ başlanmadı | 34 formun `kaydet()` sonu |
+| P2-03 Demo temizliği | ⛔ başlanmadı | 26 ekranda geliştirici notu |
+| P3-01 Satış zinciri | ⏳ kısmi | teklif ekranları motora bağlandı; dönüşüm sihirbazı yok |
+| P3-02 Sözleşme + plan + milestone | ⏳ ajanda | ödeme planı ekranları ajanda |
+| P3-03 Kalite zinciri | ⏳ kısmi | hata/teslim motora bağlandı; test varlıkları yok |
+| P3-04 Satın alma zinciri | ⏳ kısmi | onaya gönderme + motor bağlandı; tedarikçi faturası yok |
+| P3-05 Tahsilat formu | ⏳ ajanda | motor hazır (`GV.fin.tahsisEt`) |
+| P3-06 İK zinciri | ⛔ başlanmadı | yaşam döngüsü, onboarding, zimmet kabulü |
+| P3-07 Destek zinciri | ⏳ kısmi | motor + kota düşümü bağlandı; bilgi bankası yok |
+| P4-01 ReportRegistry | ⛔ başlanmadı | — |
+| P4-02 Export servisi | ⛔ başlanmadı | — |
+| P4-03 Notlarım modülü | ⛔ başlanmadı | — |
+| P5-01…P5-06 | ⛔ başlanmadı | büyük ölçüde backend |
+
+**ADR:** 17 blokaj sorusu `tasks/cloud-kararlar.md` içinde karara bağlandı; 4'ü 🔸 teyit bekliyor.
+
+---
+
 # FAZ 0 — Envanter ve güvenlik ağı ([21.0.1])
 
 ## P0-00 · Faz 0 çıktılarının tamamlanması
