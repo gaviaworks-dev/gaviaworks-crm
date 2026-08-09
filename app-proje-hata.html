@@ -29,7 +29,13 @@ document.addEventListener('gv:ready', function(){
   var modul    = function(kod){ return DB.projectModules.filter(function(m){ return m.kod === kod; })[0] || null; };
   var modulAd  = function(kod){ var m = modul(kod); return m ? m.ad : null; };
   var gorev    = function(kod){ return DB.tasks.filter(function(t){ return t.kod === kod; })[0] || null; };
-  var acik     = function(b){ return b.durum !== 'Kapandı'; };
+  /* Hata sözlüğü şartnameye hizalandı (`DB.bugStatuses`): kapanış ÜÇ durumla
+     anlatılır — Kapandı · Reddedildi · Mükerrer. `durum !== 'Kapandı'`
+     reddedilmiş ya da mükerrer sayılmış kaydı açık gösterirdi; motorun
+     kapıları (`Gates.projeTeslim` · `Gates.teslimKritikHata`) da bu üçlüyü
+     kullanıyor, ekran onunla aynı cümleyi kurar. */
+  var KAPALI   = ['Kapandı','Reddedildi','Mükerrer'];
+  var acik     = function(b){ return KAPALI.indexOf(b.durum) === -1; };
   var agir     = function(b){ return b.siddet === 'Kritik' || b.siddet === 'Yüksek'; };
   var bagsiz   = function(b){ return !b.gorev; };
 
@@ -109,9 +115,13 @@ document.addEventListener('gv:ready', function(){
 
     tabs:[
       { key:'tumu',   label:'Tümü',                 icon:'i-list',         filter:null },
-      { key:'acik',   label:'Açık',                 icon:'i-alert-circle', filter:function(b){ return b.durum === 'Açık'; } },
+      /* Eski “Açık” sekmesi tek bir durumu (`durum === 'Açık'`) süzüyordu ve o
+         değer sözlükten kalktı. İki ayrı soru vardı, ikisi de burada:
+         “kapanmamış olanlar” (KPI ile aynı ölçüt) ve “henüz triage edilmemiş”. */
+      { key:'acik',   label:'Açık',                 icon:'i-alert-circle', filter:acik },
+      { key:'yeni',   label:'Yeni',                 icon:'i-inbox',        filter:function(b){ return b.durum === 'Yeni'; } },
       { key:'devam',  label:'Devam Edenler',        icon:'i-play',         filter:function(b){ return b.durum === 'Devam ediyor'; } },
-      { key:'kapali', label:'Kapananlar',           icon:'i-check-circle', filter:function(b){ return b.durum === 'Kapandı'; } },
+      { key:'kapali', label:'Kapananlar',           icon:'i-check-circle', filter:function(b){ return KAPALI.indexOf(b.durum) !== -1; } },
       { key:'agir',   label:'Kritik ve Yüksek',     icon:'i-alert',        filter:agir },
       { key:'bagsiz', label:'Göreve Bağlanmamış',   icon:'i-link',         filter:bagsiz }
     ],
@@ -188,7 +198,7 @@ document.addEventListener('gv:ready', function(){
         options:DB.projectModules.map(function(m){ return { value:m.kod, label:m.ad + ' · ' + DB.projName(m.proje) }; }) },
       { key:'siddet', label:'Şiddet', type:'multi', options:siddetler },
       { key:'oncelik', label:'Öncelik', type:'multi', options:DB.priorities },
-      { key:'durum', label:'Durum', type:'multi', options:['Açık','Devam ediyor','Kapandı'] },
+      { key:'durum', label:'Durum', type:'multi', options:DB.bugStatuses },
       { key:'sorumlu', label:'Sorumlu', type:'select', options:kisiOpts('sorumlu') },
       { key:'bulan', label:'Bulan', type:'select', options:kisiOpts('bulan') },
       { key:'bulunma', label:'Bulunma tarihi', type:'daterange' },
@@ -201,7 +211,9 @@ document.addEventListener('gv:ready', function(){
        kırmızı kalırsa liste sinyal değerini yitirir. */
     rowClass:function(b){ return b.siddet === 'Kritik' && acik(b) ? 'is-late' : ''; },
 
-    kanban:{ groupBy:'durum', columns:['Açık','Devam ediyor','Kapandı'],
+    /* Kanban kolonları SÖZLÜKTEN beslenir; elle yazılı üçlü kalsaydı hatanın
+       yedi durumu panoda hiç görünmezdi (kayıt sessizce kaybolur, hata çıkmaz). */
+    kanban:{ groupBy:'durum', columns:DB.bugStatuses,
       card:function(b){
         return '<a class="gv-kcard-title" href="app-proje-hata-detay.html?id=' + b.kod + '">' + esc(b.baslik) + '</a>' +
           '<div class="gv-kcard-meta"><span>' + b.kod + ' · ' + esc(DB.projName(b.proje)) + '</span>' + GV.pri(b.siddet) + '</div>' +
@@ -280,16 +292,22 @@ document.addEventListener('gv:ready', function(){
     ],
 
     bulk:[
+      /* Toplu kapatma DURUM YAZMAZ, motoru çağırır. Eski hâli `b.durum='Kapandı'`
+         diyordu ve `Yeni` bir hatayı doğrudan kapatabiliyordu — geçiş tablosuna
+         göre kapanış yalnız `Yeniden Test` durumundan yapılır. Geçemeyen kayıt
+         sessizce atlanmaz, sayısı ve nedeni söylenir. */
       { key:'kapat', label:'Kapandı İşaretle', icon:'i-check-circle', perm:'duzenle',
-        confirm:'Seçili {n} hata kaydı Kapandı olarak işaretlenecek ve çözüm tarihi bugün yazılacak. Zaten kapalı kayıtlar atlanır.',
+        confirm:'Seçili {n} hata kaydı Kapandı olarak işaretlenecek ve çözüm tarihi bugün yazılacak. ' +
+                'Kapanış yalnız “Yeniden Test” durumundaki kayıtlarda yapılabilir; diğerleri atlanır.',
         run:function(ids){
-          if(!GV.perm.can('duzenle')){ GV.toast('Hata kaydını güncelleme yetkiniz yok.', 'danger'); return; }
-          var n = 0;
-          DB.bugs.forEach(function(b){
-            if(ids.indexOf(b.kod) !== -1 && acik(b)){ b.durum = 'Kapandı'; b.cozum = DB.today; n++; }
+          var n = 0, engel = [];
+          ids.forEach(function(kod){
+            var r = GV.flow.gec('bug', kod, 'Kapandı', { cozum:DB.today }, { not:'Listeden toplu kapatma' });
+            if(r && r.ok) n++; else engel.push(kod);
           });
-          GV.toast(n ? (n + ' hata kapatıldı' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
-                     : 'Seçili kayıtların hepsi zaten kapalı', n ? 'ok' : 'warn');
+          GV.toast(n ? (n + ' hata kapatıldı' + (engel.length ? ' · ' + engel.length + ' kayıt geçiş kuralına takıldı' : ''))
+                     : 'Seçili kayıtların hiçbiri bu durumdan kapatılamaz — önce yeniden teste gönderin',
+                   n ? 'ok' : 'warn', 6000);
         } },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true },
       { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',

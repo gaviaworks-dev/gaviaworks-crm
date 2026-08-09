@@ -26,7 +26,9 @@
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
   var canFinans = GV.perm.can('finans');
-  var canDuzenle = GV.perm.can('duzenle');
+  /* Durum geçişi yetkisi `duzenle` iznine değil, geçiş tablosundaki rol listesine
+     bakar (`GV.flow.adimlar(...).izin`) — liste ekranı `onay`, bu ekran `duzenle`
+     sorduğu için aynı işlem iki ekranda farklı davranıyordu (VB-23). */
 
   /* REVİZE 13 — müşteri oturumunda varsayılan kayıt kendi projesinin teslimi. */
   var qsId = new URLSearchParams(location.search).get('id');
@@ -111,7 +113,12 @@ document.addEventListener('gv:ready', function(){
   var hataDiger        = hatalar.filter(function(b){ return hataDurumTeslimde(b) !== 'acik'; });
   var kritikTeslimde   = hataTeslimdeAcik.filter(function(b){ return b.siddet === 'Kritik'; });
 
-  var kapaliDurumlar = ['Kapandı','Çözüldü'];
+  /* Hata sözlüğü şartnameye hizalandı: kapanış ÜÇ durumla anlatılır. Bu küme
+     `Gates.teslimKritikHata` ile BİREBİR aynı olmak zorunda — ekran "kritik hata
+     yok" derken motorun teslimi engellemesi (ya da tersi) en kötü çelişkidir.
+     Eski küme `['Kapandı','Çözüldü']`ydi ve `Çözüldü` destek talebi ekseninin
+     değeriydi, hata ekseninde hiç yoktu. */
+  var kapaliDurumlar = ['Kapandı','Reddedildi','Mükerrer'];
   var halenAcik      = hatalar.filter(function(b){ return kapaliDurumlar.indexOf(b.durum) === -1; });
   var halenKritik    = halenAcik.filter(function(b){ return b.siddet === 'Kritik'; });
 
@@ -123,12 +130,16 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      DURUM VE SÜRE — tarih referansı DB.today (new Date() ile bugün alınmaz)
      ================================================================= */
+  /* İKİ AYRI EKSEN: `musteriOnay` müşterinin kararı, `durum` teslim belgesinin
+     yaşam döngüsü (`DB.deliveryStatuses`). Sözlükte artık `Planlandı`,
+     `Onaylandı` ve `Gecikti` DURUMU yok; gecikme türetilir. */
+  var BITTI      = ['Kabul','Kısmi Kabul','Kapandı'];
   var onaylandi  = d.musteriOnay === 'Onaylandı';
   var onayBekler = d.musteriOnay === 'Bekliyor';
   var revizyon   = d.musteriOnay === 'Revizyon istendi';
-  var teslimEdildi = d.durum === 'Onaylandı';
+  var teslimEdildi = BITTI.indexOf(d.durum) !== -1;
   var kalanGun   = F.days(d.tarih);
-  var geciken    = d.durum === 'Gecikti' || (d.durum === 'Planlandı' && kalanGun < 0);
+  var geciken    = !teslimEdildi && kalanGun < 0;
   var onayGun    = d.onayTarihi ? F.days(d.onayTarihi, d.tarih) : null;
 
   /* `sürüm` DB.deliveries'te ayrı bir alan DEĞİL — teslim adında yazılıysa okunur,
@@ -247,70 +258,149 @@ document.addEventListener('gv:ready', function(){
      MUTASYON AKIŞLARI — veri bellekte durur, location.reload() KULLANILMAZ
      (ders L-15): mutasyon GV.refresh() ile biter.
      ================================================================= */
-  function onayAkisi(){
+  /* ---- TESLİM DURUMU ARTIK EKRANDAN YAZILMAZ -------------------------
+     Tek yazma yolu `GV.flow.gec('delivery', …)`. Yapılabilir geçişleri,
+     yetkiyi, zorunlu alanı ve KAPIYI motor söyler; ekran yalnız düğme basar
+     ve sonucu bildirir. Müşteri kararı (`musteriOnay`) durumdan ayrı bir
+     eksendir ama AYNI mutasyonda yazılır — iki ayrı yazma, VB-23'ün iki
+     ekranın iki farklı sonuç bırakması hatasını geri getirirdi. */
+  var adimlar = GV.flow.adimlar('delivery', d.kod) || [];
+
+  /* Hangi hedefte müşteri kararı da güncellenir — eşleme veriyle uyumludur:
+     kabul edilmiş teslimlerin üçünde de `musteriOnay:'Onaylandı'` yazılı,
+     reddedilen/revizyona dönen teslimde karar "Revizyon istendi"dir. */
+  var ONAY_ESLEME = {
+    'Kabul':'Onaylandı', 'Kısmi Kabul':'Onaylandı',
+    'Ret':'Revizyon istendi', 'Revizyon':'Revizyon istendi'
+  };
+
+  function flowHata(r){
+    if(!r) return 'bilinmeyen neden';
+    if(r.why === 'yetki')   return 'yetkiniz yok · yetkili roller: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'eksik zorunlu alan: ' + (r.eksik || []).join(', ');
+    if(r.why === 'gerekce') return r.mesaj || 'neden kodu ve açıklama zorunludur';
+    if(r.why === 'kapi')    return r.mesaj || 'geçiş ön koşulu sağlanmadı';
+    return r.why || 'geçiş yapılamadı';
+  }
+
+  function uygula(hedef, ek, opts){
+    var r = GV.flow.gec('delivery', d.kod, hedef, ek || null, opts || {});
+    if(!r.ok){
+      /* DURUŞ DEĞİŞTİ (ADR-05): açık kritik hata artık UYARI değil KAPIdır.
+         Ekran uyarı basıp geçmez — kapıyı gösterir, istisna mümkünse yolu açar. */
+      if(r.why === 'kapi'){ kapiModal(hedef, ek, opts, r); return false; }
+      GV.toast(d.kod + ' “' + hedef + '” durumuna alınamadı — ' + flowHata(r), 'danger', 7000);
+      return false;
+    }
+    GV.toast(d.kod + ' · ' + r.eski + ' → ' + r.yeni + (r.istisna ? ' (yönetici istisnası)' : ''), 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+    return true;
+  }
+
+  /* KAPI — ön koşul sağlanmadı. `istisnaMumkun` ise yönetici istisnası yolu açılır
+     ve neden kodu `YONETICI_IST` ile açıklama zorunlu olarak kaydedilir. */
+  function kapiModal(hedef, ek, opts, r){
+    var acikKritik = halenKritik.map(function(b){
+      return '<li><span><a href="app-proje-hata-detay.html?id=' + esc(b.kod) + '">' + esc(b.kod) + '</a> ' +
+             esc(b.baslik) + '</span><span class="cell-sub">' + esc(b.durum) + '</span></li>'; }).join('');
+    var aksiyonlar = [{ label:'Kapat', cls:'btn-line' }];
+    if(r.istisnaMumkun){
+      aksiyonlar.push({ label:'Yönetici istisnasıyla devam et', cls:'btn-danger', onClick:function(close, el){
+        var not = el.querySelector('#kapiNot').value.trim();
+        if(!not){ GV.toast('İstisna açıklaması zorunludur', 'danger'); return false; }
+        var o = {}; Object.keys(opts || {}).forEach(function(k){ o[k] = opts[k]; });
+        o.istisna = true; o.neden = 'YONETICI_IST'; o.not = not;
+        return uygula(hedef, ek, o) ? undefined : false;
+      } });
+    }
     GV.modal({
-      title:'Müşteri Onayını İşaretle', icon:'i-stamp', size:'sm',
+      title:'Geçiş engellendi — ' + hedef, tone:'danger', icon:'i-alert', size:'sm',
+      text:r.mesaj || 'Geçiş ön koşulu sağlanmadı.',
+      body:(acikKritik ? '<ul class="gv-checklist">' + acikKritik + '</ul>' : '') +
+        (r.istisnaMumkun
+          ? GV.notice({ tone:'warn', icon:'i-alert-circle', title:'Yönetici istisnası mümkün',
+              text:'Bu kapıyı yalnız şu roller geçebilir: ' + (r.roller || []).join(', ') +
+                   '. İstisna “Yönetici istisnası” neden koduyla kaydedilir ve teslimin hareket geçmişine yazılır.' }) +
+            '<div class="u-mt-8"><div class="field"><label for="kapiNot">İstisna açıklaması</label>' +
+            '<textarea id="kapiNot" rows="3" placeholder="Kritik hata açıkken teslimi neden sürdürüyorsunuz?"></textarea></div></div>'
+          : GV.notice({ tone:'neutral', icon:'i-lock', title:'İstisna yolu kapalı',
+              text:'Bu kapıyı geçebilecek roller: ' + ((r.roller || []).length ? r.roller.join(', ') : 'tanımlı değil') +
+                   '. Önce engelin kendisi giderilmelidir — açık kritik hatalar kapatılmalı.' })),
+      actions:aksiyonlar
+    });
+  }
+
+  /* Kabul / kısmi kabul: müşteri onay tarihi geçişle aynı mutasyonda yazılır. */
+  function kabulAkisi(adim){
+    GV.modal({
+      title:adim.etiket, icon:'i-stamp', size:'sm',
       text:d.kod + ' · ' + d.ad,
-      body:'<p>Müşteri onayı işlendiğinde teslim durumu da <b>Onaylandı</b> olarak güncellenir — ' +
-           'teslim durumu ile müşteri onayı aynı eksende tutulur.</p>' +
+      body:'<p>Teslim <b>' + esc(adim.hedef) + '</b> durumuna alınır ve müşteri kararı ' +
+           '<b>' + esc(ONAY_ESLEME[adim.hedef]) + '</b> olarak işlenir.</p>' +
            '<div class="gv-fields"><div class="field f-col-12">' +
            '<label for="tsOnayTar">Müşteri onay tarihi</label>' +
            '<input type="date" class="inp" id="tsOnayTar" value="' + DB.today + '" min="' + d.tarih + '">' +
            '</div></div>',
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
-        { label:'Onaylandı İşaretle', cls:'btn-acc', onClick:function(close, el){
-            if(!GV.perm.can('duzenle')){ GV.toast('Bu kaydı düzenleme yetkiniz yok.', 'danger'); return; }
+        { label:adim.etiket, cls:'btn-acc', onClick:function(close, el){
             var tarihEl = el.querySelector('#tsOnayTar');
-            var yeniTarih = (tarihEl && tarihEl.value) || DB.today;
-            /* VB-23 — mutasyon ve yetki kapısı `GV.delivery.approve`'ta (tek eksen:
-               `onay`). Liste ekranı `onay`, bu ekran `duzenle` soruyordu. */
-            var r = GV.delivery.approve(d.kod, 'Onaylandı', yeniTarih);
-            if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
-            GV.toast(d.kod + ' için müşteri onayı işlendi', 'ok');
-            setTimeout(function(){ GV.refresh(); }, 700);
+            return uygula(adim.hedef,
+              { musteriOnay:ONAY_ESLEME[adim.hedef], onayTarihi:(tarihEl && tarihEl.value) || DB.today },
+              { not:'müşteri kabulü işlendi' }) ? undefined : false;
           } }
       ]
     });
   }
 
-  function revizyonAkisi(){
+  /* Ret / revizyon: geçiş tablosu gerekçe ister; not teslim kaydının tek serbest
+     metin alanına yazılır (kayıtta ayrı revizyon notu alanı yok). */
+  function revizyonAkisi(adim){
     GV.modal({
-      title:'Revizyon İstendi İşaretle', icon:'i-refresh', size:'sm', tone:'warn',
+      title:adim.etiket, icon:'i-refresh', size:'sm', tone:'warn',
       text:d.kod + ' · ' + d.ad,
-      body:'<p>Müşteri teslimi kabul etmeyip revizyon istediğinde onay durumu <b>Revizyon istendi</b> olur, ' +
-           'varsa onay tarihi düşer.' +
-           (d.durum === 'Onaylandı'
-             ? ' Teslim durumu <b>Onaylandı → Planlandı</b> olarak geri alınır; teslim yeniden planlanır.'
-             : '') + '</p>' +
-           '<div class="gv-fields"><div class="field f-col-12">' +
-           '<label for="tsRevNot">Revizyon notu</label>' +
-           '<textarea class="inp" id="tsRevNot" rows="3" placeholder="Müşterinin revizyon gerekçesi">' +
+      body:'<p>Teslim <b>' + esc(adim.hedef) + '</b> durumuna alınır' +
+           (ONAY_ESLEME[adim.hedef] ? ', müşteri kararı <b>' + esc(ONAY_ESLEME[adim.hedef]) + '</b> olarak işlenir' : '') +
+           ' ve varsa onay tarihi düşer.</p>' +
+           (adim.gerekce
+             ? '<div class="field"><label for="tsRevKod">Neden kodu<span class="req">*</span></label>' +
+               '<select id="tsRevKod"><option value="">Seçiniz</option>' +
+               DB.reasonCodes.map(function(n){
+                 return '<option value="' + esc(n.kod) + '">' + esc(n.ad) + '</option>'; }).join('') +
+               '</select></div>'
+             : '') +
+           '<div class="field u-mt-4"><label for="tsRevNot">Revizyon notu<span class="req">*</span></label>' +
+           '<textarea id="tsRevNot" rows="3" placeholder="Müşterinin revizyon gerekçesi">' +
            esc(d.not || '') + '</textarea>' +
            '<span class="f-hint">Not teslim kaydının “Teslim notu” alanına yazılır — teslim kaydında ayrı bir revizyon notu alanı yok.</span>' +
-           '</div></div>',
+           '</div>',
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
-        { label:'Revizyon İstendi İşaretle', cls:'btn-acc', onClick:function(close, el){
+        { label:adim.etiket, cls:'btn-acc', onClick:function(close, el){
+            var kodEl = el.querySelector('#tsRevKod');
             var notEl = el.querySelector('#tsRevNot');
             var yeniNot = notEl ? notEl.value.trim() : '';
+            if(adim.gerekce && !(kodEl && kodEl.value)){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
             if(!yeniNot){ GV.toast('Revizyon notu boş bırakılamaz.', 'warn'); return false; }
-            /* VB-23 — aynı yordam, aynı yetki ekseni */
-            var r = GV.delivery.approve(d.kod, 'Revizyon istendi', null, yeniNot);
-            if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
-            GV.toast(d.kod + ' “Revizyon istendi” olarak işaretlendi', 'warn');
-            setTimeout(function(){ GV.refresh(); }, 700);
+            var ek = { not:yeniNot, onayTarihi:null };
+            if(ONAY_ESLEME[adim.hedef]) ek.musteriOnay = ONAY_ESLEME[adim.hedef];
+            return uygula(adim.hedef, ek,
+              { neden:(kodEl && kodEl.value) || undefined, not:yeniNot }) ? undefined : false;
           } }
       ]
     });
   }
 
-  /* Ölü buton yasağı: yetki yoksa VEYA durum uygun değilse buton hiç basılmaz. */
-  /* VB-23 — buton kapısı da tek eksende: `onay`. `canDuzenle` ile açmak,
-     liste ekranıyla farklı rollere farklı davranmak demekti. */
-  var canOnay        = GV.perm.can('onay');
-  var onayBasilir    = canOnay && d.musteriOnay !== 'Onaylandı';
-  var revizyonBasilir = canOnay && d.musteriOnay !== 'Revizyon istendi';
+  function gecisAkisi(adim){
+    if(adim.hedef === 'Kabul' || adim.hedef === 'Kısmi Kabul') return kabulAkisi(adim);
+    if(adim.hedef === 'Ret' || adim.hedef === 'Revizyon')      return revizyonAkisi(adim);
+    GV.confirm({
+      title:adim.etiket,
+      text:d.kod + ' teslimi “' + d.durum + '” durumundan “' + adim.hedef + '” durumuna geçirilecek.',
+      okLabel:adim.etiket,
+      tone:/Geri Çekildi/.test(adim.hedef) ? 'danger' : null
+    }).then(function(ok){ if(ok) uygula(adim.hedef, null, { not:adim.etiket }); });
+  }
 
   /* =================================================================
      SAYFA BAŞLIĞI
@@ -320,7 +410,11 @@ document.addEventListener('gv:ready', function(){
   ];
   if(proje) actions.push({ label:'Proje', icon:'i-briefcase', href:'app-proje-detay.html?id=' + proje.kod });
   actions.push({ label:'Ödeme planı', icon:'i-milestone', href:'app-odemeplani.html' });
-  if(onayBasilir) actions.push({ label:'Müşteri onayını işaretle', icon:'i-stamp', cls:'btn-acc', run:onayAkisi });
+  /* Başlıktaki birincil aksiyon MOTORDAN gelir: yapılabilir ilk geçiş.
+     Yapılamıyorsa (yetki yok / bitiş durağı) hiç basılmaz — ölü buton yasağı. */
+  var ilkAdim = adimlar.filter(function(a){ return a.izin && !a.eksik.length; })[0];
+  if(ilkAdim) actions.push({ label:ilkAdim.etiket, icon:'i-stamp', cls:'btn-acc',
+                             run:function(){ gecisAkisi(ilkAdim); } });
 
   GV.pageHead({
     eyebrow:'Proje Yönetimi', title:'Teslim Detayı',
@@ -540,10 +634,16 @@ document.addEventListener('gv:ready', function(){
     kaliteNot = GV.notice({ tone:'warn', icon:'i-bug', title:'Teslim anında açık hata vardı',
       text:'Teslim tarihinde ' + hataTeslimdeAcik.length + ' hata kaydı açıktı; hiçbiri kritik şiddette değil.' });
   } else if(halenKritik.length && !onaylandi){
-    kaliteNot = GV.notice({ tone:'warn', icon:'i-alert', title:'Projede açık kritik hata var',
-      text:'Teslim anında açık hata yoktu ancak ' + (proje ? proje.ad : d.proje) + ' projesinde bugün itibarıyla ' +
-           halenKritik.length + ' kritik hata açık (' + halenKritik.map(function(b){ return b.kod; }).join(' · ') +
-           '). Teslim henüz müşteri onayı almadığı için bu hatalar onayı bloke edebilir.' });
+    /* ADR-05 — DURUŞ DEĞİŞTİ: bu artık bir uyarı değil, KAPIDIR.
+       `DB.transitions.delivery['İç Kontrol'].kapi === 'teslimKritikHata'`;
+       açık kritik hata varken teslim müşteriye GÖNDERİLEMEZ. Eski metin
+       "bloke edebilir" diyip geçiyordu — motor artık gerçekten engelliyor. */
+    kaliteNot = GV.notice({ tone:'danger', icon:'i-alert', title:'Açık kritik hata teslimi ENGELLİYOR',
+      text:(proje ? proje.ad : d.proje) + ' projesinde bugün itibarıyla ' + halenKritik.length +
+           ' kritik hata açık (' + halenKritik.map(function(b){ return b.kod; }).join(' · ') +
+           '). “İç Kontrol → Müşteriye Gönderildi” geçişi bu kapıda reddedilir; kapıyı yalnız ' +
+           'şirket sahibi ya da genel müdür yönetici istisnasıyla, gerekçe kaydederek geçebilir.',
+      actions:[{ label:'Açık hataları gör', href:'app-proje-hata.html?t=acik&q=' + (d.proje || '') }] });
   } else if(halenAcik.length){
     kaliteNot = GV.notice({ tone:'neutral', icon:'i-bug', title:'Teslim anında açık hata yoktu',
       text:'Teslim tarihinde açık hata kaydı bulunmuyordu. Projede bugün itibarıyla ' + halenAcik.length +
@@ -801,19 +901,23 @@ document.addEventListener('gv:ready', function(){
            ' Onay alınmadan taksit faturası kesilmez.' });
   }
 
+  /* Düğme kümesi MOTORDAN üretilir; ekranın kendi durum listesi yok.
+     Yetki ya da zorunlu alan eksikse düğme pasif kalır ve nedeni ipucunda yazar. */
   var onayButonlar = '';
-  if(onayBasilir || revizyonBasilir){
-    onayButonlar = '<div class="u-row u-mt-8">' +
-      (onayBasilir ? '<button type="button" class="btn btn-acc" id="btnOnay">' + ico('i-stamp') +
-        ' Müşteri onayını işaretle</button>' : '') +
-      (revizyonBasilir ? '<button type="button" class="btn btn-line" id="btnRevizyon">' + ico('i-refresh') +
-        ' Revizyon istendi işaretle</button>' : '') +
-      '</div>';
+  if(adimlar.length){
+    onayButonlar = '<div class="u-row u-wrap u-mt-8">' + adimlar.map(function(a){
+      var kilit = !a.izin || a.eksik.length;
+      var ipucu = !a.izin ? 'Yetkili roller: ' + ((GV.flow.kural('delivery', d.durum) || {}).yetki || []).join(', ')
+                : a.eksik.length ? 'Eksik zorunlu alan: ' + a.eksik.join(', ') : a.etiket;
+      return '<button type="button" class="btn ' + a.tone + '" data-gecis="' + esc(a.hedef) + '"' +
+        (kilit ? ' disabled' : '') + ' title="' + esc(ipucu) + '">' + esc(a.etiket) + '</button>';
+    }).join('') + '</div>' +
+    (adimlar[0].izin ? '' : GV.notice({ tone:'neutral', icon:'i-lock', title:'Durum değiştirme yetkiniz yok',
+      text:'“' + d.durum + '” durumundan geçişi yalnız şu roller yapabilir: ' +
+           (((GV.flow.kural('delivery', d.durum) || {}).yetki || []).join(', ') || '—') + '.' }));
   } else {
-    onayButonlar = GV.notice({ tone:'neutral', icon:'i-lock', title:'Bu kayıtta yapılabilecek onay aksiyonu yok',
-      text:canDuzenle
-        ? 'Teslimin onay durumu zaten “' + d.musteriOnay + '”; aynı durumu yeniden işaretleyen aksiyon basılmaz.'
-        : 'Rolünüzde teslim kaydını düzenleme yetkisi yok, bu yüzden onay aksiyonları gösterilmiyor.' });
+    onayButonlar = GV.notice({ tone:'neutral', icon:'i-check-circle', title:'Akış tamamlandı',
+      text:'“' + d.durum + '” bir bitiş durumudur; bu teslimden gidilebilecek başka durum yok.' });
   }
 
   var pOnay = '<div class="gc-body">' + onayNot +
@@ -947,8 +1051,10 @@ document.addEventListener('gv:ready', function(){
      taze kopyayla değiştirdiği için dinleyici birikmez (ders L-16).
      ================================================================= */
   mount.addEventListener('click', function(e){
-    if(e.target.closest('#btnOnay'))      return onayAkisi();
-    if(e.target.closest('#btnRevizyon'))  return revizyonAkisi();
+    var btn = e.target.closest('[data-gecis]');
+    if(!btn || btn.disabled) return;
+    var adim = adimlar.filter(function(a){ return a.hedef === btn.getAttribute('data-gecis'); })[0];
+    if(adim) gecisAkisi(adim);
   });
 });
 </script>

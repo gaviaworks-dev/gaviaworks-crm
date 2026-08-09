@@ -88,6 +88,10 @@ document.addEventListener('gv:ready', function(){
   var testler     = byProje(DB.tests);
   var hatalar     = byProje(DB.bugs);
   var teslimler   = byProje(DB.deliveries);
+  /* Teslim ekseninde "iş bitti" sayılan durumlar — sözlük şartnameye hizalandıktan
+     sonra tek bir `Onaylandı` değeri yok; kabul (tam ya da kısmi) ve kapanış bitiştir.
+     Ret / Revizyon / Geri Çekildi bitiş DEĞİLDİR: teslim yeniden ele alınacaktır. */
+  var TESLIM_BITTI = ['Kabul','Kısmi Kabul','Kapandı'];
   var degisiklik  = byProje(DB.changeRequests);
   var faturalar   = byProje(DB.invoices);
   var sozlesme    = DB.contracts.filter(function(c){ return c.proje === p.kod; })[0];
@@ -158,6 +162,136 @@ document.addEventListener('gv:ready', function(){
   function link(href, text){ return '<a href="' + href + '">' + text + '</a>'; }
 
   /* ===================================================================
+     DURUM AKIŞI — düğmeler MOTORDAN üretilir
+
+     Proje durumu artık form ekranından yazılmaz (`app-proje-form.html`'de
+     alan salt okunur); tek yazma yolu `GV.flow.gec('project', …)`. Ekranın
+     kendi durum listesi YOKTUR: hangi geçişlerin yapılabildiğini, kimin
+     yapabildiğini ve hangi alanların eksik olduğunu `GV.flow.adimlar` söyler.
+
+     `Tamamlandı` hedefi bu kümeden ÇIKARILIR: kapanış tek düğmeyle değil,
+     kapanış kontrol listesi + gerekçe + bakım adımıyla yürüyen bir akıştır
+     (REVİZE 07/08) ve aşağıdaki “Projeyi Kapat” düğmesi onu yürütür. İki
+     düğmenin aynı hedefe gitmesi, bu depoda defalarca bedeli ödenmiş
+     "iki mutasyon yolu" hatası olurdu.
+     =================================================================== */
+  var adimlar     = GV.flow.adimlar('project', p.kod) || [];
+  var kapanisAdim = adimlar.filter(function(a){ return a.hedef === 'Tamamlandı'; })[0] || null;
+  var akisAdim    = adimlar.filter(function(a){ return a.hedef !== 'Tamamlandı'; });
+
+  /* Motorun reddi kullanıcı diline çevrilir — `why` kodu ham basılmaz. */
+  function flowHata(r){
+    if(r.why === 'yetki')   return 'Bu geçiş için yetkiniz yok · yetkili roller: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'Geçiş için eksik zorunlu alan: ' + (r.eksik || []).join(', ');
+    if(r.why === 'gerekce') return r.mesaj || 'Bu işlem için neden kodu ve açıklama zorunludur';
+    if(r.why === 'kapi')    return r.mesaj || 'Geçiş ön koşulu sağlanmadı';
+    return r.why || 'Geçiş yapılamadı';
+  }
+
+  /* Neden kodu seçicisi — sözlük veriden (`DB.reasonCodes`), ekran uydurmaz. */
+  function nedenAlanlari(varsayilanKod){
+    return '<div class="gv-fields">' +
+      '<div class="field f-col-12"><label for="gKod">Neden kodu</label><select id="gKod">' +
+        (varsayilanKod ? '' : '<option value="">Seçiniz</option>') +
+        DB.reasonCodes.map(function(n){
+          return '<option value="' + esc(n.kod) + '"' +
+                 (varsayilanKod === n.kod ? ' selected' : '') + '>' + esc(n.ad) + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field f-col-12"><label for="gNot">Açıklama</label>' +
+        '<textarea id="gNot" rows="3" placeholder="Kararın gerekçesi"></textarea></div>' +
+    '</div>';
+  }
+
+  /* TEK ÇAĞRI NOKTASI. Aktivite kaydını motor kendisi yazar.
+     ADR-04/05 sonrası motor ENGELLER: `why:'kapi'` bir uyarı değil, kapıdır.
+     Ekran uyarıyı basıp geçmez — kapıyı gösterir ve yalnız `istisnaMumkun`
+     ise yönetici istisnası yolunu açar (neden kodu + açıklama zorunlu). */
+  function uygula(hedef, ek, opts){
+    var r = GV.flow.gec('project', p.kod, hedef, ek || null, opts || {});
+    if(!r.ok){
+      if(r.why === 'kapi') return kapiModal(hedef, ek, opts, r);
+      GV.toast(flowHata(r), 'danger', 6000);
+      return false;
+    }
+    GV.toast(p.kod + ' · ' + r.eski + ' → ' + r.yeni + (r.istisna ? ' (yönetici istisnası)' : ''), 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+    return true;
+  }
+
+  /* KAPI — geçiş ön koşulu sağlanmadı. İstisna mümkünse ikinci düğme açılır. */
+  function kapiModal(hedef, ek, opts, r){
+    var aksiyonlar = [{ label:'Kapat', cls:'btn-line' }];
+    if(r.istisnaMumkun){
+      aksiyonlar.push({ label:'Yönetici istisnasıyla devam et', cls:'btn-danger', onClick:function(close, el){
+        var not = el.querySelector('#gNot').value.trim();
+        if(!not){ GV.toast('İstisna için açıklama zorunludur', 'danger'); return false; }
+        var o = {}; Object.keys(opts || {}).forEach(function(k){ o[k] = opts[k]; });
+        o.istisna = true; o.neden = 'YONETICI_IST'; o.not = not;
+        return uygula(hedef, ek, o) ? undefined : false;
+      } });
+    }
+    GV.modal({
+      title:'Geçiş engellendi — ' + hedef, tone:'danger', icon:'i-alert', size:'sm',
+      text:r.mesaj || 'Geçiş ön koşulu sağlanmadı.',
+      body:(r.istisnaMumkun
+        ? GV.notice({ tone:'warn', icon:'i-alert-circle', title:'Yönetici istisnası mümkün',
+            text:'Bu kapıyı yalnız şu roller geçebilir: ' + (r.roller || []).join(', ') +
+                 '. İstisna neden kodu “Yönetici istisnası” olarak kaydedilir ve hareket geçmişine yazılır.' }) +
+          '<div class="u-mt-8"><div class="field"><label for="gNot">İstisna açıklaması</label>' +
+          '<textarea id="gNot" rows="3" placeholder="Kapıyı neden istisnayla geçiyorsunuz?"></textarea></div></div>'
+        : GV.notice({ tone:'neutral', icon:'i-lock', title:'İstisna yolu kapalı',
+            text:'Bu kapıyı geçebilecek roller: ' + ((r.roller || []).length ? r.roller.join(', ') : 'tanımlı değil') +
+                 '. Önce engelin kendisi giderilmelidir.' })),
+      actions:aksiyonlar
+    });
+    return false;
+  }
+
+  /* Geçişin kullanıcı yolu: gerekçe isteyen geçiş modal açar, diğerleri onay ister. */
+  function gecisAkisi(adim){
+    if(adim.gerekce){
+      GV.modal({
+        title:etiketOf(adim), text:p.kod + ' · ' + p.ad, icon:'i-alert-circle', size:'sm',
+        body:nedenAlanlari(null),
+        actions:[
+          { label:'Vazgeç', cls:'btn-line' },
+          { label:etiketOf(adim), cls:'btn-acc', onClick:function(close, el){
+              var kod = el.querySelector('#gKod').value;
+              var not = el.querySelector('#gNot').value.trim();
+              if(!kod){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
+              if(!not){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+              return uygula(adim.hedef, null, { neden:kod, not:not }) ? undefined : false;
+            } }
+        ]
+      });
+      return;
+    }
+    GV.confirm({
+      title:etiketOf(adim),
+      text:p.kod + ' projesi “' + p.durum + '” durumundan “' + adim.hedef + '” durumuna geçirilecek.',
+      okLabel:etiketOf(adim),
+      tone:/İptal/.test(adim.hedef) ? 'danger' : null
+    }).then(function(ok){ if(ok) uygula(adim.hedef, null, { not:etiketOf(adim) }); });
+  }
+
+  /* ETİKET SEÇİMİ — motor tablodaki dostane etiketi `next[0]`e verir. Proje
+     tablosunda `Aktif` satırında bu hizalama KAYIYOR: etiket "Teste Al" ama
+     `next[0]` "Beklemede". Tek hedefli geçişlerde etiket güvenle kullanılır;
+     çok hedefli geçişte düğmeye HEDEF DURUMUN ADI yazılır — yanlış etiketli
+     bir düğme, kullanıcıyı istemediği duruma götürürdü (act.js sınıfı 🔴 YALAN).
+     Tablo satırının düzeltilmesi veri katmanının işidir, ekranın değil. */
+  function etiketOf(a){ return adimlar.length === 1 ? a.etiket : a.hedef; }
+
+  /* Düğme kümesi motordan üretilir; yetki ya da zorunlu alan eksikse pasif. */
+  var akisButonlari = akisAdim.map(function(a){
+    var kilit = !a.izin || a.eksik.length;
+    var neden = !a.izin ? 'Yetkili roller: ' + ((GV.flow.kural('project', p.durum) || {}).yetki || []).join(', ')
+              : a.eksik.length ? 'Eksik zorunlu alan: ' + a.eksik.join(', ') : etiketOf(a);
+    return '<button type="button" class="btn ' + a.tone + '" data-gecis="' + esc(a.hedef) + '"' +
+      (kilit ? ' disabled' : '') + ' title="' + esc(neden) + '">' + esc(etiketOf(a)) + '</button>';
+  }).join('');
+
+  /* ===================================================================
      BAŞLIK
      =================================================================== */
   var head =
@@ -179,10 +313,20 @@ document.addEventListener('gv:ready', function(){
     '<div class="ph-actions">' +
       '<a class="btn btn-line" href="app-gorev.html">' + ico('i-tasks') + ' Görevler</a>' +
       '<a class="btn btn-line" href="app-proje-milestone.html">' + ico('i-milestone') + ' Milestone</a>' +
+      /* Motordan gelen geçiş düğmeleri — ekranın kendi durum listesi yok. */
+      akisButonlari +
       /* REVİZE 07 — kapanmış projede buton BASILMAZ; "kapat" diyip sonra
-         "zaten kapalı" demek sahte aksiyondur (act.js sınıfı 🔴 YALAN). */
-      (GV.proje.kapali(p) ? '' :
-        '<button type="button" class="btn btn-line" id="btnKapat">' + ico('i-check-circle') + ' Projeyi Kapat</button>') +
+         "zaten kapalı" demek sahte aksiyondur (act.js sınıfı 🔴 YALAN).
+         Motor geldikten sonra ölçüt daha da daraldı: düğme YALNIZ `Tamamlandı`
+         gerçekten yapılabilir bir sonraki adımken basılır. Eskiden “Aktif”
+         durumundaki projede de basılıyordu ve kapanış geçiş tablosunu
+         atlayarak doğrudan `Tamamlandı` yazıyordu. */
+      (kapanisAdim
+        ? '<button type="button" class="btn btn-line" id="btnKapat"' +
+          (kapanisAdim.izin ? '' : ' disabled title="Kapanışı yalnız şu roller yapabilir: ' +
+            esc(((GV.flow.kural('project', p.durum) || {}).yetki || []).join(', ')) + '"') +
+          '>' + ico('i-check-circle') + ' Projeyi Kapat</button>'
+        : '') +
       '<a class="btn btn-acc" href="app-proje-form.html?id=' + p.kod + '">' + ico('i-edit') + ' Düzenle</a>' +
     '</div></div>';
 
@@ -486,8 +630,13 @@ document.addEventListener('gv:ready', function(){
     olaylar.push({ g:t.termin, t:'Termin · ' + t.baslik, tone:ge ? 'danger' : (t.durum === 'Tamamlandı' ? 'ok' : 'warn') });
   });
   toplantilar.forEach(function(m){ olaylar.push({ g:m.tarih.slice(0,10), t:'Toplantı · ' + m.ad, tone:'neutral' }); });
+  /* Teslim ekseninde “Gecikti” diye bir DURUM yok (şartname sözlüğü:
+     Taslak · İç Kontrol · Müşteriye Gönderildi · Kabul · Kısmi Kabul · Ret ·
+     Revizyon · Kapandı · Geri Çekildi). Gecikme durumdan okunmaz, TÜRETİLİR:
+     sonuçlanmamış ve tarihi geçmiş teslim gecikmiştir. */
   teslimler.forEach(function(d){
-    olaylar.push({ g:d.tarih, t:'Teslim · ' + d.ad, tone:d.durum === 'Gecikti' ? 'danger' : 'ok' }); });
+    var gecikmis = TESLIM_BITTI.indexOf(d.durum) === -1 && F.days(d.tarih) < 0;
+    olaylar.push({ g:d.tarih, t:'Teslim · ' + d.ad, tone:gecikmis ? 'danger' : 'ok' }); });
 
   var ayOlay = olaylar.filter(function(o){ return o.g >= gridStart && o.g < addDays(gridStart, 42); });
 
@@ -811,7 +960,12 @@ document.addEventListener('gv:ready', function(){
   /* ===================================================================
      17. HATALAR
      =================================================================== */
-  var acikHata = hatalar.filter(function(h){ return h.durum !== 'Kapandı'; });
+  /* "Açık hata" tek bir durumun değili DEĞİLDİR: hata sözlüğü şartnameye
+     hizalandıktan sonra kapanış üç durumla anlatılıyor (Kapandı · Reddedildi ·
+     Mükerrer) — `Gates.projeTeslim` ve `Gates.teslimKritikHata` de aynı üçlüyü
+     kullanır. `h.durum !== 'Kapandı'` reddedilmiş hatayı açık sayardı. */
+  var HATA_KAPALI = ['Kapandı','Reddedildi','Mükerrer'];
+  var acikHata = hatalar.filter(function(h){ return HATA_KAPALI.indexOf(h.durum) === -1; });
 
   var pHata = '<div class="gc-body flush">' +
     (hatalar.length
@@ -832,7 +986,7 @@ document.addEventListener('gv:ready', function(){
               '<td>' + (h.gorev ? link('app-gorev-detay.html?id=' + h.gorev, h.gorev) : '<span class="u-faint">—</span>') + '</td></tr>';
           }).join('')) +
         '<div class="gc-foot"><span class="gv-count"><b>' + acikHata.length + '</b> açık hata · ' +
-          hatalar.filter(function(h){ return h.siddet === 'Kritik' && h.durum !== 'Kapandı'; }).length +
+          hatalar.filter(function(h){ return h.siddet === 'Kritik' && HATA_KAPALI.indexOf(h.durum) === -1; }).length +
           ' kritik · toplam ' + hatalar.length + ' kayıt</span>' +
           '<a class="btn btn-line btn-sm" href="app-proje-hata.html">' + ico('i-bug','ic-sm') + ' Hata ekranı</a></div>'
       : bos('i-bug','Hata kaydı yok','Bu projede raporlanmış hata bulunmuyor.')) +
@@ -849,7 +1003,9 @@ document.addEventListener('gv:ready', function(){
             var m = DB.milestones.filter(function(x){ return x.kod === d.milestone; })[0];
             return '<tr><td><span class="cell-main">' + esc(d.ad) + '</span><span class="cell-code">' + d.kod + '</span></td>' +
               '<td>' + (m ? '<span class="cell-sub">T' + m.taksit + ' · ' + esc(m.ad) + '</span>' : '<span class="u-faint">—</span>') + '</td>' +
-              '<td>' + GV.dateCell(d.tarih, { done:d.durum === 'Onaylandı' }) + '</td>' +
+              /* Teslim sözlüğü şartnameye hizalandı: kabul edilmiş/kapanmış teslim
+                 "olmuş" sayılır. Eski tekil `Onaylandı` değeri artık yok. */
+              '<td>' + GV.dateCell(d.tarih, { done:TESLIM_BITTI.indexOf(d.durum) !== -1 }) + '</td>' +
               '<td>' + GV.user(d.teslimEden, { sm:true }) + '</td>' +
               '<td>' + GV.badge(d.durum) + '</td>' +
               '<td>' + GV.badge(d.musteriOnay) + '</td>' +
@@ -1319,15 +1475,21 @@ document.addEventListener('gv:ready', function(){
      `GV.proje.kapanisKontrol`ten gelir — ekran kendi hesabını yapmaz,
      yoksa checklist ile kapanışın kendisi farklı karar verebilirdi.
 
-     Geçmeyen madde kapanışı ENGELLEMEZ, gerekçe ister; gerekçe aktiviteye
-     yazılır. Ölçülemeyen madde (`olculdu:false`) "geçti" sayılmaz ve ayrı
-     tonla basılır — kontrol yapılamadıysa güvence de yoktur.
+     DURUŞ DEĞİŞTİ (ADR-04) — geçmeyen madde artık kapanışı ENGELLER.
+     Eski davranış "engellemez, gerekçe ister"di; motor ve `GV.proje.kapat`
+     bu turda kapıya çevrildi. Ekran uyarı basıp geçmez: kapıyı gösterir ve
+     yalnız `sahip`/`gm` rolüne "yönetici istisnasıyla devam et" yolunu açar
+     (neden kodu + açıklama zorunlu). Ölçülemeyen madde kilit saymaz ama
+     gerekçe ister — kontrol yapılamadıysa güvence de yoktur.
      =================================================================== */
   var btnKapat = document.getElementById('btnKapat');
   if(btnKapat) btnKapat.addEventListener('click', function(){
     var kontrol = GV.proje.kapanisKontrol(p.kod);
     var gecmeyen = kontrol.filter(function(k){ return k.olculdu && !k.gecti; });
     var olcusuz  = kontrol.filter(function(k){ return !k.olculdu; });
+    var rol = GV.perm.role ? GV.perm.role() : null;
+    var istisnaRol = ['sahip','gm'].indexOf(rol) !== -1;
+    var kapiVar = gecmeyen.length > 0;
 
     var liste = '<ul class="gv-checklist">' + kontrol.map(function(k){
       var rozet = !k.olculdu ? '<span class="badge is-neutral no-dot">Ölçülemedi</span>'
@@ -1339,38 +1501,74 @@ document.addEventListener('gv:ready', function(){
 
     /* Alan markup'ı `.field` — görev detayının bekleme/revizyon modallarıyla
        aynı kalıp; kapanış için yeni bir form dili kurulmaz. */
-    var gerekceAlan = gecmeyen.length
-      ? '<div class="field"><label for="kapanisGerekce">Kapanış gerekçesi</label>' +
+    var gerekceAlan = '';
+    if(kapiVar && istisnaRol){
+      gerekceAlan =
+        GV.notice({ tone:'danger', icon:'i-alert', title:'Kapanış kontrolü geçilmedi',
+          text:'Geçmeyen ' + gecmeyen.length + ' madde var: ' +
+               gecmeyen.map(function(k){ return k.etiket; }).join(' · ') +
+               '. Kapanış normal yoldan yapılamaz; yönetici istisnası neden kodu ve açıklama ile kaydedilir.' }) +
+        '<div class="u-mt-8"><div class="field"><label for="kapanisNeden">Neden kodu</label>' +
+        '<select id="kapanisNeden">' + DB.reasonCodes.map(function(n){
+          return '<option value="' + esc(n.kod) + '"' +
+                 (n.kod === 'YONETICI_IST' ? ' selected' : '') + '>' + esc(n.ad) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="field"><label for="kapanisGerekce">İstisna açıklaması</label>' +
         '<textarea id="kapanisGerekce" rows="3" ' +
-        'placeholder="Örn. Fatura tahsilatı sözleşme gereği teslimden 30 gün sonra yapılacak"></textarea>' +
-        '<p class="u-sm u-faint">Geçmeyen ' + gecmeyen.length + ' madde var; kapanış engellenmez ama ' +
-        'gerekçe proje hareket geçmişine yazılır.</p></div>'
-      : '';
+        'placeholder="Örn. Fatura tahsilatı sözleşme gereği teslimden 30 gün sonra yapılacak"></textarea></div></div>';
+    }else if(kapiVar){
+      gerekceAlan = GV.notice({ tone:'danger', icon:'i-lock', title:'Kapanış engellendi',
+        text:'Geçmeyen ' + gecmeyen.length + ' madde var: ' +
+             gecmeyen.map(function(k){ return k.etiket; }).join(' · ') +
+             '. Bu maddeler tamamlanmadan proje kapatılamaz; istisnayı yalnız sahip ya da genel müdür kaydedebilir.' });
+    }else if(olcusuz.length){
+      gerekceAlan =
+        '<div class="field"><label for="kapanisGerekce">Kapanış gerekçesi</label>' +
+        '<textarea id="kapanisGerekce" rows="3" ' +
+        'placeholder="Örn. Bu projede teslim ve fatura kaydı yok; kapanış sözleşme kapsamına göre yapılıyor"></textarea>' +
+        '<p class="u-sm u-faint">Kaydı olmadığı için ölçülemeyen ' + olcusuz.length + ' madde var — ' +
+        'gerekçe zorunludur ve proje hareket geçmişine yazılır.</p></div>';
+    }
 
-    GV.confirm({
+    GV.modal({
       title:'Projeyi Kapat — ' + p.kod,
-      tone:gecmeyen.length ? 'warn' : 'ok',
-      okLabel:'Projeyi Kapat', cancelLabel:'Vazgeç',
+      tone:kapiVar ? 'danger' : 'ok',
+      icon:kapiVar ? 'i-alert' : 'i-check-circle',
       text:'Kapanış projenin durumunu “Tamamlandı” yapar, gerçekleşen bitiş tarihini ' +
            DB.today + ' olarak yazar ve faz kaydını boşaltır.' +
            (olcusuz.length ? ' ' + olcusuz.length + ' madde ölçülemedi — o maddeler için güvence yoktur.' : ''),
-      body:liste + gerekceAlan
-    }).then(function(ok){
-      if(!ok) return;
-      var g = document.getElementById('kapanisGerekce');
-      var r = GV.proje.kapat(p.kod, g ? g.value : '');
-      if(!r.ok){
-        if(r.why === 'gerekçe'){
-          GV.toast('Geçmeyen madde var: kapanış gerekçesi yazılmalıdır (' + r.eksik.join(' · ') + ')', 'danger');
-        }else if(r.why === 'yetki'){
-          GV.toast('Proje kapatma yetkiniz yok.', 'danger');
-        }else{
-          GV.toast('Proje kapatılamadı: ' + r.why, 'warn');
-        }
-        return;
-      }
-      GV.refresh();
-      bakimAdimi(r);
+      body:liste + gerekceAlan,
+      actions:(kapiVar && !istisnaRol)
+        ? [{ label:'Kapat', cls:'btn-line' }]
+        : [{ label:'Vazgeç', cls:'btn-line' },
+           { label:kapiVar ? 'Yönetici istisnasıyla kapat' : 'Projeyi Kapat',
+             cls:kapiVar ? 'btn-danger' : 'btn-acc',
+             onClick:function(close, el){
+               var g = el.querySelector('#kapanisGerekce');
+               var n = el.querySelector('#kapanisNeden');
+               var aciklama = g ? g.value.trim() : '';
+               if(kapiVar && !aciklama){ GV.toast('İstisna açıklaması zorunludur', 'danger'); return false; }
+               if(!kapiVar && olcusuz.length && !aciklama){ GV.toast('Kapanış gerekçesi zorunludur', 'danger'); return false; }
+               var r = GV.proje.kapat(p.kod, {
+                 aciklama:aciklama,
+                 /* Neden KODU yalnız istisna yolunda yazılır; ölçülemeyen madde
+                    gerekçesi için sözlükten bir kod UYDURULMAZ (yordam da istemiyor). */
+                 neden:kapiVar ? ((n && n.value) || 'YONETICI_IST') : null,
+                 istisna:kapiVar
+               });
+               if(!r.ok){
+                 if(r.why === 'kapali')      GV.toast(r.mesaj + ' Yetkili roller: ' + (r.roller || []).join(', '), 'danger', 7000);
+                 else if(r.why === 'istisna') GV.toast(r.mesaj, 'danger', 6000);
+                 else if(r.why === 'gerekçe') GV.toast(r.mesaj || ('Kapanış gerekçesi zorunludur (' + (r.eksik || []).join(' · ') + ')'), 'danger', 6000);
+                 else if(r.why === 'yetki')   GV.toast('Proje kapatma yetkiniz yok.', 'danger');
+                 else                         GV.toast('Proje kapatılamadı: ' + r.why, 'warn');
+                 return false;
+               }
+               close();
+               GV.refresh();
+               bakimAdimi(r);
+               return false;
+             } }]
     });
   });
 
@@ -1470,6 +1668,15 @@ document.addEventListener('gv:ready', function(){
     });
     return m;
   }
+
+  /* Durum geçiş düğmeleri — tek dinleyici, hedef `data-gecis`te yazılı. */
+  mount.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-gecis]');
+    if(!btn || btn.disabled) return;
+    var hedef = btn.getAttribute('data-gecis');
+    var adim  = akisAdim.filter(function(a){ return a.hedef === hedef; })[0];
+    if(adim) gecisAkisi(adim);
+  });
 
   /* Dosyalar sekmesindeki yükleme alanı — ortak bileşen */
   GV.upload({

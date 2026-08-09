@@ -29,7 +29,9 @@ document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
   var me = GV.session.emp;
   var yetkiEkle    = GV.perm.can('ekle');
-  var yetkiDuzenle = GV.perm.can('duzenle');
+  /* Durum geçişi yetkisi artık `duzenle` iznine değil, geçiş tablosundaki rol
+     listesine bakar (`GV.flow.adimlar(...).izin`) — iki ekranın aynı geçiş için
+     farklı yetki sorması bu turda kapatılan hataların sınıfıydı. */
 
   var id = new URLSearchParams(location.search).get('id') || (DB.bugs[0] || {}).kod;
   var b  = DB.bugs.filter(function(x){ return x.kod === id; })[0];
@@ -68,7 +70,15 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      DURUM VE SÜRE — tarih ekseni DB.today (new Date() ile bugün alınmaz)
      ================================================================= */
-  var kapali = b.durum === 'Kapandı';
+  /* Hata sözlüğü şartnameye hizalandı (`DB.bugStatuses`, 10 değer). Kapanış
+     ARTIK ÜÇ DURUMLA anlatılıyor: çözülerek `Kapandı`, geçersiz sayılarak
+     `Reddedildi`, aynısı zaten varsa `Mükerrer`. `durum === 'Kapandı'` cümlesi
+     reddedilmiş kaydı hâlâ açık gösterirdi; motorun kapıları da (
+     `Gates.projeTeslim` · `Gates.teslimKritikHata`) bu üçlüyü kullanıyor.
+     `cozuldu` daha dar bir sorudur: çözüm tarihi olan kapanış. */
+  var KAPALI  = ['Kapandı','Reddedildi','Mükerrer'];
+  var kapali  = KAPALI.indexOf(b.durum) !== -1;
+  var cozuldu = b.durum === 'Kapandı';
   var agir   = b.siddet === 'Kritik' || b.siddet === 'Yüksek';
 
   /* Kapanmış hatada süre = bulunma → çözüm; açık hatada = bulunmadan bugüne. */
@@ -91,6 +101,10 @@ document.addEventListener('gv:ready', function(){
     if(sure == null) return '<span class="u-faint">—</span>';
     if(kapali && b.cozum)
       return '<b class="u-num u-ok">' + F.num(sure) + '</b> gün <span class="cell-sub">bulunmadan çözüme</span>';
+    /* Çözüm tarihi olmadan kapanan kayıt (Reddedildi · Mükerrer) "hâlâ açık"
+       değildir; süre bulunmadan bugüne sayılır ama cümlesi farklıdır. */
+    if(kapali)
+      return '<b class="u-num">' + F.num(sure) + '</b> gün <span class="cell-sub">bulunmadan kapanışa · çözüm tarihi yok</span>';
     var t = sure > 7 ? ' u-danger' : sure > 3 ? ' u-warn' : '';
     return '<b class="u-num' + t + '">' + F.num(sure) + '</b> gün <span class="cell-sub">hâlâ açık</span>';
   }
@@ -232,40 +246,45 @@ document.addEventListener('gv:ready', function(){
                   'yok — görev durumu değişmeyecek, gerekçesi işlem sonunda bildirilir.';
     return ' Bağlı görev ' + gorev.kod + ' de “Revizede” durumuna alınır.';
   }
-  function cozulduIsaretle(tarih, not){
-    var eskiDurum = b.durum, eskiCozum = b.cozum;
-    b.durum = 'Kapandı';
-    b.cozum = tarih;
-    DB.activities.unshift({
-      kayit:b.kod, tarih:simdi(), kisi:GV.session.emp,
-      metin:'Hata çözüldü olarak kapatıldı' + (not ? ' — ' + not : ''),
-      eski:eskiDurum, yeni:'Kapandı', tone:'ok', icon:'i-check-circle' });
-    if(eskiCozum !== tarih){
-      DB.activities.unshift({
-        kayit:b.kod, tarih:simdi(), kisi:GV.session.emp, metin:'Çözüm tarihi yazıldı',
-        eski:eskiCozum ? F.date(eskiCozum) : 'Çözülmedi', yeni:F.date(tarih),
-        tone:'info', icon:'i-calendar' });
+  /* ---- HATA DURUMU ARTIK EKRANDAN YAZILMAZ ---------------------------
+     Bu ekran `b.durum`u üç ayrı yerde elle yazıyordu ve geçiş tablosunu
+     hiç okumuyordu: `Yeni` bir kayıt tek tıkla `Kapandı` olabiliyor, yeniden
+     açma sözlükten kalkmış `Açık` değerini geri yazabiliyordu. Tek yazma
+     yolu `GV.flow.gec('bug', …)`; aktivite kaydını da motor yazar. */
+  function flowHata(r){
+    if(!r) return 'bilinmeyen neden';
+    if(r.why === 'yetki')   return 'bu geçişi yalnız şu roller yapabilir: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'kayıtta şu alanlar boş: ' + (r.eksik || []).join(', ');
+    if(r.why === 'gerekce') return r.mesaj || 'neden kodu ve açıklama zorunludur';
+    if(r.why === 'kapi')    return r.mesaj || 'geçiş ön koşulu sağlanmadı';
+    return r.why;
+  }
+
+  function uygula(hedef, ek, opts){
+    var r = GV.flow.gec('bug', b.kod, hedef, ek || null, opts || {});
+    if(!r.ok){
+      GV.toast(b.kod + ' “' + hedef + '” durumuna alınamadı — ' + flowHata(r), 'danger', 6000);
+      return false;
     }
-    GV.toast(b.kod + ' kapandı · çözüm ' + F.date(tarih), 'ok');
+    GV.toast(b.kod + ' · ' + r.eski + ' → ' + r.yeni, hedef === 'Kapandı' ? 'ok' : 'info');
+    return r;
+  }
+
+  function cozulduIsaretle(hedef, tarih, not){
+    /* Çözüm tarihi geçişin `ek` alanıyla AYNI mutasyonda yazılır; ayrı satırda
+       yazmak, geçiş reddedilirse tarihi yetim bırakırdı. */
+    var r = uygula(hedef, { cozum:tarih }, { not:not || '' });
+    if(!r) return;
     setTimeout(function(){ GV.refresh(); }, 700);
   }
 
-  function yenidenAc(yeniDurum, neden){
-    var eskiDurum = b.durum, eskiCozum = b.cozum;
-    b.durum = yeniDurum;
-    b.cozum = null;
-    DB.activities.unshift({
-      kayit:b.kod, tarih:simdi(), kisi:GV.session.emp,
-      metin:'Hata yeniden açıldı — ' + neden,
-      eski:eskiDurum, yeni:yeniDurum, tone:'danger', icon:'i-refresh' });
-    if(eskiCozum){
-      DB.activities.unshift({
-        kayit:b.kod, tarih:simdi(), kisi:GV.session.emp, metin:'Çözüm tarihi geri alındı',
-        eski:F.date(eskiCozum), yeni:'Çözülmedi', tone:'warn', icon:'i-calendar' });
-    }
+  function yenidenAc(hedef, nedenKodu, neden){
+    /* Yeniden açma geçiş tablosunda GEREKÇE ister (`gerekce:true`) — neden kodu
+       zorunludur, serbest metin tek başına yetmez (şartname [2.0.6]). */
+    var r = uygula(hedef, { cozum:null }, { neden:nedenKodu, not:neden });
+    if(!r) return;
     /* Bağlı görev kapanmışsa hata yeniden açılınca görev de akışa döner.
-       REVİZE 01 — hedef durumun adı artık "Revizede" ("Revize bekliyor" sözlükten
-       çıktı). REVİZE 02 — durum elle yazılmaz; geçişi tablo onaylar. Sayaç ve
+       REVİZE 02 — durum elle yazılmaz; geçişi tablo onaylar. Sayaç ve
        revize notu `ek` ile aynı mutasyonda yazılır, ayrı satırda değil. */
     var gSonuc = null;
     if(gorev && KAPALI_GOREV.indexOf(gorev.durum) !== -1){
@@ -273,10 +292,7 @@ document.addEventListener('gv:ready', function(){
         revizeNot:'Hata ' + b.kod + ' yeniden açıldı — ' + neden,
         yenidenAcilma:(gorev.yenidenAcilma || 0) + 1
       }, 'bağlı hata ' + b.kod + ' yeniden açıldı');
-      /* Aktivite satırını `GV.task.transition` kendisi yazar (eski → yeni ile
-         birlikte); burada ikinci bir satır açmak geçmişi çiftlerdi. */
     }
-    GV.toast(b.kod + ' yeniden açıldı · durum “' + yeniDurum + '”', 'warn');
     /* Geçiş reddedildiyse SESSİZ GEÇİLMEZ: kullanıcı görevin de döndüğünü
        sanmamalı (ders UID-27 — yapılmayan iş başarı gibi bildirilmez). */
     if(gSonuc && !gSonuc.ok){
@@ -323,12 +339,15 @@ document.addEventListener('gv:ready', function(){
       metin:'Görev oluşturuldu (' + b.kod + ' hatasından)',
       eski:null, yeni:null, tone:'neutral', icon:'i-plus' });
 
-    /* Görev açılınca hata artık üzerinde çalışılıyor sayılır. */
-    if(b.durum === 'Açık'){
-      DB.activities.unshift({
-        kayit:b.kod, tarih:simdi(), kisi:GV.session.emp, metin:'Görev açılışıyla hata akışa girdi',
-        eski:'Açık', yeni:'Devam ediyor', tone:'info', icon:'i-arrow-right' });
-      b.durum = 'Devam ediyor';
+    /* Görev açılınca hata artık üzerinde çalışılıyor sayılır — AMA durum burada
+       elle yazılmaz. Eski kod `Açık` kaydı doğrudan `Devam ediyor` yapıyordu;
+       yeni sözlükte `Yeni`den çalışmaya geçiş Triage → Atandı adımlarından
+       geçer. Bu yüzden geçiş YALNIZ motor izin veriyorsa yapılır, vermiyorsa
+       hiçbir şey yazılmaz ve sahte bir hareket satırı da açılmaz. */
+    var calismaAdimi = (GV.flow.adimlar('bug', b.kod) || [])
+      .filter(function(a){ return a.hedef === 'Devam ediyor' && a.izin && !a.eksik.length; })[0];
+    if(calismaAdimi){
+      GV.flow.gec('bug', b.kod, 'Devam ediyor', null, { not:'görev açılışıyla hata akışa girdi' });
     }
     return kod;
   }
@@ -351,7 +370,9 @@ document.addEventListener('gv:ready', function(){
       '<optgroup label="Diğer personel">' + digerler.map(opt).join('') + '</optgroup>';
   }
 
-  function cozumModal(){
+  /* Kapanış modalı — hedef MOTORDAN gelir (`Kapandı`). Çözüm tarihi geçişin
+     `ek` alanıyla aynı mutasyonda yazılır. */
+  function cozumModal(adim){
     GV.modal({
       title:'Hatayı çözüldü işaretle', text:b.kod + ' · ' + b.baslik, icon:'i-check-circle', size:'lg',
       body:
@@ -366,12 +387,12 @@ document.addEventListener('gv:ready', function(){
         '</div>' +
         '<div class="field u-mt-4"><label for="czNot">Çözüm notu <span class="u-faint">(opsiyonel)</span></label>' +
           '<textarea id="czNot" rows="2" placeholder="Kök neden, yapılan düzeltme, doğrulama biçimi…"></textarea></div>' +
-        GV.notice({ tone:'info', title:'Hata durum sözlüğünde ayrı bir “Çözüldü” değeri yok',
-          text:'Hata kayıtları Açık · Devam ediyor · Kapandı ekseninde tutulur. Çözüm kararı bu yüzden ' +
+        GV.notice({ tone:'info', title:'Kapanış geçiş tablosundan yürür',
+          text:'Hata sözlüğü on değerlidir (' + DB.bugStatuses.join(' · ') + '). Kapanış kararı ' +
                'durumu “Kapandı” yapar ve çözüm tarihi alanına yazılır; açık kalma süresi bu iki tarihten hesaplanır.' }),
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
-        { label:'Çözüldü işaretle', cls:'btn-acc', icon:'i-check', onClick:function(close, el){
+        { label:adim.etiket, cls:'btn-acc', icon:'i-check', onClick:function(close, el){
             var t = el.querySelector('#czTarih');
             var v = t.value;
             if(!v || (b.bulunma && v < b.bulunma)){
@@ -382,42 +403,91 @@ document.addEventListener('gv:ready', function(){
             }
             var not = el.querySelector('#czNot').value.trim();
             var ortam = el.querySelector('#czOrtam').value.trim();
-            cozulduIsaretle(v, not + (ortam && ortam !== b.ortam ? (not ? ' · ' : '') + 'doğrulanan ortam: ' + ortam : ''));
+            cozulduIsaretle(adim.hedef, v,
+              not + (ortam && ortam !== b.ortam ? (not ? ' · ' : '') + 'doğrulanan ortam: ' + ortam : ''));
           } }
       ]
     });
   }
 
-  function yenidenAcModal(){
+  /* Yeniden açma — hedef motordan gelir (`Yeniden Açıldı`). Geçiş tablosu bu
+     adımda GEREKÇE ister: neden KODU + açıklama (şartname [2.0.6]). Eski modal
+     "yeni durum" seçtiriyordu ve sözlükten kalkmış `Açık` değerini yazabiliyordu. */
+  function yenidenAcModal(adim){
     GV.modal({
       title:'Hatayı yeniden aç', text:b.kod + ' · ' + b.baslik, icon:'i-refresh', tone:'danger', size:'lg',
       body:
-        '<div class="field"><label for="yaNeden">Yeniden açma gerekçesi<span class="req">*</span></label>' +
+        '<div class="field"><label for="yaKod">Neden kodu<span class="req">*</span></label>' +
+          '<select id="yaKod"><option value="">Seçiniz</option>' +
+          DB.reasonCodes.map(function(n){
+            return '<option value="' + esc(n.kod) + '">' + esc(n.ad) + '</option>'; }).join('') +
+          '</select>' +
+          '<span class="f-hint">Kod raporlanabilir; serbest metin tek başına yeterli değildir.</span></div>' +
+        '<div class="field u-mt-4"><label for="yaNeden">Yeniden açma gerekçesi<span class="req">*</span></label>' +
           '<textarea id="yaNeden" rows="3" placeholder="Düzeltme doğrulanamadı · hata farklı ortamda tekrarladı · regresyon…"></textarea>' +
           '<span class="f-hint">En az 10 karakter. Gerekçe aktivite geçmişine yazılır ve bağlı göreve taşınır.</span>' +
           '<span class="f-err">' + ico('i-alert','ic-sm') + 'Gerekçe zorunludur — en az 10 karakter yazın.</span></div>' +
-        '<div class="field u-mt-4"><label for="yaDurum">Yeni durum</label><select id="yaDurum">' +
-          ['Açık','Devam ediyor'].map(function(d){
-            return '<option value="' + esc(d) + '">' + esc(d) + '</option>';
-          }).join('') + '</select>' +
-          '<span class="f-hint">Sorumlu hazırsa doğrudan “Devam ediyor” seçilebilir.</span></div>' +
-        GV.notice({ tone:'warn', title:'Çözüm tarihi silinir',
-          text:'Yeniden açılan hatanın çözüm tarihi boşaltılır; açık kalma süresi bulunma tarihinden bugüne ' +
-               'yeniden sayılır.' + gorevRevizeMetni() }),
+        GV.notice({ tone:'warn', title:'Kayıt “Yeniden Açıldı” durumuna döner',
+          text:'Çözüm tarihi boşaltılır; açık kalma süresi bulunma tarihinden bugüne yeniden sayılır. ' +
+               'Sonraki adım triage’dır — çalışma doğrudan başlamaz.' + gorevRevizeMetni() }),
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
         { label:'Yeniden aç', cls:'btn-danger', icon:'i-refresh', onClick:function(close, el){
+            var k = el.querySelector('#yaKod').value;
             var t = el.querySelector('#yaNeden');
             var v = t.value.trim();
+            if(!k){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
             if(v.length < 10){
               t.closest('.field').classList.add('is-invalid');
               GV.toast('Yeniden açma gerekçesi zorunlu — en az 10 karakter', 'warn');
               t.focus();
               return false;
             }
-            yenidenAc(el.querySelector('#yaDurum').value, v);
+            yenidenAc(adim.hedef, k, v);
           } }
       ]
+    });
+  }
+
+  /* Neden kodu + açıklama isteyen diğer geçişler (Reddedildi · Mükerrer · Triage
+     dönüşleri) — tablo `gerekce:true` dediği için modal açılır. */
+  function gerekceModal(adim){
+    GV.modal({
+      title:adim.etiket, text:b.kod + ' · ' + b.baslik, icon:'i-alert-circle', size:'sm',
+      body:'<div class="field"><label for="gKod">Neden kodu<span class="req">*</span></label>' +
+        '<select id="gKod"><option value="">Seçiniz</option>' +
+        DB.reasonCodes.map(function(n){
+          return '<option value="' + esc(n.kod) + '">' + esc(n.ad) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="field u-mt-4"><label for="gNot">Açıklama<span class="req">*</span></label>' +
+        '<textarea id="gNot" rows="3" placeholder="Kararın gerekçesi"></textarea></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:adim.etiket, cls:'btn-acc', onClick:function(close, el){
+            var kod = el.querySelector('#gKod').value;
+            var not = el.querySelector('#gNot').value.trim();
+            if(!kod){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
+            if(!not){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+            if(!uygula(adim.hedef, null, { neden:kod, not:not })) return false;
+            setTimeout(function(){ GV.refresh(); }, 700);
+          } }
+      ]
+    });
+  }
+
+  /* Geçişin kullanıcı yolu — hangi modalın açılacağını HEDEF belirler. */
+  function gecisAkisi(adim){
+    if(adim.hedef === 'Kapandı')        return cozumModal(adim);
+    if(adim.hedef === 'Yeniden Açıldı') return yenidenAcModal(adim);
+    if(adim.gerekce)                    return gerekceModal(adim);
+    GV.confirm({
+      title:adim.etiket,
+      text:b.kod + ' hatası “' + b.durum + '” durumundan “' + adim.hedef + '” durumuna geçirilecek.',
+      okLabel:adim.etiket,
+      tone:/Reddedildi|Mükerrer/.test(adim.hedef) ? 'danger' : null
+    }).then(function(ok){
+      if(!ok) return;
+      if(uygula(adim.hedef, null, { not:adim.etiket })) setTimeout(function(){ GV.refresh(); }, 700);
     });
   }
 
@@ -902,20 +972,31 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      6. DURUM GEÇİŞİ — hatanın yaşam döngüsü + aksiyonlar
      ================================================================= */
-  var HATA_DURUMLARI = ['Açık','Devam ediyor','Kapandı'];
-  var suAn = HATA_DURUMLARI.indexOf(b.durum);
+  /* Şerit ANA HATTI gösterir: sözlüğün on değerinin altısı sıralı akıştır,
+     dördü (Yeniden Açıldı · Reddedildi · Mükerrer + Yeni'nin kendisi) daldır.
+     Kayıt ana hattın dışındaysa şerit "akış dışı" der, yanlış bir sıra
+     uydurmaz — `indexOf` -1 dönünce eski kod bütün adımları "sıradaki" basardı. */
+  var HATA_ANA_HAT = ['Yeni','Triage','Atandı','Devam ediyor','Düzeltildi','Yeniden Test','Kapandı'];
+  var HATA_NOT = {
+    'Yeni':'Kayıt açıldı, triage bekliyor',
+    'Triage':'Şiddet, öncelik ve sorumlu belirleniyor',
+    'Atandı':'Sorumlu atandı, çalışma başlamadı',
+    'Devam ediyor':'Düzeltme çalışması sürüyor',
+    'Düzeltildi':'Düzeltme yapıldı, doğrulama bekliyor',
+    'Yeniden Test':'Düzeltme yeniden test ediliyor',
+    'Kapandı':'Çözüm doğrulandı, kayıt kapandı'
+  };
+  var suAn = HATA_ANA_HAT.indexOf(b.durum);
 
-  var serit = '<div class="gv-chain">' + HATA_DURUMLARI.map(function(d, i){
-    var st = i < suAn ? 'ok' : i === suAn ? (kapali ? 'ok' : 'wait') : 'idle';
+  var serit = '<div class="gv-chain">' + HATA_ANA_HAT.map(function(d, i){
+    var st = suAn === -1 ? 'idle' : i < suAn ? 'ok' : i === suAn ? (cozuldu ? 'ok' : 'wait') : 'idle';
     var icn = st === 'ok' ? 'i-check-circle' : st === 'wait' ? 'i-clock' : 'i-dot';
-    var not = d === 'Açık' ? 'Kayıt açıldı, sorumlu bekliyor'
-            : d === 'Devam ediyor' ? 'Düzeltme çalışması sürüyor'
-            : 'Çözüm doğrulandı, kayıt kapandı';
-    var tarih = d === 'Açık' ? b.bulunma : (d === 'Kapandı' ? b.cozum : null);
+    var not = HATA_NOT[d] || '';
+    var tarih = d === 'Yeni' ? b.bulunma : (d === 'Kapandı' ? b.cozum : null);
     return '<div class="gv-chain-step is-' + st + '">' +
       '<div class="gv-chain-top"><span class="gv-chain-ico">' + ico(icn,'ic-sm') + '</span>' +
       '<span class="gv-chain-role">' + esc(d) + '</span></div>' +
-      '<div class="gv-chain-who">' + esc(i === suAn ? 'Şu anki durum' : (i < suAn ? 'Geçildi' : 'Sıradaki')) + '</div>' +
+      '<div class="gv-chain-who">' + esc(suAn === -1 ? 'Akış dışı' : i === suAn ? 'Şu anki durum' : (i < suAn ? 'Geçildi' : 'Sıradaki')) + '</div>' +
       '<div class="gv-chain-when">' + (tarih ? F.date(tarih) : esc(i === suAn ? 'Bugün' : '—')) + '</div>' +
       '<div class="gv-chain-note">' + esc(not) + '</div></div>';
   }).join('') + '</div>';
@@ -934,33 +1015,44 @@ document.addEventListener('gv:ready', function(){
       not:kapali ? (sure != null ? sure + ' günde çözüldü' : 'Kapandı') : 'Hata hâlâ açık' }
   ];
 
-  /* Ölü buton yasağı: düzenleme yetkisi ve durum koşulu sağlanmıyorsa hiç basılmaz. */
-  var gecisAksiyon = '';
-  if(yetkiDuzenle && !kapali){
-    gecisAksiyon += '<button type="button" class="btn btn-acc" id="btnCozuldu">' +
-      ico('i-check-circle') + ' Çözüldü işaretle</button>';
-  }
-  if(yetkiDuzenle && kapali){
-    gecisAksiyon += '<button type="button" class="btn btn-danger" id="btnYenidenAc">' +
-      ico('i-refresh') + ' Yeniden aç</button>';
-  }
+  /* Ölü buton yasağı: düğme kümesi MOTORDAN gelir. Ekranın kendi durum
+     koşulu yok — yapılabilir geçişi, yetkiyi ve eksik alanı motor söyler. */
+  var adimlar = GV.flow.adimlar('bug', b.kod) || [];
+  var gecisAksiyon = adimlar.map(function(a){
+    var kilit = !a.izin || a.eksik.length;
+    var ipucu = !a.izin ? 'Yetkili roller: ' + ((GV.flow.kural('bug', b.durum) || {}).yetki || []).join(', ')
+              : a.eksik.length ? 'Eksik zorunlu alan: ' + a.eksik.join(', ') : a.etiket;
+    return '<button type="button" class="btn ' + a.tone + '" data-gecis="' + esc(a.hedef) + '"' +
+      (kilit ? ' disabled' : '') + ' title="' + esc(ipucu) + '">' + esc(a.etiket) + '</button>';
+  }).join('');
 
   var gecisNot;
-  if(kapali){
+  if(cozuldu){
     gecisNot = GV.notice({ tone:'ok', icon:'i-check-circle', title:'Hata kapandı',
-      text:b.kod + ' ' + F.date(b.bulunma) + ' tarihinde bulundu, ' + F.date(b.cozum) + ' tarihinde kapatıldı' +
+      text:b.kod + ' ' + F.date(b.bulunma) + ' tarihinde bulundu, ' +
+           (b.cozum ? F.date(b.cozum) + ' tarihinde kapatıldı' : 'kapatıldı') +
            (sure != null ? ' — açık kaldığı süre ' + sure + ' gün.' : '.') +
-           (yetkiDuzenle ? ' Düzeltme doğrulanamazsa kayıt yeniden açılabilir.' : '') });
+           ' Düzeltme doğrulanamazsa kayıt yeniden açılabilir.' });
+  } else if(kapali){
+    gecisNot = GV.notice({ tone:'neutral', icon:'i-x-circle', title:'Kayıt “' + b.durum + '” olarak kapatıldı',
+      text:b.durum === 'Mükerrer'
+        ? 'Bu kayıt başka bir hatanın tekrarı sayıldı; düzeltme o kayıttan yürür.'
+        : 'Kayıt geçerli bir hata sayılmadı. Karar gerekçesi hareket geçmişinde yazılıdır; ' +
+          'yeni bulgu çıkarsa kayıt yeniden açılabilir.' });
   } else if(b.durum === 'Devam ediyor'){
     gecisNot = GV.notice({ tone:'warn', icon:'i-clock', title:'Düzeltme çalışması sürüyor',
       text:'Hata ' + (sure != null ? sure + ' gündür' : '') + ' açık; ' +
            (b.sorumlu ? DB.empName(b.sorumlu) : 'atanacak sorumlu') + ' üzerinde “Devam ediyor” durumunda.' +
            (gorev ? ' Düzeltme ' + gorev.kod + ' görevinden yürüyor.' : ' Henüz bir görev kaydı açılmadı.') });
+  } else if(['Düzeltildi','Yeniden Test'].indexOf(b.durum) !== -1){
+    gecisNot = GV.notice({ tone:'info', icon:'i-flask', title:'Düzeltme doğrulanıyor',
+      text:'Kayıt “' + b.durum + '” durumunda: düzeltme yapıldı, kapanış için yeniden test sonucu bekleniyor. ' +
+           'Doğrulama başarısızsa kayıt “Yeniden Açıldı” durumuna alınır.' });
   } else {
     gecisNot = GV.notice({ tone:'info', icon:'i-alert-circle', title:'Hata açık, çalışma başlamadı',
       text:'Kayıt ' + F.date(b.bulunma) + ' tarihinde açıldı ve ' + (sure != null ? sure + ' gündür' : '') +
-           ' “Açık” durumunda. Çalışma başladığında durum “Devam ediyor” olur; en temiz yol hatayı göreve ' +
-           'dönüştürüp ilerlemeyi görev üzerinden izlemektir.' });
+           ' “' + b.durum + '” durumunda. Çalışmanın başlaması için kayıt önce triage edilip sorumluya ' +
+           'atanır; en temiz yol hatayı göreve dönüştürüp ilerlemeyi görev üzerinden izlemektir.' });
   }
 
   var pGecis = '<div class="gc-body">' + gecisNot +
@@ -970,28 +1062,32 @@ document.addEventListener('gv:ready', function(){
 
     '<div class="gc-body">' + sec('Yaşam Döngüsü', GV.chain(zincir)) + '</div>' +
 
+    /* Kurallar EKRANDA YAZILMAZ, tablodan okunur — sözlük değişince bu blok
+       sessizce yanlışa düşmesin diye. */
     '<div class="gc-body">' + sec('Geçiş Kuralları', GV.dl([
       ['Mevcut durum', GV.badge(b.durum)],
-      ['Olası sonraki durumlar', kapali
-        ? '<span class="tag">Açık</span> <span class="tag">Devam ediyor</span> ' +
-          '<span class="cell-sub">yeniden açma ile</span>'
-        : (b.durum === 'Açık'
-            ? '<span class="tag">Devam ediyor</span> <span class="tag">Kapandı</span>'
-            : '<span class="tag">Kapandı</span>')],
+      ['Olası sonraki durumlar', adimlar.length
+        ? adimlar.map(function(a){ return '<span class="tag">' + esc(a.hedef) + '</span>'; }).join(' ')
+        : '<span class="cell-sub">Bu durum bir bitiş durağıdır; tabloda çıkış yolu yok.</span>'],
+      ['Bu geçişi yapabilecek roller',
+        ((GV.flow.kural('bug', b.durum) || {}).yetki || []).join(' · ') || '—'],
+      ['Zorunlu alanlar',
+        (((GV.flow.kural('bug', b.durum) || {}).zorunlu || []).join(' · ')) || 'Yok'],
       ['Kapatma koşulu', 'Çözüm tarihi zorunlu — bulunma tarihinden önce olamaz'],
-      ['Yeniden açma koşulu', 'Gerekçe zorunlu (en az 10 karakter); çözüm tarihi boşaltılır' +
+      ['Yeniden açma koşulu', 'Neden kodu + gerekçe zorunlu; çözüm tarihi boşaltılır' +
         (gorev ? ', bağlı görev revizeye alınır' : '')],
-      ['Aksiyon yetkisi', yetkiDuzenle
-        ? '<span class="badge is-ok no-dot">Düzenleme yetkiniz var</span>'
-        : '<span class="badge is-neutral no-dot">Düzenleme yetkiniz yok — aksiyon basılmadı</span>'],
+      ['Aksiyon yetkisi', adimlar.length && adimlar[0].izin
+        ? '<span class="badge is-ok no-dot">Bu durumdan geçiş yapabilirsiniz</span>'
+        : '<span class="badge is-neutral no-dot">Bu durumda geçiş yetkiniz yok — düğmeler pasif</span>'],
       ['Durum sözlüğü <span class="u-faint">(hata ekseni)</span>',
-        HATA_DURUMLARI.map(function(d){ return GV.badge(d); }).join(' ')]
+        DB.bugStatuses.map(function(d){ return GV.badge(d); }).join(' ')]
     ])) + '</div>' +
 
-    (!yetkiDuzenle
+    (adimlar.length && !adimlar[0].izin
       ? '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-lock', title:'Durum değiştirme yetkisi yok',
-          text:'Rolünüzde düzenleme yetkisi bulunmadığı için “Çözüldü işaretle” ve “Yeniden aç” aksiyonları ' +
-               'hiç basılmadı. Hata durumunu proje yöneticisi, takım lideri veya kaydın sorumlusu değiştirir.' }) + '</div>'
+          text:'“' + b.durum + '” durumundan geçişi yalnız şu roller yapabilir: ' +
+               (((GV.flow.kural('bug', b.durum) || {}).yetki || []).join(', ') || '—') +
+               '. Düğmeler basıldı ama pasif; sahte bir aksiyon sunulmuyor.' }) + '</div>'
       : '');
 
   /* =================================================================
@@ -1113,9 +1209,12 @@ document.addEventListener('gv:ready', function(){
      GV.refresh() sonrası dinleyici birikmez (ders L-16).
      ================================================================= */
   mount.onclick = function(e){
-    if(e.target.closest('#btnDonustur'))  return donusturModal();
-    if(e.target.closest('#btnCozuldu'))   return cozumModal();
-    if(e.target.closest('#btnYenidenAc')) return yenidenAcModal();
+    if(e.target.closest('#btnDonustur')) return donusturModal();
+    var btn = e.target.closest('[data-gecis]');
+    if(btn && !btn.disabled){
+      var adim = adimlar.filter(function(a){ return a.hedef === btn.getAttribute('data-gecis'); })[0];
+      if(adim) return gecisAkisi(adim);
+    }
   };
 });
 </script>

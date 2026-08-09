@@ -41,12 +41,38 @@ document.addEventListener('gv:ready', function(){
     return DB.invoices.filter(function(i){ return i.milestone === ms.kod; })[0] || null;
   };
 
+  /* İKİ AYRI EKSEN — karıştırılmaz:
+     · `durum`       teslim belgesinin yaşam döngüsüdür (`DB.deliveryStatuses`,
+                     şartnameye hizalandı: Taslak · İç Kontrol · Müşteriye
+                     Gönderildi · Kabul · Kısmi Kabul · Ret · Revizyon ·
+                     Kapandı · Geri Çekildi) ve YALNIZ geçiş motorundan yazılır.
+     · `musteriOnay` müşterinin kararıdır (Onaylandı · Bekliyor · Revizyon istendi).
+     Sözlükte artık `Planlandı` / `Onaylandı` / `Gecikti` DURUMU yok. */
+  var BITTI      = ['Kabul','Kısmi Kabul','Kapandı'];
+  var bitti      = function(t){ return BITTI.indexOf(t.durum) !== -1; };
   var onayBekler = function(t){ return t.musteriOnay === 'Bekliyor'; };
   var onaylandi  = function(t){ return t.musteriOnay === 'Onaylandı'; };
-  /* Geciken = kaydın kendi durumu Gecikti YA DA planlı kalıp tarihi geçmiş teslim. */
-  var geciken    = function(t){ return t.durum === 'Gecikti' || (t.durum === 'Planlandı' && F.days(t.tarih) < 0); };
+  /* Gecikme ARTIK BİR DURUM DEĞİL, türetilen bir olgudur: sonuçlanmamış ve
+     teslim tarihi geçmiş kayıt gecikmiştir. Eski `durum === 'Gecikti'` cümlesi
+     sözlükten kalkan bir değeri arıyordu ve sekme sessizce boşalıyordu. */
+  var geciken    = function(t){ return !bitti(t) && F.days(t.tarih) < 0; };
   /* Teslimden müşteri onayına kadar geçen gün — onay yoksa null. */
   var onayGun    = function(t){ return t.onayTarihi ? F.days(t.onayTarihi, t.tarih) : null; };
+
+  /* Kabul adımı bu kayıt + bu oturum için yapılabilir mi — MOTOR söyler. */
+  function kabulAdimi(t){
+    return (GV.flow.adimlar('delivery', t.kod) || []).filter(function(a){
+      return a.hedef === 'Kabul' && a.izin && !a.eksik.length; })[0] || null;
+  }
+  /* Motorun reddi kullanıcı diline çevrilir — `why` kodu ham basılmaz. */
+  function flowHata(r){
+    if(!r) return 'bilinmeyen neden';
+    if(r.why === 'yetki')   return 'yetkiniz yok · yetkili roller: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'eksik zorunlu alan: ' + (r.eksik || []).join(', ');
+    if(r.why === 'gerekce') return r.mesaj || 'neden kodu ve açıklama zorunludur';
+    if(r.why === 'kapi')    return r.mesaj || 'geçiş ön koşulu sağlanmadı';
+    return r.why || 'geçiş yapılamadı';
+  }
 
   var teslimEdenler = DB.deliveries.map(function(t){ return t.teslimEden; })
                                    .filter(function(v, i, a){ return v && a.indexOf(v) === i; })
@@ -95,8 +121,9 @@ document.addEventListener('gv:ready', function(){
 
     tabs:[
       { key:'tumu',    label:'Tümü',                     icon:'i-list',         filter:null },
-      { key:'planli',  label:'Planlananlar',             icon:'i-calendar',     filter:function(t){ return t.durum === 'Planlandı'; } },
-      { key:'onayli',  label:'Onaylananlar',             icon:'i-check-circle', filter:function(t){ return t.durum === 'Onaylandı'; } },
+      { key:'planli',  label:'Taslaklar',                icon:'i-calendar',     filter:function(t){ return t.durum === 'Taslak'; } },
+      { key:'gonderilen', label:'Müşteride',             icon:'i-send',         filter:function(t){ return t.durum === 'Müşteriye Gönderildi'; } },
+      { key:'onayli',  label:'Kabul Edilenler',          icon:'i-check-circle', filter:function(t){ return t.durum === 'Kabul' || t.durum === 'Kısmi Kabul'; } },
       { key:'geciken', label:'Gecikenler',               icon:'i-alert',        filter:geciken },
       { key:'bekleyen',label:'Müşteri Onayı Bekleyenler',icon:'i-hourglass',    filter:onayBekler }
     ],
@@ -118,15 +145,15 @@ document.addEventListener('gv:ready', function(){
                    : '<span class="u-faint">—</span>'; },
         exportValue:function(t){ return musAd(t); } },
       { key:'tarih', label:'Teslim tarihi',
-        render:function(t){ return GV.dateCell(t.tarih, { done:t.durum === 'Onaylandı' }); } },
+        render:function(t){ return GV.dateCell(t.tarih, { done:bitti(t) }); } },
       { key:'kalan', label:'Gecikme / kalan gün',
         sortValue:function(t){ return F.days(t.tarih); },
         render:function(t){
-          if(t.durum === 'Onaylandı') return '<span class="u-faint">Teslim edildi</span>';
+          if(bitti(t)) return '<span class="u-faint">Teslim edildi</span>';
           var d = F.days(t.tarih);
           if(d < 0) return '<span class="badge is-danger no-dot">' + (-d) + ' gün gecikti</span>';
           return '<span class="u-num">' + F.rel(t.tarih) + '</span>'; },
-        exportValue:function(t){ return t.durum === 'Onaylandı' ? 'Teslim edildi' : F.rel(t.tarih); } },
+        exportValue:function(t){ return bitti(t) ? 'Teslim edildi' : F.rel(t.tarih); } },
       { key:'durum', label:'Durum', render:function(t){ return GV.badge(t.durum); } },
       { key:'teslimEden', label:'Teslim eden',
         sortValue:function(t){ return DB.empName(t.teslimEden); },
@@ -183,7 +210,7 @@ document.addEventListener('gv:ready', function(){
         options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
       { key:'musteri', label:'Müşteri', type:'select', options:musteriler,
         test:function(t, v){ return musKod(t) === v; } },
-      { key:'durum', label:'Durum', type:'multi', options:['Planlandı','Onaylandı','Gecikti'] },
+      { key:'durum', label:'Durum', type:'multi', options:DB.deliveryStatuses },
       { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:GV.delivery.kararlar,
         test:function(t, v){ return v === 'Bekliyor' ? onayBekler(t) : t.musteriOnay === v; } },
       { key:'teslimEden', label:'Teslim eden', type:'select', options:teslimEdenler },
@@ -198,7 +225,7 @@ document.addEventListener('gv:ready', function(){
 
     mobile:function(t){
       return '<div class="gv-mrow-top"><a class="cell-main" href="app-proje-teslim-detay.html?id=' + t.kod + '">' + t.kod + '</a>' +
-        GV.dateCell(t.tarih, { done:t.durum === 'Onaylandı' }) + '</div>' +
+        GV.dateCell(t.tarih, { done:bitti(t) }) + '</div>' +
         '<div class="gv-mrow-code">' + esc(projAd(t.proje)) + ' · ' + esc(t.ad) + '</div>' +
         '<div class="gv-mrow-bottom"><span class="gv-mrow-badges">' + GV.badge(t.durum) +
         /* VB-23 — mobil satır onayı İKİLİ okuyordu: sözlükteki üçüncü değer
@@ -214,7 +241,7 @@ document.addEventListener('gv:ready', function(){
         '<div class="cell-code">' + t.kod + ' · ' + esc(projAd(t.proje)) + '</div></div>' + GV.badge(t.durum) + '</div>' +
         '<div class="gv-rcard-meta"><span>' + esc(musAd(t)) + '</span>' +
         '<span>' + F.dateShort(t.tarih) + '</span>' +
-        '<span>' + (t.durum === 'Onaylandı' ? 'Teslim edildi' : esc(F.rel(t.tarih))) + '</span></div>' +
+        '<span>' + (bitti(t) ? 'Teslim edildi' : esc(F.rel(t.tarih))) + '</span></div>' +
         '<div class="gv-rcard-meta">' +
         (m ? '<span>' + m.kod + ' · ' + m.taksit + '. taksit · ' +
                (canFinans ? F.money(m.odeme) + ' (KDV hariç)' : '<span class="cell-mask">••••••</span>') + '</span>'
@@ -230,24 +257,26 @@ document.addEventListener('gv:ready', function(){
       { key:'milestone', icon:'i-milestone', label:'Milestone\'u aç',
         show:function(t){ return !!taksitOf(t); },
         href:function(t){ var m = taksitOf(t); return 'app-proje-milestone.html?id=' + m.kod; } },
-      /* Onay yetkisi olmayan rolde buton hiç basılmaz (ölü buton yasağı); run içindeki
-         yetki kontrolü ikinci savunma hattı olarak durur. */
-      { key:'onayla', icon:'i-stamp', label:'Müşteri onayını işaretle',
-        show:function(t){ return onayBekler(t) && GV.perm.can('onay'); },
+      /* Kabul artık bir DURUM GEÇİŞİDİR: `Müşteriye Gönderildi → Kabul`. Düğme
+         yalnız geçiş gerçekten yapılabiliyorken basılır — "yapılabilir mi"yi
+         motor söyler, ekran kendi durum listesini yazmaz (ölü buton yasağı). */
+      { key:'onayla', icon:'i-stamp', label:'Müşteri kabulünü işaretle',
+        show:function(t){ return !!kabulAdimi(t); },
         run:function(t, refresh){
-          if(!GV.perm.can('onay')){ GV.toast('Müşteri onayını işaretleme yetkiniz yok.', 'danger'); return; }
-          GV.modal({ title:'Müşteri Onayını İşaretle', text:t.kod + ' · ' + t.ad, icon:'i-stamp', size:'sm',
+          var adim = kabulAdimi(t);
+          if(!adim){ GV.toast('Bu teslim şu durumdan kabul edilemez: ' + t.durum, 'warn'); return; }
+          GV.modal({ title:'Müşteri Kabulünü İşaretle', text:t.kod + ' · ' + t.ad, icon:'i-stamp', size:'sm',
             body:'<div class="gv-fields"><div class="field f-col-12"><label for="tsOnayTar">Müşteri onay tarihi</label>' +
               '<input type="date" class="inp" id="tsOnayTar" value="' + DB.today + '" min="' + t.tarih + '"></div></div>',
             actions:[{ label:'Vazgeç', cls:'btn-line' },
-              { label:'Onaylandı İşaretle', cls:'btn-acc', onClick:function(close, el){
-                  /* VB-23 — mutasyon `GV.delivery.approve`'ta. Liste eskiden yalnız
-                     `musteriOnay` yazıyor, detay ekranı `durum`u da güncelliyordu:
-                     aynı işlem iki ekranda iki farklı sonuç bırakıyordu. */
-                  var r = GV.delivery.approve(t.kod, 'Onaylandı', el.querySelector('#tsOnayTar').value);
-                  if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + ((r && r.why) || 'bilinmeyen'), 'warn'); return; }
-                  GV.toast(t.kod + ' için müşteri onayı işlendi' +
-                           (r.eskiDurum !== r.teslim.durum ? ' · teslim durumu ' + r.teslim.durum : ''), 'ok');
+              { label:'Kabul İşaretle', cls:'btn-acc', onClick:function(close, el){
+                  /* Durum ve müşteri kararı AYNI mutasyonda yazılır; iki ekranın
+                     iki farklı sonuç bırakması (VB-23) böyle kapanır. */
+                  var r = GV.flow.gec('delivery', t.kod, 'Kabul',
+                    { musteriOnay:'Onaylandı', onayTarihi:el.querySelector('#tsOnayTar').value },
+                    { not:'müşteri kabulü işlendi' });
+                  if(!r || !r.ok){ GV.toast('İşlem yapılamadı: ' + flowHata(r), 'danger', 6000); return false; }
+                  GV.toast(t.kod + ' · ' + r.eski + ' → ' + r.yeni, 'ok');
                   refresh(); } }] }); } },
       { key:'not', icon:'i-file', label:'Teslim notunu gör',
         show:function(t){ return !!t.not; },
@@ -263,17 +292,20 @@ document.addEventListener('gv:ready', function(){
     ],
 
     bulk:[
-      { key:'onayla', label:'Müşteri Onayı İşaretle', icon:'i-stamp', perm:'onay',
-        confirm:'Seçili {n} teslim için müşteri onayı bugünün tarihiyle işlenecek. Onayı zaten alınmış teslimler atlanır.',
+      { key:'onayla', label:'Müşteri Kabulü İşaretle', icon:'i-stamp', perm:'onay',
+        confirm:'Seçili {n} teslim “Kabul” durumuna alınacak ve müşteri onayı bugünün tarihiyle işlenecek. ' +
+                'Kabul yalnız “Müşteriye Gönderildi” durumundaki kayıtlarda yapılabilir; diğerleri atlanır.',
         run:function(ids){
-          if(!GV.perm.can('onay')){ GV.toast('Müşteri onayını işaretleme yetkiniz yok.', 'danger'); return; }
-          var n = 0;
+          var n = 0, engel = 0;
           ids.forEach(function(kod){
-            var r = GV.delivery.approve(kod, 'Onaylandı');       /* VB-23 — tek yordam */
-            if(r && r.ok) n++;
+            var r = GV.flow.gec('delivery', kod, 'Kabul',
+              { musteriOnay:'Onaylandı', onayTarihi:DB.today },
+              { not:'listeden toplu kabul' });
+            if(r && r.ok) n++; else engel++;
           });
-          GV.toast(n ? (n + ' teslimin müşteri onayı işlendi' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
-                     : 'Seçili kayıtların hiçbiri onay beklemiyor', n ? 'ok' : 'warn'); } },
+          GV.toast(n ? (n + ' teslim kabul edildi' + (engel ? ' · ' + engel + ' kayıt geçiş kuralına takıldı' : ''))
+                     : 'Seçili kayıtların hiçbiri bu durumdan kabul edilemez — önce müşteriye gönderin',
+                   n ? 'ok' : 'warn', 6000); } },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true },
       { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',
         confirm:'Seçili {n} teslim arşive alınacak. Listeden çıkacak, "Arşivlenenleri Göster" ile görünür.',

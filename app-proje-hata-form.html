@@ -209,7 +209,9 @@ document.addEventListener('gv:ready', function(){
     var benim = GV.session && GV.session.emp && DB.emp(GV.session.emp) ? GV.session.emp : '';
     formRec = {
       baslik:'', proje:baslangicProje, modul:'',
-      siddet:'', oncelik:'', durum:'Açık',
+      /* Yeni hata sözlüğün İLK durumunda açılır (`DB.bugStatuses[0] === 'Yeni'`);
+         eski `Açık` değeri sözlükten kalktı ve geçiş tablosunda karşılığı yok. */
+      siddet:'', oncelik:'', durum:'Yeni',
       bulan:benim, sorumlu:'',
       bulunma:DB.today, cozum:'',
       ortam:'', tekrarlanabilir:'',
@@ -388,7 +390,9 @@ document.addEventListener('gv:ready', function(){
       onNot += GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
         text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili ' +
              'açıldı. Bu projede ' + pHata.length + ' hata kaydı var, ' +
-             pHata.filter(function(b){ return b.durum !== 'Kapandı'; }).length + ' tanesi açık.',
+             /* "Açık" = kapanmamış; kapanış üç durumla anlatılıyor (Kapandı ·
+                Reddedildi · Mükerrer), tek değerin değili yanlış sayardı. */
+             pHata.filter(function(b){ return ['Kapandı','Reddedildi','Mükerrer'].indexOf(b.durum) === -1; }).length + ' tanesi açık.',
         actions:[{ label:'Proje kartını aç', href:'app-proje-detay.html?id=' + onProje.kod }] });
     }
 
@@ -466,9 +470,13 @@ document.addEventListener('gv:ready', function(){
         { key:'oncelik', label:'Öncelik', type:'select', options:DB.priorities, required:true, cols:4,
           placeholder:'Öncelik seçin',
           hint:'Çözüm sırası. Şiddetten farklı olabilir; hata kartı iki ekseni ayrı gösterir.' },
+        /* Durum SALT OKUNUR — hata durumu yalnız merkezî geçiş motorundan
+           (`GV.flow.gec('bug', …)`) değişir; hata kartındaki akış düğmeleri
+           onu çağırır. Serbest `<select>` `Yeni` bir kaydı doğrudan `Kapandı`
+           yapabiliyordu, yani sözlük vardı kural yoktu. */
         { key:'durum', label:'Durum', type:'select', options:DURUMLAR, required:true, cols:4,
-          hint:'Sözlükte ayrı bir “Çözüldü” değeri yok: çözülen hata “Kapandı” olur ve çözüm ' +
-               'tarihi yazılır.' }
+          hint:'Durum, iş akışı eylemlerinden değişir — bu alandan değiştirilemez. ' +
+               'Yeni kayıt “Yeni” durumunda açılır; sonraki adımlar hata kartından yürütülür.' }
       ]},
 
     { title:'Sorumluluk',
@@ -586,8 +594,10 @@ document.addEventListener('gv:ready', function(){
           onLabel:'Kayıt aktif — hata listelerinde ve sayaçlarda görünür',
           hint:'Kapatılırsa kayıt arşive düşer; bağlı görev, koşum ve destek talebi silinmez.',
           validate:function(v, d){
-            return (!v && d.durum !== 'Kapandı')
-              ? 'Kapanmamış hata arşivlenemez — önce durumu “Kapandı” yapın.' : '';
+            /* Kapanış üç durumla anlatılır (Kapandı · Reddedildi · Mükerrer);
+               tek değerin değili reddedilmiş kaydın arşivlenmesini engellerdi. */
+            return (!v && ['Kapandı','Reddedildi','Mükerrer'].indexOf(d.durum) === -1)
+              ? 'Kapanmamış hata arşivlenemez — kayıt önce hata kartındaki iş akışı eylemleriyle kapatılmalıdır.' : '';
           } }
       ]}
   ];
@@ -599,6 +609,12 @@ document.addEventListener('gv:ready', function(){
   var form = GV.form({
     mount:'#formMount', id:'hata', record:formRec, sections:sections
   });
+
+  /* DURUM SALT OKUNUR — değeri okunur, kullanıcı değiştiremez. `read()` pasif
+     alanın değerini de okuduğu için kaydederken durum kaybolmaz; yalnız
+     ekrandan yazma yolu kapanır (tek yazma yolu `GV.flow.gec`). */
+  var durSelect = form.el.querySelector('[name="durum"]');
+  if(durSelect) durSelect.disabled = true;
 
   /* =================================================================
      PROJEYE BAĞLI SEÇENEKLER — proje değişince yeniden kurulur.

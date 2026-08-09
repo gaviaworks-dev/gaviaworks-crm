@@ -93,8 +93,14 @@ document.addEventListener('gv:ready', function(){
          kapsam proje ekseninde okunur.
        · `test` = teslimi kabule bağlayan koşum · `milestone` = tekil taksit bağı.
      ================================================================= */
-  var DURUMLAR = ['Planlandı','Onaylandı','Gecikti'];
-  var ONAYLAR  = ['Onaylandı','Bekliyor','Revizyon istendi'];
+  /* Teslim durumu sözlüğü ŞARTNAMEDEN gelir (`DB.deliveryStatuses`) — ekran
+     kendi listesini yazmaz. Eski üçlü ('Planlandı · Onaylandı · Gecikti')
+     kalktı: gecikme artık bir durum değil, tarihten türetilen bir olgudur. */
+  var DURUMLAR = DB.deliveryStatuses;
+  var ONAYLAR  = GV.delivery.kararlar;
+  /* "Teslim edilmiş sayılan" durumlar — teslim tarihi ve kabul koşumu
+     doğrulamaları bu kümeyi okur; tek bir `Onaylandı` değeri artık yok. */
+  var KABUL    = ['Kabul','Kısmi Kabul','Kapandı'];
 
   /* =================================================================
      ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
@@ -193,7 +199,8 @@ document.addEventListener('gv:ready', function(){
     var benim = GV.session && GV.session.emp && DB.emp(GV.session.emp) ? GV.session.emp : '';
     formRec = {
       ad:'', proje:baslangicProje, tarih:DB.today,
-      durum:'Planlandı', musteriOnay:'Bekliyor', onayTarihi:'',
+      /* Yeni teslim sözlüğün İLK durumunda açılır (`DB.deliveryStatuses[0] === 'Taslak'`). */
+      durum:'Taslak', musteriOnay:'Bekliyor', onayTarihi:'',
       teslimEden:benim, not:'',
       /* Taksit bağı adresten geldiyse yazılır; modül ve kabul koşumu taksitten
          TÜRETİLMEZ (form-brief §5 kural 4 — belirsiz bağ boş bırakılır). */
@@ -312,7 +319,7 @@ document.addEventListener('gv:ready', function(){
           : (kayit.proje ? '<span class="u-num">' + esc(kayit.proje) + '</span>' + sub('Proje kaydı bulunamadı') : null)],
         ['Müşteri', proje && proje.musteri
           ? '<a href="app-musteri-detay.html?id=' + proje.musteri + '">' + esc(proje.musteriAd) + '</a>' : null],
-        ['Teslim tarihi', GV.dateCell(kayit.tarih, { done:kayit.durum === 'Onaylandı' }) + sub(F.dateLong(kayit.tarih))],
+        ['Teslim tarihi', GV.dateCell(kayit.tarih, { done:KABUL.indexOf(kayit.durum) !== -1 }) + sub(F.dateLong(kayit.tarih))],
         ['Teslim durumu', GV.badge(kayit.durum) + (kayit.aktif === false ? ' <span class="tag">Arşiv</span>' : '')],
         ['Müşteri onayı', GV.badge(kayit.musteriOnay)],
         ['Onay tarihi', kayit.onayTarihi
@@ -447,8 +454,8 @@ document.addEventListener('gv:ready', function(){
             hint:'Planlı teslimde ileri tarih girilebilir; gecikme bu tarihten ' + F.date(DB.today) +
                  ' veri eksenine göre ölçülür.',
             validate:function(v, d){
-              if(v && d.durum === 'Onaylandı' && v > DB.today)
-                return 'Onaylanmış teslimin tarihi ileri bir tarih olamaz.';
+              if(v && KABUL.indexOf(d.durum) !== -1 && v > DB.today)
+                return 'Kabul edilmiş teslimin tarihi ileri bir tarih olamaz.';
               return '';
             } }
         ]},
@@ -457,22 +464,18 @@ document.addEventListener('gv:ready', function(){
         desc:'Teslim durumu işin kendi ekseni, müşteri onayı kabul ekseni — ikisi ayrı alandır. ' +
              'Müşteri onayı bir DURUM değeridir (' + ONAYLAR.join(' · ') + '); “—” yazılmaz.',
         fields:[
+          /* Durum SALT OKUNUR — teslim durumu yalnız merkezî geçiş motorundan
+             (`GV.flow.gec('delivery', …)`) değişir; teslim kartındaki akış
+             düğmeleri onu çağırır. Serbest `<select>` ikinci mutasyon yolu açar
+             ve bir taslağı doğrudan “Kabul” yapabilirdi. */
           { key:'durum', label:'Teslim durumu', type:'select', options:DURUMLAR, required:true, cols:4,
-            hint:'Liste bu kümeyi kullanır. “Planlandı” kalıp tarihi geçen teslim listede ayrıca ' +
-                 'geciken sayılır, durumu elle değiştirilmesi gerekmez.',
-            validate:function(v, d){
-              if(v === 'Gecikti' && d.tarih && d.tarih >= DB.today)
-                return 'Gecikti durumu yalnız teslim tarihi geçmiş kayıtlarda kullanılır; tarih ' +
-                       'ileride olduğu için “Planlandı” seçilmelidir.';
-              if(v === 'Onaylandı' && d.musteriOnay !== 'Onaylandı')
-                return 'Teslim durumu “Onaylandı” ise müşteri onayı da “Onaylandı” olmalıdır.';
-              return '';
-            } },
+            hint:'Durum, iş akışı eylemlerinden değişir — bu alandan değiştirilemez. ' +
+                 'Yeni kayıt “Taslak” açılır; gecikme ayrı bir durum değildir, teslim tarihinden türetilir.' },
           { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:ONAYLAR, required:true, cols:4,
             hint:'Ölçüm: ' + toplamTeslim + ' teslimin ' + onayliTeslim + ' tanesinde müşteri onayı ' +
                  'alınmış. Onay beklenirken “Bekliyor”, geri dönüş geldiyse “Revizyon istendi” yazılır. ' +
-                 'Teslim kartındaki onay akışı iki alanı birlikte yürütür (onay işlenince teslim durumu ' +
-                 'da “Onaylandı” olur); burada durumu ayrıca seçmelisiniz.' },
+                 'Teslim kartındaki akış düğmeleri iki alanı AYNI işlemde yürütür (kabul geçişi bu alanı ' +
+                 'da “Onaylandı” yapar); teslim durumu buradan seçilmez.' },
           { key:'onayTarihi', label:'Müşteri onay tarihi', type:'date', cols:4,
             hint:'Yalnız onayı alınmış teslimde dolar; teslim tarihinden önce olamaz.',
             validate:function(v, d){
@@ -544,7 +547,7 @@ document.addEventListener('gv:ready', function(){
               if(!t) return 'Seçilen test koşumu bulunamadı.';
               if(t.proje !== d.proje)
                 return 'Koşum başka bir projeye ait (' + t.proje + '); bağ aynı projede olmalıdır.';
-              if((d.durum === 'Onaylandı' || d.musteriOnay === 'Onaylandı') && t.durum !== 'Tamamlandı')
+              if((KABUL.indexOf(d.durum) !== -1 || d.musteriOnay === 'Onaylandı') && t.durum !== 'Tamamlandı')
                 return t.kod + ' koşumu “' + t.durum + '” durumunda; kabule bağlanan koşum ' +
                        'tamamlanmadan teslim onaylanmış görünemez.';
               return '';
@@ -574,6 +577,12 @@ document.addEventListener('gv:ready', function(){
   var form = null;
   function kurForm(rec){
     form = GV.form({ mount:'#formMount', id:'teslim', record:rec, sections:bolumler(rec.proje || '') });
+    /* DURUM SALT OKUNUR — değeri okunur, kullanıcı değiştiremez. `read()` pasif
+       alanın değerini de okuduğu için kaydederken durum kaybolmaz; yalnız
+       ekrandan yazma yolu kapanır (tek yazma yolu `GV.flow.gec`).
+       Form proje değişiminde yeniden kurulduğu için kilit BURADA uygulanır. */
+    var durSelect = form.el.querySelector('[name="durum"]');
+    if(durSelect) durSelect.disabled = true;
   }
   kurForm(formRec);
 
