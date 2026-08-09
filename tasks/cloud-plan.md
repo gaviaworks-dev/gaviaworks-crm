@@ -30,7 +30,7 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P1-06 İş takvimi / SLA | ✅ bitti | `GV.calendar` · `DB.holidays` · bekleme politikası |
 | P1-07 Veri kalitesi sayfası | ✅ bitti | `app-veri-kalitesi.html` · 12 kontrol · 46 bulgu |
 | P1-08 Entegrasyon hata kuyruğu | ⏳ kısmi | koleksiyon açıldı (boş, dürüst); ekran yok |
-| P1-09 Notlarım test ağı | ⛔ başlanmadı | modül yazılmadan test yazılacak |
+| P1-09 Notlarım test ağı | ✅ yazıldı | `tasks/qa/notes-isolation.js` 6 senaryo · modül yokken **kırmızı** ([22.0.11]) |
 | P2-01 CreateEditPage | ✅ bitti | 38/38 form göç etti · 63 sekmeli hedef · `formtab.js` 276 panel TEMİZ |
 | P2-02 Kayıt sonrası detay | ✅ bitti | `GV.afterSave` · 38/38 form · 26'sı detaya, 12'si listeye (detay ekranı yok) |
 | P2-03 Demo temizliği | ✅ bitti | 59 ekran · kullanıcıya basılan geliştirici dili 0 |
@@ -43,7 +43,7 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P3-07 Destek zinciri | ⏳ kısmi | motor + kota düşümü bağlandı; bilgi bankası yok |
 | P4-01 ReportRegistry | ✅ bitti | `DB.reportRegistry` 105 kayıt (ekrandan üretildi) · `GV.cell`/`GV.cols` · 7 rapor prelude'ü −1.298 satır · `reg.js` TEMİZ |
 | P4-02 Export servisi | ⏳ kısmi | ekran değeri çıktıya taşınıyor (`xport.js` **TEMİZ**, 646 kolon) · CSV formül koruması · künye · yazdırma CSS'i · tüm kayıtlar onayı. **XLSX/PDF hâlâ gerçek biçim değil — backend payı** |
-| P4-03 Notlarım modülü | ⛔ başlanmadı | — |
+| P4-03 Notlarım modülü | ✅ bitti | `notes.js` (6 not · 8 madde) · `GV.notes` sahiplik kapısı · 2 ekran · menü bölümü · `notes-isolation.js` **TEMİZ**, bozuk kopyada 7 sızıntı yakaladı. **Gerçek izolasyon backend payı** |
 | P5-01…P5-06 | ⛔ başlanmadı | büyük ölçüde backend |
 
 **ADR:** 17 blokaj sorusu `tasks/cloud-kararlar.md` içinde karara bağlandı; 5'i 🔸 teyit bekliyor.

@@ -128,15 +128,28 @@ Sessiz varsayım yapılmadı: her karar soru, seçilen cevap, gerekçe ve geri a
 **Ölçüm.** `tasks/qa/aftersave.js` (6 eksen, `--selftest` ile bozuk kopyada sınandı).
 **Geri alma.** `GV.afterSave` gövdesinde `detay` yolunu kapatmak tek satırdır; formlar değişmeden eski davranışa döner.
 
+## ADR-20 · Kişisel not kapısı rol matrisinde değil sahiplikte
+**Soru (AS-4.1/4.2 · [15.4.1]).** Notlarım hangi rollere açılır ve `GV.perm` matrisinde nasıl temsil edilir?
+**Karar.** "Çalışma Alanım" bölümü **şirket içi 26 rolün hepsine** açılır; `SEC_BY_ROLE`'de kısıtlanmaz. Tek istisna `musteri` personasıdır. Erişim kapısı bölümde değil, `GV.notes` içindeki **sahiplik süzgecindedir**: sahibi değilsen göremezsin, rolün ne olursa olsun (`sahip` ve `sistem` dahil).
+**Gerekçe.** Kişisel not tutmak bir yetki değil, kullanıcının kendi alanıdır; rol matrisiyle kısıtlamak "bu rol kendi notunu tutamaz" demek olurdu. Ters yönde, matrise güvenmek de yanlıştı: matris "bu rol bu modülü görebilir" der, oysa soru "bu KAYIT kimin" sorusudur. `musteri` dışarıda kaldı çünkü portal kimliği bir `YTK-` kaydıdır, `GV.notes` oturumdaki personel koduna bağlıdır ve müşteriye hep boş bir ekran açardı.
+**Ölçüm.** `tasks/qa/notes-isolation.js` — 6 senaryo; bozulmuş kopyada (owner süzgeci kaldırılmış) **7 sızıntı** yakaladı, gerçek kodda TEMİZ.
+**Geri alma.** Bölüm `shell.js` SECTIONS'tan çıkarılır; veri ve ekranlar yerinde kalır.
+
+## ADR-21 · Kişisel not içeriği ayrı veri dosyasında tutulur
+**Soru.** `DB.personalNotes` hangi veri dosyasına girer?
+**Karar.** Kendi dosyasına: `assets/data/notes.js`. Yalnız Notlarım ekranları yükler; kurumsal ekranların hiçbiri yüklemez.
+**Gerekçe.** Ölçülebilir bir sınır: bir ekran bu dosyayı yüklemiyorsa `DB.personalNotes` orada **tanımsızdır**, yani sızıntı yolu fiziksel olarak kapalıdır ve `tasks/qa/dbref.js` bunu zaten tarıyor. Ters yönde bedeli var ve kayda geçti: Notlarım ekranları kurumsal veri dosyalarını yüklemediği için sol menüdeki onay/bildirim rozetleri o sayfalarda sayı basmaz.
+**Geri alma.** Dosya `misc.js` içine taşınabilir; taşınırsa bu sınır kaybolur.
+
 ---
 
 ## Sayım
 
 | | |
 |---|---:|
-| Karara bağlanan blokaj sorusu | 19 |
+| Karara bağlanan blokaj sorusu | 21 |
 | 🔸 Yasin Bey'in teyidini bekleyen | 5 (ADR-06, 08, 11, 16 ve dolaylı olarak 02) |
 | Bayrakla geri alınabilir | 12 |
-| Yalnız commit revert ile geri alınabilir | 7 |
+| Yalnız commit revert ile geri alınabilir | 9 |
 
 ⚠️ işaretli 30 soru, ilgili iş paketine gelindiğinde aynı biçimde karara bağlanıp bu dosyaya eklenir.
