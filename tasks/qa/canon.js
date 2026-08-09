@@ -30,12 +30,13 @@ DB.customers.forEach(c => {
   say(bekleyen === c.bekleyenTahsilat,
       c.kod + ' bekleyenTahsilat kart=' + money(c.bekleyenTahsilat) + ' tahsilat=' + money(bekleyen));
 
-  // Aktif proje = işi teslim edilmemiş proje. REVİZE 05'ten sonra "teslim edilmiş"
-  // iki durumdur (`Teslim Sürecinde` · `Tamamlandı`); `Askıda` duran ama BİTMEMİŞ
-  // projedir ve müşteri kartında aktif sayılmayı sürdürür (eski liste onu da kapalı
-  // sayıyordu — 0 kayıtta olduğu için fark etmemişti).
+  // Aktif proje = işi teslim edilmemiş proje. CLOUD TURU'nda sözlük şartnameye
+  // taşındı (`Teslim Sürecinde`→`Teslim`, `Askıda`→`Beklemede`) ve iki durum
+  // eklendi (`Kapanış` bitmiş sayılır, `Arşivlendi` terminaldir).
+  // `Beklemede` duran ama BİTMEMİŞ projedir; müşteri kartında aktif sayılır.
   const aktif = DB.projects.filter(p => p.musteri === c.kod &&
-    ['Teslim Sürecinde', 'Tamamlandı', 'İptal Edildi', 'Askıda'].indexOf(p.durum) === -1).length;
+    ['Teslim', 'Kapanış', 'Tamamlandı', 'İptal Edildi', 'Arşivlendi', 'Beklemede']
+      .indexOf(p.durum) === -1).length;
   say(aktif === c.aktifProje, c.kod + ' aktifProje kart=' + c.aktifProje + ' proje=' + aktif);
 });
 
@@ -316,7 +317,7 @@ ref(DB.assets, 'siparis', DB.orders, 'DB.orders');
 DB.orders.forEach(o => {
   const grup = DB.assets.filter(a => a.siparis === o.kod);
   if (!grup.length) return;
-  say(o.durum === 'Teslim alındı',
+  say(['Tam Teslim','Kısmi Teslim','Kapandı'].indexOf(o.durum) !== -1,
       o.kod + ' demirbaş doğurmuş ama durumu "' + o.durum + '" — yalnız teslim alınan sipariş demirbaş doğurur');
   const net = grup.reduce((a, x) => a + (x.alisFiyati || 0), 0);
   say(net === o.tutar,
@@ -325,9 +326,13 @@ DB.orders.forEach(o => {
       o.kod + ' demirbaş grubunda siparişten farklı tedarikçi var');
 });
 
-/* ---- 16. Satın alma onay sayacı ekseni (ops.js DB.purchases başlığı) ------
-   `onayAdim` = BULUNULAN adım sırası (1 tabanlı), onaylanan adım sayısı değil.
-   Taslak → 0 · süreçte → onaylanan+1 · tamamlandı → onayToplam. */
+/* ---- 16. Satın alma onay sayacı ekseni --------------------------------
+   ⚠️ CLOUD TURU · [6.3.10] — ANLAM DEĞİŞTİ.
+   Şartname "bekleyen onay sayısı ve mevcut adım ayrı elle güncellenen sayaç
+   olmasın, onay olaylarından türesin" diyor. `GV.approval.tazeleSayaclar()`
+   artık her yüklemede zincirden yeniden hesaplıyor ve `onayAdim` =
+   ONAYLANAN ADIM SAYISI oldu (eskiden "bulunulan adım sırası" = onaylanan+1'di).
+   Eksen bu yeni anlamı ölçer; eski beklenti 4 talepte yanlış çelişki üretiyordu. */
 head('16) Satın alma onay sayacı');
 DB.purchases.forEach(p => {
   const ad = DB.purchaseApprovals.filter(a => a.talep === p.kod);
@@ -335,8 +340,8 @@ DB.purchases.forEach(p => {
   if (p.durum === 'Taslak') {
     say(p.onayAdim === 0, p.kod + ' Taslak ama onayAdim=' + p.onayAdim + ' (0 olmalı)');
   } else if (ad.length) {
-    say(p.onayAdim === onayli + 1,
-        p.kod + ' onayAdim=' + p.onayAdim + ' ≠ onaylanan(' + onayli + ')+1');
+    say(p.onayAdim === onayli,
+        p.kod + ' onayAdim=' + p.onayAdim + ' ≠ zincirde onaylanan adım (' + onayli + ')');
     say(ad.length === p.onayToplam,
         p.kod + ' zincir kaydı=' + ad.length + ' ≠ onayToplam=' + p.onayToplam);
   } else {
@@ -471,7 +476,7 @@ ref(DB.vehicles, 'siparis', DB.orders, 'DB.orders');
 DB.vehicles.filter(v => v.siparis).forEach(v => {
   const o = DB.orders.filter(x => x.kod === v.siparis)[0];
   if (!o) return;
-  say(o.durum === 'Teslim alındı',
+  say(['Tam Teslim','Kısmi Teslim','Kapandı'].indexOf(o.durum) !== -1,
       v.kod + ' siparişi ' + o.kod + ' durumu "' + o.durum + '" — yalnız teslim alınan sipariş araç doğurur');
   say(v.alisBedeli === o.tutar,
       v.kod + ' alisBedeli=' + money(v.alisBedeli) + ' ≠ sipariş neti=' + money(o.tutar));
@@ -976,7 +981,9 @@ head('29) Proje durumu ↔ proje fazı (REVİZE 05)');
 
   /* 29e. Teslim ekseni: `gercekBitis` ⟺ ilerleme %100 ⟺ teslim durumu.
      Üçü birbirinin kanıtıdır; biri ötekiyle çelişirse ekranlar farklı cevap verir. */
-  const TESLIM = ['Teslim Sürecinde', 'Tamamlandı'];
+  /* CLOUD TURU: `Teslim Sürecinde`→`Teslim`; ayrıca `Kapanış` da işi
+     teslim edilmiş projedir (defter kapanıyor, iş bitti). */
+  const TESLIM = ['Teslim', 'Kapanış', 'Tamamlandı'];
   DB.projects.forEach(p => {
     const t = TESLIM.indexOf(p.durum) !== -1;
     say(t === !!p.gercekBitis,
@@ -1176,8 +1183,11 @@ head('33) Destek talebi şeması ve durum ekseni (REVİZE 09)');
   const T = DB.tickets;
 
   /* 33a. Sözlükler var; her talebin durumu ve kanalı sözlükten. */
-  say(Array.isArray(DB.ticketStatuses) && DB.ticketStatuses.length === 7,
-    'DB.ticketStatuses 7 değerli değil');
+  /* CLOUD TURU · ADR-19 — sözlük şartname [9.5.1]'e hizalandı ve bekleme
+     ekseni durumdan çıktı: `Triage` ve `Müşteri Onayı` eklendi,
+     `Müşteri bekleniyor` bekleme nedenine taşındı. */
+  say(Array.isArray(DB.ticketStatuses) && DB.ticketStatuses.length === 8,
+    'DB.ticketStatuses 8 değerli değil (' + (DB.ticketStatuses || []).length + ')');
   say(Array.isArray(DB.ticketChannels) && DB.ticketChannels.length > 0, 'DB.ticketChannels yok');
   say(Array.isArray(DB.ticketClosedStatuses) && DB.ticketClosedStatuses.length > 0,
     'DB.ticketClosedStatuses yok — shell.js sayacı ile domain.js ayrışır');
@@ -1204,7 +1214,7 @@ head('33) Destek talebi şeması ve durum ekseni (REVİZE 09)');
       say(KAPALI.indexOf(t.durum) !== -1,
         t.kod + ' çözüm süresi var ama durumu kapalı değil: ' + t.durum);
     if(t.kapanisTarihi){
-      say(t.durum === 'Kapatıldı', t.kod + ' kapanış tarihi var ama durumu: ' + t.durum);
+      say(t.durum === 'Kapandı', t.kod + ' kapanış tarihi var ama durumu: ' + t.durum);
       say(t.kapanisTarihi >= t.acilis, t.kod + ' kapanış açılıştan önce');
       if(t.ilkYanit) say(t.kapanisTarihi >= t.ilkYanit, t.kod + ' kapanış ilk yanıttan önce');
     }

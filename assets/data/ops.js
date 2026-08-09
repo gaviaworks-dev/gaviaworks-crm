@@ -325,17 +325,24 @@ DB.suppliers = [
    `onayAdim === onayToplam` bilgisi yeterlidir. Ekran, zincir kaydı olmayan tamamlanmış
    talepte "adım dökümü yok" demez, süreci tamamlanmış olarak gösterir.
    ------------------------------------------------------------------------- */
+/* ⚠️ CLOUD TURU · [6.3.10] — `onayAdim` / `onayToplam` ARTIK TÜRETİLMİŞTİR.
+   Şartname bu ikisinin elle güncellenen sayaç olmasını yasaklıyor.
+   `GV.approval.tazeleSayaclar()` her yüklemede `DB.purchaseApprovals`
+   zincirinden yeniden hesaplar; buradaki değerler o hesabın DONMUŞ
+   YANSIMASIDIR, otorite değildir. Elle değiştirmeyin — zincir kaydını
+   değiştirin, sayaç kendiliğinden düzelir.
+   `tasks/qa/canon.js` eksen 16 ikisinin eşit kalmasını denetler. */
 DB.purchases = [
   { kod:'SAT-2026-014', talepEden:'EMP-010', dep:'DEP-12', proje:null, urun:'Geliştirici dizüstü bilgisayar',
     kategori:'Bilgisayar', aciklama:'Yeni geliştirici ve yedek cihaz ihtiyacı', ozellik:'M3 Pro · 18 GB · 512 GB',
     miktar:2, tahminiMaliyet:186000, ihtiyacTarihi:'2026-08-20', oncelik:'Yüksek',
     gerekce:'Mevcut cihazlar 3 yaşını doldurdu, derleme süreleri arttı', butceKodu:'BTC-DONANIM-2026',
-    durum:'Onaya Gönderildi', olusturma:'2026-07-30', onayAdim:2, onayToplam:3, aktif:true },
+    durum:'Onaya Gönderildi', olusturma:'2026-07-30', onayAdim:1, onayToplam:3, aktif:true },
   { kod:'SAT-2026-015', talepEden:'EMP-004', dep:'DEP-06', proje:null, urun:'Figma Organization lisans yenileme',
     kategori:'Yazılım lisansı', aciklama:'Yıllık lisans 31 Ağustos\'ta doluyor', ozellik:'8 düzenleyici koltuk',
     miktar:1, tahminiMaliyet:42000, ihtiyacTarihi:'2026-08-25', oncelik:'Yüksek',
     gerekce:'Tasarım ekibinin ana aracı', butceKodu:'BTC-YAZILIM-2026',
-    durum:'Onaya Gönderildi', olusturma:'2026-08-01', onayAdim:1, onayToplam:2, aktif:true },
+    durum:'Onaya Gönderildi', olusturma:'2026-08-01', onayAdim:0, onayToplam:2, aktif:true },
   { kod:'SAT-2026-016', talepEden:'EMP-006', dep:'DEP-07', proje:null, urun:'27 inç 4K monitör',
     kategori:'Monitör', aciklama:'Çift ekran çalışma ihtiyacı', ozellik:'27 inç · 4K · USB-C',
     miktar:1, tahminiMaliyet:21000, ihtiyacTarihi:'2026-08-22', oncelik:'Düşük',
