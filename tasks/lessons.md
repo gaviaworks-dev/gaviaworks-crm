@@ -34,6 +34,8 @@
 | L-33 | Görev sözlüğünden `Revize bekliyor` silinince `GV.badge` ton haritasından da silindi. Ama **haftalık timesheet reddedildiğinde** aynı değere düşüyordu (`app-zaman-onay.html`) ve o rozet sessizce **griye** indi — hata vermedi, yalnız yanlış göründü | **`TONE` haritası modüller arası DÜZ bir isim alanıdır.** Bir değeri silmeden önce o adı kullanan **her koleksiyon** aranır (`grep "'<değer>'" assets/data/*.js`), yalnız silinen eksen değil. Aynı ad iki eksende yaşayabilir; silmek birini kırar. `Taslak` · `Planlandı` · `Müşteri bekleniyor` tam bu yüzden görev sözlüğünden çıkarken haritada **kaldı** | 2026-08-07 |
 | L-34 | `GV.proje.maliyet` satın alma kalemini `DB.purchases`'tan okuyor; o koleksiyon `ops.js`'te. Dört ekran `domain.js` ve `hr.js`'i yüklüyordu ama `ops.js`'i yüklemiyordu — kalem **hata vermeden sessizce 0** kalıyordu. Ekranın kendi markup'ında `DB.purchases` geçmediği için `dbref.js` de göremezdi | **Ortak yordamın veri bağımlılığı SÖZLEŞMESİNİN parçasıdır.** L-12 ekranın kendi okuduğu koleksiyonu, L-32 çağırdığı `GV.*` dosyasını istiyordu; üçüncüsü: yordamın **içeriden** okuduğu koleksiyonlar da yüklü olmalı. Bunlar `components.md`'de yordamın satırında yazılır ve yeni yordam yazılırken ilk soru "bu hangi `DB.*`'ları okuyor" olur. En sinsi tarafı: eksiklik hata değil **eksik sayı** üretir — ekran çalışır, toplam yanlıştır | 2026-08-07 |
 | L-36 | REVİZE 18'in modül anahtarı menüyü tazeliyordu; tazeleme yordamı `wireNav()`i de çağırıyor, o da `document` ve `window`'a bağlanıyordu — 30 detay ekranında `GV.refresh()` başına **+3 net dinleyici** | **Bir bölümü yeniden çizen yordam yalnız o bölümün düğümlerine dokunur.** Yeniden çizilen düğüm ile dinleyicinin bağlandığı düğüm aynı değilse bağlama tekrarlanmaz; tekrarlanacaksa `GV.on(…, key)` ile tekil anahtardan geçer (L-16 · L-18'in üçüncü kardeşi). Yakalayan yine `listen.js` oldu — tarama seti regresyonu kod incelemesinden önce buldu | 2026-08-07 |
+| L-40 | 34 formda `/* location.reload() YASAK — normal akış listeye dönmektir. */` yorumu iki hükmü tek cümlede taşıyordu; biri doğru (reload yasağı, L-15), biri şartnameye aykırı (listeye dönüş). Kural 38 ayrı `kaydet()` sonunda yaşadığı için hiçbir yerde tartışılamıyordu | **İki ayrı hükmü tek yoruma yazma.** Bir davranış kuralı N dosyada tekrarlanıyorsa o kural aslında ortak katmana aittir: karar tek yordamda toplanır (`GV.afterSave`), çağıran yalnız veri verir. Kuralı tersine çevirmek o zaman N dosyalık değil tek satırlık iş olur | 2026-08-10 |
+| L-41 | `formtab.js` sekme dışında kalan bölümü belgenin TAMAMINDA aradı; `app-destek-form.html`'in `.gc-body` içindeki üç kartı da `.gv-form-sec` sınıfını kullanıyordu ve eksen sağlıklı markup'ı "panel dışında kalmış bölüm" ilan etti | **Bir CSS sınıfı tek bileşenin mülkü değildir.** Bileşenin ürettiği düğümleri ölçen eksen kapsamını o bileşenin KÖK düğümüyle sınırlar (`form .gv-form-sec`), sınıf adıyla değil. L-26'nın ("araç sağlıklı davranışı ihlal gösterebilir") sınıf-adı tarafındaki ikizi | 2026-08-10 |
 | L-13 | Bir fatura yanlış milestone'a bağlıydı: iki fatura tek milestone'a düşüyor, tamamlanmış bir milestone faturasız görünüyordu. Ayrıca `odeme` alanı kimi kayıtta net kimi kayıtta brüt tutardı | Bir kaydı başka bir kayda bağlayan alan **tekil** olmalıysa bunu tarama script'i doğrular. Para alanlarında net/brüt ayrımı koleksiyonun başında **yazılı** olur; iki farklı konvansiyon aynı alanda yaşayamaz | 2026-08-04 |
 
 ---
@@ -627,3 +629,51 @@ bulgu ürettiği kanıtlanmadan** koşmaz. `tasks/qa/flow.js --selftest` bu
 kuralın uygulanmış hâlidir: veriyi bilerek bozar ve beş eksenin beşinin de
 kendi hata sınıfını yakaladığını doğrular, ancak ondan sonra temiz koşumu
 geçerli sayar.
+
+
+## L-40 · Bir kural N dosyada yaşıyorsa o kural ortak katmana aittir
+
+**Olay:** 34 form `kaydet()` sonunda aynı yorumu taşıyordu:
+`/* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */`
+Cümlenin **ilk yarısı doğru** (mock veri bellektedir, reload mutasyonu siler),
+**ikinci yarısı şartname [3.1.16] ile çelişiyordu** (kaydedilen kaydın detayına
+gidilmeli). İki hüküm tek cümleye yapıştığı için ikincisi birincinin
+doğruluğundan meşruiyet devşiriyordu.
+
+**Asıl kusur dağınıklıktı:** "detay ekranı var mı · kullanıcının yetkisi var mı ·
+alt kayıtlar nasıl gösterilir" sorusu 38 ayrı yerde cevaplanacaktı. Ölçüldü:
+formların biri (`app-odemeplani-form.html`) zaten detaya gidiyordu, ikisi
+(`app-musteri-yetkili` · `app-musteri-iletisim`) hedefi bir `LISTE` sabitinde
+tutuyordu, biri 800 ms bekliyordu. Yani kural henüz **tersine çevrilmeden** dört
+ayrı lehçeye ayrılmıştı — L-23'ün ("bileşen çağıranın vermediği yordamın yerine
+başarı varsayamaz") karar tarafındaki ikizi.
+
+**Kural:** Bir davranış kuralı N dosyada tekrarlanıyorsa, o kural ortak katmana
+aittir. Karar tek yordamda toplanır; çağıran **veri** verir (`kod` · `detay` ·
+`liste` · `alt`), **hüküm** vermez. Kuralı sonradan tersine çevirmek o zaman
+N dosyalık değil, tek gövdelik iştir. Kuralın kendisi kadar **nerede yaşadığı**
+da tasarım kararıdır.
+
+**Uygulanmış hâli:** `GV.afterSave` (ui.js) + `tasks/qa/aftersave.js` ekseni.
+Ters yönde de geçerli: `location.reload()` yasağı yerinde kaldı, çünkü o hüküm
+gerçekten çağıranın sorumluluğunda.
+
+## L-41 · Bir CSS sınıfı tek bileşenin mülkü değildir
+
+**Olay:** `formtab.js`'in T3 hükmü "sekme panellerinin dışında kalan form
+bölümü" arıyordu ve şöyle ölçüyordu:
+`document.querySelectorAll('.gv-form-sec').length − panellerdeki`.
+`app-destek-form.html` üç ayrı bağlam kartını (SLA politikası · bakım paketi ·
+memnuniyet) aynı `.gv-form-sec` sınıfıyla, `GV.form`'un tamamen dışında,
+`.gc-body` içinde çiziyordu. Eksen bu üç sağlıklı kartı ihlal saydı.
+
+**Neden sinsi:** hüküm doğruydu ve gerçek bir kusuru (ilk yazımdaki
+`html.replace('</div>', …)` hatası) yakalamak için yazılmıştı. Yanlış olan
+hükmün kendisi değil, **neye baktığıydı**. Sınıf adı bir sözleşme sanılmıştı;
+oysa `ui.css`'teki bir sınıfı sayfa da kullanabilir.
+
+**Kural:** Bir bileşenin ürettiği düğümleri ölçen eksen, kapsamını **o
+bileşenin kök düğümüyle** sınırlar (`form .gv-form-sec`), sınıf adıyla değil.
+Ölçüm yazarken sorulacak soru: *"bu sınıfı bu bileşenden başka kim basabilir?"*
+L-26'nın ("ölçüm aracı sağlıklı davranışı ihlal gösterebilir") sınıf-adı
+tarafındaki ikizi; L-29 ("araç neye baktığını da ölçmeli") ile aynı aile.

@@ -770,14 +770,43 @@ Aktör çağırandan değil **oturumdan** alınır. Kayıt kodu uydurulmaz.
 ```js
 GV.form({ mount, sections, tabs:[{key,label,icon}], aside:function(v){…} })
 ```
-`tabs` verilmeyen form eski düz düzeninde kalır (geçiş tek tek yapılır).
-`section.tab` bölümü sekmeye bağlar. Hatalı alan gizli sekmedeyse özet
-sekme adını yazar, sekme rozeti sayıyı gösterir ve odak o sekmeye geçer.
+`tabs` verilmeyen form eski düz düzeninde kalır. `section.tab` bölümü sekmeye
+bağlar; **sekmesi belirtilmemiş bölüm İLK panelin altına düşer** (kaybolmaz).
+Hatalı alan gizli sekmedeyse özet sekme adını yazar, sekme rozeti sayıyı
+gösterir ve odak o sekmeye geçer. Klavye sözleşmesi `GV.tabs` ile aynı.
+
+**Kapsam (ADR-18):** 4 ve daha çok bölümü olan form sekmeye taşınır; 3 ve daha
+azı düz kalır. Ölçüm: 38 formun **36'sı sekmeli**, 2'si düz
+(`app-arac-gider-form` · `app-arac-yakit-form`).
+
+`aside:function(v, api)` her alan değişiminde yeniden çizilir ve HTML döndürür.
+⚠️ Sayfa kendi `gv-grid-aside` sütununu kuruyorsa `cfg.aside` **verilmez** —
+iki sağ panel iç içe geçer (`app-izin-form.html` bu durumda).
+
+## GV.afterSave — kayıt sonrası yönlendirme ([3.1.16] · ADR-19)
+
+```js
+GV.afterSave({ kod, yeni:bool, detay:'app-x-detay.html', liste:'app-x.html',
+               alt:[{label,href}], mesaj, gecikme })   // → 'detay' | 'liste'
+```
+Hedefi **yordam seçer**, çağıran değil: detay ekranı `shell.js` `BUILT`'inde ve
+dosya adı ekseninde yetki varsa `detay?id=KOD`, yoksa `liste`. Çağıran yalnız
+veri verir, hüküm vermez (ders **L-40**).
+
+Mesaj iskeletteki `#gvFlash` şeridine bırakılır ve hedef sayfa açılınca **bir
+kez** okunup silinir; şerit sayfa içeriğinin dışındadır, `GV.refresh()` onu
+silmez. Yetki eksenini `GV.shell.ekranAcilabilir(href)` sağlar (shell.js).
+
+`detay` yalnız o dosya **gerçekten varsa** verilir; 12 formun detay ekranı yok
+ve yordam listeye dönüp bunu şeritte dürüstçe söyler.
 
 ## Ölçüm
 
 ```bash
 node tasks/qa/flow.js             # sözleşme denetimi — 0 bulgu olmalı
 node tasks/qa/flow.js --selftest  # eksenin kendisi bozuk kopyada sınanır
+node tasks/qa/aftersave.js        # [3.1.16] — 6 hüküm (E1–E6), --selftest'li
+node tasks/qa/html-js.js          # inline script sözdizimi (L-37), --selftest'li
+node tasks/qa/formtab.js          # sekme kabuğu — 6 hüküm (T1–T6), tarayıcı
 ```
 `app-veri-kalitesi.html` aynı denetimleri üründe koşturur.

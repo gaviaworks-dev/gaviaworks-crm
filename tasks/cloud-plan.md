@@ -31,8 +31,8 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P1-07 Veri kalitesi sayfası | ✅ bitti | `app-veri-kalitesi.html` · 12 kontrol · 46 bulgu |
 | P1-08 Entegrasyon hata kuyruğu | ⏳ kısmi | koleksiyon açıldı (boş, dürüst); ekran yok |
 | P1-09 Notlarım test ağı | ⛔ başlanmadı | modül yazılmadan test yazılacak |
-| P2-01 CreateEditPage | ⏳ motor bitti | sekme + sağ panel + `readonly`; 36 formun göçü yapılmadı |
-| P2-02 Kayıt sonrası detay | ⛔ başlanmadı | 34 formun `kaydet()` sonu |
+| P2-01 CreateEditPage | ✅ bitti | 38/38 form göç etti · 63 sekmeli hedef · `formtab.js` 276 panel TEMİZ |
+| P2-02 Kayıt sonrası detay | ✅ bitti | `GV.afterSave` · 38/38 form · 26'sı detaya, 12'si listeye (detay ekranı yok) |
 | P2-03 Demo temizliği | ✅ bitti | 59 ekran · kullanıcıya basılan geliştirici dili 0 |
 | P3-01 Satış zinciri | ⏳ kısmi | teklif ekranları motora bağlandı; dönüşüm sihirbazı yok |
 | P3-02 Sözleşme + plan + milestone | ⏳ kısmi | ödeme planı 3 ekran bitti; milestone/sprint ekranları yok |
