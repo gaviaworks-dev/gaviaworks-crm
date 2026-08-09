@@ -528,7 +528,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var sections = [];
 
-  sections.push({ title:'Kaynak talep ve tedarikçi',
+  sections.push({ tab:'kaynak', title:'Kaynak talep ve tedarikçi',
     desc:'Sipariş bir satın alma talebinden doğar ve talebin tercih edilen teklifini veren ' +
          'tedarikçiye açılır. Sipariş numarası kaydederken sistem tarafından atanır, elle girilmez. ' +
          'Ürün, miktar ve teknik özellik talebin üstünde tutulur; sipariş kaydında ikinci kez ' +
@@ -567,7 +567,7 @@ document.addEventListener('gv:ready', function(){
     ]});
 
   if(canFinans){
-    sections.push({ title:'Bedel ve vergi',
+    sections.push({ tab:'bedel', title:'Bedel ve vergi',
       desc:'Sipariş tutarı KDV HARİÇ (net) girilir — talebin tahmini bedeli ve tedarikçi teklifi de ' +
            'aynı eksendedir. KDV tutarı ve genel toplam bu alanlardan hesaplanır, ayrıca girilmez. ' +
            'Ölçüm: ' + toplamSiparis + ' siparişin ' + kdvTutan + ' tanesinde net + KDV = brüt ' +
@@ -589,7 +589,7 @@ document.addEventListener('gv:ready', function(){
       ]});
   }
 
-  sections.push({ title:'Tarihler',
+  sections.push({ tab:'tarih', title:'Tarihler',
     desc:'Gün farkları sistem saatinden değil veri ekseninden (' + F.date(DB.today) + ') ölçülür. ' +
          'Teslim tarihi çift anlamlıdır: sipariş henüz teslim alınmadıysa PLANLANAN, teslim ' +
          'alındıysa GERÇEKLEŞEN tarihtir — durum alanı bunu belirler.',
@@ -610,7 +610,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Durum, teslimat ve belgeler',
+  sections.push({ tab:'teslim', title:'Durum, teslimat ve belgeler',
     desc:'Teslim kontrolü yalnız teslim alınmış ya da iptal edilmiş siparişte yazılır. Ölçüm: ' +
          teslimAlinanSayi + ' teslim alınan siparişin ' + tamKontrol + ' tanesi “Tam” kontrolüyle, ' +
          faturaliTeslim + ' tanesi fatura numarasıyla kapanmış.',
@@ -651,7 +651,7 @@ document.addEventListener('gv:ready', function(){
              'durum için “—” işareti kullanılmış bir kayıt var; form boş bırakır, işareti çoğaltmaz.' }
     ]});
 
-  sections.push({ title:'Kayıt durumu',
+  sections.push({ tab:'kayit', title:'Kayıt durumu',
     desc:'Sipariş durumu tedarik eksenidir, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
     fields:[
       { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
@@ -662,6 +662,20 @@ document.addEventListener('gv:ready', function(){
             ? 'Açık sipariş arşivlenemez — önce teslim alın ya da iptal edin.' : '';
         } }
     ]});
+
+  /* =================================================================
+     SEKME ŞERİDİ (P2-01)
+     Beş bölüm beş şeride bölünür; sıra ekrandaki sıradır. “Bedel ve vergi”
+     bölümü finans yetkisi olmayan role forma HİÇ basılmıyor — o rolde
+     şeritte de yer almaz, yoksa boş panel açan ölü bir kontrol kalırdı.
+     Zorunlu alanların üçü ilk şeritte (talep · tedarikçi), tutar ekseni
+     ikincide durur; normal akış soldan sağa yürür. Sekmesiz bölüm yok.
+     ================================================================= */
+  var tabs = [{ key:'kaynak', label:'Talep ve tedarikçi', icon:'i-clipboard' }];
+  if(canFinans) tabs.push({ key:'bedel', label:'Bedel ve vergi', icon:'i-wallet' });
+  tabs.push({ key:'tarih',  label:'Tarihler',            icon:'i-calendar' });
+  tabs.push({ key:'teslim', label:'Durum ve belgeler',   icon:'i-truck' });
+  tabs.push({ key:'kayit',  label:'Kayıt durumu',        icon:'i-shield' });
 
   var alanSayisi = sections.reduce(function(n, s){ return n + (s.fields || []).length; }, 0);
   var zorunluSayisi = sections.reduce(function(n, s){
@@ -726,8 +740,16 @@ document.addEventListener('gv:ready', function(){
           '<div class="gc-body flush">' + GV.activity(acts) + '</div></section>'
       : '');
 
+  /* `cfg.aside` KURULMADI (P2-01 · bilinçli): bu ekran girilen değerlerden
+     türeyen canlı özetini ZATEN iki kartta basıyor — “Para Zinciri ve Teklif
+     Karşılaştırması” (#tutarOzet) ve “Teslimat ve Demirbaş Aktarımı”
+     (#teslimOzet). İkisi de her `input`/`change` olayında yeniden çiziliyor ve
+     formun altında, sekmeden bağımsız olarak hep görünür duruyor. Üçüncü bir
+     canlı panel aynı türev değerleri (net · KDV · brüt · teslime kalan gün ·
+     demirbaş dengesi) ikinci kez basardı; sağ panele koyulacak yeni bir türev
+     bilgi yok. */
   var form = GV.form({
-    mount:'#formMount', id:'siparis', record:formRec, sections:sections
+    mount:'#formMount', id:'siparis', record:formRec, tabs:tabs, sections:sections
   });
 
   /* ---- DURUM ALANI SALT OKUNUR ---------------------------------------
@@ -1122,8 +1144,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-siparis.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: sipariş kartı yayında
+       ve yetki varsa detaya, yoksa listeye ([3.1.16]). `kod` yalnız yeni kayıt
+       yolunda üretilir (var işlev kapsamlıdır: düzenlemede değişken vardır ama
+       değeri yoktur) — düzenlemede kaydın kendi numarası kullanılır.
+       Bu form sipariş kaydından başka kayıt DOĞURMAZ: demirbaş, fatura ve ödeme
+       kaydı bu formdan açılmaz, kaynak talebin durumu ise yalnız AYNALANIR (yeni
+       kayıt değildir) — bu yüzden alt bağlantı verilmiyor. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-siparis-detay.html',
+      liste: 'app-siparis.html'
+    });
   }
 
   /* Talep durumu siparişin TESLİM eksenini izler. Ekran artık `p.durum`

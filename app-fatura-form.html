@@ -409,8 +409,8 @@ document.addEventListener('gv:ready', function(){
     ust += '<section class="gv-card"><div class="gc-body">' +
       GV.notice({ tone:'info', title:'Yeni fatura kaydı oluşturuluyor',
         text:'Kaydettiğinizde sıradaki fatura numarası atanır, KDV ve genel toplam girdiğiniz net ' +
-             'matrahtan hesaplanır, aktivite geçmişine “Fatura oluşturuldu” satırı düşer ve fatura ' +
-             'listesine dönülür. Bu form TAHSİLAT kaydı yazmaz: vade takibi tahsilat ekranında ayrı ' +
+             'matrahtan hesaplanır, aktivite geçmişine “Fatura oluşturuldu” satırı düşer ve yeni ' +
+             'açılan fatura kartına gidilir. Bu form TAHSİLAT kaydı yazmaz: vade takibi tahsilat ekranında ayrı ' +
              'kayıt olarak açılır. Ödeme planı taksitlerini de değiştirmez — faturanın net tutarı ' +
              'seçtiğiniz taksitin tutarına eşit olmak zorundadır. Şu an ' + bosTaksit +
              ' taksitin faturası kesilmemiş.',
@@ -484,7 +484,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var sections = [];
 
-  sections.push({ title:'Müşteri ve bağlar',
+  sections.push({ tab:'bag', title:'Müşteri ve bağlar',
     desc:'Faturanın kime kesildiği ve hangi sözleşme, taksit ve projenin karşılığı olduğu. ' +
          'Bağlar veride yazılı tekil alanlardır, tarih yakınlığından türetilmez; bilinmiyorsa ' +
          'boş bırakılır. Fatura numarası kaydederken sistem tarafından atanır, elle girilmez.',
@@ -565,7 +565,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Tutar ve vergi',
+  sections.push({ tab:'tutar', title:'Tutar ve vergi',
     desc:'Fatura tutarı KDV HARİÇ (net matrah) girilir — proje genelindeki tek eksen budur. ' +
          'KDV tutarı ve genel toplam bu iki alandan hesaplanır, ayrıca girilmez; ölçüm: ' +
          toplamFatura + ' faturanın ' + zincirTutan + ' tanesinde net + KDV = brüt zinciri tutuyor, ' +
@@ -589,7 +589,7 @@ document.addEventListener('gv:ready', function(){
              'oran yalnız hesap için girilir, kayda KDV tutarı ve genel toplam yazılır.' }
     ]});
 
-  sections.push({ title:'Tarihler',
+  sections.push({ tab:'tarih', title:'Tarihler',
     desc:'Gün farkları sistem saatinden değil veri ekseninden (' + F.date(DB.today) + ') ölçülür. ' +
          'Ölçüm: ' + toplamFatura + ' faturanın ' + vade30 + ' tanesinde vade süresi 30 gün.',
     fields:[
@@ -616,7 +616,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Durum',
+  sections.push({ tab:'durum', title:'Durum',
     desc:'Fatura durumu tahsilat eksenidir, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır. ' +
          'Tahsilat kaydının durum kümesi (Ödendi · Gecikti · Bekliyor) faturanınkinden farklıdır ve ' +
          'bu form tahsilat kaydına dokunmaz.',
@@ -643,8 +643,30 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* =================================================================
+     SEKMELER — dört bölüm dört şeride ayrılır, her biri kaydın ayrı bir
+     eksenidir: bağlar (kime / neye), bedel (net + KDV), tarihler ve
+     durum. Sekmesiz bölüm bırakılmadı.
+     Zorunlu alanlar üç şeride yayılıyor (müşteri · net tutar ve KDV
+     oranı · düzenleme ve vade tarihi); fatura kaydının zorunlu ekseni
+     doğası gereği bağ, bedel ve tarihten oluştuğu için tek şeride
+     toplanamaz. Hatalı alan gizli sekmedeyse motor hata özetinde sekme
+     adını yazar ve ilk hatalı sekmeye kendisi geçer.
+     SAĞ BAĞLAM PANELİ (cfg.aside) KURULMADI: bu sayfa türetilen özeti
+     zaten üç canlı kartta basıyor — Para Zinciri, Sözleşme ve Ödeme
+     Planı, Tahsilat Dengesi — ve onları kendi input/change dinleyicisiyle
+     tazeliyor. Aynı sayıları bir de sağ panele basmak aynı değerin ikinci
+     kopyası ve ikinci bir çizim yolu olurdu.
+     ================================================================= */
+  var tabs = [
+    { key:'bag',   label:'Müşteri ve bağlar', icon:'i-link' },
+    { key:'tutar', label:'Tutar ve vergi',    icon:'i-wallet' },
+    { key:'tarih', label:'Tarihler',          icon:'i-calendar' },
+    { key:'durum', label:'Durum',             icon:'i-shield' }
+  ];
+
   var form = GV.form({
-    mount:'#formMount', id:'fatura', record:formRec, sections:sections
+    mount:'#formMount', id:'fatura', record:formRec, tabs:tabs, sections:sections
   });
 
   /* =================================================================
@@ -983,8 +1005,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-fatura.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: fatura kartı yayında
+       ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir — var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur; düzenlemede
+       kaydın kendi numarası kullanılır.
+       Bu form tahsilat, taksit ve müşteri kaydı YAZMAZ; kaydederken başka bir
+       kayıt doğmadığı için alt bağlantı verilmez. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-fatura-detay.html',
+      liste: 'app-fatura.html'
+    });
   }
 
   function kaydet(){

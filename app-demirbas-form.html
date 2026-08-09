@@ -342,7 +342,7 @@ document.addEventListener('gv:ready', function(){
       GV.notice({ tone:'info', title:'Yeni demirbaş kaydı oluşturuluyor',
         text:'Kaydettiğinizde sıradaki demirbaş kodu ' + siradakiKod + ' olarak atanır, envanter etiketi ' +
              formRec.barkod + ' önerisiyle açılır ve aktivite geçmişine “Demirbaş kaydı oluşturuldu” satırı ' +
-             'düşer, ardından demirbaş listesine dönülür. Zimmet tutanağı bu formdan doğmaz: durumu ' +
+             'düşer, ardından yeni açılan demirbaş kartına gidilir. Zimmet tutanağı bu formdan doğmaz: durumu ' +
              '“Zimmetli” seçseniz bile tutanak zimmet modülünden ya da demirbaş kartındaki zimmetleme ' +
              'akışından oluşturulur. Ölçüm: envanterde ' + toplamDemirbas + ' demirbaş kayıtlı, ' +
              aktifDemirbas + ' tanesi aktif, ' + zimmetliSayisi + ' tanesi zimmetli.',
@@ -407,9 +407,24 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      ALANLAR
      ================================================================= */
+  /* =================================================================
+     SEKMELER — beş bölüm dört şeride bölünür (P2-01).
+     “Kayıt durumu” tek anahtarlık bir bölümdür ve kendi başına bir şerit
+     açacak kadar büyük değildir; envanter durumuyla aynı eksende okunduğu
+     için “Konum ve durum” şeridinde, konum bölümünün hemen altında durur.
+     Zorunlu alanların en büyük payı (6) kimlik şeridindedir, normal akış
+     orada başlar. Sekmesiz bölüm bırakılmadı.
+     ================================================================= */
+  var tabs = [
+    { key:'kimlik',  label:'Kimlik',            icon:'i-package' },
+    { key:'satin',   label:'Satın alma',        icon:'i-truck' },
+    { key:'garanti', label:'Garanti ve lisans', icon:'i-shield' },
+    { key:'konum',   label:'Konum ve durum',    icon:'i-user-check' }
+  ];
+
   var sections = [];
 
-  sections.push({ title:'Demirbaş kimliği',
+  sections.push({ tab:'kimlik', title:'Demirbaş kimliği',
     desc:'Kategori sözlüğü, marka · model ve envanterde kaydı tekilleştiren seri numarası ile ' +
          'barkod. Demirbaş kodu sistem tarafından atanır, elle girilmez.',
     fields:[
@@ -529,12 +544,12 @@ document.addEventListener('gv:ready', function(){
       } }
   );
 
-  sections.push({ title:'Satın alma ve tedarik',
+  sections.push({ tab:'satin', title:'Satın alma ve tedarik',
     desc:'Demirbaşın envantere hangi bedelle, hangi tedarikçiden ve hangi siparişten girdiği. ' +
          'Tutar NET eksendedir (KDV hariç) ve bağlı siparişin netiyle karşılaştırılır.',
     fields:satinAlmaAlanlari });
 
-  sections.push({ title:'Garanti ve lisans dönemi',
+  sections.push({ tab:'garanti', title:'Garanti ve lisans dönemi',
     desc:'Donanımda garanti, yazılım lisansı ve kurumsal abonelikte lisans dönemi aynı iki alanda ' +
          'tutulur. Ayrı lisans anahtarı, koltuk sayısı veya otomatik yenileme alanı yoktur.',
     fields:[
@@ -559,7 +574,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Konum, sorumluluk ve durum',
+  sections.push({ tab:'konum', title:'Konum, sorumluluk ve durum',
     desc:'Demirbaşın nerede durduğu, hangi departmanın sorumluluğunda olduğu ve güncel tahsis ' +
          'bilgisi. Durum “Zimmetli” ise personel ve zimmet tarihi zorunludur.',
     fields:[
@@ -621,7 +636,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Kayıt durumu',
+  sections.push({ tab:'konum', title:'Kayıt durumu',
     desc:'Demirbaş durumu envanter ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
     fields:[
       { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
@@ -640,8 +655,13 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* Sağ bağlam paneli (cfg.aside) KURULMADI: bu sayfa girilen değerlerden
+     türeyen özeti zaten üç canlı kartta çiziyor (sipariş bağı ve tutar
+     dengesi, garanti · lisans süresi, zimmet tutarlılığı). Bunlar sekmeden
+     bağımsız olarak formun altında durur ve her tuş vuruşunda tazelenir;
+     ikinci bir özet katmanı aynı sayıları tekrarlardı. */
   var form = GV.form({
-    mount:'#formMount', id:'demirbas', record:formRec, sections:sections
+    mount:'#formMount', id:'demirbas', record:formRec, tabs:tabs, sections:sections
   });
 
   /* =================================================================
@@ -1036,8 +1056,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-demirbas.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: demirbaş kartı
+       yayında ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form zimmet tutanağı, sipariş ya da fatura DOĞURMAZ; alt kayıt
+       bağlantısı verilmez. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-demirbas-detay.html',
+      liste: 'app-demirbas.html'
+    });
   }
 
   function kaydet(){

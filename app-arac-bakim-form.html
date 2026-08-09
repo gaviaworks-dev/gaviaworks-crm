@@ -407,9 +407,25 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      ALANLAR
      ================================================================= */
+  /* =================================================================
+     SEKMELER — bölümler birebir şeride bölünür (P2-01). Maliyet bölümü
+     yalnız finans yetkisi olan role basıldığı için ŞERİDİ DE yetkiye
+     bağlıdır: yetkisiz rolde ne bölüm ne sekme kurulur, boş panel
+     bırakılmaz. Zorunlu alanların dördü (altıdan) ilk şerittedir; kalan
+     ikisi plan şeridinde, normal akış bu iki şeritte biter. Sekmesiz
+     bölüm bırakılmadı.
+     ================================================================= */
+  var tabs = [
+    { key:'arac',  label:'Araç ve tür',        icon:'i-car' },
+    { key:'plan',  label:'Plan ve gerçekleşme', icon:'i-calendar' },
+    { key:'islem', label:'İşlemler',           icon:'i-wrench' }
+  ];
+  if(canFinans) tabs.push({ key:'maliyet', label:'Maliyet', icon:'i-wallet' });
+  tabs.push({ key:'kayit', label:'Kayıt durumu', icon:'i-folder' });
+
   var sections = [];
 
-  sections.push({ title:'Araç ve bakım kimliği',
+  sections.push({ tab:'arac', title:'Araç ve bakım kimliği',
     desc:'Bakımın hangi araca ait olduğu, türü, işi yapan servis ve kaydın güncel durumu. ' +
          'Araç bağı veride yazılı tekil bağdır; plaka eşleşmesinden ya da tarih yakınlığından ' +
          'türetilmez.',
@@ -454,7 +470,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Plan ve gerçekleşme',
+  sections.push({ tab:'plan', title:'Plan ve gerçekleşme',
     desc:'Bakım hem tarih hem kilometre eşiğine bağlıdır. Kalan gün plan ' +
          'tarihinden türetilir ve elle girilmez; araç kartındaki sonraki bakım bilgisi de bu ' +
          'formdan değiştirilmez.',
@@ -555,7 +571,7 @@ document.addEventListener('gv:ready', function(){
       return '';
     } });
 
-  sections.push({ title:'Yapılacak işlemler',
+  sections.push({ tab:'islem', title:'Yapılacak işlemler',
     desc:'Bakım kapsamındaki kalemler. Kayıtta işlem listesi dizidir; katalogdan seçilenler ve ' +
          'serbest yazılanlar birleştirilerek yazılır.',
     fields:islemAlanlari });
@@ -563,7 +579,7 @@ document.addEventListener('gv:ready', function(){
   /* Finans yetkisi olmayan role maliyet HİÇ basılmaz — devre dışı kontrol de
      bırakılmaz (PROMPT.md §5 · form-brief §3). */
   if(canFinans){
-    sections.push({ title:'Maliyet',
+    sections.push({ tab:'maliyet', title:'Maliyet',
       desc:'Bakım bedeli araç gider defteriyle aynı eksende tutulur: ödenen tutar, yani KDV dahil. ' +
            'Gider satırı bu formdan doğmaz.',
       fields:[
@@ -589,7 +605,7 @@ document.addEventListener('gv:ready', function(){
       ]});
   }
 
-  sections.push({ title:'Kayıt durumu',
+  sections.push({ tab:'kayit', title:'Kayıt durumu',
     desc:'Bakım durumu iş ekseni, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
     fields:[
       { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
@@ -610,7 +626,78 @@ document.addEventListener('gv:ready', function(){
   });
 
   var form = GV.form({
-    mount:'#formMount', id:'aracbakim', record:formRec, sections:sections
+    mount:'#formMount', id:'aracbakim', record:formRec, tabs:tabs, sections:sections,
+
+    /* Sağ bağlam paneli — şerit bölümleri birbirinden gizlediği için
+       kaydetmeden önce görülmesi gereken TÜRETİLMİŞ özet burada, her
+       şeritte açık durur: seçilen aracın künyesi ve sayacı, kilometre
+       çelişkisi, plan tarihinden türeyen kalan gün ve seçilen işlem
+       sayısı. Aşağıdaki “Kilometre Tutarlılığı”, “Plan Takvimi” ve
+       “Maliyet” kartları ayrıntının tamamını göstermeye devam eder.
+       Her tuş vuruşunda çağrılır: dinleyici bağlanmaz, yalnız formun
+       kendi değerleri ile seçilen aracın tek kaydı okunur. */
+    aside:function(v){
+      var a = aracOf(v.arac);
+      if(!a){
+        return GV.notice({
+          tone:'warn', icon:'i-car', title:'Araç seçilmedi',
+          text:'Bakım kaydı araca veride yazılı tekil bağla bağlanır; araç seçilmeden sayaç ' +
+               'karşılaştırması ve kilometre tutarlılığı hesaplanamaz. Filoda ' + aracToplam +
+               ' araç kayıtlı, ' + aktifArac + ' tanesi aktif.' }) +
+          GV.notice({
+            tone:'neutral', icon:'i-wrench', title:'Bakım no ' + siradakiKod,
+            text:(v.tur || 'Tür seçilmedi') + ' · ' + (metin(v.servis) || 'servis girilmedi') + ' · ' +
+                 (v.durum || 'durum seçilmedi') + '.' });
+      }
+
+      var guncel = sayi(a.guncelKm);
+      var n      = metin(v.planKm) === '' ? null : sayi(v.planKm);
+      var gercek = gerceklestiForm(v);
+
+      var out = GV.notice({
+        tone:'neutral', icon:'i-car', title:a.plaka + ' · ' + F.num(guncel) + ' km',
+        text:a.marka + ' ' + a.model + ' · ' + a.modelYili + ' · ' + a.durum + '. Bakım no ' +
+             siradakiKod + (duzenle ? ' — numara değişmez.' : ' olarak atanacak.') +
+             ' Güncel kilometre, son bakım ve sonraki bakım araç kartında yazılıdır; bu form ' +
+             'onları değiştirmez.' });
+
+      out += GV.notice({
+        tone:n == null ? 'neutral' : (gercek && n > guncel) ? 'danger'
+             : (!gercek && n < guncel) ? 'warn' : 'ok',
+        icon:(n != null && ((gercek && n > guncel) || (!gercek && n < guncel))) ? 'i-alert' : 'i-check-circle',
+        title:'Kilometre eşiği' + (n == null ? '' : ' · ' + F.num(n) + ' km'),
+        text:n == null
+          ? 'Bakım kilometresi girilmedi; araç sayacıyla karşılaştırma yapılamaz.'
+          : gercek && n > guncel
+            ? 'Gerçekleşmiş bakım aracın sayacını ' + F.num(n - guncel) + ' km aşıyor — araç henüz o ' +
+              'kilometreye ulaşmadı.'
+            : !gercek && n < guncel
+              ? 'Araç şimdiden ' + F.num(guncel - n) + ' km aşmış; bu plan gecikmiş sayılır.'
+              : gercek
+                ? 'Sayaç geriye gitmiyor, kilometre tutarlı.'
+                : 'Eşiğe ' + F.num(n - guncel) + ' km kaldı.' });
+
+      var plan   = bos(v.planTarihi);
+      var gun    = plan ? F.days(plan) : null;
+      var secili = seciliIslemler(v);
+      out += GV.notice({
+        tone:gun == null ? 'neutral' : v.durum === 'Tamam' ? 'ok'
+             : gun < 0 ? 'danger' : gun <= 30 ? 'warn' : gun <= 60 ? 'info' : 'ok',
+        icon:'i-calendar',
+        title:'Kalan gün · ' + (gun == null ? '—' : esikAdi(gun)),
+        text:(plan
+                ? 'Planlanan ' + F.date(plan) + (gun == null ? '.'
+                    : gun < 0 ? ' — ' + Math.abs(gun) + ' gün geçti.'
+                    : gun === 0 ? ' — bugün.' : ' — ' + gun + ' gün kaldı.')
+                : 'Plan tarihi girilmedi; kalan gün hesaplanamaz.') +
+             ' Kalan gün elle girilmez, plan tarihinden türetilip kaydederken yazılır. ' +
+             (secili.length ? secili.length + ' işlem seçildi: ' + secili.join(', ') + '.'
+                            : 'Henüz işlem seçilmedi.') +
+             (canFinans && metin(v.maliyet) !== ''
+                ? ' Maliyet ' + F.money(sayi(v.maliyet)) + ' (KDV dahil).' : '') });
+
+      return out;
+    }
   });
 
   /* =================================================================
@@ -1036,8 +1123,19 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-arac-bakim.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer ([3.1.16]).
+       Bakım kaydının detay ekranı YOK — `detay` alanı hiç verilmez, ortak
+       yordam bakım listesine iner ve şeritte bunu açıkça söyler.
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur).
+       Bu form gider satırı, araç kartı ve muayene kaydı üretmiyor;
+       alt bağlantı verilecek bir kayıt doğmuyor. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      liste: 'app-arac-bakim.html'
+    });
   }
 
   function kaydet(){

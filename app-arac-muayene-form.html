@@ -406,6 +406,22 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      ALANLAR
      ================================================================= */
+  /* =================================================================
+     SEKMELER — dört bölüm dört şeride birebir bölünür (P2-01). Sıra
+     muayenenin okunma sırasıdır: kimlik → sonuç → geçerlilik → kayıt
+     ekseni. Zorunlu alanların üçü (dörtten) ilk iki şerittedir, normal
+     akış orada biter. Bölümlerin hiçbiri yetkiye bağlı gizlenmiyor —
+     finans yetkisi yalnız kimlik bölümündeki `ucret` alanını kapatır,
+     bölüm araç, istasyon ve tarih alanlarıyla ayakta kalır; bu yüzden
+     şerit her rolde aynıdır. Sekmesiz bölüm bırakılmadı.
+     ================================================================= */
+  var tabs = [
+    { key:'kimlik',     label:'Muayene kimliği', icon:'i-clipboard' },
+    { key:'sonuc',      label:'Sonuç ve kusur',  icon:'i-check-circle' },
+    { key:'gecerlilik', label:'Geçerlilik',      icon:'i-calendar-check' },
+    { key:'kayit',      label:'Kayıt durumu',    icon:'i-folder' }
+  ];
+
   var sections = [];
 
   var kimlikAlanlari = [
@@ -459,12 +475,12 @@ document.addEventListener('gv:ready', function(){
       } });
   }
 
-  sections.push({ title:'Muayene kimliği',
+  sections.push({ tab:'kimlik', title:'Muayene kimliği',
     desc:'Muayenenin hangi araç için, nerede ve hangi gün yapıldığı. Muayene no sistem tarafından ' +
          'atanır, elle girilmez.',
     fields:kimlikAlanlari });
 
-  sections.push({ title:'Sonuç ve kusur',
+  sections.push({ tab:'sonuc', title:'Sonuç ve kusur',
     desc:'Sonuç ekseni iki değerlidir ve durum sözlüğünde tanımlıdır. Kusur bilgisi ayrı alandır: ' +
          'hafif kusurla geçen araç da kusur kaydı taşır.',
     fields:[
@@ -485,7 +501,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Geçerlilik ve sonraki muayene',
+  sections.push({ tab:'gecerlilik', title:'Geçerlilik ve sonraki muayene',
     desc:'Geçerlilik bitişi muayenenin ne kadar süre geçerli olduğunu, sonraki muayene tarihi ise ' +
          'aracın istasyona ne zaman gireceğini gösterir. Uyarı eşikleri sonraki muayene tarihinden ' +
          'hesaplanır.',
@@ -520,7 +536,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Kayıt durumu',
+  sections.push({ tab:'kayit', title:'Kayıt durumu',
     desc:'Takip durumu (planlandı · yaklaşıyor · gecikti) tarihten türetilir; kayıt durumu ise arşiv ' +
          'eksenidir ve elle yönetilir.',
     fields:[
@@ -536,7 +552,65 @@ document.addEventListener('gv:ready', function(){
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
   var form = GV.form({
-    mount:'#formMount', id:'aracmuayene', record:formRec, sections:sections
+    mount:'#formMount', id:'aracmuayene', record:formRec, tabs:tabs, sections:sections,
+
+    /* Sağ bağlam paneli — şerit bölümleri birbirinden gizlediği için
+       kaydetmeden önce görülmesi gereken TÜRETİLMİŞ özet burada, her
+       şeritte açık durur: kaydın künyesi, sonuç ile kusurun tutarlılığı
+       ve sonraki muayene tarihinden türeyen kalan gün ile takip durumu.
+       Aşağıdaki “Araç”, “Geçerlilik” ve “Sonuç” kartları ayrıntının
+       tamamını göstermeye devam eder. Her tuş vuruşunda çağrılır:
+       dinleyici bağlanmaz, koleksiyondan yalnız seçilen aracın tek
+       kaydı okunur. */
+    aside:function(v){
+      var a = aracOf(v.arac);
+      var out = GV.notice({
+        tone:'neutral', icon:'i-clipboard',
+        title:(a ? a.plaka : 'Araç seçilmedi') +
+              (v.sonTarih ? ' · ' + F.date(v.sonTarih) : ''),
+        text:(a ? a.marka + ' ' + a.model + ' · ' + a.modelYili + ' model. ' : '') +
+             (metin(v.istasyon) ? v.istasyon + ' istasyonu. ' : 'İstasyon girilmedi. ') +
+             'Muayene no ' + siradakiKod + (duzenle ? ' — numara değişmez.' : ' olarak atanacak.') +
+             (canFinans && metin(v.ucret) !== ''
+                ? ' Ücret ' + F.money(sayi(v.ucret)) + ' (KDV dahil).' : '') });
+
+      var kusurYok = v.sonuc === 'Kaldı' && metin(v.kusur) === '';
+      out += GV.notice({
+        tone:kusurYok ? 'warn' : v.sonuc === 'Kaldı' ? 'danger' : v.sonuc === 'Geçti' ? 'ok' : 'neutral',
+        icon:v.sonuc === 'Geçti' ? 'i-check-circle' : v.sonuc === 'Kaldı' ? 'i-alert' : 'i-info',
+        title:'Sonuç · ' + (v.sonuc || 'seçilmedi'),
+        text:(v.sonuc === 'Kaldı'
+                ? (kusurYok
+                     ? 'Sonuç “Kaldı” seçildi ama kusur bilgisi yazılmadı; aracın hangi kusurdan kaldığı ' +
+                       'kayda geçmelidir.'
+                     : 'Kusur: ' + metin(v.kusur) + '. Yeniden muayene günü için ayrı alan yoktur, ' +
+                       'sonraki muayene tarihine yazılır.')
+                : v.sonuc === 'Geçti'
+                  ? (metin(v.kusur)
+                       ? 'Hafif kusurla geçti — kusur: ' + metin(v.kusur) + '. Liste ekranındaki ' +
+                         '“Kusurlu Geçenler” sekmesi bu alanı süzer.'
+                       : 'Kusursuz geçti.') +
+                    (v.gecerlilik ? ' Geçerlilik bitişi ' + F.date(v.gecerlilik) + '.'
+                                  : ' Geçerlilik bitişi girilmedi — “Geçti” sonucunda zorunludur.')
+                  : 'Muayene sonucu henüz seçilmedi.') });
+
+      var gun = v.sonrakiTarih ? F.days(v.sonrakiTarih) : null;
+      out += GV.notice({
+        tone:gun == null ? 'neutral' : gun < 0 ? 'danger' : gun <= 15 ? 'danger'
+             : gun <= 30 ? 'warn' : gun <= 60 ? 'info' : 'ok',
+        icon:'i-calendar-check',
+        title:'Kalan gün · takip durumu ' + turetilenDurum(gun),
+        text:(v.sonrakiTarih
+                ? 'Sonraki muayene ' + F.date(v.sonrakiTarih) + (gun < 0
+                    ? ' — ' + Math.abs(gun) + ' gün geçti.'
+                    : gun === 0 ? ' — bugün.' : ' — ' + gun + ' gün kaldı.')
+                : 'Sonraki muayene tarihi girilmedi; kalan gün ve takip durumu hesaplanamaz.') +
+             ' Kalan gün ile takip durumu elle girilmez, bu tarihten türetilip kaydederken yazılır. ' +
+             'Uyarı eşikleri 60 · 30 · 15 · 7 gün.' +
+             (v.aktif ? '' : ' Kayıt arşive alınıyor: muayene listesinden ve araç kartından düşer.') });
+
+      return out;
+    }
   });
 
   /* =================================================================
@@ -889,8 +963,18 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-arac-muayene.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer ([3.1.16]).
+       Muayene kaydının detay ekranı YOK — `detay` alanı hiç verilmez, ortak
+       yordam muayene listesine iner ve şeritte bunu açıkça söyler.
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur).
+       Bu form araç kartını ve gider kalemini yazmıyor; alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      liste: 'app-arac-muayene.html'
+    });
   }
 
   function kaydet(){

@@ -345,14 +345,92 @@ document.addEventListener('gv:ready', function(){
   var bG = document.getElementById('btnGonder'); if(bG) bG.addEventListener('click', function(){ kaydet(true); });
 
   /* =====================================================================
-     7. FORM — 14 alan, 4 bölüm (PROMPT.md §17 talep kartı)
+     7. FORM — 14 alan, 4 bölüm, 4 sekme (PROMPT.md §17 talep kartı · P2-01)
+     Bölümlerin dördü de her rolde basılır: bu formda yetkiye bağlı gizlenen
+     bölüm yok, o yüzden şerit koşulsuz kurulur ve sekmesiz bölüm kalmadı.
+     Zorunlu alanların dokuzu ilk iki şeritte durur; normal akış orada biter.
      ===================================================================== */
+  var TABS = [
+    { key:'talep', label:'Talep bilgisi',    icon:'i-package' },
+    { key:'butce', label:'Bütçe ve gerekçe', icon:'i-wallet' },
+    { key:'yon',   label:'Yönlendirme',      icon:'i-briefcase' },
+    { key:'ek',    label:'Ek dosya',         icon:'i-paperclip' }
+  ];
+
+  /* Bütçe kodu yükü sayfa açılırken BİR KEZ indekslenir: sağ panel her tuş
+     vuruşunda çağrılıyor, orada koleksiyon taranmaz. Düzenlenen talebin kendi
+     tutarı dışarıda bırakılır ki “bu talep eklendiğinde” satırı iki kez
+     saymasın. Bu bir bütçe TAHSİSİ değildir — veride bütçe limiti tutulmuyor,
+     yalnız aynı koda düşen aktif taleplerin toplamıdır. */
+  var BUTCE_YUK = (function(){
+    var m = {};
+    DB.purchases.forEach(function(x){
+      if(!x.butceKodu || x.aktif === false) return;
+      if(duzenle && x.kod === kayit.kod) return;
+      var y = m[x.butceKodu] || (m[x.butceKodu] = { adet:0, tutar:0 });
+      y.adet++;
+      y.tutar += Number(x.tahminiMaliyet) || 0;
+    });
+    return m;
+  })();
+
   var form = GV.form({
     mount:'#formMount',
     id:'satinalmatalep',
     record: duzenle ? kayit : { talepEden:ME, dep:benimKayit ? benimKayit.dep : '', miktar:1, oncelik:'Orta' },
+    tabs:TABS,
+
+    /* Sağ bağlam paneli — girilen değerlerden TÜREYEN, kaydetmeden önce
+       görülmesi gereken üç şey: talebin künyesi (tahmini birim fiyat dahil),
+       seçilen bütçe kodunun mevcut yükü ve ihtiyaç tarihine kalan gün.
+       Onay zinciri burada TEKRARLANMAZ; o aşağıdaki canlı önizleme kartının
+       işidir. Her tuş vuruşunda çağrılır: dinleyici bağlanmaz, koleksiyon
+       taranmaz, arama yalnız önceden kurulan indekste yapılır. */
+    aside:function(v){
+      var out = '';
+      var mik = Number(v.miktar);
+      var tut = (v.tahminiMaliyet === '' || v.tahminiMaliyet == null) ? NaN : Number(v.tahminiMaliyet);
+      var tutVar = !isNaN(tut) && tut > 0;
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-clipboard',
+        title:v.urun || (duzenle ? kayit.urun : 'Yeni talep'),
+        text:(v.kategori || 'Kategori seçilmedi') + ' · ' +
+             (mik > 0 ? F.num(mik) + ' adet' : 'miktar girilmedi') +
+             ' · öncelik ' + (v.oncelik || 'seçilmedi') +
+             (tutVar && mik > 0
+               ? ' · tahmini birim ' + F.money(Math.round(tut / mik)) + ' (KDV hariç)'
+               : '') + '.' });
+
+      var yuk = v.butceKodu ? (BUTCE_YUK[v.butceKodu] || { adet:0, tutar:0 }) : null;
+      out += yuk
+        ? GV.notice({ tone:'info', icon:'i-wallet', title:'Bütçe kodu · ' + v.butceKodu,
+            text:'Bu koda bağlı ' + yuk.adet + ' aktif talep var, tahmini toplamları ' +
+                 F.money(yuk.tutar) + ' (KDV hariç).' +
+                 (tutVar ? ' Bu talep de eklenirse ' + F.money(yuk.tutar + tut) + ' olur.' : '') +
+                 ' Veride bütçe limiti tutulmuyor; bu bir aşım uyarısı değil, yük özetidir.' })
+        : GV.notice({ tone:'neutral', icon:'i-wallet', title:'Bütçe kodu seçilmedi',
+            text:'Talep bütçe kodu olmadan kaydedilemez. Liste, mevcut taleplerde geçen kodlardan gelir; ' +
+                 'ayrı bir bütçe kodu koleksiyonu yok.' });
+
+      if(v.ihtiyacTarihi){
+        var gun = Math.round((Date.parse(v.ihtiyacTarihi) - Date.parse(DB.today)) / 86400000);
+        out += GV.notice({
+          tone:gun < 0 ? 'danger' : gun <= 7 ? 'warn' : 'ok', icon:'i-calendar',
+          title:gun < 0 ? 'İhtiyaç tarihi geçmiş'
+              : gun === 0 ? 'İhtiyaç tarihi bugün'
+              : gun + ' gün kaldı',
+          text:F.date(v.ihtiyacTarihi) + ' · veri ekseni ' + F.date(DB.today) + '. ' +
+               (gun < 0
+                 ? 'Geçmiş tarihli talep kaydedilemez; tarihi ileri alın.'
+                 : 'Onay zinciri bu tarihe kadar tamamlanmalıdır.') });
+      }
+
+      return out;
+    },
+
     sections:[
-      { title:'Talep bilgisi', desc:'Ne satın alınacak, hangi kategoride ve kaç adet.', fields:[
+      { tab:'talep', title:'Talep bilgisi', desc:'Ne satın alınacak, hangi kategoride ve kaç adet.', fields:[
         { key:'urun', label:'Ürün veya hizmet', type:'text', required:true, cols:7,
           placeholder:'Örn. Geliştirici dizüstü bilgisayar' },
         { key:'kategori', label:'Kategori', type:'select', options:DB.assetCategories, required:true, cols:5 },
@@ -363,7 +441,7 @@ document.addEventListener('gv:ready', function(){
           hint:'Tedarikçilerden teklif toplanırken bu metin kullanılır. Boş bırakılırsa “—” yazılır.' },
         { key:'miktar', label:'Miktar (adet)', type:'number', required:true, min:1, max:9999, cols:4 }
       ]},
-      { title:'Bütçe ve gerekçe', desc:'Tahmini bedel KDV hariç girilir; onay zinciri bu tutardan hesaplanır.', fields:[
+      { tab:'butce', title:'Bütçe ve gerekçe', desc:'Tahmini bedel KDV hariç girilir; onay zinciri bu tutardan hesaplanır.', fields:[
         { key:'tahminiMaliyet', label:'Tahmini maliyet (KDV hariç)', type:'money', required:true, cols:6,
           hint:'Toplam tutar — birim fiyat değil. Onay makamları bu tutara göre belirlenir.',
           validate:function(v){
@@ -383,7 +461,7 @@ document.addEventListener('gv:ready', function(){
         { key:'gerekce', label:'Talep gerekçesi', type:'textarea', required:true, rows:3, cols:12,
           placeholder:'Bu alım neden gerekli? Onay makamları kararını bu metne dayandırır.' }
       ]},
-      { title:'Yönlendirme', desc:'Talebi kimin açtığı ve hangi bütçe merkezine düştüğü onay zincirini belirler.', fields:[
+      { tab:'yon', title:'Yönlendirme', desc:'Talebi kimin açtığı ve hangi bütçe merkezine düştüğü onay zincirini belirler.', fields:[
         { key:'talepEden', label:'Talep eden', type:'select', options:personelSec, required:true, cols:6,
           hint:'Departman yöneticisi onayı bu kişinin yöneticisinden çözülür.' },
         { key:'dep', label:'Departman', type:'select', options:depSec, required:true, cols:6 },
@@ -391,7 +469,7 @@ document.addEventListener('gv:ready', function(){
           placeholder:'Projeye bağlı değil — genel gider talebi',
           hint:'Projeye bağlanırsa proje yöneticisi onay zincirine eklenir.' }
       ]},
-      { title:'Ek dosya', desc:'Teklif, ürün broşürü, teknik şartname veya ekran görüntüsü.', fields:[
+      { tab:'ek', title:'Ek dosya', desc:'Teklif, ürün broşürü, teknik şartname veya ekran görüntüsü.', fields:[
         { key:'ek', label:'Talebe eklenecek dosyalar', type:'file', multiple:true, cols:12,
           hint:'PDF, DOCX, XLSX, PNG, JPG · en fazla 20 MB' }
       ]}
@@ -576,6 +654,16 @@ document.addEventListener('gv:ready', function(){
       if(!degisen && !gonder){
         GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
         form.setDirty(false);
+        /* İKİNCİ ÇIKIŞ NOKTASI — alan değişmese de kullanıcı “kaydet” dedi;
+           hedef aşağıdaki asıl çıkışla aynı yordamdan seçilir ki karar iki
+           yerde verilmesin ([3.1.16]). Şerit metni ne olduğunu dürüstçe yazar. */
+        GV.afterSave({
+          kod:   kayit.kod,
+          yeni:  false,
+          mesaj: 'Alanlarda değişiklik yoktu; talep olduğu gibi bırakıldı.',
+          detay: 'app-satinalma-detay.html',
+          liste: 'app-satinalma.html'
+        });
         return;
       }
       if(degisen) GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
@@ -607,7 +695,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    setTimeout(function(){ location.href = 'app-satinalma.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: talep detayı yayında
+       ve yetki varsa detaya, yoksa listeye ([3.1.16]). `kod` yalnız yeni kayıt
+       yolunda üretilir (var işlev kapsamlıdır: düzenlemede değişken vardır ama
+       değeri yoktur) — `hedefKod` iki yolda da kaydın kendi numarasını taşır ve
+       onaya gönderme akışı da onu kullanır.
+       Bu form talepten başka kayıt DOĞURMAZ: tedarikçi teklifi ve sipariş kendi
+       ekranlarından açılır, bu yüzden alt bağlantı verilmiyor. */
+    GV.afterSave({
+      kod:   hedefKod,
+      yeni:  !duzenle,
+      detay: 'app-satinalma-detay.html',
+      liste: 'app-satinalma.html'
+    });
   }
 
 });
