@@ -19,6 +19,13 @@
 <script src="assets/data/org.js"></script>
 <script src="assets/data/crm.js"></script>
 <script src="assets/data/work.js"></script>
+<!-- Onay kuyruğu SEKİZ varlık tipini kapsar (satın alma · izin · teklif ·
+     görev · değişiklik · ön analiz · komisyon · timesheet). Kaynak kayda
+     dokunabilmek için hepsinin verisi yüklü olmalı; ekran üçünü yüklüyordu
+     ve motor kaynak kaydı bulamıyordu. -->
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/misc.js"></script>
 <script src="assets/js/shell.js"></script>
 <script src="assets/js/ui.js"></script>
 <script src="assets/js/domain.js"></script>
@@ -63,6 +70,34 @@ document.addEventListener('gv:ready', function(){
       return pk.indexOf(d.proje) !== -1 && d.musteriOnay === 'Bekliyor'; });
   }
   var teslimSayi = musKapsam ? bekleyenTeslim().length : 0;
+
+  /* Ret ve iade penceresi — şartname [2.0.6] gerekçeyi NEDEN KODU + açıklama
+     olarak istiyor. Eskiden yalnız serbest metin isteniyordu ve o metin de
+     hiçbir yere kaydedilmiyordu. Neden kodları `DB.reasonCodes` sözlüğünden
+     gelir; sözlük tek kaynaktır ve raporlanabilir. */
+  function kararModal(x, karar, baslik, btnLabel, btnCls, refresh){
+    var tur = karar === 'İade' ? 'iade' : 'ret';
+    var kodlar = (DB.reasonCodes || []).filter(function(r){ return (r.tur || []).indexOf(tur) !== -1; });
+    GV.modal({ title:baslik, text:x.baslik, icon:'i-x-circle',
+      tone:karar === 'İade' ? 'warn' : 'danger', size:'sm',
+      body:'<div class="field"><label for="rKod">Neden kodu <span class="req">*</span></label>' +
+           '<select id="rKod"><option value="">Seçiniz…</option>' +
+           kodlar.map(function(r){ return '<option value="' + r.kod + '">' + esc(r.ad) + '</option>'; }).join('') +
+           '</select></div>' +
+           '<div class="field"><label for="rNot">Açıklama <span class="req">*</span></label>' +
+           '<textarea id="rNot" rows="3" placeholder="Kararın gerekçesini yazın — kayda ve denetim izine geçer."></textarea></div>',
+      actions:[{ label:'Vazgeç', cls:'btn-line' },
+        { label:btnLabel, cls:btnCls, onClick:function(close, el){
+            var kod = el.querySelector('#rKod').value;
+            var not = el.querySelector('#rNot').value.trim();
+            if(!kod){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
+            if(!not){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+            var r = GV.approval.karar(x.kod, karar, { neden:kod, not:not });
+            if(!r.ok){ GV.toast(r.mesaj || ('İşlem uygulanamadı: ' + r.why), 'danger'); return false; }
+            GV.toast(x.kod + ' · ' + karar.toLowerCase() +
+              (r.akis ? ' · ' + x.kayit + ' → ' + r.akis.yeni : ''), 'ok');
+            refresh(); } }] });
+  }
 
   GV.pageHead({ eyebrow:'Gündem', title:'Bekleyen Onaylar',
     /* Müşteri oturumunda iç ekranlara (onay akışı ayarı · iç bildirim akışı)
@@ -163,21 +198,62 @@ document.addEventListener('gv:ready', function(){
     },
     rowActions:[
       { key:'git', icon:'i-external', label:'Kayda git', href:function(x){ return x.link; } },
+      /* ⚠️ CLOUD TURU — bu üç eylem YENİDEN YAZILDI.
+         Eskiden "Onayla" yalnız `x.durum = 'Onaylandı'` yapıyordu: kaynak
+         kayda (satın alma · izin · teklif) hiç dokunmuyor, zincirde adım
+         ilerletmiyor, aktiviteye yazmıyordu. Kullanıcı onayladığını sanıyor, talep hâlâ
+         "Onay bekliyor" duruyordu — UID-27 sınıfının en ağırı.
+         Ret gerekçesi de hiçbir yere kaydedilmiyordu (`rNot` okunup atılıyordu).
+         Artık üçü de `GV.approval.karar()` üzerinden yürür: kuyruk kaydı +
+         onay zinciri + kaynak kaydın durum geçişi TEK işlemde sonuçlanır ve
+         kaynak kayıt geçemezse onay da geri alınır. */
       { key:'onayla', icon:'i-check', label:'Onayla', run:function(x, refresh){
           if(x.durum !== 'Bekliyor'){ GV.toast('Bu onay zaten sonuçlanmış.', 'info'); return; }
           if(!GV.perm.can('onay')){ GV.toast('Onaylama yetkiniz yok.', 'danger'); return; }
-          GV.confirm({ title:'Onayla', text:x.baslik + (x.tutar ? ' · ' + F.money(x.tutar) : ''), okLabel:'Onayla' })
-            .then(function(ok){ if(ok){ x.durum = 'Onaylandı'; GV.toast(x.kod + ' onaylandı', 'ok'); refresh(); } }); } },
+          var d = GV.approval.adim(x.tur, x.kayit);
+          GV.confirm({ title:'Onayla',
+            text:x.baslik + (x.tutar ? ' · ' + F.money(x.tutar) : '') +
+                 (d ? ' — onayınızla ' + (d.adim + 1) + '/' + d.toplam + ' adım tamamlanacak'
+                    : ' — bu tür için onay zinciri tanımlı değil'),
+            okLabel:'Onayla' })
+            .then(function(ok){
+              if(!ok) return;
+              var r = GV.approval.karar(x.kod, 'Onaylandı', {});
+              if(!r.ok){ GV.toast(r.mesaj || ('Onaylanamadı: ' + r.why), 'danger'); return; }
+              GV.toast(x.kod + (r.zincirBitti
+                ? ' onaylandı' + (r.akis ? ' · ' + x.kayit + ' → ' + r.akis.yeni : '')
+                : ' — adım ' + r.adim.adim + '/' + r.adim.toplam + ', ' +
+                  (r.adim.siradaki ? r.adim.siradaki.rol + ' onayı bekleniyor' : 'zincir sürüyor')), 'ok');
+              if(r.sod) GV.toast(r.sod, 'warn');
+              if(r.not) GV.toast(r.not, 'info');
+              refresh(); }); } },
+      { key:'iade', icon:'i-refresh', label:'İade et', run:function(x, refresh){
+          if(x.durum !== 'Bekliyor'){ GV.toast('Bu onay zaten sonuçlanmış.', 'info'); return; }
+          kararModal(x, 'İade', 'Onayı iade et', 'İade Et', 'btn-line', refresh); } },
       { key:'red', icon:'i-x', label:'Reddet', cls:'is-danger', run:function(x, refresh){
           if(x.durum !== 'Bekliyor'){ GV.toast('Bu onay zaten sonuçlanmış.', 'info'); return; }
-          GV.modal({ title:'Onayı reddet', text:x.baslik, icon:'i-x-circle', tone:'danger', size:'sm',
-            body:'<div class="field"><label for="rNot">Ret gerekçesi</label><textarea id="rNot" rows="3"></textarea></div>',
-            actions:[{ label:'Vazgeç', cls:'btn-line' },
-              { label:'Reddet', cls:'btn-danger', onClick:function(close, el){
-                  if(!el.querySelector('#rNot').value.trim()){ GV.toast('Gerekçe zorunludur', 'danger'); return false; }
-                  x.durum = 'Reddedildi'; GV.toast(x.kod + ' reddedildi', 'ok'); refresh(); } }] }); } }
+          kararModal(x, 'Reddedildi', 'Onayı reddet', 'Reddet', 'btn-danger', refresh); } }
     ],
-    bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check' }, { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
+    /* Toplu onay artık GERÇEK: her kayıt tek tek `GV.approval.karar()`
+       üzerinden geçer, geçemeyen kayıt sayılır ve kullanıcıya söylenir.
+       Eskiden `run` yoktu ve `ui.js` (L-23) aksiyonu haklı olarak devre dışı
+       basıyordu — "12 kayıt onaylandı" diye yalan bir yeşil mesaj basmaktansa. */
+    bulk:[{ key:'onay', label:'Toplu onayla', icon:'i-check',
+            confirm:'{n} onay kaydı sonuçlandırılacak ve bağlı kayıtların durumu değişecek. Sürdürülsün mü?',
+            show:function(){ return GV.perm.can('onay'); },
+            run:function(rows){
+              var ok = 0, kalan = [];
+              rows.forEach(function(x){
+                if(x.durum !== 'Bekliyor'){ kalan.push(x.kod + ' (zaten sonuçlanmış)'); return; }
+                var r = GV.approval.karar(x.kod, 'Onaylandı', {});
+                if(r.ok) ok++; else kalan.push(x.kod + ' (' + (r.mesaj || r.why) + ')');
+              });
+              GV.toast(ok + ' onay sonuçlandı' + (kalan.length ? ' · ' + kalan.length + ' kayıt geçemedi' : ''),
+                       kalan.length ? 'warn' : 'ok');
+              if(kalan.length) GV.notice({ tone:'warn', title:'Geçemeyen kayıtlar',
+                                           text:kalan.join(' · ') });
+            } },
+          { key:'disa', label:'Dışa aktar', icon:'i-download', export:true }],
     /* Müşteri oturumunda boş liste DÜRÜST anlatılır: kuyruk boş değil, bu
        kuyrukta sizin kaleminiz yok. Onayınızı bekleyen teslim varsa sayısı
        veriden okunur ve ekrana yönlendirilir — sayı uydurulmaz, teslim de yoksa

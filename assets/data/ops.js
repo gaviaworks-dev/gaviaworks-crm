@@ -768,3 +768,39 @@ DB.surveys = [
     tarih:'2026-08-03', kanal:'E-posta anketi', yanitlayan:'Barış Ekinci', durum:'Bekliyor',
     puan:null, tavsiye:null, yorum:null, aktif:true }
 ];
+
+/* CLOUD TURU · şartname [6.3.10] — ZİNCİR TAMAMLANDI.
+   Ölçüm: 7 talebin 5'inde onay zinciri kaydı HİÇ YOKTU, kalan 2'sinde de
+   kayıttaki elle sayaç zincirle çelişiyordu (SAT-2026-014 kartında 2/3
+   yazılıyken zincirde 1/3 onaylıydı). Sayaç ile zincir iki ayrı gerçeklikti.
+   Aşağıdaki 11 satır UYDURULMADI, iki gerçek kaynaktan türetildi:
+     · adım SAYISI ve kaçının onaylandığı → kayıttaki onayToplam/onayAdim
+     · adım ROLLERİ → yayındaki akış tanımı (DB.approvalFlows AKS-SAT-1)
+   Adımı kimin onayladığı VERİDE YOKTU;  yazıldı ve
+    ile işaretlendi — olmayan bir onaycı adı yazmak,
+   denetim izini kurgu hâline getirirdi (L-13).
+   Sayaç artık saklanmıyor: GV.approval.tazeleSayaclar() zincirden türetir. */
+DB.purchaseApprovals = DB.purchaseApprovals.concat([
+  { talep:'SAT-2026-016', sira:1, rol:'Departman Yöneticisi', kisi:null, durum:'Bekliyor',
+    tarih:null, not:null, turetilmis:true },
+  { talep:'SAT-2026-016', sira:2, rol:'Muhasebe', kisi:null, durum:'Bekliyor',
+    tarih:null, not:null, turetilmis:true },
+  { talep:'SAT-2026-013', sira:1, rol:'Departman Yöneticisi', kisi:null, durum:'Onaylandı',
+    tarih:'2026-07-25T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2026-013', sira:2, rol:'Muhasebe', kisi:null, durum:'Onaylandı',
+    tarih:'2026-07-25T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2026-012', sira:1, rol:'Departman Yöneticisi', kisi:null, durum:'Onaylandı',
+    tarih:'2026-07-14T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2026-012', sira:2, rol:'Muhasebe', kisi:null, durum:'Onaylandı',
+    tarih:'2026-07-14T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2026-011', sira:1, rol:'Departman Yöneticisi', kisi:null, durum:'Onaylandı',
+    tarih:'2026-07-10T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2026-011', sira:2, rol:'Muhasebe', kisi:null, durum:'Onaylandı',
+    tarih:'2026-07-10T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2025-010', sira:1, rol:'Departman Yöneticisi', kisi:null, durum:'Onaylandı',
+    tarih:'2025-02-24T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2025-010', sira:2, rol:'Muhasebe', kisi:null, durum:'Onaylandı',
+    tarih:'2025-02-24T12:00', not:null, turetilmis:true },
+  { talep:'SAT-2025-010', sira:3, rol:'Şirket Sahibi', kisi:null, durum:'Onaylandı',
+    tarih:'2025-02-24T12:00', not:null, turetilmis:true }
+]);

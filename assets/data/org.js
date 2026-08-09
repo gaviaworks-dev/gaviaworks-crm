@@ -507,7 +507,7 @@ DB.transitions = {
   /* Satın alma talebi — şartname [10.1.1]–[10.1.4] */
   purchase:{
     'Taslak':          { next:['Onaya Gönderildi','İptal Edildi'],       yetki:['veren','depmudur','operasyon','sahip','gm'], zorunlu:['baslik','tahminiMaliyet'], etiket:'Onaya Gönder', tone:'btn-acc' },
-    'Onaya Gönderildi':{ next:['İnceleme','İade','Reddedildi','İptal Edildi'], yetki:['depmudur','operasyon','sahip','gm'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
+    'Onaya Gönderildi':{ next:['İnceleme','Onaylandı','İade','Reddedildi','İptal Edildi'], yetki:['depmudur','operasyon','sahip','gm'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
     'İnceleme':        { next:['Onaylandı','İade','Reddedildi'],         yetki:['depmudur','operasyon','sahip','gm'], zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
     'Onaylandı':       { next:['RFQ/Satın Alma','İptal Edildi'],         yetki:['operasyon','sahip','gm'],  zorunlu:[], etiket:'Teklif Toplamaya Al', tone:'btn-acc' },
     'RFQ/Satın Alma':  { next:['Sipariş','İptal Edildi'],                yetki:['operasyon','sahip','gm'],  zorunlu:[], etiket:'Sipariş Oluştur', tone:'btn-acc' },
@@ -580,3 +580,60 @@ DB.transitions = {
     'İptal':                { next:[], terminal:true, gerekce:true }
   }
 };
+
+
+/* =====================================================================
+   SÜRÜMLENMİŞ ONAY MOTORU — şartname §6.3 (CLOUD TURU)
+   ---------------------------------------------------------------------
+   Ölçüm (docs/P-cloud-gap-analizi.md [6.3.9]/[6.3.10]): onay tanımı
+   `app-ayar-onay.html:155` içinde SAYFA İÇİ bir dizide yaşıyordu, `DB`'ye
+   çıkmıyordu, başka modül okuyamıyordu. Daha ağırı: onay kuyruğundaki
+   "Onayla" düğmesi yalnız `DB.approvals` satırının durumunu değiştiriyor,
+   KAYNAK KAYDA hiç dokunmuyor, adım ilerletmiyor, log yazmıyordu —
+   kullanıcı onayladığını sanıyor, talep hâlâ "Onay bekliyor" duruyordu.
+
+   `DB.approvalTypes` onay türünü kaynak varlığa ve hedef duruma bağlar.
+   `GV.approval.karar()` ikisini TEK işlemde yürütür.
+   ===================================================================== */
+DB.approvalTypes = {
+  'Satın alma talebi': { entity:'purchase', onay:'Onaylandı',    ret:'Reddedildi', iade:'İade',
+                         zincir:'purchaseApprovals', zincirAlan:'talep' },
+  'İzin talebi':       { entity:'leave',    onay:'Onaylandı',    ret:'Reddedildi', iade:null },
+  'Teklif iç onayı':   { entity:'quote',    onay:'Onaylandı',    ret:'Taslak',     iade:'Taslak' },
+  'Görev onayı':       { entity:'task',     onay:'Tamamlandı',   ret:'Revizede',   iade:'Revizede' },
+  'Değişiklik talebi': { entity:'change',   onay:'Müşteri Onayı',ret:'Reddedildi', iade:'Etki Analizi' },
+  'Ön analiz onayı':   { entity:'analysis', onay:'Onaylandı',    ret:'Reddedildi', iade:'İade/Revizyon' },
+  /* Bu ikisinin kaynak varlığı geçiş motorunda YOK: komisyon bir hesap
+     kalemidir, timesheet onayı `GV.zaman` içinde satır bazlı yürür. Onay
+     kaydı sonuçlanır ama kaynak kayda geçiş uygulanmaz — bu bir eksik değil,
+     kayıt tipinin durum makinesi olmadığının dürüst ifadesidir. */
+  'Komisyon kazancı':  { entity:null, onay:'Onaylandı', ret:'Reddedildi', iade:null,
+                         not:'Komisyon kaydının durum makinesi yok; onay yalnız kuyruk kaydını sonuçlandırır.' },
+  'Timesheet onayı':   { entity:null, onay:'Onaylandı', ret:'Reddedildi', iade:null,
+                         not:'Zaman çizelgesi onayı satır bazlıdır ve GV.zaman üzerinden yürür.' }
+};
+
+/* Onay akış TANIMI — sürümlü. Şartname [6.3.1]: `Taslak → Yayında →
+   Kullanımdan Kaldırıldı`. Süreç başlatıldığında sürüm örneğe sabitlenir,
+   yönetici şablonu sonradan değiştirse bile çalışan zincir değişmez. */
+DB.approvalFlowStatuses = ['Taslak','Yayında','Kullanımdan Kaldırıldı'];
+DB.approvalFlows = [
+  { kod:'AKS-SAT-1', ad:'Satın alma onay zinciri', tur:'Satın alma talebi', surum:1,
+    durum:'Yayında', yururluk:'2026-01-01',
+    adimlar:[
+      { sira:1, rol:'depmudur',  ad:'Departman Yöneticisi', kosul:'hep',        esik:null,    sla:1 },
+      { sira:2, rol:'finans',    ad:'Muhasebe',             kosul:'tutar',      esik:25000,   sla:1 },
+      { sira:3, rol:'sahip',     ad:'Şirket Sahibi',        kosul:'tutar',      esik:100000,  sla:2 }
+    ] },
+  { kod:'AKS-IZN-1', ad:'İzin onay zinciri', tur:'İzin talebi', surum:1,
+    durum:'Yayında', yururluk:'2026-01-01',
+    adimlar:[
+      { sira:1, rol:'yonetici', ad:'Bağlı Yönetici', kosul:'hep',    esik:null, sla:1 },
+      { sira:2, rol:'ik',       ad:'İnsan Kaynakları', kosul:'gun',  esik:10,   sla:1 }
+    ] },
+  { kod:'AKS-TKL-1', ad:'Teklif iç onay zinciri', tur:'Teklif iç onayı', surum:1,
+    durum:'Yayında', yururluk:'2026-01-01',
+    adimlar:[
+      { sira:1, rol:'sahip', ad:'Şirket Sahibi', kosul:'hep', esik:null, sla:1 }
+    ] }
+];

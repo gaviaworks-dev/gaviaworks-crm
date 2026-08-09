@@ -332,6 +332,176 @@
   GV.gates = Gates;
 
   /* ===================================================================
+     ONAY MOTORU — şartname §6.3 (CLOUD TURU)
+     -------------------------------------------------------------------
+     Ölçülen kusur (UID-27 ile aynı sınıf, en ağırı): onay kuyruğundaki
+     "Onayla" düğmesi yalnız `DB.approvals` satırının `durum` alanını
+     değiştiriyordu. Kaynak kayda (SAT-* / IZN-* / TKL-*) DOKUNMUYOR,
+     zincirde adım ilerletmiyor, aktiviteye yazmıyordu. Kullanıcı
+     onayladığını sanıyor, talep hâlâ "Onay bekliyor" duruyordu.
+
+     Motor üç şeyi TEK işlemde yapar:
+       1. Onay kuyruğu kaydını sonuçlandırır,
+       2. Varsa zincirde sıradaki adımı ilerletir,
+       3. Zincir bittiğinde KAYNAK KAYDIN geçişini `GV.flow` ile uygular.
+
+     "Bekleyen onay sayısı" ve "mevcut adım" ARTIK SAKLANMIYOR (şartname
+     [6.3.10]). `ops.js`'teki `onayAdim`/`onayToplam` elle sayaçları
+     kaldırıldı; `GV.approval.adim()` zincirden türetir.
+     =================================================================== */
+  var Approval = {
+    tip:function(tur){ return (window.DB && DB.approvalTypes && DB.approvalTypes[tur]) || null; },
+
+    kayit:function(kod){
+      return (window.DB && DB.approvals || []).filter(function(a){ return a.kod === kod; })[0] || null;
+    },
+
+    /* Bir kaynak kaydın onay zinciri — elle sayaç yerine olaydan türetilir */
+    zincir:function(tur, kayitKod){
+      var t = Approval.tip(tur);
+      if(!t || !t.zincir || !window.DB || !DB[t.zincir]) return [];
+      return DB[t.zincir].filter(function(z){ return z[t.zincirAlan] === kayitKod; })
+                         .sort(function(a,b){ return (a.sira || 0) - (b.sira || 0); });
+    },
+
+    /* ŞARTNAME [6.3.10] — sayaç değil, türetim.
+       `{ adim, toplam, sirakiKisi }`; zincir yoksa `null` döner ve ekran
+       "zincir tanımlı değil" der — sıfır uydurmaz. */
+    adim:function(tur, kayitKod){
+      var z = Approval.zincir(tur, kayitKod);
+      if(!z.length) return null;
+      var tamam = z.filter(function(x){ return x.durum === 'Onaylandı'; }).length;
+      var bekleyen = z.filter(function(x){ return x.durum === 'Bekliyor'; })[0] || null;
+      return { adim:tamam, toplam:z.length, siradaki:bekleyen,
+               sonuclandi:tamam === z.length,
+               reddedildi:z.some(function(x){ return x.durum === 'Reddedildi'; }) };
+    },
+
+    /* Görevler ayrılığı — şartname [6.3.6]/[2.0.8]. ADR: aynı kişi zincirde
+       birden çok adımda çıkarsa UYARILIR ve audit'e işaretlenir; engellenmez
+       (16 kişilik şirkette engellemek zinciri kilitlerdi). */
+    sodUyari:function(tur, kayitKod, kisi){
+      var z = Approval.zincir(tur, kayitKod);
+      var kez = z.filter(function(x){ return x.kisi === kisi; }).length;
+      return kez > 1 ? 'Aynı kişi zincirde ' + kez + ' adımda görünüyor (görevler ayrılığı uyarısı)' : null;
+    },
+
+    /* KARAR — kuyruk + zincir + kaynak kayıt tek işlemde.
+       karar: 'Onaylandı' | 'Reddedildi' | 'İade'
+       opts : { neden, not }  — ret ve iade için ikisi de ZORUNLU ([2.0.6]) */
+    karar:function(onayKod, karar, opts){
+      opts = opts || {};
+      if(!window.DB) return { ok:false, why:'veri yok' };
+      var a = Approval.kayit(onayKod);
+      if(!a) return { ok:false, why:'onay kaydı yok: ' + onayKod };
+      if(a.durum !== 'Bekliyor') return { ok:false, why:'Bu onay zaten sonuçlanmış (' + a.durum + ')' };
+      if(!can('onay')) return { ok:false, why:'yetki', roller:['onay'] };
+      if(karar !== 'Onaylandı' && (!opts.neden || !String(opts.not || '').trim()))
+        return { ok:false, why:'gerekce', mesaj:'Ret ve iade için neden kodu ve açıklama zorunludur' };
+
+      var t = Approval.tip(a.tur);
+      if(!t) return { ok:false, why:'"' + a.tur + '" için onay tipi tanımlı değil' };
+
+      var me = kim();
+      var sod = me ? Approval.sodUyari(a.tur, a.kayit, me) : null;
+
+      /* 1 — zincirde bu kişinin bekleyen adımı varsa onu sonuçlandır */
+      var z = Approval.zincir(a.tur, a.kayit);
+      var adimKaydi = z.filter(function(x){ return x.durum === 'Bekliyor'; })[0] || null;
+      if(adimKaydi){
+        adimKaydi.durum = karar === 'İade' ? 'İade' : karar;
+        adimKaydi.tarih = saat();
+        adimKaydi.not   = opts.not || adimKaydi.not;
+        if(me) adimKaydi.karargeren = me;
+      }
+      var durumSonrasi = Approval.adim(a.tur, a.kayit);
+
+      /* 2 — zincir bitmediyse kuyruk kaydı BEKLEMEDE kalır; kaynak kayda
+             henüz dokunulmaz. Eskiden bu ayrım hiç yoktu. */
+      var zincirBitti = !durumSonrasi || durumSonrasi.sonuclandi || karar !== 'Onaylandı';
+      var akis = null;
+
+      if(zincirBitti){
+        a.durum = karar === 'İade' ? 'İade' : karar;
+        a.sonucTarih = saat();
+        if(me) a.karargeren = me;
+        if(opts.neden){ a.nedenKodu = opts.neden; a.nedenAciklama = opts.not || ''; }
+
+        /* 3 — KAYNAK KAYDIN GEÇİŞİ. Eksik olan buydu. */
+        var hedef = karar === 'Onaylandı' ? t.onay : karar === 'İade' ? t.iade : t.ret;
+        if(t.entity && hedef){
+          akis = Flow.gec(t.entity, a.kayit, hedef, null,
+                          { not:opts.not || ('onay kuyruğu · ' + onayKod), neden:opts.neden });
+          if(!akis.ok){
+            /* Kaynak kayıt geçemiyorsa onay kaydını da GERİ AL — yarım
+               sonuç, UID-27'nin tam olarak ürettiği yanlış güvendir. */
+            a.durum = 'Bekliyor'; a.sonucTarih = null;
+            if(adimKaydi){ adimKaydi.durum = 'Bekliyor'; adimKaydi.tarih = null; }
+            return { ok:false, why:'kaynak', mesaj:'Onay uygulanamadı — kaynak kayıt geçişi reddetti: ' +
+                     (akis.mesaj || akis.why), akis:akis };
+          }
+        }
+      }
+
+      log(a.kayit, (sod ? sod + ' · ' : '') +
+          (zincirBitti ? 'Onay sonuçlandı' : 'Onay adımı tamamlandı') +
+          ' [' + a.kod + ' · ' + a.tur + ']' +
+          (durumSonrasi ? ' · adım ' + durumSonrasi.adim + '/' + durumSonrasi.toplam : '') +
+          (opts.neden ? ' [' + opts.neden + ']' : '') + (opts.not ? ' — ' + opts.not : ''),
+          'Bekliyor', karar,
+          karar === 'Onaylandı' ? 'ok' : 'danger',
+          karar === 'Onaylandı' ? 'i-check-circle' : 'i-x-circle');
+
+      return { ok:true, onay:a, karar:karar, zincirBitti:zincirBitti,
+               adim:durumSonrasi, akis:akis, sod:sod,
+               not:(!t.entity && t.not) ? t.not : null };
+    },
+
+    /* Yayındaki akış tanımı — sürüm örneğe sabitlenir ([6.3.2]) */
+    akisTanim:function(tur){
+      return (window.DB && DB.approvalFlows || [])
+        .filter(function(f){ return f.tur === tur && f.durum === 'Yayında'; })
+        .sort(function(a,b){ return (b.surum || 0) - (a.surum || 0); })[0] || null;
+    },
+
+    /* Bekleyen onay sayısı — tek kaynak. `shell.js` ve `dashboard.js` bunu
+       çağırır; eskiden ikisi de elle deftere ayrı ayrı bakıyordu. */
+    bekleyen:function(kisi){
+      var hepsi = (window.DB && DB.approvals || []).filter(function(a){ return a.durum === 'Bekliyor'; });
+      return kisi ? hepsi.filter(function(a){ return a.onaylayan === kisi; }) : hepsi;
+    },
+
+    /* ŞARTNAME [6.3.10] — "bekleyen onay sayısı" ve "mevcut adım" ayrı elle
+       güncellenen sayaç OLAMAZ; onay olaylarından türer.
+
+       `onayAdim` / `onayToplam` alanları 8 ekranda 60+ yerde okunuyordu ve
+       zincirle çelişiyordu (SAT-2026-014 kartında 2/3 yazılıyken zincirde
+       1/3 onaylıydı). Alanı silmek 8 ekranı kırardı; bunun yerine alan
+       TÜRETİLMİŞ GÖRÜNÜME çevrildi: her yüklemede zincirden yeniden
+       hesaplanır, elle yazılan değer hiçbir zaman hayatta kalmaz.
+       Tek gerçeklik zincirdir; alan onun okunabilir yansımasıdır. */
+    tazeleSayaclar:function(){
+      if(!window.DB || !DB.purchases || !DB.purchaseApprovals) return 0;
+      var n = 0;
+      DB.purchases.forEach(function(p){
+        var d = Approval.adim('Satın alma talebi', p.kod);
+        if(!d) return;
+        if(p.onayAdim !== d.adim || p.onayToplam !== d.toplam) n++;
+        p.onayAdim   = d.adim;
+        p.onayToplam = d.toplam;
+      });
+      return n;
+    }
+  };
+
+  GV.approval = Approval;
+
+  /* Sayaçlar yükleme anında zincirden türetilir — veride yazılı değer
+     otoriter değildir. Sapma sayısı `GV.approval.sonSapma` ile okunabilir;
+     `app-ayar-onay.html` bunu veri kalitesi bulgusu olarak basar. */
+  if(window.DB && DB.purchases) Approval.sonSapma = Approval.tazeleSayaclar();
+
+  /* ===================================================================
      FİNANS — fatura ↔ tahsilat ↔ taksit zinciri (VB-06 · VB-25)
      Zincir: sözleşme → taksit(milestone) → fatura → tahsilat(payment).
      Kapanış hangi uçtan tetiklenirse tetiklensin **tamamı** kapanır ve
