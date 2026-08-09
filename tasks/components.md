@@ -354,6 +354,16 @@ GV.report({
 | `GV.fin.refreshCustomer(kod)` | `bekleyenTahsilat` türetir (L-08: sayaç yazılmaz, hesaplanır) | — |
 | `GV.delivery.approve(kod, karar, tarih?, not?)` | `karar ∈ GV.delivery.kararlar` (`Onaylandı`/`Bekliyor`/`Revizyon istendi`); onay ile teslim durumunu **aynı eksende** tutar | Liste yalnız `musteriOnay` yazıyor, detay `durum`u da güncelliyordu; yetki ekseni liste tarafında `onay`, detay tarafında `duzenle`ydi |
 | `GV.delivery.kararlar` | Karar sözlüğü | Süzgeçler ve mobil render bu listeden beslenir — üçüncü değer artık gizlenmiyor |
+| `GV.notes.benim(opts?)` | Kişisel notların **TEK okuma kapısı** — oturum sahibinin kayıtları. Oturum yoksa BOŞ döner (yedek yok: "oturum yoksa hepsini göster" tam olarak kapatılan açıktır). Okur: `DB.personalNotes` (`notes.js`) | Kapsam `GV.perm` rol matrisinden GELMEZ; kişisel notta soru "bu rol görebilir mi" değil "bu kayıt kimin"dir (ADR-20) |
+| `GV.notes.bul(kod)` | Başkasının notunun ID'sinde **`null`** döner — "yetkin yok" DEMEZ; hata mesajı bile kaydın varlığını sızdırmamalı ([15.5.1]) | — |
+| `GV.notes.gorunum(key)` | `'' · acik · bugun · yaklasan · gecikmis · tamam · arsiv · cop` — "bugün" tanımı TEK yerde; ekran kendi koşulunu yazmaz | Liste sekmesi ile KPI sayacı ayrışamaz |
+| `GV.notes.olustur(v)` / `guncelle(kod,v)` | Sahiplik **oturumdan atanır**; çağıranın gönderdiği `owner` sessizce yok sayılır ([15.5.3]). `durum` değişince `tamamlanma`/`arsivlenme` damgası yazılır, geri alınca temizlenir ([15.5.4]). Yazar: `DB.personalNotes` (`notes.js`) | ⚠️ `GV.audit.yaz` **BİLEREK çağrılmaz** — kurumsal defter kişisel not metnini taşımaz (ADR-13 · [15.5.5]) |
+| `GV.notes.maddeler(kod)` / `madde(kod,işaretli)` / `maddeEkle(kod,metin)` | Kontrol listesi; sahiplik kapısından geçer. Okur/yazar: `DB.personalNoteChecklistItems` (`notes.js`) | — |
+| `GV.notes.sil(kod)` / `geriAl(kod)` | Yumuşak silme; `{kod, gun}` döner — geri alma süresi (`DB.noteTrashDays`, 7) çağırana verilir ki ekran kullanıcıya YAZSIN (ADR-14) | Süre kodun içinde saklı kalmaz |
+| `GV.notes.ara(q)` | Arama YALNIZ sahibinin kayıtlarında. Genel aramanın bunu çağırmadığı `tasks/qa/notes-isolation.js` N3 ekseniyle ölçülür | — |
+| `GV.sales.mukerrer(aday)` | Mükerrer müşteri araması — **beş eksen** ([7.1.3]): vergi no · unvan · e-posta · telefon · e-posta alan adı. Her eşleşme gerekçesiyle döner; vergi no `kesin:true`, diğerleri işaret. Okur: `DB.customers` (`crm.js`) | Dönüşüm koşulsuz yeni `MUS-` üretiyordu; aynı firma iki adaydan iki müşteri doğuruyordu |
+| `GV.sales.musteriUret(kaynak, opts)` | Üç yol: yeni · `opts.mevcut` ile mevcuda bağla · `opts.istisna` ile uyarıya rağmen yeni (aktiviteye `YÖNETİCİ İSTİSNASI` yazılır). Türetilen sayaçlar sıfır doğar (L-08). Yazar: `DB.customers` (`crm.js`) · `DB.activities` (`work.js`) | Karar EKRANDA verilir, serviste uygulanır — servis kendi başına birleştirme yapmaz |
+| `GV.sales.kazanildi(teklif, opts)` | "Kazanıldı" dönüşüm zinciri ([7.3.6] · [20.1.5]–[20.1.8]): müşteri → sözleşme **Taslak** → ödeme planı taslağı (bedeli TAM bölen taksitler) → proje **Taslak**. **İdempotent**: teklifte sözleşme varsa `{tekrar:true}` döner, ikinci müşteri doğmaz. Hata hâlinde üretilen kayıtların **hepsi geri alınır** (prototipte transaction yok). Okur/yazar: `DB.customers` (`crm.js`) · `DB.contracts` (`misc.js`) · `DB.milestones` · `DB.projects` · `DB.activities` (`work.js`) | Teklif kazanılınca hiçbir kayıt doğmuyordu |
 | `GV.task.transition(kod, hedef, ek?, not?)` | Görev durum geçişinin **tek** mutasyon noktası: hedefi `DB.taskTransitions[durum].next` içinde arar · yetkiyi doğrular · zorunlu alanları denetler · yan etkileri (`baslangic` · `revizyon` · `ilerleme` · `tamamlanma`) uygular · aktivite yazar | Tablo veride beş oturumdur duruyordu ama **uygulanmıyordu**: dokuz mutasyon yolunun yalnız ikisi ona bakıyordu, ikisi izin verilen rolleri yalnız **ipucu metni** olarak basıyordu, dördü kendi durumunu elle yazıyordu |
 | `GV.task.nextSteps(kod)` | Bu görev + bu oturum için **yapılabilir** geçişler: `[{ hedef, etiket, tone, izin, eksik }]` | Ekran aksiyon butonu üretir; **uzun statü dropdown'ı basmaz** (REVİZE 02) |
 | `GV.task.bekleme(kod, neden\|null, notu?)` | `beklemeNedeni` eksenini yazar/temizler; `neden ∈ DB.taskWaitReasons` | Bekleme bir DURUM değildir — görev "Devam ediyor" kalır, yalnız neyi beklediğini söyler (REVİZE 01) |
@@ -386,6 +396,10 @@ GV.report({
 > | `GV.delivery.approve` | `work.js` (`deliveries`) |
 > | `GV.delivery.kararlar` | — (sabit sözlük, hiçbir koleksiyon okumaz) |
 > | `GV.task.*` | `work.js` (`tasks` · `taskTransitions` · `taskStatuses` · `taskWaitReasons` · `priorities` · `activities`) · `org.js` (`employees`) |
+> | `GV.notes.*` | `notes.js` (`personalNotes` · `personalNoteChecklistItems` · sözlükler) — **kurumsal veri dosyası OKUMAZ**, bu bir sınırdır (ADR-21) |
+> | `GV.sales.mukerrer` | `crm.js` (`customers`) |
+> | `GV.sales.musteriUret` | `crm.js` (`customers`) · `work.js` (`activities`) |
+> | `GV.sales.kazanildi` | `crm.js` (`customers` · `quotes`) · `misc.js` (`contracts`) · `work.js` (`milestones` · `projects` · `activities`) |
 > | `GV.zaman.*` | `hr.js` (`timelogs` · `timesheets`) |
 > | `GV.proje.sure` | `work.js` (`projects` · `tasks`) · `hr.js` (`timelogs`) |
 > | `GV.proje.acik` · `GV.proje.bitti` · `GV.proje.kapali` · `GV.proje.arsivli` · `GV.proje.geciken` · `GV.proje.kayit` · `GV.proje.kapaliDurumlar` · `GV.proje.teslimDurumlari` | `work.js` (`projects`) |
