@@ -70,8 +70,18 @@ function hedefler(arg) {
 
     const durum = await page.evaluate(() => {
       const yetkisiz = /yetkiniz yok|erişemez/i.test((document.querySelector('.gv-page') || {}).textContent || '');
+      /* ⚠️ KAPSAM: `.gv-form-sec` yalnız `GV.form`'un ürettiği bölüm değildir —
+         sayfalar aynı sınıfı kendi kartlarında da kullanıyor (`app-destek-form`
+         SLA politikası / bakım paketi / memnuniyet kartları `.gc-body` içinde).
+         İlk yazımında eksen belgenin TAMAMINI saydı ve o üç kartı "panel dışında
+         kalmış bölüm" ilan etti — sağlıklı bir markup'ı ihlal gösterdi (L-26).
+         Ölçüm motorun kendi `<form>` düğümüyle sınırlandı: sekme panelleri o
+         formun içindedir, dolayısıyla formun içinde ama panel dışında kalan
+         bölüm gerçek bir sızıntıdır. */
+      const kok = document.querySelector('form');
+      const formSec = kok ? [...kok.querySelectorAll('.gv-form-sec')] : [];
       const tabs = [...document.querySelectorAll('[data-ftab]')];
-      if (!tabs.length) return { yetkisiz, sekmeli: false, bolum: document.querySelectorAll('.gv-form-sec').length };
+      if (!tabs.length) return { yetkisiz, sekmeli: false, bolum: formSec.length };
       const paneller = [...document.querySelectorAll('.gv-tabpanel')];
       const panelIci = paneller.reduce((n, p) => n + p.querySelectorAll('.gv-form-sec').length, 0);
       return {
@@ -79,7 +89,7 @@ function hedefler(arg) {
         tabN: tabs.length,
         panelN: paneller.length,
         bosPanel: paneller.filter(p => !p.querySelectorAll('.gv-form-sec').length).map(p => p.id),
-        disariKalan: document.querySelectorAll('.gv-form-sec').length - panelIci,
+        disariKalan: formSec.length - panelIci,
         secili: tabs.filter(t => t.getAttribute('aria-selected') === 'true').length,
         tabindexHata: tabs.filter(t => (t.getAttribute('aria-selected') === 'true') !== (t.tabIndex === 0)).length,
         kirikKontrol: tabs.filter(t => !document.getElementById(t.getAttribute('aria-controls') || '')).length,

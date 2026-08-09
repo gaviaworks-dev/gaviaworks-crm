@@ -68,28 +68,44 @@ function scan(root) {
     else bulgular.push({ f, e: 'E1', msg: 'GV.afterSave çağrılmıyor — kayıt sonrası hâlâ listeye dönülüyor' });
 
     /* E2 — çıplak düşüş. `location.href` ataması yalnız app-*.html hedefine
-       bakılır; `index.html` (oturum düşüşü) ve dış bağlantı kapsam dışı. */
-    const ciplak = [...js.matchAll(/location\.href\s*=\s*['"](app-[\w-]+\.html)[^'"]*['"]/g)].map(m => m[1]);
+       bakılır; `index.html` (oturum düşüşü) ve dış bağlantı kapsam dışı.
+       ⚠️ FORMUN KENDİ DOSYASI HARİÇ. `app-odemeplani-form.html` sözleşme
+       seçilmeden açıldığında kendine `?sozlesme=…` ile yeniden giriyor; bu bir
+       kaydetme çıkışı değil, bağlam seçimi. İlk hâlinde eksen bunu ihlal
+       saydı ve **sağlıklı bir davranışı kırmızıya yazdı** (ders L-26: yeni bir
+       hüküm yazarken sorulacak soru "bu hangi sağlıklı davranışı ihlal
+       gösterir"). Kendine yönlendirme tanımı gereği kayıt sonrası iniş
+       noktası olamaz — hüküm bu kadar daraltıldı, daha fazlası değil. */
+    const ciplak = [...js.matchAll(/location\.href\s*=\s*['"](app-[\w-]+\.html)[^'"]*['"]/g)]
+      .map(m => m[1]).filter(h => h !== f);
     if (ciplak.length) {
       bulgular.push({ f, e: 'E2', msg: 'kaydetme yolunda çıplak yönlendirme: ' + [...new Set(ciplak)].join(' · ') });
     }
 
+    /* Anahtarın VARLIĞI ile değerinin DİZE SABİTİ olması ayrı ölçülür: hedefi
+       bir değişkende tutan form (`liste:LISTE`) sözleşmeyi kurmuştur, yalnız
+       dosya adı statik olarak doğrulanamaz. Eksen bunu ihlal saymaz —
+       ölçemediğini sessizce kırmızıya yazmaz (L-26), doğrulamayı atlar. */
+    const detayVarmi = /GV\.afterSave\s*\(\s*\{[\s\S]{0,600}?\bdetay\s*:/.test(js);
+    const listeVarmi = /GV\.afterSave\s*\(\s*\{[\s\S]{0,600}?\bliste\s*:/.test(js);
     const detayM = /GV\.afterSave\s*\(\s*\{[\s\S]{0,600}?detay\s*:\s*['"]([\w-]+\.html)['"]/.exec(js);
     const listeM = /GV\.afterSave\s*\(\s*\{[\s\S]{0,600}?liste\s*:\s*['"]([\w-]+\.html)['"]/.exec(js);
     const beklenenDetay = f.replace(/-form\.html$/, '-detay.html');
     const detayVar = built.indexOf(beklenenDetay) !== -1 && fs.existsSync(path.join(root, beklenenDetay));
 
-    if (detayM) {
+    if (detayVarmi) {
       olculen.detay++;
-      const hedef = detayM[1];
-      if (!fs.existsSync(path.join(root, hedef))) bulgular.push({ f, e: 'E3', msg: 'detay hedefi diskte yok: ' + hedef });
-      else if (built.indexOf(hedef) === -1) bulgular.push({ f, e: 'E3', msg: 'detay hedefi BUILT listesinde yok: ' + hedef });
-      if (!detayVar) bulgular.push({ f, e: 'E5', msg: 'detay ekranı olmayan forma detay hedefi verilmiş: ' + hedef });
+      if (detayM) {
+        const hedef = detayM[1];
+        if (!fs.existsSync(path.join(root, hedef))) bulgular.push({ f, e: 'E3', msg: 'detay hedefi diskte yok: ' + hedef });
+        else if (built.indexOf(hedef) === -1) bulgular.push({ f, e: 'E3', msg: 'detay hedefi BUILT listesinde yok: ' + hedef });
+        if (!detayVar) bulgular.push({ f, e: 'E5', msg: 'detay ekranı olmayan forma detay hedefi verilmiş: ' + hedef });
+      }
     } else if (cagri && detayVar) {
       bulgular.push({ f, e: 'E4', msg: 'detay ekranı var (' + beklenenDetay + ') ama afterSave çağrısında detay verilmemiş' });
     }
 
-    if (listeM) olculen.liste++;
+    if (listeVarmi) olculen.liste++;
     else if (cagri) bulgular.push({ f, e: 'E6', msg: 'afterSave çağrısında liste hedefi yok — yedek yol kurulmamış' });
   }
   return { bulgular, olculen, forms };
