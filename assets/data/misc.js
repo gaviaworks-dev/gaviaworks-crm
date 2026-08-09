@@ -84,7 +84,7 @@ DB.invoices = [
     tutar:153333, vergi:30667, toplam:184000, durum:'Ödendi', belgeDurum:'Gönderildi', odemeTarihi:'2026-04-24', aktif:true },
   { kod:'FTR-2026-018', musteri:'MUS-2025-003', musteriAd:'Anadolu Perakende Ticaret Ltd.', sozlesme:null,
     proje:null, milestone:null, tarih:'2026-05-22', vade:'2026-06-21',
-    tutar:237500, vergi:47500, toplam:285000, durum:'Vadesi Geçti', belgeDurum:'Gönderildi', odemeTarihi:null, aktif:true },
+    tutar:237500, vergi:47500, toplam:285000, durum:'Ödenmedi', gecikti:true, belgeDurum:'Gönderildi', odemeTarihi:null, aktif:true },
   { kod:'FTR-2026-019', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', sozlesme:'SZL-2025-018',
     proje:'PRJ-2026-003', milestone:'MS-013', tarih:'2026-06-01', vade:'2026-07-01',
     tutar:153333, vergi:30667, toplam:184000, durum:'Ödendi', belgeDurum:'Gönderildi', odemeTarihi:'2026-06-26', aktif:true },
@@ -108,7 +108,7 @@ DB.invoices = [
     tutar:250000, vergi:50000, toplam:300000, durum:'Ödendi', belgeDurum:'Gönderildi', odemeTarihi:'2026-07-04', aktif:true },
   { kod:'FTR-2026-027', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis', sozlesme:'SZL-2026-024',
     proje:'PRJ-2026-006', milestone:'MS-008', tarih:'2026-06-26', vade:'2026-07-26',
-    tutar:92500, vergi:18500, toplam:111000, durum:'Vadesi Geçti', belgeDurum:'Gönderildi', odemeTarihi:null, aktif:true },
+    tutar:92500, vergi:18500, toplam:111000, durum:'Ödenmedi', gecikti:true, belgeDurum:'Gönderildi', odemeTarihi:null, aktif:true },
   { kod:'FTR-2026-028', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri', sozlesme:'SZL-2025-018',
     proje:'PRJ-2026-003', milestone:'MS-005', tarih:'2026-07-15', vade:'2026-08-14',
     tutar:153333, vergi:30667, toplam:184000, durum:'Ödenmedi', belgeDurum:'Gönderildi', odemeTarihi:null, aktif:true },
@@ -127,55 +127,55 @@ DB.invoices = [
 /* `tutar` = bağlı faturanın **brüt** `toplam`ı (KDV dahil), `vade` faturanın vadesi. */
 DB.payments = [
   { kod:'THS-2025-032', fatura:'FTR-2025-011', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
-    tutar:184000, vade:'2025-12-31', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:184000, vade:'2025-12-31', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2025-12-24', aktif:true },
   { kod:'THS-2026-033', fatura:'FTR-2026-012', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
-    tutar:184000, vade:'2026-03-04', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:184000, vade:'2026-03-04', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-02-26', aktif:true },
   { kod:'THS-2026-034', fatura:'FTR-2026-013', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis',
-    tutar:111000, vade:'2026-04-17', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:111000, vade:'2026-04-17', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Peşinat tahsil edildi', sonAksiyonTarihi:'2026-04-10', aktif:true },
   { kod:'THS-2026-035', fatura:'FTR-2026-014', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
-    tutar:184000, vade:'2026-04-29', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:184000, vade:'2026-04-29', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-04-24', aktif:true },
   { kod:'THS-2026-036', fatura:'FTR-2026-019', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
-    tutar:184000, vade:'2026-07-01', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:184000, vade:'2026-07-01', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-06-26', aktif:true },
   { kod:'THS-2026-037', fatura:'FTR-2026-020', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.',
-    tutar:141600, vade:'2026-07-08', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:141600, vade:'2026-07-08', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-02', aktif:true },
   { kod:'THS-2026-038', fatura:'FTR-2026-021', musteri:'MUS-2026-007', musteriAd:'Nova Turizm Yatırımları',
-    tutar:151200, vade:'2026-07-29', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:151200, vade:'2026-07-29', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-23', aktif:true },
   { kod:'THS-2026-039', fatura:'FTR-2026-024', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu',
-    tutar:316800, vade:'2026-08-09', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:316800, vade:'2026-08-09', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-28', aktif:true },
   { kod:'THS-2026-040', fatura:'FTR-2026-026', musteri:'MUS-2026-011', musteriAd:'Anka Finans Teknolojileri',
-    tutar:300000, vade:'2026-07-09', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:300000, vade:'2026-07-09', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-04', aktif:true },
   { kod:'THS-2026-041', fatura:'FTR-2026-018', musteri:'MUS-2025-003', musteriAd:'Anadolu Perakende Ticaret Ltd.',
-    tutar:285000, vade:'2026-06-21', gecikmeGun:43, durum:'Gecikti', sorumlu:'EMP-012',
+    tutar:285000, vade:'2026-06-21', gecikmeGun:43, durum:'Gecikti', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'2. hatırlatma gönderildi', sonAksiyonTarihi:'2026-06-24', aktif:true },
   { kod:'THS-2026-042', fatura:'FTR-2026-027', musteri:'MUS-2026-010', musteriAd:'Trakya Otomotiv Servis',
-    tutar:111000, vade:'2026-07-26', gecikmeGun:8, durum:'Gecikti', sorumlu:'EMP-012',
+    tutar:111000, vade:'2026-07-26', gecikmeGun:8, durum:'Gecikti', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'Teslim tamamlanmadığı için beklemede', sonAksiyonTarihi:'2026-07-29', aktif:true },
   { kod:'THS-2026-043', fatura:'FTR-2026-025', musteri:'MUS-2024-002', musteriAd:'Vitalis Sağlık Grubu',
-    tutar:316800, vade:'2026-08-31', gecikmeGun:0, durum:'Bekliyor', sorumlu:'EMP-012',
+    tutar:316800, vade:'2026-08-31', gecikmeGun:0, durum:'Bekliyor', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'Vade takibi', sonAksiyonTarihi:'2026-08-01', aktif:true },
   { kod:'THS-2026-044', fatura:'FTR-2026-028', musteri:'MUS-2025-005', musteriAd:'Marmara Enerji Sistemleri',
-    tutar:184000, vade:'2026-08-14', gecikmeGun:0, durum:'Bekliyor', sorumlu:'EMP-012',
+    tutar:184000, vade:'2026-08-14', gecikmeGun:0, durum:'Bekliyor', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'Vade takibi', sonAksiyonTarihi:'2026-07-16', aktif:true },
   { kod:'THS-2026-045', fatura:'FTR-2026-029', musteri:'MUS-2026-007', musteriAd:'Nova Turizm Yatırımları',
-    tutar:151200, vade:'2026-08-19', gecikmeGun:0, durum:'Bekliyor', sorumlu:'EMP-012',
+    tutar:151200, vade:'2026-08-19', gecikmeGun:0, durum:'Bekliyor', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'Vade takibi', sonAksiyonTarihi:'2026-07-21', aktif:true },
   { kod:'THS-2026-046', fatura:'FTR-2026-030', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.',
-    tutar:106200, vade:'2026-08-23', gecikmeGun:0, durum:'Bekliyor', sorumlu:'EMP-012',
+    tutar:106200, vade:'2026-08-23', gecikmeGun:0, durum:'Bekliyor', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'Vade takibi', sonAksiyonTarihi:'2026-07-25', aktif:true },
   { kod:'THS-2026-047', fatura:'FTR-2026-031', musteri:'MUS-2024-001', musteriAd:'Deniz Lojistik A.Ş.',
-    tutar:18000, vade:'2026-08-31', gecikmeGun:0, durum:'Bekliyor', sorumlu:'EMP-012',
+    tutar:18000, vade:'2026-08-31', gecikmeGun:0, durum:'Bekliyor', tahsilEdildi:false, sorumlu:'EMP-012',
     sonAksiyon:'Aylık bakım faturası — vade takibi', sonAksiyonTarihi:'2026-08-01', aktif:true },
   { kod:'THS-2026-048', fatura:'FTR-2026-022', musteri:'MUS-2026-009', musteriAd:'Öz Gıda Üretim A.Ş.',
-    tutar:106200, vade:'2026-08-01', gecikmeGun:0, durum:'Ödendi', sorumlu:'EMP-012',
+    tutar:106200, vade:'2026-08-01', gecikmeGun:0, durum:'Ödendi', tahsilEdildi:true, sorumlu:'EMP-012',
     sonAksiyon:'Tahsil edildi', sonAksiyonTarihi:'2026-07-29', aktif:true }
 ];
 
@@ -600,4 +600,27 @@ DB.logs = [
     modul:'İzinler', ip:'88.230.14.12', eski:null, yeni:'10-14 Ağustos' },
   { kod:'LOG-88195', tarih:'2026-07-30T14:20', kisi:'EMP-005', islem:'Satın alma onayladı', kayit:'SAT-2026-014',
     modul:'Satın Alma', ip:'88.230.14.9', eski:'Bekliyor', yeni:'Onaylandı' }
+];
+
+/* CLOUD TURU · sartname [10.4.4]/[10.4.5] — ODEME TAHSIS DEFTERI.
+   Olcum: DB.payments[].fatura TEKIL bir alandi; bir tahsilatin birden cok
+   faturaya dagitilmasi SEMA duzeyinde imkansizdi (docs/G-veri-modeli.md:423
+   bunu "birebir" diye yaziyordu). Fatura durumu da tahsis toplamindan
+   turemiyor, uc ekrandan ELLE Odendi yapilabiliyordu.
+   Tahsis defteri o bosluktur. Asagidaki satirlar UYDURULMADI: mevcut 1:1
+   baglardan turetildi ve yalnizca GERCEKLESMIS (durum Odendi) hareketler
+   tahsis uretti — bekleyen tahsilat bir para hareketi degildir.
+   Tutar = min(tahsilat tutari, fatura brutu). Yontem alani veride yoktu;
+   Havale yazildi ve turetilmis:true ile isaretlendi. */
+DB.paymentAllocations = [
+  { tahsilat:'THS-2025-032', fatura:'FTR-2025-011', tutar:184000, tarih:'2025-12-24', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-033', fatura:'FTR-2026-012', tutar:184000, tarih:'2026-02-26', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-034', fatura:'FTR-2026-013', tutar:111000, tarih:'2026-04-10', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-035', fatura:'FTR-2026-014', tutar:184000, tarih:'2026-04-24', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-036', fatura:'FTR-2026-019', tutar:184000, tarih:'2026-06-26', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-037', fatura:'FTR-2026-020', tutar:141600, tarih:'2026-07-02', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-038', fatura:'FTR-2026-021', tutar:151200, tarih:'2026-07-23', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-039', fatura:'FTR-2026-024', tutar:316800, tarih:'2026-07-28', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-040', fatura:'FTR-2026-026', tutar:300000, tarih:'2026-07-04', yontem:'Havale', turetilmis:true },
+  { tahsilat:'THS-2026-048', fatura:'FTR-2026-022', tutar:106200, tarih:'2026-07-29', yontem:'Havale', turetilmis:true }
 ];

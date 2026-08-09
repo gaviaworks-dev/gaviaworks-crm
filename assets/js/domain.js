@@ -507,47 +507,279 @@
      Kapanış hangi uçtan tetiklenirse tetiklensin **tamamı** kapanır ve
      müşterinin `bekleyenTahsilat` alanı yeniden türetilir.
      =================================================================== */
+  /* =====================================================================
+     ÖDEME TAHSİSİ TEK KANONİK KAYNAKTIR — şartname [10.4.5]/[10.4.6]
+     ---------------------------------------------------------------------
+     Ölçülen kusur ÜÇ katmanlıydı:
+       1. Fatura ÜÇ ayrı ekrandan elle "Ödendi" işaretlenebiliyordu
+          (`app-fatura-detay` · `app-fatura` · `app-fatura-form`), üstelik
+          `odemeTarihi` de elle giriliyordu — hiçbir para hareketi olmadan.
+       2. `settleInvoice` faturayı kapatıp tahsilatı ona uyduruyor,
+          `settlePayment` tahsilatı kapatıp faturayı ona uyduruyordu:
+          ÇİFT YÖNLÜ AYNA. Hangi uçtan tetiklenirse o kanonik oluyordu.
+       3. Fatura bakiyesi ALTI ayrı yerde altı ayrı formülle hesaplanıyordu;
+          ikisi net, ikisi brüt eksendeydi.
+
+     Yeni kural tek yönlüdür: **para hareketi → tahsis → fatura durumu.**
+     `durum` alanı artık TÜRETİLMİŞ bir görünümdür; hiçbir yordam onu
+     doğrudan yazmaz, `durumTazele()` tahsis toplamından hesaplar.
+     ===================================================================== */
   var Fin = {
-    /* Faturayı öder: fatura + bağlı tahsilat + taksitin ödeme durumu + müşteri özeti */
-    settleInvoice:function(kod, tarih){
-      if(!window.DB) return null;
-      if(!can('finans')) return { ok:false, why:'yetki' };
-      var f = DB.invoices.filter(function(x){ return x.kod === kod; })[0];
-      if(!f) return { ok:false, why:'kayıt yok' };
-      if(f.durum === 'Ödendi') return { ok:false, why:'zaten kapalı' };
-      var t = tarih || DB.today;
-      var eski = f.durum;
-      f.durum = 'Ödendi'; f.odemeTarihi = t;
-      var p = DB.payments.filter(function(x){ return x.fatura === f.kod; })[0];
-      if(p && p.durum !== 'Ödendi'){
-        p.durum = 'Ödendi'; p.gecikmeGun = 0;
-        p.sonAksiyon = 'Tahsil edildi'; p.sonAksiyonTarihi = t;
-      }
-      var ms = senkronTaksit(f);
-      musteriOzet(f.musteri);
-      log(f.kod, 'Fatura ödendi işaretlendi', eski, 'Ödendi', 'ok', 'i-check-circle');
-      if(p) log(p.kod, 'Bağlı fatura kapandığı için tahsilat da kapatıldı', '', f.kod, 'ok', 'i-link');
-      return { ok:true, fatura:f, tahsilat:p || null, taksit:ms || null };
+    /* Bir faturanın tahsis satırları */
+    tahsisler:function(faturaKod){
+      return (window.DB && DB.paymentAllocations || [])
+        .filter(function(a){ return a.fatura === faturaKod; });
     },
 
-    /* Tahsilatı kapatır: tahsilat + bağlı fatura + taksit + müşteri özeti */
+    /* TEK BAKİYE YORDAMI — altı kopya formülün yerine geçer.
+       Brüt eksende çalışır: fatura `toplam` alanı KDV dahildir. */
+    balance:function(fatura){
+      var f = typeof fatura === 'string'
+        ? (window.DB && DB.invoices || []).filter(function(x){ return x.kod === fatura; })[0]
+        : fatura;
+      if(!f) return null;
+      var brut = f.toplam || 0;
+      var tahsil = Fin.tahsisler(f.kod).reduce(function(s,a){ return s + (a.tutar || 0); }, 0);
+      var acik = Math.max(0, brut - tahsil);
+      return { fatura:f.kod, brut:brut, tahsil:tahsil, acik:acik,
+               oran:brut ? Math.round(tahsil / brut * 100) : 0,
+               tamOdendi:tahsil >= brut && brut > 0, kismi:tahsil > 0 && tahsil < brut };
+    },
+
+    /* Ödeme durumu TÜRETİLİR — şartname [10.4.5].
+       İKİ AYRI EKSEN (şartname [10.4.3] `Vadesi Geçti`yi "SÜREÇSEL durum"
+       diye ayırıyor): `durum` ödemenin nerede olduğunu söyler, `gecikti`
+       vadenin geçip geçmediğini. Tek eksene sıkıştırmak bilgi yutuyordu —
+       kısmi ödenmiş ama vadesi geçmiş fatura "Vadesi Geçti" görünüp
+       ödemenin bir kısmının geldiği bilgisini siliyordu. */
+    odemeDurum:function(fatura){
+      var b = Fin.balance(fatura);
+      if(!b) return null;
+      if(b.tamOdendi) return 'Ödendi';
+      return b.kismi ? 'Kısmi Ödendi' : 'Ödenmedi';
+    },
+
+    /* Gecikme — saklanmaz, vade ile açık bakiyeden okunur */
+    gecikti:function(fatura){
+      var f = typeof fatura === 'string'
+        ? (window.DB && DB.invoices || []).filter(function(x){ return x.kod === fatura; })[0]
+        : fatura;
+      if(!f) return false;
+      var b = Fin.balance(f);
+      return !!(b && b.acik > 0 && f.vade && f.vade < DB.today);
+    },
+
+    /* Gecikme günü — gecikmemişse 0 */
+    gecikmeGun:function(fatura){
+      var f = typeof fatura === 'string'
+        ? (window.DB && DB.invoices || []).filter(function(x){ return x.kod === fatura; })[0]
+        : fatura;
+      if(!f || !Fin.gecikti(f)) return 0;
+      return Math.max(0, Math.round((new Date(DB.today) - new Date(f.vade)) / 86400000));
+    },
+
+    /* Türetilmiş durumu kayda yansıtır. Kullanıcı çağırmaz; tahsis
+       değiştiğinde motor çağırır. */
+    durumTazele:function(fatura){
+      var f = typeof fatura === 'string'
+        ? (window.DB && DB.invoices || []).filter(function(x){ return x.kod === fatura; })[0]
+        : fatura;
+      if(!f) return null;
+      var yeni = Fin.odemeDurum(f), eski = f.durum;
+      f.durum = yeni;
+      f.gecikti = Fin.gecikti(f);
+      f.gecikmeGun = Fin.gecikmeGun(f);
+      var b = Fin.balance(f);
+      f.odemeTarihi = b.tamOdendi
+        ? (Fin.tahsisler(f.kod).map(function(a){ return a.tarih; })
+             .filter(Boolean).sort().pop() || f.odemeTarihi)
+        : null;
+      if(eski !== yeni) log(f.kod, 'Ödeme durumu tahsis toplamından türetildi (' +
+        b.tahsil.toLocaleString('tr-TR') + ' / ' + b.brut.toLocaleString('tr-TR') + ' ₺)',
+        eski, yeni, yeni === 'Ödendi' ? 'ok' : yeni === 'Vadesi Geçti' ? 'danger' : 'info', 'i-refresh');
+      return { fatura:f, eski:eski, yeni:yeni, bakiye:b };
+    },
+
+    /* TAHSİS ET — para hareketini bir faturaya dağıtır. Çoklu fatura
+       tahsisi bu yordamın birden çok kez çağrılmasıdır ([10.4.4]). */
+    tahsisEt:function(tahsilatKod, faturaKod, tutar, opts){
+      opts = opts || {};
+      if(!window.DB) return { ok:false, why:'veri yok' };
+      if(!can('finans')) return { ok:false, why:'yetki', roller:['finans'] };
+      var p = (DB.payments || []).filter(function(x){ return x.kod === tahsilatKod; })[0];
+      var f = (DB.invoices || []).filter(function(x){ return x.kod === faturaKod; })[0];
+      if(!p) return { ok:false, why:'tahsilat kaydı yok: ' + tahsilatKod };
+      if(!f) return { ok:false, why:'fatura kaydı yok: ' + faturaKod };
+      if(p.musteri && f.musteri && p.musteri !== f.musteri)
+        return { ok:false, why:'Farklı müşterilere ait tahsilat ve fatura eşleştirilemez' };
+      /* ŞARTNAME [10.4.5]: "BAŞARILI ÖDEME HAREKETİ kanonik kaynaktır."
+         `DB.payments` bir ALACAK defteridir — kaydın varlığı paranın geldiği
+         anlamına gelmez. Henüz tahsil edilmemiş bir alacağı faturaya tahsis
+         etmek, faturayı para gelmeden kapatırdı: düzeltmeye çalıştığımız
+         hatanın aynısı. Nakit olayı ayrı alandır ve `Fin.tahsilEt` yazar. */
+      if(!p.tahsilEdildi)
+        return { ok:false, why:'tahsil',
+          mesaj:'Bu tahsilat henüz gerçekleşmedi. Fatura ancak tahsil edilmiş bir para ' +
+                'hareketinden kapanır — önce tahsilatı "tahsil edildi" olarak kaydedin.' };
+
+      DB.paymentAllocations = DB.paymentAllocations || [];
+      /* İdempotency — aynı tahsilat aynı faturaya iki kez tahsis edilemez */
+      var mevcut = DB.paymentAllocations.filter(function(a){
+        return a.tahsilat === tahsilatKod && a.fatura === faturaKod; })[0];
+      if(mevcut && !opts.guncelle)
+        return { ok:false, why:'Bu tahsilat bu faturaya zaten tahsis edilmiş (' +
+                 mevcut.tutar.toLocaleString('tr-TR') + ' ₺)' };
+
+      var b = Fin.balance(f);
+      var kalanFatura = b.acik + (mevcut ? mevcut.tutar : 0);
+      var dagitilmis = DB.paymentAllocations
+        .filter(function(a){ return a.tahsilat === tahsilatKod && a !== mevcut; })
+        .reduce(function(s,a){ return s + (a.tutar || 0); }, 0);
+      var kalanTahsilat = (p.tutar || 0) - dagitilmis;
+
+      var t = tutar == null ? Math.min(kalanFatura, kalanTahsilat) : tutar;
+      if(t <= 0) return { ok:false, why:'Dağıtılacak tutar kalmadı' };
+      if(t > kalanTahsilat + 0.01)
+        return { ok:false, why:'Tahsilatın dağıtılmamış bakiyesi ' +
+                 kalanTahsilat.toLocaleString('tr-TR') + ' ₺ — daha fazlası tahsis edilemez' };
+      if(t > kalanFatura + 0.01)
+        return { ok:false, why:'Faturanın açık bakiyesi ' +
+                 kalanFatura.toLocaleString('tr-TR') + ' ₺ — fazla ödeme ayrı kayıt gerektirir' };
+
+      if(mevcut){ mevcut.tutar = t; mevcut.tarih = opts.tarih || mevcut.tarih; }
+      else DB.paymentAllocations.push({ tahsilat:tahsilatKod, fatura:faturaKod, tutar:t,
+              tarih:opts.tarih || DB.today, yontem:opts.yontem || p.yontem || 'Havale',
+              dekont:opts.dekont || null });
+
+      var sonuc = Fin.durumTazele(f);
+      Fin.tahsilatDurumTazele(p);
+      senkronTaksit(f);
+      musteriOzet(f.musteri);
+      log(p.kod, 'Tahsilat ' + f.kod + ' faturasına tahsis edildi (' +
+          t.toLocaleString('tr-TR') + ' ₺)', '', f.kod, 'ok', 'i-link');
+      return { ok:true, tahsis:t, fatura:f, tahsilat:p, bakiye:sonuc.bakiye, durum:sonuc.yeni };
+    },
+
+    /* Tahsis geri alınır — fatura durumu kendiliğinden geri düşer */
+    tahsisKaldir:function(tahsilatKod, faturaKod){
+      if(!window.DB || !DB.paymentAllocations) return { ok:false, why:'veri yok' };
+      if(!can('finans')) return { ok:false, why:'yetki', roller:['finans'] };
+      var i = DB.paymentAllocations.findIndex(function(a){
+        return a.tahsilat === tahsilatKod && a.fatura === faturaKod; });
+      if(i === -1) return { ok:false, why:'tahsis kaydı yok' };
+      var t = DB.paymentAllocations.splice(i, 1)[0];
+      var f = DB.invoices.filter(function(x){ return x.kod === faturaKod; })[0];
+      var p = DB.payments.filter(function(x){ return x.kod === tahsilatKod; })[0];
+      if(f){ Fin.durumTazele(f); senkronTaksit(f); musteriOzet(f.musteri); }
+      if(p) Fin.tahsilatDurumTazele(p);
+      log(tahsilatKod, 'Tahsis geri alındı (' + t.tutar.toLocaleString('tr-TR') + ' ₺)',
+          faturaKod, '', 'warn', 'i-refresh');
+      return { ok:true, kaldirilan:t };
+    },
+
+    /* NAKİT OLAYI — paranın geldiği an. Tahsis ancak bundan sonra yapılabilir.
+       Şartname [10.4.4]: yöntem, banka/kasa hesabı, dekont, valör alanları
+       bu olayla birlikte kaydedilir. */
+    tahsilEt:function(kod, opts){
+      opts = opts || {};
+      if(!window.DB) return { ok:false, why:'veri yok' };
+      if(!can('finans')) return { ok:false, why:'yetki', roller:['muhasebe'] };
+      var p = (DB.payments || []).filter(function(x){ return x.kod === kod; })[0];
+      if(!p) return { ok:false, why:'tahsilat kaydı yok: ' + kod };
+      if(p.tahsilEdildi) return { ok:false, why:'Bu tahsilat zaten gerçekleşmiş olarak kayıtlı' };
+      p.tahsilEdildi   = true;
+      p.tahsilTarihi   = opts.tarih  || DB.today;
+      p.yontem         = opts.yontem || p.yontem || 'Havale';
+      p.hesap          = opts.hesap  || p.hesap || null;
+      p.dekont         = opts.dekont || p.dekont || null;
+      p.valor          = opts.valor  || p.tahsilTarihi;
+      p.sonAksiyon     = 'Tahsil edildi';
+      p.sonAksiyonTarihi = p.tahsilTarihi;
+      Fin.tahsilatDurumTazele(p);
+      log(p.kod, 'Tahsilat gerçekleşti (' + (p.tutar || 0).toLocaleString('tr-TR') + ' ₺ · ' +
+          p.yontem + (p.dekont ? ' · dekont ' + p.dekont : '') + ')',
+          '', p.tahsilTarihi, 'ok', 'i-wallet');
+      return { ok:true, tahsilat:p };
+    },
+
+    /* Nakit olayı geri alınır — tahsis varsa önce onlar kaldırılmalı */
+    tahsilGeriAl:function(kod, gerekce){
+      if(!window.DB) return { ok:false, why:'veri yok' };
+      if(!can('finans')) return { ok:false, why:'yetki', roller:['muhasebe'] };
+      var p = (DB.payments || []).filter(function(x){ return x.kod === kod; })[0];
+      if(!p || !p.tahsilEdildi) return { ok:false, why:'Bu tahsilat zaten gerçekleşmemiş' };
+      var bagli = (DB.paymentAllocations || []).filter(function(a){ return a.tahsilat === kod; });
+      if(bagli.length) return { ok:false, why:'tahsis',
+        mesaj:'Bu tahsilat ' + bagli.length + ' faturaya dağıtılmış — önce tahsisleri kaldırın.' };
+      if(!String(gerekce || '').trim()) return { ok:false, why:'gerekce', mesaj:'Gerekçe zorunludur' };
+      p.tahsilEdildi = false; p.tahsilTarihi = null;
+      Fin.tahsilatDurumTazele(p);
+      log(p.kod, 'Tahsilat geri alındı — ' + gerekce, 'Tahsil edildi', '', 'warn', 'i-refresh');
+      return { ok:true, tahsilat:p };
+    },
+
+    /* Tahsilatın kendi durumu da türetilir: nakit olayı + dağıtım oranı */
+    tahsilatDurumTazele:function(p){
+      if(!p || !window.DB) return null;
+      var dagitim = (DB.paymentAllocations || [])
+        .filter(function(a){ return a.tahsilat === p.kod; })
+        .reduce(function(s,a){ return s + (a.tutar || 0); }, 0);
+      var eski = p.durum;
+      p.dagitilan = dagitim;
+      p.dagitilmamis = Math.max(0, (p.tutar || 0) - dagitim);
+      p.durum = p.tahsilEdildi ? 'Ödendi'
+              : p.vade && p.vade < DB.today ? 'Gecikti' : 'Bekliyor';
+      if(p.durum === 'Ödendi'){ p.gecikmeGun = 0; p.sonAksiyon = 'Tahsil edildi'; }
+      return { eski:eski, yeni:p.durum, dagitilan:dagitim, dagitilmamis:p.dagitilmamis };
+    },
+
+    /* Tüm faturaların durumu tahsis defterinden yeniden türetilir.
+       Yükleme anında bir kez çalışır; elle yazılmış durum hayatta kalmaz. */
+    tazeleHepsi:function(){
+      if(!window.DB || !DB.invoices) return 0;
+      var n = 0;
+      (DB.payments || []).forEach(function(p){ Fin.tahsilatDurumTazele(p); });
+      DB.invoices.forEach(function(f){
+        var eski = f.durum, yeni = Fin.odemeDurum(f);
+        if(eski !== yeni) n++;
+        f.durum = yeni;
+        f.gecikti = Fin.gecikti(f);
+        f.gecikmeGun = Fin.gecikmeGun(f);
+        if(yeni !== 'Ödendi') f.odemeTarihi = null;
+      });
+      return n;
+    },
+
+    /* ⚠️ ESKİ API — geriye uyum. `settleInvoice` artık faturayı ELLE
+       kapatmaz; bir tahsilat bulunup tahsis edilir. Tahsilat yoksa işlem
+       REDDEDİLİR: para hareketi olmadan fatura kapanmaz ([10.4.6]). */
+    settleInvoice:function(kod, tarih){
+      if(!window.DB) return null;
+      var f = DB.invoices.filter(function(x){ return x.kod === kod; })[0];
+      if(!f) return { ok:false, why:'kayıt yok' };
+      var b = Fin.balance(f);
+      if(b.tamOdendi) return { ok:false, why:'zaten kapalı' };
+      var p = (DB.payments || []).filter(function(x){
+        return x.fatura === f.kod || (x.musteri === f.musteri && (x.dagitilmamis || x.tutar) > 0); })[0];
+      if(!p) return { ok:false, why:'tahsilat',
+        mesaj:'Bu faturaya bağlı bir para hareketi yok. Fatura yalnız tahsilat tahsisiyle kapanır — ' +
+              'önce tahsilat kaydı oluşturup bu faturaya dağıtın.' };
+      return Fin.tahsisEt(p.kod, f.kod, Math.min(b.acik, p.dagitilmamis != null ? p.dagitilmamis : p.tutar),
+                          { tarih:tarih || DB.today });
+    },
+
+    /* ⚠️ ESKİ API — artık faturayı "ona uydurmuyor"; tahsis üretiyor. */
     settlePayment:function(kod, tarih){
       if(!window.DB) return null;
-      if(!can('finans')) return { ok:false, why:'yetki' };
       var p = DB.payments.filter(function(x){ return x.kod === kod; })[0];
       if(!p) return { ok:false, why:'kayıt yok' };
-      if(p.durum === 'Ödendi') return { ok:false, why:'zaten kapalı' };
-      var t = tarih || DB.today;
-      var eski = p.durum;
-      p.durum = 'Ödendi'; p.gecikmeGun = 0;
-      p.sonAksiyon = 'Tahsil edildi'; p.sonAksiyonTarihi = t;
+      if(!p.fatura) return { ok:false, why:'tahsis',
+        mesaj:'Bu tahsilat hiçbir faturaya bağlı değil — dağıtım ekranından fatura seçin.' };
       var f = DB.invoices.filter(function(x){ return x.kod === p.fatura; })[0];
-      if(f && f.durum !== 'Ödendi'){ f.durum = 'Ödendi'; f.odemeTarihi = t; }
-      var ms = f ? senkronTaksit(f) : null;
-      musteriOzet(p.musteri);
-      log(p.kod, 'Tahsilat kapatıldı', eski, 'Ödendi', 'ok', 'i-check-circle');
-      if(f) log(f.kod, 'Bağlı tahsilat kapandığı için fatura da kapatıldı', '', p.kod, 'ok', 'i-link');
-      return { ok:true, tahsilat:p, fatura:f || null, taksit:ms || null };
+      if(!f) return { ok:false, why:'bağlı fatura kaydı yok: ' + p.fatura };
+      var b = Fin.balance(f);
+      if(b.tamOdendi) return { ok:false, why:'zaten kapalı' };
+      return Fin.tahsisEt(p.kod, f.kod, Math.min(b.acik, p.tutar), { tarih:tarih || DB.today });
     },
 
     /* Müşterinin bekleyen tahsilatı — TÜRETİLİR, elle yazılmaz (L-08) */
@@ -1110,6 +1342,9 @@
   };
 
   GV.fin = Fin;
+  /* Fatura ve tahsilat durumları yükleme anında tahsis defterinden yeniden
+     türetilir — veride yazılı değer otoriter değildir ([10.4.5]). */
+  if(window.DB && DB.invoices) Fin.sonSapma = Fin.tazeleHepsi();
   GV.delivery = Delivery;
   GV.task = Task;
   GV.zaman = Zaman;
