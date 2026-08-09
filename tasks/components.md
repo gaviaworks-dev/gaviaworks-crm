@@ -800,6 +800,48 @@ silmez. Yetki eksenini `GV.shell.ekranAcilabilir(href)` sağlar (shell.js).
 `detay` yalnız o dosya **gerçekten varsa** verilir; 12 formun detay ekranı yok
 ve yordam listeye dönüp bunu şeritte dürüstçe söyler.
 
+## GV.cell · GV.cols — rapor kolon fabrikaları ([14.0.2] · P4-01)
+
+```js
+GV.cell.mny(v,{tone|signed|cur}) · num(v,{basamak|tone}) · sub(html) · faint(t)
+GV.cell.gun(v,tone) · oran(v,esik) · link(href,kod,alt) · mrow(main,kod,metas,badges)
+
+GV.cols.money|num|pct(key,label,o) · date|durum|kisi|kod(key,label,o)
+GV.cols.tbl(o) · GV.cols.bos(baslik,aciklama,ikon)
+```
+⚠️ **`GV.fmt` başka bir şeydir** — o `Fmt`'dir (date/money/num biçimleyici).
+HTML üreten hücre yardımcıları `GV.cell` altındadır.
+
+Her fabrika `exportValue`'yu **kendisi kurar** ([14.4.1]) ve hizalamayı
+**fabrikadan** verir: para/sayı sağa, **tarih ve durum ortaya** ([14.2.5] ·
+[14.2.6] — göç öncesi 7 sayfanın hiçbirinde ortalanmıyordu).
+Geçişli alanlar (`perm · mask · width · locked · sortable · sortValue · group ·
+footer`) `COL_GECISLI` üzerinden aktarılır; `durum` fabrikası türetilmiş rozet
+için `deger(x)` alır.
+
+**Ölçüm:** 7 rapor sayfası **−1.298 satır**; `xport.js` 646 kolon TEMİZ.
+
+## GV.report künyesi · DB.reportRegistry ([14.5.1])
+
+`assets/data/reports.js` — **105 kayıt, ekranlardan ÜRETİLİR**:
+`node tasks/qa/reg.js --uret > assets/data/reports.js`
+Aynı script eksen kipinde defteri ekranla karşılaştırır (`node tasks/qa/reg.js`),
+böylece defter bayatlayamaz (L-30).
+`formula_version` defterde **bilerek `null`** — tek kaynak `DB.formulaVersion`
+(`org.js`). `permissions` `shell.js` → `SEC_BY_ROLE`'den **ölçülür**.
+`GV.report` her raporun altına künyeyi basar; defter yalnız durmaz, kullanılır (L-22).
+
+## Çıktı — `exportCell` ([14.4.1]–[14.4.7])
+
+Değer sırası: `exportValue` → **ekranın gösterdiği metin** (`htmlText(render)`)
+→ ham alan. Maskeli hücre çıktıya girmez. CSV'de formül enjeksiyonu koruması
+(`=`/`+`/`-`/`@`; düz negatif sayı muaf). Dosyanın sonuna **künye** yazılır:
+kapsam · filtre · sıralama · kolon · formül sürümü · alındığı an.
+"Tüm kayıtlar" kapsamı ayrıca onaylatılır. Yazdırmada A4 yatay, `thead` her
+sayfada tekrar, satır bölünmez.
+⚠️ `exportCell` liste örneğinin dönüş yüzeyindedir çünkü **`xport.js` onu
+çağırır** — eksen kuralın kopyasını değil ürünü ölçer.
+
 ## Ölçüm
 
 ```bash
@@ -808,5 +850,8 @@ node tasks/qa/flow.js --selftest  # eksenin kendisi bozuk kopyada sınanır
 node tasks/qa/aftersave.js        # [3.1.16] — 6 hüküm (E1–E6), --selftest'li
 node tasks/qa/html-js.js          # inline script sözdizimi (L-37), --selftest'li
 node tasks/qa/formtab.js          # sekme kabuğu — 6 hüküm (T1–T6), tarayıcı
+node tasks/qa/xport.js            # çıktı ekranı taşıyor mu — ürünün exportCell'i
+node tasks/qa/reg.js              # rapor defteri ↔ ekran örtüşmesi (R1–R4)
+node tasks/qa/reg.js --uret       # defteri yeniden üret
 ```
 `app-veri-kalitesi.html` aynı denetimleri üründe koşturur.

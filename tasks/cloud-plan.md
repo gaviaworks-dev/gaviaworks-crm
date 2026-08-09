@@ -41,8 +41,8 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P3-05 Tahsilat formu | ✅ bitti | form + tahsis dağıtım ekranı |
 | P3-06 İK zinciri | ⛔ başlanmadı | yaşam döngüsü, onboarding, zimmet kabulü |
 | P3-07 Destek zinciri | ⏳ kısmi | motor + kota düşümü bağlandı; bilgi bankası yok |
-| P4-01 ReportRegistry | ⛔ başlanmadı | — |
-| P4-02 Export servisi | ⛔ başlanmadı | — |
+| P4-01 ReportRegistry | ✅ bitti | `DB.reportRegistry` 105 kayıt (ekrandan üretildi) · `GV.cell`/`GV.cols` · 7 rapor prelude'ü −1.298 satır · `reg.js` TEMİZ |
+| P4-02 Export servisi | ⏳ kısmi | ekran değeri çıktıya taşınıyor (`xport.js` **TEMİZ**, 646 kolon) · CSV formül koruması · künye · yazdırma CSS'i · tüm kayıtlar onayı. **XLSX/PDF hâlâ gerçek biçim değil — backend payı** |
 | P4-03 Notlarım modülü | ⛔ başlanmadı | — |
 | P5-01…P5-06 | ⛔ başlanmadı | büyük ölçüde backend |
 
@@ -63,13 +63,15 @@ Ayrıntılı yol tarifi `tasks/handoff.md` §4'tedir. Özet ve sıra önerisi:
 
 **A ve C diğerlerinin altyapısı.** F, A bittikten sonra başlamalı (sekmeli kabuğu kullanır) ve **testleri modülden önce** yazılır.
 
-### Açık kalan ölçüm: `xport.js`
+### Kapanan ölçüm: `xport.js` ✅
 
-`node tasks/qa/xport.js` → **EKSİK — 22 ekranda kolon tanımı çıktıyı beslemiyor.**
+`node tasks/qa/xport.js` → **TEMİZ — 646 kolonun tamamı çıktıya değer taşıyor** (146 ekran · 70 liste · 865 kayıt · 7.624 hücre · ekranda dolu ama çıktıda boş hücre **0**).
 
-Bu bulgu **bu turdan değildir**; önceki turda da "bilinen ve bilinçli kısmi" olarak kayıtlıydı (`tasks/revize-plan.md:27`). Kök nedeni şartnamenin §14.4 export standardının (P4-02) hiç yapılmamış olmasıdır: kolonların ortak bir `exportValue` sözleşmesi yok, her rapor kendi biçimlendirmesini yazıyor.
+**Kök neden defterdekinden farklı çıktı** (ders L-28: borç kaydındaki sayı tahmindir). Defter "22 ekranda `exportValue` yok" diyordu; ölçüldüğünde tamamen boş kolon **sıfır**, kısmi **24** çıktı ve 24'ün 24'ü tek bir sınıftı: kolonun ekranda gösterdiği değer `render`'dan türüyor, çıktı ise `r[c.key]`'e bakıyordu.
 
-**Nokta yaması yapılmamalı.** E paketinde ortak kolon API'si kurulunca 22 ekran tek tek yamalanmadan kapanır.
+**Çözüm nokta yaması değil, tek satırlık sözleşme oldu:** `exportCell` artık `exportValue` → **ekranın gösterdiği metin** → ham alan sırasını izliyor. 22 ekranın hiçbiri tek tek yamalanmadı.
+
+Eksenin kendisi de iki yerde düzeltildi: (a) yokluğu anlatan yer tutucu cümleler ("Zimmetsiz" · "Vekil yok") artık **ayrı sayaçta**, ihlal sayılmıyor — ekranda dolu boş hücre bunun dosyadaki doğru karşılığıdır; (b) eksen çıktı kuralını **kendi içinde kopyalıyordu** ve kural üründe bozulduğunda yine "TEMİZ" diyordu — artık ürünün `exportCell`ini çağırıyor. İkisi de bozulmuş kopyada sınandı (L-39).
 
 ---
 
