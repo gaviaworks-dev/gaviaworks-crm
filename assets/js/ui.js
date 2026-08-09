@@ -1925,23 +1925,115 @@
       '</div>';
     }
 
+    /* ===================================================================
+       SEKME VE SAĞ PANEL — şartname [3.1.4] · [3.1.5] · [3.1.15] (CLOUD TURU)
+       -------------------------------------------------------------------
+       Ölçülen kusur: motor yalnız düz bir `sections` döngüsü basıyordu.
+       Ortak sekme bileşeni (`.gv-tabs`) 28 DETAY ekranında kullanılıyordu
+       ama formların SIFIRINDA — çünkü form motoru onu hiç çağırmıyordu.
+       Bu tek boşluk [3.1.6] (sekme ikonu), [3.1.12] (sekme bazlı hata özeti)
+       ve [3.2.1] (sekme klavye erişilebilirliği) maddelerini de düşürüyordu.
+       Sağ bağlam paneli de yoktu: 36 formdan 35'i tek sütun kart yığınıydı.
+
+       İKİSİ DE OPSİYONEL. `cfg.tabs` verilmeyen form eski düz davranışında
+       kalır — 36 formu aynı anda değiştirmek zorunda kalmadan geçiş yapılır.
+
+       cfg.tabs  = [{ key, label, icon }]  · section.tab = <key>
+       cfg.aside = function(record){ return html; }  → canlı sağ panel
+       =================================================================== */
+    var sekmeli = !!(cfg.tabs && cfg.tabs.length);
+    var yanPanel = typeof cfg.aside === 'function';
+
+    function sectionHtml(s){
+      return '<div class="gv-form-sec"' + (s.tab ? ' data-tabsec="' + esc(s.tab) + '"' : '') + '>' +
+        (s.title ? '<div class="gv-form-sec-head"><h3>' +
+          (s.icon ? ico(s.icon, 'ic-sm') + ' ' : '') + esc(s.title) + '</h3>' +
+          (s.desc ? '<p>' + esc(s.desc) + '</p>' : '') + '</div>' : '') +
+        '<div class="gv-fields">' + (s.fields || []).map(fieldHtml).join('') + '</div></div>';
+    }
+
     var html = '<form novalidate>' +
       '<div class="form-err-summary" role="alert"><span>' + ico('i-alert') + '</span>' +
       '<div><b>Form gönderilemedi.</b><ul></ul></div></div>';
 
-    (cfg.sections || []).forEach(function(s){
-      html += '<div class="gv-form-sec">' +
-        (s.title ? '<div class="gv-form-sec-head"><h3>' + esc(s.title) + '</h3>' +
-          (s.desc ? '<p>' + esc(s.desc) + '</p>' : '') + '</div>' : '') +
-        '<div class="gv-fields">' + (s.fields || []).map(fieldHtml).join('') + '</div></div>';
-    });
+    if(sekmeli){
+      /* Sekme şeridi — `GV.tabs` ile aynı işaretleme ve aynı ARIA sözleşmesi.
+         Detay ekranlarındakiyle birebir aynı dil; ikinci bir sekme dili yok. */
+      html += '<div class="gv-tabs" role="tablist">' + cfg.tabs.map(function(t, i){
+        return '<button type="button" class="gv-tab' + (i === 0 ? ' is-active' : '') + '"' +
+          ' role="tab" id="ftab_' + esc(t.key) + '"' +
+          ' aria-selected="' + (i === 0 ? 'true' : 'false') + '"' +
+          ' aria-controls="fpanel_' + esc(t.key) + '"' +
+          ' tabindex="' + (i === 0 ? '0' : '-1') + '" data-ftab="' + esc(t.key) + '">' +
+          (t.icon ? ico(t.icon, 'ic-sm') : '') + '<span>' + esc(t.label) + '</span>' +
+          '<span class="gv-tab-err" hidden aria-hidden="true"></span></button>';
+      }).join('') + '</div>';
+
+      cfg.tabs.forEach(function(t, i){
+        html += '<div class="gv-tabpanel" role="tabpanel" id="fpanel_' + esc(t.key) + '"' +
+          ' aria-labelledby="ftab_' + esc(t.key) + '"' + (i === 0 ? '' : ' hidden') + '>' +
+          (cfg.sections || []).filter(function(s){ return s.tab === t.key; }).map(sectionHtml).join('') +
+          '</div>';
+      });
+      /* Sekmesi belirtilmemiş bölüm KAYBOLMAZ — ilk panelin altına düşer.
+         Sessizce yok saymak, alanı olmayan bir formu "tamam" gösterirdi. */
+      var sekmesiz = (cfg.sections || []).filter(function(s){ return !s.tab; });
+      if(sekmesiz.length) html = html.replace('</div>', sekmesiz.map(sectionHtml).join('') + '</div>');
+    }else{
+      (cfg.sections || []).forEach(function(s){ html += sectionHtml(s); });
+    }
 
     html += '</form>';
-    mount.innerHTML = html;
+
+    if(yanPanel){
+      mount.innerHTML = '<div class="gv-grid gv-grid-aside">' +
+        '<div data-formmain></div>' +
+        '<aside class="gv-aside" data-formaside></aside></div>';
+      mount.querySelector('[data-formmain]').innerHTML = html;
+    }else{
+      mount.innerHTML = html;
+    }
 
     var form = mount.querySelector('form');
-    form.addEventListener('input', function(){ dirty = true; syncShowIf(); });
-    form.addEventListener('change', function(){ dirty = true; syncShowIf(); });
+
+    /* Sağ panel — şartname [3.1.15] "CANLI özetlesin" diyor. Her alan
+       değişiminde yeniden çizilir; çağıran güncel değerleri `read()`'ten alır. */
+    var asideEl = yanPanel ? mount.querySelector('[data-formaside]') : null;
+    function cizAside(){
+      if(!asideEl) return;
+      try{ asideEl.innerHTML = cfg.aside(read(), api) || ''; }
+      catch(e){ asideEl.innerHTML = GV.notice({ tone:'warn', title:'Özet çizilemedi', text:String(e.message || e) }); }
+    }
+
+    /* Sekme geçişi — klavye sözleşmesi `GV.tabs` ile aynı ([3.2.1]) */
+    function sekmeGec(key, odak){
+      Array.prototype.forEach.call(mount.querySelectorAll('[data-ftab]'), function(b){
+        var aktif = b.dataset.ftab === key;
+        b.classList.toggle('is-active', aktif);
+        b.setAttribute('aria-selected', aktif ? 'true' : 'false');
+        b.tabIndex = aktif ? 0 : -1;
+        if(aktif && odak) b.focus();
+      });
+      Array.prototype.forEach.call(mount.querySelectorAll('.gv-tabpanel'), function(pn){
+        pn.hidden = pn.id !== 'fpanel_' + key;
+      });
+    }
+    if(sekmeli){
+      var tabBtns = Array.prototype.slice.call(mount.querySelectorAll('[data-ftab]'));
+      tabBtns.forEach(function(b, i){
+        b.addEventListener('click', function(){ sekmeGec(b.dataset.ftab); });
+        b.addEventListener('keydown', function(e){
+          var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+          if(!d) return;
+          e.preventDefault();
+          var n = (i + d + tabBtns.length) % tabBtns.length;
+          sekmeGec(tabBtns[n].dataset.ftab, true);
+        });
+      });
+    }
+
+    form.addEventListener('input', function(){ dirty = true; syncShowIf(); cizAside(); });
+    form.addEventListener('change', function(){ dirty = true; syncShowIf(); cizAside(); });
 
     /* dosya alanı */
     Array.prototype.forEach.call(mount.querySelectorAll('[data-upload]'), function(u){
@@ -2033,8 +2125,40 @@
 
       var sum = mount.querySelector('.form-err-summary');
       sum.classList.toggle('is-on', errs.length > 0);
-      sum.querySelector('ul').innerHTML = errs.map(function(e){ return '<li>' + esc(e.msg) + '</li>'; }).join('');
+
+      /* SEKME BAZLI HATA ÖZETİ — şartname [3.1.12]. Hatalı alan gizli bir
+         sekmedeyse kullanıcı listeyi okur ama alanı GÖREMEZ; hangi sekmede
+         olduğu yazılır ve sekme rozeti sayıyı gösterir. */
+      var alanTab = {};
+      if(sekmeli) (cfg.sections || []).forEach(function(sec){
+        (sec.fields || []).forEach(function(f){ alanTab[f.key] = sec.tab || null; });
+      });
+      var tabAd = {};
+      (cfg.tabs || []).forEach(function(t){ tabAd[t.key] = t.label; });
+      var tabSayi = {};
+      errs.forEach(function(e){ var k = alanTab[e.key]; if(k) tabSayi[k] = (tabSayi[k] || 0) + 1; });
+
+      sum.querySelector('ul').innerHTML = errs.map(function(e){
+        var k = alanTab[e.key];
+        return '<li>' + esc(e.msg) +
+          (k && tabAd[k] ? ' <span class="u-faint">— ' + esc(tabAd[k]) + ' sekmesi</span>' : '') +
+          '</li>';
+      }).join('');
+
+      if(sekmeli) Array.prototype.forEach.call(mount.querySelectorAll('[data-ftab]'), function(b){
+        var n = tabSayi[b.dataset.ftab] || 0;
+        var rozet = b.querySelector('.gv-tab-err');
+        if(!rozet) return;
+        rozet.hidden = !n;
+        rozet.textContent = n ? String(n) : '';
+        b.classList.toggle('has-err', !!n);
+      });
+
       if(errs.length){
+        /* İlk hatalı alanın sekmesine GEÇ, sonra odaklan — gizli alana
+           odaklanmak kullanıcıyı boş ekrana bakar hâlde bırakırdı. */
+        var ilkTab = alanTab[errs[0].key];
+        if(sekmeli && ilkTab) sekmeGec(ilkTab);
         var first = mount.querySelector('[data-field="' + errs[0].key + '"] input, [data-field="' + errs[0].key + '"] select, [data-field="' + errs[0].key + '"] textarea');
         if(first){ first.focus(); sum.scrollIntoView({ behavior:'smooth', block:'center' }); }
       }
@@ -2067,8 +2191,9 @@
     }
 
     syncShowIf();                                  /* açılıştaki ilk hüküm */
+    cizAside();                                    /* sağ panelin ilk çizimi */
 
-    return {
+    var api = {
       validate:validate,
       read:read,
       el:mount,
@@ -2080,8 +2205,13 @@
         dirty = false;
         return read();
       },
-      setDirty:function(v){ dirty = v; }
+      setDirty:function(v){ dirty = v; },
+      /* Sekmeli formda dışarıdan sekme değiştirme */
+      tab:function(key){ if(sekmeli) sekmeGec(key); },
+      /* Sağ paneli elle tazeleme — ekran alanı dışarıdan yazdıysa */
+      aside:cizAside
     };
+    return api;
   };
 
   /* ===================================================================
