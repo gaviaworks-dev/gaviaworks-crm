@@ -406,6 +406,138 @@
     });
   };
 
+  /* ===================================================================
+     ORTAK EYLEM PENCERESİ — şartname §6.2 (CLOUD TURU)
+     -------------------------------------------------------------------
+     Ölçülen kusur: sekiz eylemin (Onayla · Reddet · İade Et · Revizyon İste ·
+     İptal Et · Geri Çek · Devret · Yeniden Aç) her biri HER SAYFADA sıfırdan
+     `GV.modal` ile kuruluyordu — `app-izin-detay`, `app-panel-onaylar`,
+     `app-proje-degisiklik-detay`, `app-zaman-onay` dördü de ayrı koddu.
+     Neden kodu sözlüğü, ek dosya, sonraki onaycı, etkilenen kayıt özeti ve
+     audit bağlantısı hiçbirinde yoktu.
+
+     `GV.action(cfg)` şartname [6.2.2]–[6.2.8]'in yedi bileşenini tek yerde
+     toplar. Geçişi KENDİ YÜRÜTMEZ; `cfg.run(veri)` çağırır ve sonucu basar —
+     böylece motor (`GV.flow` · `GV.approval` · `GV.fin`) tek mutasyon noktası
+     olmayı sürdürür.
+
+     cfg = {
+       eylem      : 'Onayla' | 'Reddet' | …        (başlık ve ton buradan)
+       kayit      : { kod, baslik }                 (neyin üzerinde çalışıyoruz)
+       sonuc      : 'Bu kayıt "Onaylandı" durumuna geçecek.'   [6.2.2]
+       gerekce    : true → neden kodu + açıklama ZORUNLU        [6.2.3]
+       nedenTuru  : 'ret' | 'iade' | 'revizyon' | 'iptal' | 'geri' | 'istisna'
+       ek         : true → dosya/kanıt alanı                    [6.2.4]
+       onaycilar  : [{deger, ad}] → sonraki onaycı/delege seçimi [6.2.5]
+       etkilenen  : ['SZL-2026-004 zeyil taslağı', …]           [6.2.6]
+       geriDonusYok: true → geri döndürülemez uyarısı           [6.2.7]
+       run(veri)  : { ok:bool, mesaj, auditKod }                 [6.2.8]
+     }
+     =================================================================== */
+  var EYLEM_TON = {
+    'Onayla':'ok', 'Reddet':'danger', 'İade Et':'warn', 'Revizyon İste':'warn',
+    'İptal Et':'danger', 'Geri Çek':'warn', 'Devret':'accent', 'Yeniden Aç':'accent'
+  };
+  var EYLEM_IKON = {
+    'Onayla':'i-check-circle', 'Reddet':'i-x-circle', 'İade Et':'i-refresh',
+    'Revizyon İste':'i-refresh', 'İptal Et':'i-x-circle', 'Geri Çek':'i-corner-up-left',
+    'Devret':'i-users', 'Yeniden Aç':'i-rotate'
+  };
+
+  GV.action = function(cfg){
+    cfg = cfg || {};
+    var eylem = cfg.eylem || 'İşlem';
+    var ton   = cfg.tone || EYLEM_TON[eylem] || 'accent';
+    var kayit = cfg.kayit || {};
+    var DBref = window.DB || {};
+    var kodlar = (DBref.reasonCodes || []).filter(function(r){
+      return !cfg.nedenTuru || (r.tur || []).indexOf(cfg.nedenTuru) !== -1; });
+    /* Sözlükte bu türe uygun kod yoksa TÜMÜ basılır — boş select, kullanıcıyı
+       zorunlu bir alanı dolduramaz hâlde bırakırdı. */
+    if(!kodlar.length) kodlar = DBref.reasonCodes || [];
+
+    var g = [];
+    if(cfg.sonuc)
+      g.push('<p class="u-sm u-muted" style="margin:0 0 12px">' + esc(cfg.sonuc) + '</p>');
+
+    /* Etkilenen kayıt özeti ortak `GV.notice` diliyle basılır — bu pencere
+       için yeni bir uyarı kutusu sınıfı icat edilmez. */
+    if(cfg.etkilenen && cfg.etkilenen.length)
+      g.push(GV.notice({ tone:'info', icon:'i-link', title:'Bu işlemden etkilenecek kayıtlar',
+                         text:cfg.etkilenen.join(' · ') }));
+
+    if(cfg.gerekce)
+      g.push('<div class="field"><label for="gvaKod">Neden kodu <span class="req">*</span></label>' +
+             '<select id="gvaKod"><option value="">Seçiniz…</option>' +
+             kodlar.map(function(r){ return '<option value="' + esc(r.kod) + '">' + esc(r.ad) + '</option>'; }).join('') +
+             '</select></div>');
+
+    g.push('<div class="field"><label for="gvaNot">Açıklama' +
+           (cfg.gerekce ? ' <span class="req">*</span>' : '') + '</label>' +
+           '<textarea id="gvaNot" rows="3" placeholder="' +
+           (cfg.gerekce ? 'Kararın gerekçesi kayda ve denetim izine geçer.' : 'İsteğe bağlı not.') +
+           '"></textarea></div>');
+
+    if(cfg.onaycilar && cfg.onaycilar.length)
+      g.push('<div class="field"><label for="gvaKisi">Sonraki onaycı / delege</label>' +
+             '<select id="gvaKisi"><option value="">Sıradaki makam (varsayılan)</option>' +
+             cfg.onaycilar.map(function(o){
+               return '<option value="' + esc(o.deger) + '">' + esc(o.ad) + '</option>'; }).join('') +
+             '</select></div>');
+
+    if(cfg.ek)
+      g.push('<div class="field"><label for="gvaEk">Ek dosya / kanıt</label>' +
+             '<input type="file" id="gvaEk" class="inp"></div>');
+
+    if(cfg.geriDonusYok)
+      g.push(GV.notice({ tone:'danger', icon:'i-alert', title:'Bu işlem geri alınamaz',
+                         text:'Devam etmeden önce özeti kontrol edin.' }));
+
+    return GV.modal({
+      title:eylem + (kayit.kod ? ' — ' + kayit.kod : ''),
+      text:kayit.baslik || '',
+      icon:EYLEM_IKON[eylem] || 'i-help',
+      tone:ton, size:'sm', body:g.join(''),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:eylem, cls:ton === 'danger' ? 'btn-danger' : ton === 'ok' ? 'btn-ok' : 'btn-acc',
+          onClick:function(close, el){
+            var neden = cfg.gerekce ? (el.querySelector('#gvaKod') || {}).value : null;
+            var not   = ((el.querySelector('#gvaNot') || {}).value || '').trim();
+            var kisi  = (el.querySelector('#gvaKisi') || {}).value || null;
+            var dosya = cfg.ek ? ((el.querySelector('#gvaEk') || {}).files || [])[0] : null;
+            if(cfg.gerekce && !neden){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
+            if(cfg.gerekce && !not){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+            if(typeof cfg.run !== 'function'){
+              /* L-23 — çağıranın vermediği yordamın yerine BAŞARI VARSAYILMAZ */
+              GV.toast('Bu eylem henüz bir yordama bağlı değil.', 'warn'); return false;
+            }
+            var r = cfg.run({ neden:neden, not:not, kisi:kisi, dosya:dosya }) || {};
+            if(r.ok === false){ GV.toast(r.mesaj || 'İşlem uygulanamadı', 'danger'); return false; }
+            /* [6.2.8] — tekil başarı ekranı + audit bağlantısı */
+            if(r.mesaj) GV.toast(r.mesaj, 'ok');
+            if(r.auditKod || cfg.auditHref)
+              GV.toast('Denetim izine yazıldı' + (r.auditKod ? ' · ' + r.auditKod : ''), 'info');
+          } }
+      ]
+    });
+  };
+
+  /* `GV.flow.gec` sonucunu kullanıcı diline çeviren ortak yardımcı.
+     Dört ekranda ayrı ayrı yazılmıştı; sözleşme tek olduğuna göre çeviri de
+     tek olmalı. */
+  GV.flowHata = function(r){
+    if(!r || r.ok) return '';
+    if(r.why === 'yetki')
+      return 'Bu geçişi yapma yetkiniz yok' + (r.roller && r.roller.length ? ' — gereken: ' + r.roller.join(', ') : '') + '.';
+    if(r.why === 'zorunlu')
+      return 'Önce şu alanlar doldurulmalı: ' + (r.eksik || []).join(', ') + '.';
+    if(r.why === 'gerekce') return r.mesaj || 'Neden kodu ve açıklama zorunludur.';
+    if(r.why === 'kapi')    return r.mesaj || 'Bu geçiş bir ön koşul nedeniyle engellendi.';
+    if(r.why === 'tahsil' || r.why === 'tahsis' || r.why === 'kaynak') return r.mesaj || r.why;
+    return r.mesaj || r.why || 'İşlem uygulanamadı.';
+  };
+
   GV.drawer = function(cfg){
     cfg = cfg || {};
     lastFocus = document.activeElement;
