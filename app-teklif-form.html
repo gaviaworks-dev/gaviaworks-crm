@@ -101,16 +101,15 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      SEÇENEK KÜMELERİ
      ================================================================= */
-  var DURUMLAR = ['Taslak','Teklif hazırlanıyor','İletildi','Müşteri değerlendirmesinde',
-                  'Revize teklif','Kazanıldı','Kaybedildi'];
-  var IC_ONAY  = ['Bekliyor','Onaylandı','Reddedildi'];
+  /* Durum sözlüğü ekranda ELLE YAZILMAZ; tek kaynak `DB.quoteStatuses` (org.js).
+     Alan zaten salt okunurdur — sözlük yalnız etiket doğrulaması için durur. */
   var MUS_ONAY = ['Bekliyor','Onaylandı','Reddedildi'];
   var DOVIZ    = ['TRY','USD','EUR','GBP'];
 
-  /* Teklifin müşteriye ULAŞMIŞ olduğu durumlar — 8 teklifin 8'inde bu dört durumda
-     icOnay 'Onaylandı'dır (ölçüldü), iki taslak durumunda musteriOnay '—'dır. */
-  var ILETILMIS  = ['İletildi','Müşteri değerlendirmesinde','Kazanıldı','Kaybedildi'];
-  var ILETILMEMIS = ['Taslak','Teklif hazırlanıyor'];
+  /* Teklifin müşteriye HENÜZ ULAŞMADIĞI durumlar — geçiş tablosunda
+     (`DB.transitions.quote`) müşteriye gönderim 'Onaylandı' → 'Gönderildi'
+     adımıdır, dolayısıyla bu üçü gönderim öncesidir. */
+  var ILETILMEMIS = ['Taslak','İç Onay','Onaylandı'];
 
   /* Kalem türü ve birim sözlüğü: veri katmanında bunların karşılığı olan bir
      sözlük koleksiyonu YOK (ne kalem türü ne birim). Küme PROMPT.md §10'un fiyat kalemlerinden
@@ -191,6 +190,9 @@ document.addEventListener('gv:ready', function(){
       hazirlayan:(DB.emp(GV.session.emp) ? GV.session.emp : ''),
       araToplam:0, indirim:0, vergiOran:20, doviz:'TRY',
       odemePlani:'', teslimSuresi:'', garanti:'', destek:'',
+      /* Yeni teklif her zaman 'Taslak' doğar — geçiş tablosunun giriş durumu
+         budur, kullanıcı başlangıç durumunu seçemez. `icOnay` form alanı
+         değildir; koleksiyonun eski alanı olarak tohum değeriyle yazılır. */
       durum:'Taslak', icOnay:'Bekliyor', musteriOnay:'', aktif:true
     };
   }
@@ -452,22 +454,23 @@ document.addEventListener('gv:ready', function(){
   ];
 
   var durumAlanlari = [
-    { key:'durum', label:'Teklif durumu', type:'select', options:DURUMLAR, required:true, cols:4,
-      hint:'Liste sekmeleri ve başarı oranı bu alanı okur.' },
-    { key:'icOnay', label:'İç onay', type:'select', options:IC_ONAY, required:true, cols:4,
-      hint:'Teklif müşteriye iletilmeden önce satış yönetiminin onayı.',
-      validate:function(v, d){
-        if(ILETILMIS.indexOf(d.durum) !== -1 && v !== 'Onaylandı')
-          return '“' + d.durum + '” durumundaki teklif iç onaydan geçmiş olmalıdır.';
-        return '';
-      } },
-    { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:MUS_ONAY, cols:4,
+    /* Durum ARTIK ELLE SEÇİLMEZ. Tek mutasyon noktası `GV.flow.gec()`'tir
+       (şartname §6.1); serbest `<select>` teklifin herhangi bir durumdan
+       herhangi bir duruma atlamasına izin veriyordu. Alan salt okunur basılır;
+       yeni kayıtta 'Taslak' sabittir. */
+    { key:'durum', label:'Teklif durumu', type:'text', cols:6,
+      hint:'Durum, iş akışı eylemlerinden değişir — bu alandan değiştirilemez.' },
+    /* `icOnay` alanı KALDIRILDI: iç onay artık ayrı bir alan değil, durum
+       ekseninin bir adımıdır ('İç Onay' → 'Onaylandı'). Koleksiyondaki alan
+       eski kayıtlarda duruyor ve teklif detayındaki geçiş bunu ayna olarak
+       günceller; form ona dokunmaz. */
+    { key:'musteriOnay', label:'Müşteri onayı', type:'select', options:MUS_ONAY, cols:6,
       placeholder:'Müşteriye iletilmedi',
       hint:'Teklif müşteriye iletilmemişse boş bırakılır.',
       validate:function(v, d){
         if(ILETILMEMIS.indexOf(d.durum) !== -1 && v)
           return '“' + d.durum + '” durumunda teklif müşteriye iletilmemiştir; müşteri onayı boş bırakılır.';
-        if(['İletildi','Müşteri değerlendirmesinde'].indexOf(d.durum) !== -1 && !v)
+        if(['Gönderildi','Müşteri İncelemesi'].indexOf(d.durum) !== -1 && !v)
           return 'Müşteriye iletilmiş teklifte müşteri onay durumu seçilmelidir.';
         if(d.durum === 'Kazanıldı' && v !== 'Onaylandı')
           return 'Kazanılan teklifte müşteri onayı “Onaylandı” olmalıdır.';
@@ -500,7 +503,8 @@ document.addEventListener('gv:ready', function(){
       desc:'Teklif metninde müşteriye taahhüt edilen ödeme, teslim, garanti ve destek koşulları.',
       fields:ticariAlanlari },
     { title:'Durum ve onaylar',
-      desc:'Teklifin satış hunisindeki yeri ve iki aşamalı onay durumu (iç onay → müşteri onayı).',
+      desc:'Teklifin satış hunisindeki yeri salt okunurdur — durum yalnız teklif kartındaki ' +
+           'iş akışı eylemlerinden değişir. Buradan yalnız müşteri onayı ve kayıt durumu yazılır.',
       fields:durumAlanlari },
     { title:'Ekler',
       desc:'Teklif metni, kapsam dokümanı ve müşteriye gönderilen yazışma ekleri.',
@@ -523,6 +527,18 @@ document.addEventListener('gv:ready', function(){
      GV.refresh() taze kopyayla değiştirince kendiliğinden düşerler (ders L-16)
      ================================================================= */
   var formEl    = form.el;
+
+  /* Durum alanı SALT OKUNUR. `GV.form` readonly'yi alan sözleşmesinde taşımıyor
+     ve ui.js bu turda dokunulmaz; bu yüzden nitelik mount'tan sonra basılır.
+     `readonly` (disabled değil) seçildi: değer `form.read()`'te okunmaya devam
+     eder, yani kaydederken durum sessizce boşalmaz. */
+  var elDurum = formEl.querySelector('[name="durum"]');
+  if(elDurum){
+    elDurum.readOnly = true;
+    elDurum.setAttribute('aria-readonly', 'true');
+    elDurum.tabIndex = -1;
+  }
+
   var elFirma   = formEl.querySelector('[name="firma"]');
   var elMusteri = formEl.querySelector('[name="musteri"]');
   var elLead    = formEl.querySelector('[name="lead"]');
@@ -878,6 +894,14 @@ document.addEventListener('gv:ready', function(){
     v.destek      = String(v.destek || '').trim();
     /* Koleksiyon “iletilmedi” için '—' sentinel'i kullanıyor (8 kaydın 2'sinde). */
     v.musteriOnay = v.musteriOnay || '—';
+    /* `icOnay` artık form alanı değil. Düzenlemede kaydın mevcut değerine
+       DOKUNULMAZ (anahtar `v`'ye hiç girmez); yeni kayıtta koleksiyonun alan
+       şeması bozulmasın diye tohum değeri yazılır. */
+    if(!duzenle) v.icOnay = formRec.icOnay;
+    /* Durum FORMDAN YAZILMAZ. Alan salt okunur basılıyor ama değeri DOM'dan
+       okunuyor; kaynağı burada sabitlenir ki elle değiştirilmiş bir input
+       kayda sızmasın. Düzenlemede mevcut durum korunur, yenide 'Taslak'tır. */
+    v.durum = duzenle ? kayit.durum : 'Taslak';
 
     if(canFinans){
       v.araToplam = sayi(v.araToplam);

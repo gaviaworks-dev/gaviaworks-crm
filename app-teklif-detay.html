@@ -130,6 +130,111 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
+     DURUM AKIŞI — ekran durum YAZMAZ (şartname §6.1)
+     -------------------------------------------------------------------
+     Eski hâlde bu ekran `q.durum`u üç ayrı yerden elle yazıyordu
+     ('Revize teklif', 'İletildi') ve düğmelerin görünürlüğünü kendi
+     durum listesiyle karar veriyordu. Yapılabilir geçişler artık merkezî
+     motordan gelir; ekran yalnız buton basar ve sonucu bildirir.
+     ================================================================= */
+  var adimlar = GV.flow.adimlar('quote', q.kod) || [];
+  var akisIzin  = adimlar.length ? !!adimlar[0].izin : false;
+  var akisEksik = adimlar.length ? (adimlar[0].eksik || []) : [];
+
+  /* `GV.flow.gec()` reddi kullanıcı diline çevrilir — `why` kodu ham basılmaz. */
+  function flowHata(r){
+    if(r.why === 'yetki')   return 'Bu geçiş için yetkiniz yok · yetkili roller: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'Geçiş için eksik zorunlu alan: ' + (r.eksik || []).join(', ');
+    if(r.why === 'gerekce') return r.mesaj || 'Bu işlem için neden kodu ve açıklama zorunludur';
+    if(r.why === 'kapi')    return (r.mesaj || 'Geçiş ön koşulu sağlanmadı') +
+      (r.istisnaMumkun ? ' · yönetici istisnası gerekiyor' : '');
+    return r.why || 'Geçiş yapılamadı';
+  }
+
+  /* `icOnay` ARTIK AYRI BİR EKSEN DEĞİL — iç onay bir durumdur ('İç Onay').
+     Alan koleksiyonda ve başka ekranların kolon/sekmesinde hâlâ duruyor, o
+     yüzden geçişle birlikte AYNA olarak yazılır; iki eksen ayrışmasın diye.
+     Alan veriden kalktığında bu tablo da kalkar. */
+  var IC_ONAY_AYNA = {
+    'Taslak':'Bekliyor', 'İç Onay':'Bekliyor', 'Müzakere/Revizyon':'Bekliyor',
+    'Onaylandı':'Onaylandı'
+  };
+
+  /* TEK ÇAĞRI NOKTASI. Aktivite kaydını motor kendisi yazar. */
+  function uygula(hedef, ek, opts){
+    if(IC_ONAY_AYNA[hedef]) ek = Object.assign({}, ek || {}, { icOnay:IC_ONAY_AYNA[hedef] });
+    var r = GV.flow.gec('quote', q.kod, hedef, ek || null, opts || {});
+    if(!r.ok){ GV.toast(flowHata(r), 'danger', 6000); return false; }
+    /* Onay kuyruğu kaydı ayrı koleksiyondur ve motorun `yanEtki` tablosunda
+       karşılığı yok; eski davranış korunsun diye burada kapatılıyor. */
+    if(hedef === 'Onaylandı' && onayKaydi) onayKaydi.durum = 'Onaylandı';
+    GV.toast(q.kod + ' · ' + r.eski + ' → ' + r.yeni, 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+    return true;
+  }
+
+  /* Neden kodu + açıklama isteyen geçişler (şartname [2.0.6]). */
+  function gerekceModal(hedef, baslik){
+    GV.modal({
+      title:baslik, text:q.kod + ' · ' + q.firma, icon:'i-alert-circle', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="gKod">Neden kodu</label><select id="gKod">' +
+          '<option value="">Seçiniz</option>' +
+          DB.reasonCodes.map(function(n){
+            return '<option value="' + esc(n.kod) + '">' + esc(n.ad) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="field f-col-12"><label for="gNot">Açıklama</label>' +
+          '<textarea id="gNot" rows="3" placeholder="Kararın gerekçesi"></textarea></div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:baslik, cls:'btn-acc', onClick:function(close, el){
+            var kod = el.querySelector('#gKod').value;
+            var not = el.querySelector('#gNot').value.trim();
+            if(!kod){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
+            if(!not){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+            return uygula(hedef, null, { neden:kod, not:not }) ? undefined : false;
+          } }
+      ]
+    });
+  }
+
+  /* Müşteriye gönderim, alıcı bilgisini geçiş notuna taşır. */
+  function iletModal(hedef){
+    GV.modal({
+      title:'Teklifi müşteriye ilet', text:q.kod + ' · ' + q.firma, icon:'i-send', size:'sm',
+      body:'<div class="gv-fields">' +
+        '<div class="field f-col-12"><label for="iAlici">Alıcı</label><input type="text" class="inp" id="iAlici" value="' +
+          esc(musteriTemsilcisi || '') + '" placeholder="Teklifin gönderileceği kişi"></div>' +
+        '<div class="field f-col-12"><label for="iNot">İletim notu</label><textarea id="iNot" rows="2" ' +
+          'placeholder="Teklifle birlikte iletilecek kısa not"></textarea></div>' +
+        '<div class="f-hint">Geçerlilik tarihi ' + F.date(q.gecerlilik) + ' olarak korunur.</div>' +
+        '</div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'İlet', cls:'btn-acc', onClick:function(close, el){
+            var alici = el.querySelector('#iAlici').value.trim();
+            var not   = el.querySelector('#iNot').value.trim();
+            if(!alici){ GV.toast('Alıcı zorunludur', 'danger'); return false; }
+            return uygula(hedef, { musteriOnay:'Bekliyor' },
+              { not:'Alıcı: ' + alici + (not ? ' — ' + not : '') }) ? undefined : false;
+          } }
+      ]
+    });
+  }
+
+  function gecisAkisi(adim){
+    if(adim.hedef === 'Gönderildi') return iletModal(adim.hedef);
+    if(adim.gerekce) return gerekceModal(adim.hedef, adim.etiket);
+    GV.confirm({
+      title:adim.etiket,
+      text:q.kod + ' teklifi “' + q.durum + '” durumundan “' + adim.hedef + '” durumuna geçirilecek.',
+      okLabel:adim.etiket,
+      tone:/İptal|Kaybedildi/.test(adim.hedef) ? 'danger' : null
+    }).then(function(ok){ if(ok) uygula(adim.hedef, null, { not:adim.etiket }); });
+  }
+
+  /* =================================================================
      SAYFA BAŞLIĞI — aksiyonların hepsi gerçekten çalışır
      ================================================================= */
   var actions = [
@@ -140,7 +245,11 @@ document.addEventListener('gv:ready', function(){
         setTimeout(function(){ window.print(); }, 400);
       } }
   ];
-  if(GV.perm.can('ekle')){
+  /* Revizyon bir DURUM geçişidir ('Müzakere/Revizyon'); düğme yalnız geçiş
+     gerçekten yapılabiliyorken basılır — motor "yapılabilir mi"yi kendi söyler. */
+  var revizeAdim = adimlar.filter(function(a){ return a.hedef === 'Müzakere/Revizyon'; })[0];
+  var revizeUstte = !!(revizeAdim && GV.perm.can('ekle'));
+  if(revizeUstte){
     actions.push({ label:'Revize teklif oluştur', icon:'i-copy', cls:'btn-acc', run:function(){
       GV.confirm({
         title:'Revize teklif oluştur',
@@ -148,13 +257,9 @@ document.addEventListener('gv:ready', function(){
         okLabel:'Oluştur'
       }).then(function(ok){
         if(!ok) return;
-        var eski = 'v' + q.versiyon;
-        q.versiyon += 1; q.durum = 'Revize teklif'; q.icOnay = 'Bekliyor'; q.musteriOnay = '—';
-        DB.activities.unshift({ kayit:q.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
-          kisi:GV.session.emp, metin:'Revize teklif oluşturuldu', eski:eski, yeni:'v' + q.versiyon,
-          tone:'accent', icon:'i-copy' });
-        GV.toast(q.kod + ' v' + q.versiyon + ' oluşturuldu', 'ok');
-        setTimeout(function(){ GV.refresh(); }, 700);
+        uygula('Müzakere/Revizyon',
+          { versiyon:q.versiyon + 1, musteriOnay:'—' },
+          { not:'Revize teklif oluşturuldu — v' + (q.versiyon + 1) });
       });
     } });
   }
@@ -440,13 +545,30 @@ document.addEventListener('gv:ready', function(){
       not:q.durum === 'Kazanıldı' ? 'Teklif kabul edildi, sözleşme aşamasına geçildi' : 'Teklifin müşteri tarafındaki kararı' }
   ]);
 
-  var onayAksiyon = '';
-  if(['Taslak','Teklif hazırlanıyor','Revize teklif'].indexOf(q.durum) !== -1 &&
-     q.icOnay === 'Onaylandı' && GV.perm.can('duzenle')){
-    onayAksiyon += '<button type="button" class="btn btn-acc" id="btnIlet">' + ico('i-send') + ' Müşteriye ilet</button>';
-  }
-  if(q.icOnay === 'Bekliyor' && GV.perm.can('onay')){
-    onayAksiyon += '<button type="button" class="btn btn-ok" id="btnIcOnay">' + ico('i-check') + ' İç onayı ver</button>';
+  /* Düğme kümesi motordan üretilir; ekranın kendi durum listesi yoktur.
+     Yetki ya da zorunlu alan eksikse düğme pasif kalır ve nedeni yazılır. */
+  var onayAksiyon = adimlar.filter(function(a){
+    /* Revizyon geçişi sayfa başlığındaki “Revize teklif oluştur” akışına aittir:
+       versiyonu da o akış artırır. İki düğme aynı geçişi iki farklı sonuçla
+       yürütürdü — bu yüzden burada ikinci kez basılmaz. */
+    return !(revizeUstte && a.hedef === 'Müzakere/Revizyon');
+  }).map(function(a){
+    var kilit = !a.izin || a.eksik.length;
+    return '<button type="button" class="btn ' + a.tone + '" data-gecis="' + esc(a.hedef) + '"' +
+      (kilit ? ' disabled' : '') + '>' + esc(a.etiket) + '</button>';
+  }).join('');
+
+  var onayNot = '';
+  if(!adimlar.length){
+    onayNot = GV.notice({ tone:'neutral', icon:'i-check-circle', title:'Akış tamamlandı',
+      text:'“' + q.durum + '” bir bitiş durumudur; bu tekliften gidilebilecek başka durum yok.' });
+  }else if(!akisIzin){
+    onayNot = GV.notice({ tone:'neutral', icon:'i-lock', title:'Durum değiştirme yetkiniz yok',
+      text:'“' + q.durum + '” durumundan geçişi yalnız şu roller yapabilir: ' +
+           (GV.flow.kural('quote', q.durum).yetki || []).join(', ') + '.' });
+  }else if(akisEksik.length){
+    onayNot = GV.notice({ tone:'warn', icon:'i-alert', title:'Zorunlu alanlar eksik',
+      text:'Geçiş öncesi doldurulması gereken alanlar: ' + akisEksik.join(', ') + '.' });
   }
 
   var pOnay = '<div class="gc-body">' + zincir +
@@ -464,6 +586,7 @@ document.addEventListener('gv:ready', function(){
       ['Geçerlilik', GV.dateCell(q.gecerlilik, { done:!acikTeklif }) + ' <span class="cell-sub">' + kalanMetin() + '</span>']
     ]) +
     (onayAksiyon ? '<div class="u-row u-mt-8">' + onayAksiyon + '</div>' : '') +
+    (onayNot ? '<div class="u-mt-8">' + onayNot + '</div>' : '') +
     '</div>';
 
   /* =================================================================
@@ -539,46 +662,12 @@ document.addEventListener('gv:ready', function(){
      AKSİYONLAR — hepsi gerçekten çalışır
      ================================================================= */
   mount.addEventListener('click', function(e){
-    if(e.target.closest('#btnIcOnay')){
-      GV.confirm({ title:'İç onayı ver',
-        text:q.kod + ' teklifi iç onaydan geçirilecek. Onay sonrası teklif müşteriye iletilebilir.',
-        okLabel:'Onayla' }).then(function(ok){
-          if(!ok) return;
-          q.icOnay = 'Onaylandı';
-          if(onayKaydi) onayKaydi.durum = 'Onaylandı';
-          DB.activities.unshift({ kayit:q.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
-            kisi:GV.session.emp, metin:'Teklif iç onayı verildi', eski:'Bekliyor', yeni:'Onaylandı',
-            tone:'ok', icon:'i-stamp' });
-          GV.toast(q.kod + ' iç onayı verildi', 'ok');
-          setTimeout(function(){ GV.refresh(); }, 700);
-        });
-    }
-    if(e.target.closest('#btnIlet')){
-      GV.modal({
-        title:'Teklifi müşteriye ilet', text:q.kod + ' · ' + q.firma, icon:'i-send', size:'sm',
-        body:'<div class="gv-fields">' +
-          '<div class="field f-col-12"><label for="iAlici">Alıcı</label><input type="text" class="inp" id="iAlici" value="' +
-            esc(musteriTemsilcisi || '') + '" placeholder="Teklifin gönderileceği kişi"></div>' +
-          '<div class="field f-col-12"><label for="iNot">İletim notu</label><textarea id="iNot" rows="2" ' +
-            'placeholder="Teklifle birlikte iletilecek kısa not"></textarea></div>' +
-          '<div class="f-hint">Geçerlilik tarihi ' + F.date(q.gecerlilik) + ' olarak korunur.</div>' +
-          '</div>',
-        actions:[
-          { label:'Vazgeç', cls:'btn-line' },
-          { label:'İlet', cls:'btn-acc', onClick:function(close, el){
-              var alici = el.querySelector('#iAlici').value.trim();
-              if(!alici){ GV.toast('Alıcı zorunludur', 'danger'); return false; }
-              var eski = q.durum;
-              q.durum = 'İletildi'; q.musteriOnay = 'Bekliyor';
-              DB.activities.unshift({ kayit:q.kod, tarih:DB.today + 'T' + new Date().toTimeString().slice(0,5),
-                kisi:GV.session.emp, metin:'Teklif müşteriye iletildi — ' + alici, eski:eski, yeni:'İletildi',
-                tone:'accent', icon:'i-send' });
-              GV.toast(q.kod + ' müşteriye iletildi', 'ok');
-              setTimeout(function(){ GV.refresh(); }, 700);
-            } }
-        ]
-      });
-    }
+    var btn = e.target.closest('[data-gecis]');
+    if(!btn || btn.disabled) return;
+    var hedef = btn.getAttribute('data-gecis');
+    var adim  = adimlar.filter(function(a){ return a.hedef === hedef; })[0];
+    if(!adim) return;
+    gecisAkisi(adim);
   });
 });
 </script>

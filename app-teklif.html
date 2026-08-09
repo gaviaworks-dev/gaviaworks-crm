@@ -45,6 +45,15 @@ document.addEventListener('gv:ready', function(){
   var acik = function(q){ return ['Kazanıldı','Kaybedildi'].indexOf(q.durum) === -1; };
   var suresiDolan = function(q){ return acik(q) && q.gecerlilik && F.days(q.gecerlilik) < 0; };
 
+  /* `GV.flow.gec()` reddi kullanıcı diline çevrilir — `why` kodu ekranda ham basılmaz. */
+  function flowHata(r){
+    if(r.why === 'yetki')   return 'Bu geçiş için yetkiniz yok · yetkili roller: ' + (r.roller || []).join(', ');
+    if(r.why === 'zorunlu') return 'Geçiş için eksik zorunlu alan: ' + (r.eksik || []).join(', ');
+    if(r.why === 'gerekce') return r.mesaj || 'Bu işlem için neden kodu ve açıklama zorunludur';
+    if(r.why === 'kapi')    return r.mesaj || 'Geçiş ön koşulu sağlanmadı';
+    return r.why || 'Geçiş yapılamadı';
+  }
+
   GV.list({
     mount:'#liste', id:'teklif', key:'kod', source:function(){ return DB.quotes; },
     exportName:'teklifler', exportTitle:'Teklif Listesi', pageSize:10, views:['table','card'],
@@ -67,7 +76,7 @@ document.addEventListener('gv:ready', function(){
       { key:'acik',     label:'Açık Teklifler',   icon:'i-quote',        filter:acik },
       { key:'taslak',   label:'Taslak',           icon:'i-edit',         filter:function(q){ return q.durum === 'Taslak'; } },
       { key:'iconay',   label:'İç Onay Bekleyen', icon:'i-stamp',        filter:function(q){ return q.icOnay === 'Bekliyor'; } },
-      { key:'iletildi', label:'Müşteride',        icon:'i-send',         filter:function(q){ return ['İletildi','Müşteri değerlendirmesinde'].indexOf(q.durum) !== -1; } },
+      { key:'iletildi', label:'Müşteride',        icon:'i-send',         filter:function(q){ return ['Gönderildi','Müşteri İncelemesi'].indexOf(q.durum) !== -1; } },
       { key:'dolan',    label:'Süresi Dolanlar',  icon:'i-hourglass',    filter:suresiDolan },
       { key:'kazanan',  label:'Kazanılanlar',     icon:'i-check-circle', filter:function(q){ return q.durum === 'Kazanıldı'; } },
       { key:'kayip',    label:'Kaybedilenler',    icon:'i-x-circle',     filter:function(q){ return q.durum === 'Kaybedildi'; } },
@@ -98,8 +107,9 @@ document.addEventListener('gv:ready', function(){
     ],
 
     filters:[
-      { key:'durum', label:'Teklif durumu', type:'multi',
-        options:['Taslak','Teklif hazırlanıyor','İletildi','Müşteri değerlendirmesinde','Revize teklif','Kazanıldı','Kaybedildi'] },
+      /* Sözlük ekranda ELLE YAZILMAZ: tek kaynak `DB.quoteStatuses` (org.js).
+         Kopya liste, sözlük her genişlediğinde sessizce eksik filtre üretiyordu. */
+      { key:'durum', label:'Teklif durumu', type:'multi', options:DB.quoteStatuses },
       { key:'hazirlayan', label:'Hazırlayan', type:'select',
         options:DB.employees.filter(function(e){ return ['satismudur','satistemsilci','sahip'].indexOf(e.rol) !== -1; })
                             .map(function(e){ return { value:e.kod, label:e.ad }; }) },
@@ -140,7 +150,13 @@ document.addEventListener('gv:ready', function(){
             text:q.kod + ' teklifinin v' + (q.versiyon + 1) + ' sürümü oluşturulacak. Mevcut teklif geçmişte kalır.',
             okLabel:'Oluştur' }).then(function(ok){
               if(!ok) return;
-              q.versiyon += 1; q.durum = 'Revize teklif'; q.icOnay = 'Bekliyor';
+              /* Durum ekranda YAZILMAZ — tek mutasyon noktası `GV.flow.gec` (§6.1).
+                 Versiyon ve iç onay sıfırlaması geçişin `ek` yükü olarak gider ki
+                 kayıt tek adımda tutarlı kalsın. */
+              var r = GV.flow.gec('quote', q.kod, 'Müzakere/Revizyon',
+                { versiyon:q.versiyon + 1, icOnay:'Bekliyor' },
+                { not:'Revize teklif oluşturuldu — v' + (q.versiyon + 1) });
+              if(!r.ok){ GV.toast(flowHata(r), 'danger', 6000); return; }
               GV.toast(q.kod + ' v' + q.versiyon + ' oluşturuldu', 'ok'); refresh(); }); } }
     ],
 
