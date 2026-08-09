@@ -3162,6 +3162,37 @@
       }).join('') + '</div>';
     }
 
+    /* RAPOR KÜNYESİ — şartname [14.5.3] · [14.1.7] · [14.4.2].
+       Kayıt defteri (`DB.reportRegistry`) yalnız DURMASIN diye değil, ekranda
+       KULLANILSIN diye okunur: bir defter alanı hiçbir yerde görünmüyorsa
+       "alan açıldı" der ama bağ yazılmamıştır (ders **L-22**).
+       Defter yüklü değilse künye basılmaz ve bu SESSİZ bir başarı değildir —
+       `tasks/qa/reg.js` ekseni defterin varlığını ayrıca ölçer. */
+    function kunyeHtml(r){
+      var reg = window.DB && DB.reportRegistry;
+      if(!reg || !reg.length) return '';
+      var dosya = location.pathname.split('/').pop();
+      var kayit = null;
+      for(var i = 0; i < reg.length; i++)
+        if(reg[i].screen === dosya && reg[i].report_key === r.key){ kayit = reg[i]; break; }
+      if(!kayit) return '';
+      var satir = [
+        ['Rapor kimliği', kayit.report_id],
+        ['Kategori', kayit.category],
+        ['Veri sınıfı', kayit.data_classification],
+        ['Tazelik', kayit.freshness_policy],
+        /* Sürüm defterden DEĞİL tek kaynaktan okunur (defterde bilerek null). */
+        ['Formül sürümü', (window.DB && DB.formulaVersion) || 'tanımsız'],
+        ['Çıktı biçimi', (kayit.export_types || []).join(' · ')]
+      ];
+      return '<section class="gv-rp-kunye"><h3>' + ico('i-info','ic-sm') + ' Rapor künyesi</h3>' +
+        '<dl>' + satir.map(function(s){
+          return '<dt>' + esc(s[0]) + '</dt><dd>' + esc(s[1] == null ? '—' : s[1]) + '</dd>';
+        }).join('') + '</dl>' +
+        '<p class="u-faint">Bu künye dışa aktarılan dosyanın sonuna da yazılır; ' +
+        'elinizdeki çıktının hangi hesap kuralıyla üretildiği oradan okunur.</p></section>';
+    }
+
     function render(){
       var r = byKey(state.key) || reports[0];
       var rows = r.rows ? (r.rows(state.f) || []) : [];
@@ -3174,6 +3205,7 @@
           kpiHtml(r, rows) +
           chartHtml(r, rows) +
           '<div class="gv-rp-table"></div>' +
+          kunyeHtml(r) +
         '</div></div>';
 
       if(r.table){
