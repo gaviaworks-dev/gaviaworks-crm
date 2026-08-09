@@ -2351,4 +2351,246 @@
              sahip:oturum };
   })();
 
+
+  /* ===================================================================
+     GV.sales — SATIŞ DÖNÜŞÜM ZİNCİRİ (şartname §7 · [20.1] · paket P3-01)
+     -------------------------------------------------------------------
+     Üç ölçülmüş kusuru kapatır:
+
+     1. **Mükerrer müşteri kontrolü yoktu** ([7.1.3] · [20.1.4]).
+        `app-lead-detay.html` koşulsuz yeni `MUS-` üretiyordu; aynı firma iki
+        adaydan iki müşteri kaydı doğuruyordu. Artık dönüşüm önce ARAR.
+
+     2. **"Kazanıldı" sonrası hiçbir şey olmuyordu** ([7.3.6]). Teklif
+        kazanılınca müşteri, sözleşme taslağı, ödeme planı taslağı ve proje
+        taslağı doğmalı.
+
+     3. **Aynı dönüşüm iki kez çalıştırılınca ikinci müşteri doğuyordu**
+        ([20.1.8]). Zincir artık idempotent: var olan bağ bulunursa yeniden
+        üretmez, "zaten var" der.
+
+     ⚠️ PROTOTİPTE TRANSACTION YOK. Zincirin ortasında hata çıkarsa yarım
+     kayıt kümesi kalırdı; bu yüzden üretilen her kayıt `uretilenler`
+     listesine yazılır ve hata hâlinde HEPSİ geri alınır. Yarım bırakmak,
+     kullanıcıya "sözleşme oluştu" deyip ortada sözleşme olmaması demekti.
+     =================================================================== */
+  GV.sales = (function(){
+
+    function norm(s){
+      return String(s == null ? '' : s).toLocaleLowerCase('tr')
+        .replace(/\b(ltd|a\.?ş|şti|san|tic|inc|llc|gmbh)\b\.?/g, '')
+        .replace(/[^\p{L}\p{N}]+/gu, '').trim();
+    }
+    function alanAdi(mail){
+      var m = /@([^@\s]+)$/.exec(String(mail || '').trim());
+      return m ? m[1].toLocaleLowerCase('tr') : '';
+    }
+    function telNorm(t){ return String(t || '').replace(/\D/g, '').slice(-10); }
+
+    /* MÜKERRER ARAMA — beş eksen ([7.1.3]): vergi no · unvan · e-posta ·
+       telefon · alan adı. Her eşleşme GEREKÇESİYLE döner; ekran kullanıcıya
+       "neden mükerrer sanıyorum" diyebilsin. Vergi no tek başına kesin
+       kanıttır, diğerleri işarettir — bu ayrım `kesin` bayrağıyla taşınır. */
+    function mukerrer(aday){
+      aday = aday || {};
+      var vNo    = String(aday.vergiNo || '').replace(/\D/g, '');
+      var unvanN = norm(aday.unvan || aday.firma);
+      var posta  = String(aday.eposta || '').toLocaleLowerCase('tr').trim();
+      var alan   = alanAdi(aday.eposta) || String(aday.web || '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLocaleLowerCase('tr');
+      var tel    = telNorm(aday.tel);
+      var out = [];
+
+      (DB.customers || []).forEach(function(c){
+        if(aday.hariç && c.kod === aday.hariç) return;
+        var nedenler = [], kesin = false;
+        if(vNo && String(c.vergiNo || '').replace(/\D/g, '') === vNo){ nedenler.push('aynı vergi numarası'); kesin = true; }
+        if(unvanN && (norm(c.unvan) === unvanN || norm(c.kisa) === unvanN)) nedenler.push('aynı unvan');
+        if(posta && String(c.eposta || '').toLocaleLowerCase('tr').trim() === posta) nedenler.push('aynı e-posta');
+        if(tel && telNorm(c.tel) === tel) nedenler.push('aynı telefon');
+        if(alan && alanAdi(c.eposta) === alan) nedenler.push('aynı e-posta alan adı');
+        if(nedenler.length) out.push({ musteri:c, nedenler:nedenler, kesin:kesin });
+      });
+      /* Kesin eşleşme önce; sonra en çok işaret taşıyan. */
+      return out.sort(function(a, b){
+        if(a.kesin !== b.kesin) return a.kesin ? -1 : 1;
+        return b.nedenler.length - a.nedenler.length;
+      });
+    }
+
+    function yeniKod(list, onek, basamak){
+      var yil = String(DB.today).slice(0, 4);
+      var max = 0;
+      (list || []).forEach(function(x){
+        var m = new RegExp('^' + onek + '-' + yil + '-(\\d+)$').exec(x.kod || '');
+        if(m) max = Math.max(max, +m[1]);
+      });
+      return onek + '-' + yil + '-' + String(max + 1).padStart(basamak || 3, '0');
+    }
+    function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0, 5); }
+    function iz(kayit, metin, eski, yeni, ton, ikon){
+      (DB.activities || []).unshift({ kayit:kayit, tarih:simdi(), kisi:(GV.session || {}).emp,
+        metin:metin, eski:eski == null ? null : eski, yeni:yeni == null ? null : yeni,
+        tone:ton || 'ok', icon:ikon || 'i-plus' });
+    }
+
+    /* MÜŞTERİ ÜRETİMİ — üç yol ([20.1.4]): yeni · mevcuda bağla · yönetici
+       istisnasıyla yine de yeni. Karar EKRANDA verilir, burada UYGULANIR;
+       servis kendi başına "muhtemelen aynıdır" diye birleştirme yapmaz. */
+    function musteriUret(kaynak, opts){
+      opts = opts || {};
+      if(opts.mevcut){
+        var m = (DB.customers || []).filter(function(c){ return c.kod === opts.mevcut; })[0];
+        if(!m) return { ok:false, why:'musteri-yok' };
+        return { ok:true, musteri:m, yeni:false };
+      }
+      var kod = yeniKod(DB.customers, 'MUS');
+      var yeniM = {
+        kod:kod, unvan:kaynak.firma || kaynak.unvan, kisa:kaynak.firma || kaynak.unvan,
+        sektor:kaynak.sektor || null, buyukluk:kaynak.buyukluk || null,
+        durum:'Aktif', risk:'Düşük', sorumlu:kaynak.sorumlu || null,
+        kaynak:kaynak.kaynak || null, referans:kaynak.referans || null,
+        tel:kaynak.tel || null, eposta:kaynak.eposta || null, web:kaynak.web || null,
+        adres:null, vergiNo:kaynak.vergiNo || null, vergiDairesi:null,
+        ilkKayit:DB.today, sonIletisim:kaynak.sonIletisim || DB.today,
+        sonrakiAksiyon:'Sözleşme görüşmesi', sonrakiTarih:kaynak.kapanisTahmini || null,
+        /* Türetilen sayaçlar SIFIR doğar, elle doldurulmaz (ders L-08). */
+        projeSayisi:0, aktifProje:0, toplamCiro:0, bekleyenTahsilat:0, memnuniyet:null,
+        aktif:true
+      };
+      (DB.customers || []).unshift(yeniM);
+      iz(kod, 'Müşteri kaydı oluşturuldu' + (kaynak.kod ? ' (' + kaynak.kod + ' kaynağından)' : ''), null, kod, 'ok', 'i-plus');
+      if(opts.istisna){
+        iz(kod, 'YÖNETİCİ İSTİSNASI — mükerrer uyarısına rağmen yeni müşteri açıldı',
+           (opts.benzer || []).join(' · '), opts.neden || 'DIGER', 'warn', 'i-alert');
+      }
+      return { ok:true, musteri:yeniM, yeni:true, istisna:!!opts.istisna };
+    }
+
+    /* ---- KAZANILDI ZİNCİRİ ([7.3.6] · [20.1.5]–[20.1.8]) --------------
+       Sıra: müşteri → sözleşme (Taslak) → ödeme planı (taslak taksitler) →
+       proje (Taslak). Her adım bir öncekinin kodunu taşır; hiçbir adım
+       "sonra bağlarız" diye boş bırakılmaz (ders L-22).
+       İDEMPOTENT: teklifte zaten sözleşme varsa zincir yeniden koşmaz. */
+    function kazanildi(teklif, opts){
+      opts = opts || {};
+      if(!teklif) return { ok:false, why:'teklif-yok' };
+
+      var varOlan = (DB.contracts || []).filter(function(c){ return c.teklif === teklif.kod; })[0];
+      if(varOlan) return { ok:true, tekrar:true, sozlesme:varOlan.kod,
+                           proje:(DB.projects || []).filter(function(p){ return p.sozlesme === varOlan.kod; })[0] };
+
+      var uretilen = [];      /* geri alma defteri — prototipte transaction yok */
+      function geriAl(){
+        uretilen.slice().reverse().forEach(function(u){
+          var i = u.list.indexOf(u.kayit);
+          if(i !== -1) u.list.splice(i, 1);
+        });
+        (DB.activities || []).splice(0, (DB.activities || []).filter(function(a){
+          return uretilen.some(function(u){ return u.kayit.kod === a.kayit; }); }).length);
+      }
+      function ekle(list, kayit){ list.unshift(kayit); uretilen.push({ list:list, kayit:kayit }); return kayit; }
+
+      try {
+        /* 1 — müşteri */
+        var mr = musteriUret({
+          kod:teklif.kod, firma:teklif.firma, sektor:teklif.sektor,
+          sorumlu:teklif.hazirlayan, eposta:teklif.eposta, tel:teklif.tel
+        }, opts.musteri || (teklif.musteri ? { mevcut:teklif.musteri } : {}));
+        if(!mr.ok) return { ok:false, why:mr.why };
+        var mus = mr.musteri;
+        if(mr.yeni) uretilen.push({ list:DB.customers, kayit:mus });
+        if(!teklif.musteri) teklif.musteri = mus.kod;
+
+        /* 2 — sözleşme TASLAK. Aktivasyon KAPISI burada çalışmaz: sözleşme
+           imza ve dengeli ödeme planı olmadan `Aktif` olamaz (Gates.sozlesmeAktif).
+           Taslak üretmek o kapıyı atlatmaz, ona hazırlık yapar. */
+        var szl = ekle(DB.contracts || (DB.contracts = []), {
+          kod:yeniKod(DB.contracts, 'SZL'),
+          ad:(teklif.baslik || teklif.firma) + ' sözleşmesi',
+          musteri:mus.kod, teklif:teklif.kod, tur:'Proje',
+          /* ⚠️ ALAN ADI EKSENİ — iki koleksiyon aynı şeye başka ad veriyor:
+             `DB.quotes` KDV oranını `vergiOran`, `DB.contracts` `kdvOran`
+             diyor. İlk yazımda burada yalnız `kdvOran` okunuyordu; teklifte
+             o ad olmadığı için sessizce **20'ye düşüyordu** ve bugün dört
+             teklifin dördü de %20 olduğu için sayı tutuyordu — yani kusur
+             veri sayesinde görünmüyordu. %10'luk bir teklif sessizce %20
+             KDV'li sözleşme doğururdu (L-31 sınıfı: uygulanmayan kural,
+             yanlış kuralın en sinsi hâli). İki ad da okunur, düşüş YOK. */
+          tutar:teklif.araToplam != null ? teklif.araToplam : teklif.tutar,
+          kdvOran:teklif.vergiOran != null ? teklif.vergiOran
+                : teklif.kdvOran  != null ? teklif.kdvOran : null,
+          doviz:teklif.doviz || 'TRY',
+          musteriAd:mus.kisa || mus.unvan || null,
+          imzaTarihi:null, baslangic:null, bitis:null,
+          durum:'Taslak', odemePlani:teklif.odemePlani || 'Taksitli',
+          garanti:teklif.garanti || null, yenileme:false,
+          sorumlu:teklif.hazirlayan || null, aktif:true
+        });
+        /* KDV ve genel toplam TÜRETİLİR, elle yazılmaz (L-08). Oran
+           bilinmiyorsa ikisi de `null` kalır — "0 KDV" yazmak, vergisiz bir
+           sözleşme iddiasıdır. */
+        szl.kdv    = szl.kdvOran == null ? null : Math.round((Number(szl.tutar) || 0) * szl.kdvOran / 100);
+        szl.toplam = szl.kdv == null ? null : (Number(szl.tutar) || 0) + szl.kdv;
+        iz(szl.kod, 'Kazanılan tekliften sözleşme taslağı oluşturuldu', teklif.kod, szl.kod, 'ok', 'i-file-check');
+
+        /* 3 — ödeme planı taslağı. Tutar sözleşme bedelinden gelir ve
+           taksitler bedeli TAM böler: `Gates.sozlesmeAktif` denge arıyor,
+           yuvarlama farkı bırakmak kapıyı baştan kapatırdı. */
+        var net = Number(szl.tutar) || 0;
+        var adet = opts.taksit || 3;
+        var pay = Math.floor(net / adet);
+        var kalan = net - pay * (adet - 1);
+        for(var i = 0; i < adet; i++){
+          var ms = ekle(DB.milestones || (DB.milestones = []), {
+            kod:yeniKod(DB.milestones, 'MS'),
+            sozlesme:szl.kod, proje:null,
+            ad:(i + 1) + '. taksit', sira:i + 1,
+            odeme:(i === adet - 1 ? kalan : pay),
+            tarih:null, durum:'Planlandı', fatura:null, aktif:true
+          });
+          uretilen.push({ list:DB.milestones, kayit:ms });
+        }
+        iz(szl.kod, 'Ödeme planı taslağı oluşturuldu — ' + adet + ' taksit', null, String(net), 'accent', 'i-milestone');
+
+        /* 4 — proje TASLAK */
+        /* Alan adları `DB.projects` şemasından alındı; uydurma alan açılmaz.
+           `DB.quotes`'ta `baslik`/`hizmet` YOK — sözleşme adı firmadan türer,
+           tür `null` kalır ve bu bir eksiklik olarak kayda geçer (veri
+           uydurulmadı, L-13). Bütçe de `null`: proje bütçesi sözleşme
+           bedeliyle aynı şey değildir, planlama aşamasında girilir. */
+        var prj = ekle(DB.projects || (DB.projects = []), {
+          kod:yeniKod(DB.projects, 'PRJ'),
+          ad:(teklif.firma || mus.kisa || mus.unvan) + ' projesi',
+          musteri:mus.kod, musteriAd:mus.kisa || mus.unvan || null,
+          sozlesme:szl.kod, teklif:teklif.kod,
+          pm:teklif.hazirlayan || null, ekip:[],
+          durum:'Taslak', saglik:'Yolunda', faz:'Plan',
+          baslangic:null, planlananBitis:null, gercekBitis:null, ilerleme:0,
+          sozlesmeTutari:net, butce:null, tahminiSure:null,
+          kaynak:'Müşteri Sözleşmesi', tur:null, oncelik:'Orta',
+          aktif:true
+        });
+        iz(prj.kod, 'Sözleşme taslağından proje taslağı oluşturuldu', szl.kod, prj.kod, 'ok', 'i-briefcase');
+        (DB.milestones || []).forEach(function(m){ if(m.sozlesme === szl.kod) m.proje = prj.kod; });
+
+        iz(teklif.kod, 'Teklif kazanıldı — dönüşüm zinciri koştu',
+           null, [mus.kod, szl.kod, prj.kod].join(' · '), 'ok', 'i-check-circle');
+
+        return { ok:true, musteri:mus.kod, musteriYeni:mr.yeni, sozlesme:szl.kod,
+                 proje:prj.kod, taksit:adet,
+                 uretilen:[
+                   { tur:'Müşteri',      kod:mus.kod, yeni:mr.yeni, href:'app-musteri-detay.html?id=' + mus.kod },
+                   { tur:'Sözleşme',     kod:szl.kod, yeni:true,    href:'app-sozlesme-detay.html?id=' + szl.kod },
+                   { tur:'Ödeme planı',  kod:szl.kod, yeni:true,    href:'app-odemeplani-detay.html?id=' + szl.kod },
+                   { tur:'Proje',        kod:prj.kod, yeni:true,    href:'app-proje-detay.html?id=' + prj.kod }
+                 ] };
+      } catch(e){
+        geriAl();
+        return { ok:false, why:'zincir-hatasi', mesaj:String(e && e.message || e) };
+      }
+    }
+
+    return { mukerrer:mukerrer, musteriUret:musteriUret, kazanildi:kazanildi };
+  })();
+
 })();
