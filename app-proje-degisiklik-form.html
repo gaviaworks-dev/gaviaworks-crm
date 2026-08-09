@@ -100,11 +100,15 @@ document.addEventListener('gv:ready', function(){
   DB.changeRequests.forEach(function(d){
     if(d.talep && TARAFLAR.indexOf(d.talep) === -1) TARAFLAR.push(d.talep); });
 
-  /* Durum kümesi veride koleksiyon olarak yok; küme app-proje-degisiklik.html'in
-     durum filtresi ve kanban kolonlarıyla birebir aynı dört değerdir. */
-  var DURUMLAR = ['Değerlendiriliyor','Onay bekliyor','Onaylandı','Reddedildi'];
+  /* Durum sözlüğü VERİ KATMANINDA (org.js `DB.changeStatuses`) ve geçiş kuralı
+     `DB.transitions.change`tedir; ekran kendi listesini yazmaz. Eski dört değerli
+     küme (`Değerlendiriliyor` · `Onay bekliyor` · …) şartnameye hizalanınca
+     on bir değere ve üç ayrı onay makamına açıldı. */
+  var DURUMLAR = (DB.changeStatuses || []).slice();
   if(duzenle && kayit.durum && DURUMLAR.indexOf(kayit.durum) === -1) DURUMLAR.push(kayit.durum);
-  var KARAR_DURUM = ['Onaylandı','Reddedildi'];
+  /* Karara bağlanmış = iş akışında karar noktasını geçmiş olan. Arşivleme kuralı
+     bunu sorar; “Onaylandı” tek başına artık zincirin sonu değil. */
+  var KARAR_DURUM = ['Onaylandı','Uygulama','Teslim','Kapandı','Reddedildi','İptal Edildi'];
 
   /* =================================================================
      ÖLÇÜMLER — ipuçlarındaki sayılar varsayılmaz, sayılır
@@ -186,7 +190,9 @@ document.addEventListener('gv:ready', function(){
       baslik:'', proje:baslangicProje,
       talep:'', tarih:DB.today,
       etkiSure:'', etkiMaliyet:'',
-      durum:'Değerlendiriliyor', kapsamIci:'',
+      /* Yeni talep zincirin BAŞINDA doğar (`DB.transitions.change` · 'Taslak');
+         etki analizi ve onay adımları talep kartındaki iş akışından yürür. */
+      durum:'Taslak', kapsamIci:'',
       karar:'', sorumlu:benim, destek:'',
       aktif:true
     };
@@ -264,9 +270,9 @@ document.addEventListener('gv:ready', function(){
     }else{
       onayNot = GV.notice({
         tone:'info', title:'Bu talebin onay kuyruğunda adımı yok',
-        text:'DB.approvals içinde ' + kayit.kod + ' kaydına bağlı adım bulunmuyor. Talebin durumunu ' +
-             'burada değiştirebilirsiniz ama form onay adımı OLUŞTURMAZ — onaylayan ve onay tarihi ' +
-             'yalnız onay kuyruğu kaydında tutulur. Ölçüm: ' + toplamTalep + ' talebin ' +
+        text:'DB.approvals içinde ' + kayit.kod + ' kaydına bağlı adım bulunmuyor. Talebin durumu ' +
+             'bu formdan değiştirilemez (iş akışı adımlarından yürür) ve form onay adımı OLUŞTURMAZ — ' +
+             'onaylayan ve onay tarihi yalnız onay kuyruğu kaydında tutulur. Ölçüm: ' + toplamTalep + ' talebin ' +
              DB.changeRequests.filter(function(d){
                return DB.approvals.some(function(a){ return a.kayit === d.kod; }); }).length +
              ' tanesinde onay kaydı var.' });
@@ -323,7 +329,7 @@ document.addEventListener('gv:ready', function(){
 
     /* ---- Bağlam kartı ---- */
     var son  = acts[0];
-    var acik = kayit.durum === 'Onay bekliyor' || kayit.durum === 'Değerlendiriliyor';
+    var acik = KARAR_DURUM.indexOf(kayit.durum) === -1;
     var bkl  = bekleGun(kayit.tarih);
     /* Hesaplanan etki düzeyi DB.impacts ölçeğindedir; kayıtta `etki` alanı yoktur.
        Finans yetkisi yoksa bedel sapması kullanılmaz — maskeli tutar oran üzerinden sızmasın. */
@@ -391,8 +397,7 @@ document.addEventListener('gv:ready', function(){
       onNot += GV.notice({ tone:'ok', title:'Proje ön seçili geldi',
         text:onProje.kod + ' · ' + onProje.ad + ' projesi adresten geldiği için proje alanı seçili ' +
              'açıldı. Bu projede ' + pTalep.length + ' değişiklik talebi var, ' +
-             pTalep.filter(function(d){
-               return d.durum === 'Onay bekliyor' || d.durum === 'Değerlendiriliyor'; }).length +
+             pTalep.filter(function(d){ return KARAR_DURUM.indexOf(d.durum) === -1; }).length +
              ' tanesi karar bekliyor. ' +
              (pSoz ? 'Projenin aktif sözleşmesi ' + pSoz.kod + '; maliyet etkisi onun netiyle (KDV hariç) aynı eksende yazılır.'
                    : 'Projenin aktif sözleşmesi yok — maliyet etkisi bir sözleşme netiyle karşılaştırılamaz.'),
@@ -486,9 +491,14 @@ document.addEventListener('gv:ready', function(){
           validate:function(v, d){
             return d.kapsamIci ? '' : 'Kapsam değerlendirmesi zorunludur — kapsam içi ya da kapsam dışı seçin.';
           } },
+        /* DURUM SALT OKUNUR (merkezî geçiş motoru). Serbest `<select>` kullanıcının
+           etki analizini ve üç onay makamını atlayıp doğrudan “Onaylandı” yazmasına
+           izin veriyordu; durum artık yalnız `GV.flow.gec()` ile, talep kartındaki
+           iş akışı düğmelerinden değişir. Alan form kurulduktan sonra devre dışı
+           bırakılır — değeri okunmaya devam eder, kaydederken korunur. */
         { key:'durum', label:'Talep durumu', type:'select', options:DURUMLAR, required:true, cols:6,
-          hint:'Karara bağlanan talep “Onaylandı” ya da “Reddedildi” olur; ikisinde de karar alanı ' +
-               'doldurulur.' },
+          hint:'Durum, iş akışı eylemlerinden değişir — bu alandan değiştirilemez. ' +
+               'Onay ve red kararı talep kartındaki adım düğmelerinden verilir.' },
         { key:'karar', label:'Karar', type:'textarea', rows:3, cols:12,
           placeholder:'Faz 2 kapsamına alındı · ek teklif hazırlanacak · sürüm sonrası değerlendirilecek…',
           hint:'Reddedilen talepte gerekçe zorunludur (en az 10 karakter). Onaylanan talepte kararın ' +
@@ -562,7 +572,8 @@ document.addEventListener('gv:ready', function(){
           hint:'Kapatılırsa kayıt arşive düşer; bağlı destek talebi ve onay kaydı silinmez.',
           validate:function(v, d){
             return (!v && KARAR_DURUM.indexOf(d.durum) === -1)
-              ? 'Karara bağlanmamış talep arşivlenemez — önce durumu “Onaylandı” ya da “Reddedildi” yapın.'
+              ? 'Karara bağlanmamış talep arşivlenemez — talep kartındaki iş akışı adımlarından ' +
+                'önce onay ya da red kararı verilmelidir.'
               : '';
           } }
       ]}
@@ -576,6 +587,16 @@ document.addEventListener('gv:ready', function(){
   var form = GV.form({
     mount:'#formMount', id:'degisiklik', record:formRec, sections:sections
   });
+
+  /* DURUM ALANI SALT OKUNUR. Bileşende `readonly` alan tipi yok; alan
+     kurulduktan sonra devre dışı bırakılır. `form.read()` değeri `el.value`
+     üzerinden okur (FormData değil), bu yüzden devre dışı alan da okunur ve
+     kaydederken mevcut durum aynen korunur — sessizce boşalmaz. */
+  var durumEl = document.querySelector('#formMount [name="durum"]');
+  if(durumEl){
+    durumEl.disabled = true;
+    durumEl.setAttribute('aria-readonly', 'true');
+  }
 
   /* =================================================================
      PROJEYE BAĞLI SEÇENEKLER — proje değişince yeniden kurulur.
@@ -671,10 +692,9 @@ document.addEventListener('gv:ready', function(){
 
     if(duzenle){
       /* Aktivite kaydı yalnız DEĞİŞEN alanlar için yazılır (PROMPT.md §28). */
-      var degisen = 0, kararaBaglandi = false;
+      var degisen = 0;
       Object.keys(v).forEach(function(k){
         if(norm(kayit[k]) === norm(v[k])) return;
-        if(k === 'durum' && KARAR_DURUM.indexOf(v[k]) !== -1) kararaBaglandi = true;
         DB.activities.unshift({
           kayit:kayit.kod, tarih:simdi(), kisi:GV.session.emp,
           metin:'Alan güncellendi: ' + (ALAN_ADI[k] || k),
@@ -685,24 +705,15 @@ document.addEventListener('gv:ready', function(){
         degisen++;
       });
 
-      /* Onay kuyruğu kaydı bu formda OLUŞTURULMAZ; var olan kayıt karara bağlandığında
-         yalnız durumu talebe eşitlenir — onaylayan ve onay tarihi el sürülmez. */
-      if(kararaBaglandi && ony && ony.durum === 'Bekliyor'){
-        ony.durum = v.durum;
-        DB.activities.unshift({
-          kayit:ony.kod, tarih:simdi(), kisi:GV.session.emp,
-          metin:kayit.kod + ' değişiklik talebi karara bağlandı',
-          eski:'Bekliyor', yeni:v.durum,
-          tone:v.durum === 'Onaylandı' ? 'ok' : 'danger',
-          icon:v.durum === 'Onaylandı' ? 'i-check-circle' : 'i-x-circle'
-        });
-      }
+      /* Onay kuyruğu kaydının senkronu ARTIK BURADA DEĞİL: durum bu formdan
+         yazılamıyor (salt okunur), karar talep kartındaki iş akışı adımından
+         veriliyor ve onay kaydı orada güncelleniyor. Aynı olguyu iki ekranda
+         ayrı ayrı yürütmek VB-23'ün kusuruydu. */
 
       if(!degisen){
         GV.toast('Değişiklik yok — kayıt olduğu gibi bırakıldı', 'info');
       }else{
-        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan' +
-          (kararaBaglandi && ony ? ' · ' + ony.kod + ' onay kaydı da güncellendi' : ''), 'ok');
+        GV.toast(kayit.kod + ' güncellendi · ' + degisen + ' alan', 'ok');
       }
     }else{
       var kod = yeniKod();

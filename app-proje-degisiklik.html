@@ -28,8 +28,16 @@ document.addEventListener('gv:ready', function(){
   var canFinans = GV.perm.can('finans');
 
   /* ---- türetilmiş yardımcılar (canonical veri üzerinden) ---- */
+  /* Sözlük şartnameye hizalandı: `Değerlendiriliyor` → `Etki Analizi`,
+     `Onay bekliyor` → `İç Onay`. Onay ekseni artık ÜÇ ADIMDIR (iç · müşteri ·
+     ticari) ve karar sonrası da tek durum değil bir zincirdir (Onaylandı →
+     Uygulama → Teslim → Kapandı). Bu yüzden “açık talep” tek tek durum
+     saymakla değil, KARARA BAĞLANMIŞ kümesinin dışında kalmakla tanımlanır. */
+  var KARARLI = ['Onaylandı','Uygulama','Teslim','Kapandı','Reddedildi','İptal Edildi'];
+  /* Onay bekleyen = onay makamında duran üç adım (DB.transitions.change) */
+  var ONAY_ADIMI = ['İç Onay','Müşteri Onayı','Ticari Onay'];
   /* Açık talep = henüz karara bağlanmamış olan. Bekleme süresi yalnız bunlarda anlamlı. */
-  var acik   = function(d){ return d.durum === 'Onay bekliyor' || d.durum === 'Değerlendiriliyor'; };
+  var acik   = function(d){ return KARARLI.indexOf(d.durum) === -1; };
   /* Bugün referansı DB.today — new Date() değil (mock veri sabit tarih ekseninde) */
   var bekle  = function(d){ var g = F.days(d.tarih); return g == null ? null : -g; };
   /* Talebin projesine bağlı sözleşme; DB.contracts[].proje eşleşmesinden gelir. */
@@ -42,6 +50,16 @@ document.addEventListener('gv:ready', function(){
     }).length;
   };
   var topla  = function(a, alan){ return a.reduce(function(s, d){ return s + (d[alan] || 0); }, 0); };
+
+  /* Kaydın İLERİ yöndeki bir sonraki adımı — geçiş tablosunun `next` listesinin
+     ilk elemanıdır ve etiketi de oradan gelir (`kural.etiket`). Ret ve iptal
+     dalları listeden dışlanır: liste ekranından tek tıkla reddetmek gerekçe
+     kapısını (şartname [2.0.6]) atlardı, red kararı talep kartından verilir. */
+  function ilerAdim(d){
+    if(!GV.flow) return null;
+    return GV.flow.adimlar('change', d.kod).filter(function(a){
+      return ['Reddedildi','İptal Edildi'].indexOf(a.hedef) === -1; })[0] || null;
+  }
 
   /* etkiMaliyet KDV HARİÇ (net) — components.md §9b. 0 = "maliyet etkisi yok", boş değil. */
   var paraHucre = function(d){
@@ -70,7 +88,7 @@ document.addEventListener('gv:ready', function(){
       { label:'Toplam değişiklik talebi', icon:'i-refresh',
         calc:function(a){ return a.length; } },
       { label:'Onay bekleyen', icon:'i-stamp', tone:'warn',
-        calc:function(a){ return a.filter(function(d){ return d.durum === 'Onay bekliyor'; }).length; } },
+        calc:function(a){ return a.filter(function(d){ return ONAY_ADIMI.indexOf(d.durum) !== -1; }).length; } },
       { label:'Toplam süre etkisi', icon:'i-clock', tone:'info', format:F.hours,
         calc:function(a){ return topla(a, 'etkiSure'); } },
       { label:'Toplam maliyet etkisi (KDV hariç)', icon:'i-wallet', tone:'accent',
@@ -80,9 +98,11 @@ document.addEventListener('gv:ready', function(){
 
     tabs:[
       { key:'tumu',       label:'Tümü',              icon:'i-list',         filter:null },
-      { key:'degerlend',  label:'Değerlendirilenler',icon:'i-eye',          filter:function(d){ return d.durum === 'Değerlendiriliyor'; } },
-      { key:'onaybek',    label:'Onay Bekleyenler',  icon:'i-stamp',        filter:function(d){ return d.durum === 'Onay bekliyor'; } },
+      { key:'acik',       label:'Karar Bekleyenler', icon:'i-hourglass',    filter:acik },
+      { key:'etkianaliz', label:'Etki Analizi',      icon:'i-eye',          filter:function(d){ return d.durum === 'Etki Analizi'; } },
+      { key:'onaybek',    label:'Onay Bekleyenler',  icon:'i-stamp',        filter:function(d){ return ONAY_ADIMI.indexOf(d.durum) !== -1; } },
       { key:'onaylanan',  label:'Onaylananlar',      icon:'i-check-circle', filter:function(d){ return d.durum === 'Onaylandı'; } },
+      { key:'uygulama',   label:'Uygulamada',        icon:'i-play',         filter:function(d){ return d.durum === 'Uygulama' || d.durum === 'Teslim'; } },
       { key:'red',        label:'Reddedilenler',     icon:'i-x-circle',     filter:function(d){ return d.durum === 'Reddedildi'; } },
       { key:'kapsamdisi', label:'Kapsam Dışı',       icon:'i-alert',        filter:function(d){ return d.kapsamIci === false; } }
     ],
@@ -152,8 +172,8 @@ document.addEventListener('gv:ready', function(){
     filters:[
       { key:'proje', label:'Proje', type:'select',
         options:DB.projects.map(function(p){ return { value:p.kod, label:p.ad }; }) },
-      { key:'durum', label:'Durum', type:'multi',
-        options:['Değerlendiriliyor','Onay bekliyor','Onaylandı','Reddedildi'] },
+      /* Sözlük veri katmanında (org.js `DB.changeStatuses`) — ekran liste yazmaz */
+      { key:'durum', label:'Durum', type:'multi', options:DB.changeStatuses },
       { key:'talep', label:'Talep eden taraf', type:'select', options:talepEdenler },
       { key:'kapsamIci', label:'Kapsam', type:'select', options:['Kapsam içi','Kapsam dışı'],
         test:function(d, v){ return v === 'Kapsam içi' ? d.kapsamIci === true : d.kapsamIci === false; } },
@@ -175,8 +195,7 @@ document.addEventListener('gv:ready', function(){
        talepte değil; aksi hâlde listenin yarısı kırmızıya boyanır ve sinyali kaybolur. */
     rowClass:function(d){ return acik(d) && bekle(d) > 7 ? 'is-late' : ''; },
 
-    kanban:{ groupBy:'durum',
-      columns:['Değerlendiriliyor','Onay bekliyor','Onaylandı','Reddedildi'],
+    kanban:{ groupBy:'durum', columns:DB.changeStatuses,
       card:function(d){
         return '<a class="gv-kcard-title" href="app-proje-degisiklik-detay.html?id=' + d.kod + '">' + esc(d.baslik) + '</a>' +
           '<div class="gv-kcard-meta"><span>' + esc(DB.projName(d.proje)) + '</span>' +
@@ -218,20 +237,35 @@ document.addEventListener('gv:ready', function(){
       { key:'sozlesme', icon:'i-file-check', label:'Sözleşmeyi aç',
         show:function(d){ return !!szl(d); },
         href:function(d){ var c = szl(d); return c ? 'app-sozlesme.html?q=' + c.kod : ''; } },
-      { key:'onayla', icon:'i-stamp', label:'Talebi onayla',
-        show:function(d){ return acik(d); },
+      /* Durum EKRANDA YAZILMAZ. Onay tek bir sıçrama değil, zincirin bir
+         adımıdır (Etki Analizi → İç Onay → Müşteri Onayı → Ticari Onay →
+         Onaylandı); eskiden bu aksiyon hangi durumda olursa olsun doğrudan
+         `Onaylandı` yazıyor ve aradaki üç onay makamını atlıyordu. Artık
+         yapılabilir SONRAKİ adım motordan okunur (`GV.flow.adimlar`). */
+      { key:'ilerlet', icon:'i-stamp', label:'İş akışında ilerlet',
+        show:function(d){ return !!ilerAdim(d); },
         run:function(d, refresh){
-          if(!GV.perm.can('onay')){ GV.toast('Değişiklik talebi onaylama yetkiniz yok.', 'danger'); return; }
-          GV.confirm({ title:'Değişiklik Talebini Onayla',
+          var a = ilerAdim(d);
+          if(!a) return;
+          if(!a.izin){ GV.toast('Bu adımı yürütme yetkiniz yok — talep kartından kimin yapabileceği yazılıdır.', 'danger'); return; }
+          if(a.eksik && a.eksik.length){
+            GV.toast('Eksik alan: ' + a.eksik.join(' · ') + ' — talep kartından tamamlayın.', 'warn');
+            return;
+          }
+          GV.confirm({ title:a.etiket,
             text:d.kod + ' · ' + d.baslik + ' — süre etkisi ' + F.hours(d.etkiSure) +
                  (canFinans ? ', maliyet etkisi ' + (d.etkiMaliyet ? F.money(d.etkiMaliyet) + ' (KDV hariç)' : 'yok') : '') +
-                 '. Onaylandı olarak işaretlensin mi?',
+                 '. Talep “' + d.durum + '” durumundan “' + a.hedef + '” durumuna geçecek.',
             tone:'warn' })
             .then(function(ok){
               if(!ok) return;
-              d.durum = 'Onaylandı';
-              if(!d.karar || d.karar === '—') d.karar = 'Onaylandı — plana işlenecek';
-              GV.toast(d.kod + ' onaylandı', 'ok');
+              var r = GV.flow.gec('change', d.kod, a.hedef);
+              if(!r || !r.ok){
+                GV.toast(r && r.mesaj ? r.mesaj : (r && r.why ? r.why : 'Geçiş yapılamadı'),
+                         r && r.why === 'kapi' ? 'warn' : 'danger');
+                return;
+              }
+              GV.toast(d.kod + ' “' + r.yeni + '” oldu', 'ok');
               refresh();
             }); } },
       { key:'ekteklif', icon:'i-quote', label:'Ek teklif oluştur',
@@ -246,20 +280,24 @@ document.addEventListener('gv:ready', function(){
     ],
 
     bulk:[
-      { key:'onayla', label:'Onayla', icon:'i-stamp',
-        confirm:'Seçili {n} değişiklik talebi Onaylandı olarak işaretlenecek. Karara bağlanmış talepler atlanır.',
+      /* Toplu işlem de motordan geçer: her kayıt KENDİ bir sonraki adımına
+         ilerler — hepsi birden `Onaylandı` yazılmaz. Yetki, zorunlu alan ve
+         kapı redleri kayıt bazında değerlendirilir ve atlanan kayıt sayılır. */
+      { key:'ilerlet', label:'İş akışında ilerlet', icon:'i-stamp',
+        confirm:'Seçili {n} değişiklik talebi kendi iş akışında bir sonraki adıma geçecek. ' +
+                'Yetki, zorunlu alan ya da kural engeline takılan kayıtlar atlanır.',
         run:function(ids){
-          if(!GV.perm.can('onay')){ GV.toast('Değişiklik talebi onaylama yetkiniz yok.', 'danger'); return; }
-          var n = 0;
-          DB.changeRequests.forEach(function(d){
-            if(ids.indexOf(d.kod) !== -1 && acik(d)){
-              d.durum = 'Onaylandı';
-              if(!d.karar || d.karar === '—') d.karar = 'Onaylandı — plana işlenecek';
-              n++;
-            }
+          var n = 0, atlanan = [];
+          ids.forEach(function(kod){
+            var d = DB.changeRequests.filter(function(x){ return x.kod === kod; })[0];
+            if(!d) return;
+            var a = ilerAdim(d);
+            if(!a){ atlanan.push(kod); return; }
+            var r = GV.flow.gec('change', kod, a.hedef);
+            if(r && r.ok) n++; else atlanan.push(kod);
           });
-          GV.toast(n ? (n + ' değişiklik talebi onaylandı' + (n < ids.length ? ' · ' + (ids.length - n) + ' kayıt atlandı' : ''))
-                     : 'Seçili kayıtların hiçbiri karar bekleyen talep değil', n ? 'ok' : 'warn');
+          GV.toast(n ? (n + ' talep ilerletildi' + (atlanan.length ? ' · ' + atlanan.length + ' kayıt atlandı' : ''))
+                     : 'Seçili kayıtların hiçbiri ilerletilemedi', n ? 'ok' : 'warn');
         } },
       { key:'disa', label:'Dışa aktar', icon:'i-download', export:true },
       { key:'arsivle', label:'Arşivle', icon:'i-archive', tone:'danger',

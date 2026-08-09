@@ -28,7 +28,9 @@
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
   var canFinans = GV.perm.can('finans');
-  var canOnay   = GV.perm.can('onay');
+  /* `onay` yetkisi artık burada TEK BAŞINA sorulmaz: hangi adımı kimin
+     yürütebileceği geçiş tablosunun `yetki` ekseninde yazılı ve
+     `GV.flow.adimlar` onu kayıt + oturum bazında çözüyor. */
 
   var id = new URLSearchParams(location.search).get('id') || (DB.changeRequests[0] || {}).kod;
   var d  = DB.changeRequests.filter(function(x){ return x.kod === id; })[0];
@@ -111,7 +113,15 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var etkiSaat = d.etkiSure || 0;
   var etkiGun  = etkiSaat / 8;
-  var acik     = d.durum === 'Onay bekliyor' || d.durum === 'Değerlendiriliyor';
+  /* Sözlük şartnameye hizalandı (`Değerlendiriliyor` → `Etki Analizi`,
+     `Onay bekliyor` → `İç Onay`) ve onay ekseni ÜÇ MAKAMA açıldı: iç onay ·
+     müşteri onayı · ticari onay. Bu yüzden “açık talep” tek tek durum saymakla
+     değil, KARARA BAĞLANMIŞ kümesinin dışında kalmakla tanımlanır. */
+  var KARARLI    = ['Onaylandı','Uygulama','Teslim','Kapandı','Reddedildi','İptal Edildi'];
+  var ONAY_ADIMI = ['İç Onay','Müşteri Onayı','Ticari Onay'];
+  /* Onay kararı ALINMIŞ olanlar — zincirin onay sonrası tarafı */
+  var ONAYLANMIS = ['Onaylandı','Uygulama','Teslim','Kapandı'];
+  var acik     = KARARLI.indexOf(d.durum) === -1;
   var beklemeGun = (function(){ var g = F.days(d.tarih); return g == null ? null : -g; })();
 
   var projeSaat    = proje ? (proje.tahminiSure || 0) : 0;
@@ -171,46 +181,72 @@ document.addEventListener('gv:ready', function(){
   }
 
   /* =================================================================
-     MUTASYON — location.reload() YOK, GV.refresh() (L-15)
+     İŞ AKIŞI — merkezî geçiş motoru (şartname §6.1 · DB.transitions.change)
+     Ekran durum YAZMAZ: yapılabilir adımları `GV.flow.adimlar` verir, geçişi
+     `GV.flow.gec` uygular, aktivite kaydını da o yazar. Eskiden bu ekran
+     hangi durumda olursa olsun doğrudan `Onaylandı` yazıyor, etki analizini
+     ve üç onay makamını atlıyordu; yetki kapısı da yalnız `can('onay')`
+     ile soruluyordu — geçiş tablosunun `yetki` ekseni hiç okunmuyordu.
      ================================================================= */
-  function onayla(kararNotu){
-    var eskiDurum = d.durum;
-    d.durum = 'Onaylandı';
-    d.karar = kararNotu || ((!d.karar || d.karar === '—') ? 'Onaylandı — plana işlenecek' : d.karar);
-    if(ony) ony.durum = 'Onaylandı';
-    DB.activities.unshift({ kayit:d.kod, tarih:simdi(), kisi:GV.session.emp,
-      metin:'Değişiklik talebi onaylandı' + (kararNotu ? ' — ' + kararNotu : ''),
-      eski:eskiDurum, yeni:'Onaylandı', tone:'ok', icon:'i-check-circle' });
-    if(ony){
-      DB.activities.unshift({ kayit:ony.kod, tarih:simdi(), kisi:GV.session.emp,
-        metin:d.kod + ' değişiklik talebi onaylandı', eski:'Bekliyor', yeni:'Onaylandı',
-        tone:'ok', icon:'i-stamp' });
-    }
-    GV.toast(d.kod + ' onaylandı', 'ok');
-    setTimeout(function(){ GV.refresh(); }, 700);
+  var adimlar   = GV.flow ? GV.flow.adimlar('change', d.kod) : [];
+  var akisKural = GV.flow ? GV.flow.kural('change', d.durum) : null;
+
+  var ADIM_IKON = { 'Etki Analizi':'i-percent', 'İç Onay':'i-stamp', 'Müşteri Onayı':'i-stamp',
+                    'Ticari Onay':'i-wallet', 'Onaylandı':'i-check-circle', 'Uygulama':'i-play',
+                    'Teslim':'i-package', 'Kapandı':'i-check', 'Reddedildi':'i-x-circle',
+                    'İptal Edildi':'i-x' };
+  var ALAN_AD = { baslik:'Talep başlığı', etkiSure:'Süre etkisi (saat)',
+                  etkiMaliyet:'Maliyet etkisi (KDV hariç)' };
+  function alanAd(k){ return ALAN_AD[k] || k; }
+  var ILISKI_AD = { sorumlu:'talebin sorumlusu', veren:'talebi açan' };
+  function yetkiAd(k){ return ILISKI_AD[k] || DB.roleName(k); }
+  function yetkiMetin(roller){ return (roller || []).map(yetkiAd).join(', '); }
+
+  /* Zincirdeki ileri adım ile red adımı AYNI listeden okunur — “hangi duruma
+     gideyim” diye ikinci bir mantık yazmak üçüncü bir doğruluk kaynağı olurdu. */
+  var adimIleri = adimlar.filter(function(a){
+    return ['Reddedildi','İptal Edildi'].indexOf(a.hedef) === -1; })[0] || null;
+  var adimRed   = adimlar.filter(function(a){ return a.hedef === 'Reddedildi'; })[0] || null;
+
+  function hataMetni(res){
+    if(!res) return 'Geçiş yapılamadı';
+    if(res.why === 'yetki')   return 'Bu geçişi yalnız şunlar yapabilir: ' + yetkiMetin(res.roller);
+    if(res.why === 'zorunlu') return 'Şu alanlar dolu olmadan geçilemez: ' + res.eksik.map(alanAd).join(', ');
+    if(res.why === 'kapi')    return res.mesaj;
+    if(res.why === 'gerekce') return res.mesaj || 'Bu işlem için neden kodu ve açıklama zorunludur';
+    return res.mesaj || res.why;
   }
 
-  function reddet(gerekce){
-    var eskiDurum = d.durum;
-    d.durum = 'Reddedildi';
-    d.karar = gerekce;
-    if(ony) ony.durum = 'Reddedildi';
-    DB.activities.unshift({ kayit:d.kod, tarih:simdi(), kisi:GV.session.emp,
-      metin:'Değişiklik talebi reddedildi — ' + gerekce,
-      eski:eskiDurum, yeni:'Reddedildi', tone:'danger', icon:'i-x-circle' });
-    if(ony){
-      DB.activities.unshift({ kayit:ony.kod, tarih:simdi(), kisi:GV.session.emp,
-        metin:d.kod + ' değişiklik talebi reddedildi', eski:'Bekliyor', yeni:'Reddedildi',
-        tone:'danger', icon:'i-x-circle' });
+  /* Tek mutasyon noktası. Onay kuyruğu kaydı talebin AYNASI DEĞİLDİR ama
+     karar alındığında bekleyen adım açık kalamaz (VB-23); senkron burada,
+     tek yerde yapılır ve aktivite satırı da yazılır. */
+  function uygula(hedef, ek, opts){
+    var r = GV.flow.gec('change', d.kod, hedef, ek, opts || {});
+    if(!r || !r.ok){
+      GV.toast(hataMetni(r), (r && r.why === 'kapi') ? 'warn' : 'danger');
+      return false;
     }
-    GV.toast(d.kod + ' reddedildi', 'warn');
+    if(ony && ony.durum === 'Bekliyor' && KARARLI.indexOf(hedef) !== -1){
+      var onyYeni = hedef === 'Reddedildi' || hedef === 'İptal Edildi' ? hedef : 'Onaylandı';
+      ony.durum = onyYeni;
+      DB.activities.unshift({ kayit:ony.kod, tarih:simdi(), kisi:GV.session.emp,
+        metin:d.kod + ' değişiklik talebi karara bağlandı', eski:'Bekliyor', yeni:onyYeni,
+        tone:onyYeni === 'Onaylandı' ? 'ok' : 'danger',
+        icon:onyYeni === 'Onaylandı' ? 'i-check-circle' : 'i-x-circle' });
+    }
+    GV.toast(d.kod + ' “' + r.yeni + '” oldu', hedef === 'Reddedildi' ? 'warn' : 'ok');
     setTimeout(function(){ GV.refresh(); }, 700);
+    return true;
   }
 
-  function onayModal(){
+  function onayModal(adim){
+    if(!adim) return;
     GV.modal({
-      title:'Değişiklik talebini onayla', text:d.kod + ' · ' + d.baslik, icon:'i-stamp', size:'lg',
+      title:adim.etiket, text:d.kod + ' · ' + d.baslik, icon:ADIM_IKON[adim.hedef] || 'i-stamp', size:'lg',
       body:
+        GV.dl([
+          ['Geçiş', GV.badge(d.durum) + ' → ' + GV.badge(adim.hedef)]
+        ]) +
         GV.dl([
           ['Süre etkisi <span class="u-faint">(saat)</span>', saatGun(etkiSaat)],
           ['Maliyet etkisi <span class="u-faint">(KDV hariç)</span>',
@@ -221,7 +257,7 @@ document.addEventListener('gv:ready', function(){
         '<div class="field u-mt-4"><label for="onKarar">Karar notu <span class="u-faint">(opsiyonel)</span></label>' +
           '<textarea id="onKarar" rows="2" placeholder="Faz 2 kapsamına alındı · ek teklif hazırlanacak…">' +
           esc(d.karar && d.karar !== '—' ? d.karar : '') + '</textarea>' +
-          '<span class="f-hint">Boş bırakılırsa karar alanına “Onaylandı — plana işlenecek” yazılır.</span></div>' +
+          '<span class="f-hint">Boş bırakılırsa talebin karar alanına dokunulmaz.</span></div>' +
         GV.notice(d.kapsamIci === false
           ? { tone:'warn', title:'Kapsam dışı talep — bedel sözleşmeye eklenmez',
               text:'Onay bu talebi plana alır ama sözleşme bedelini kendiliğinden değiştirmez. ' +
@@ -230,19 +266,33 @@ document.addEventListener('gv:ready', function(){
               text:'Talep sözleşme kapsamında görüldüğü için ek bedel doğurmaz; yalnız plan ve süre etkisi işlenir.' }),
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
-        { label:'Talebi onayla', cls:'btn-acc', icon:'i-check', onClick:function(close, el){
-            onayla(el.querySelector('#onKarar').value.trim());
+        { label:adim.etiket, cls:'btn-acc', icon:'i-check', onClick:function(close, el){
+            var notu = el.querySelector('#onKarar').value.trim();
+            /* Zorunlu alanlar geçiş tablosundan gelir; eksikse motor reddeder
+               ve mesajı basılır — ekran kendi listesini yazmaz. */
+            return uygula(adim.hedef, notu ? { karar:notu } : null, { not:notu || null })
+              ? undefined : false;
           } }
       ]
     });
   }
 
-  function redModal(){
+  /* Red kararı geçiş tablosunda `gerekce:true` ile işaretlidir: şartname
+     [2.0.6] neden KODU + açıklama ister — serbest metin tek başına
+     raporlanamaz, bu yüzden kod da sorulur. */
+  function redModal(adim){
+    if(!adim) return;
     GV.modal({
-      title:'Değişiklik talebini reddet', text:d.kod + ' · ' + d.baslik, icon:'i-x-circle',
+      title:adim.etiket, text:d.kod + ' · ' + d.baslik, icon:'i-x-circle',
       tone:'danger', size:'lg',
       body:
-        '<div class="field"><label for="rdNeden">Red gerekçesi<span class="req">*</span></label>' +
+        '<div class="field"><label for="rdKod">Red nedeni kodu<span class="req">*</span></label>' +
+          '<select id="rdKod"><option value="">Neden seçin</option>' +
+          (DB.reasonCodes || []).map(function(r){
+            return '<option value="' + esc(r.kod) + '">' + esc(r.ad) + '</option>'; }).join('') +
+          '</select>' +
+          '<span class="f-hint">Neden kodu raporlanabilir; açıklama onun serbest metnidir.</span></div>' +
+        '<div class="field u-mt-4"><label for="rdNeden">Red gerekçesi<span class="req">*</span></label>' +
           '<textarea id="rdNeden" rows="3" placeholder="Kapsam dışı · bütçe yok · sürüm sonrası değerlendirilecek…"></textarea>' +
           '<span class="f-hint">En az 10 karakter. Gerekçe talebin karar alanına yazılır ve aktivite geçmişine düşer.</span>' +
           '<span class="f-err">' + ico('i-alert','ic-sm') + 'Red gerekçesi zorunludur — en az 10 karakter yazın.</span></div>' +
@@ -252,18 +302,38 @@ document.addEventListener('gv:ready', function(){
       actions:[
         { label:'Vazgeç', cls:'btn-line' },
         { label:'Talebi reddet', cls:'btn-danger', icon:'i-x-circle', onClick:function(close, el){
+            var kodEl = el.querySelector('#rdKod');
             var t = el.querySelector('#rdNeden');
             var v = t.value.trim();
+            if(!kodEl.value){ GV.toast('Red nedeni kodu zorunludur', 'warn'); kodEl.focus(); return false; }
             if(v.length < 10){
               t.closest('.field').classList.add('is-invalid');
               GV.toast('Red gerekçesi zorunlu — en az 10 karakter', 'warn');
               t.focus();
               return false;
             }
-            reddet(v);
+            return uygula(adim.hedef, { karar:v }, { neden:kodEl.value, not:v }) ? undefined : false;
           } }
       ]
     });
+  }
+
+  /* Adım yürütücü: eksik zorunlu alan varsa kullanıcıyı forma yollar (bu
+     ekran alan yazmaz), gerekçe isteyen dal red modalına gider, kalanı
+     onay modalıyla yürür. */
+  function adimCalistir(a){
+    if(!a) return;
+    if(!a.izin){
+      GV.toast('Bu adımı yalnız şunlar yapabilir: ' + yetkiMetin(akisKural && akisKural.yetki), 'danger');
+      return;
+    }
+    if(a.eksik && a.eksik.length){
+      GV.toast('Şu alanlar dolu olmadan geçilemez: ' + a.eksik.map(alanAd).join(', ') +
+               ' — talebi düzenleyerek tamamlayın.', 'warn');
+      return;
+    }
+    if(a.hedef === 'Reddedildi' || a.hedef === 'İptal Edildi'){ redModal(a); return; }
+    onayModal(a);
   }
 
   /* =================================================================
@@ -274,8 +344,10 @@ document.addEventListener('gv:ready', function(){
   ];
   if(proje) phActions.push({ label:'Proje', icon:'i-briefcase', href:'app-proje-detay.html?id=' + proje.kod });
   if(sozlesme) phActions.push({ label:'Sözleşme', icon:'i-file-check', href:'app-sozlesme-detay.html?id=' + sozlesme.kod });
-  /* Ölü buton yasağı: yetki yoksa ya da talep karara bağlanmışsa buton HİÇ basılmaz */
-  if(canOnay && acik) phActions.push({ label:'Onayla', icon:'i-stamp', cls:'btn-acc', run:onayModal });
+  /* İş akışı düğmesi sayfa başlığına DEĞİL kayıt başlığına basılır (aşağıda):
+     ikisine birden basmak aynı aksiyonu iki kez göstermek olurdu. Etiket de
+     artık ekranda yazılmıyor, geçiş tablosundan (`kural.etiket`) geliyor —
+     “Onayla” yazısı her duruma değil, gerçekten onay olan adıma ait. */
 
   GV.pageHead({
     eyebrow:'Proje Yönetimi', title:'Değişiklik Talebi Detayı',
@@ -310,7 +382,19 @@ document.addEventListener('gv:ready', function(){
           ? (etkiNet ? F.money(etkiNet, kur) + ' (KDV hariç)' : 'Maliyet etkisi yok')
           : 'Tutar gizli') + '</span>' +
       '</div>' +
-    '</div></div>';
+    '</div>' +
+    /* İş akışı düğmeleri kaydın başlığında durur — uzun statü dropdown’ı yerine
+       yalnız YAPILABİLİR işlem butondur. `izin:false` adım sessizce ölü
+       bırakılmaz: devre dışı basılır ve kimin yapabileceği `title`de yazar. */
+    (adimlar.length
+      ? '<div class="ph-actions">' + adimlar.map(function(a, i){
+          return '<button type="button" class="btn ' + a.tone + '" data-adim="' + i + '"' +
+            (a.izin ? '' : ' disabled title="Bu işlemi yalnız şunlar yapabilir: ' +
+              esc(yetkiMetin(akisKural && akisKural.yetki)) + '"') +
+            '>' + ico(ADIM_IKON[a.hedef] || 'i-refresh') + ' ' + esc(a.etiket) + '</button>';
+        }).join('') + '</div>'
+      : '') +
+    '</div>';
 
   /* =================================================================
      SEKMELER
@@ -499,44 +583,87 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      3. ONAY AKIŞI — DB.approvals varsa oradan, yoksa talep alanlarından
      ================================================================= */
+  /* Zincir artık geçiş tablosunun SIRASINI yansıtır: onay tek makam değil,
+     iç onay → müşteri onayı → ticari onay şeklinde üç adımdır. Her adımın
+     durumu, kaydın bugünkü durumunun bu sıradaki yerinden okunur. */
+  var AKIS_SIRA = ['Taslak','Etki Analizi','İç Onay','Müşteri Onayı','Ticari Onay',
+                   'Onaylandı','Uygulama','Teslim','Kapandı'];
+  var suSira    = AKIS_SIRA.indexOf(d.durum);
+  var redEdildi = d.durum === 'Reddedildi' || d.durum === 'İptal Edildi';
+
+  function asamaDurum(asama){
+    /* Reddedilen talepte hangi adımda reddedildiği kayıtta YAZILI DEĞİL —
+       geçilmiş gibi göstermek uydurma olurdu, adımlar “Sırada” kalır. */
+    if(redEdildi) return 'Sırada';
+    var i = AKIS_SIRA.indexOf(asama);
+    if(suSira < 0) return 'Sırada';
+    return i < suSira ? 'Onaylandı' : i === suSira ? 'Bekliyor' : 'Sırada';
+  }
+  /* Adım tarihleri kayıtta tutulmuyor; yalnız onay kuyruğu kaydının tarihi
+     bilinir. Bilinmeyen tarih boş bırakılır (L-13). */
+  function asamaTarih(asama){
+    return asamaDurum(asama) === 'Onaylandı' ? (ony ? ony.tarih : null) : null;
+  }
+
   var zincir = [
     { rol:'Talebi ileten taraf', kisi:d.talep, tarih:d.tarih, durum:'Onaylandı',
       not:'Talep kaydı açıldı' },
-    { rol:'Proje yöneticisi değerlendirmesi', kisi:DB.empName(d.sorumlu),
-      tarih:d.durum === 'Değerlendiriliyor' ? null : (ony ? ony.tarih : d.tarih),
-      durum:d.durum === 'Değerlendiriliyor' ? 'Bekliyor' : 'Onaylandı',
-      not:d.kapsamIci ? 'Kapsam içi görüldü' : 'Kapsam dışı — onay makamına taşındı' },
-    { rol:'Onay makamı', kisi:ony ? DB.empName(ony.onaylayan) : null,
-      tarih:(d.durum === 'Onaylandı' || d.durum === 'Reddedildi') ? (ony ? ony.tarih : d.tarih) : null,
-      durum:d.durum === 'Onaylandı' ? 'Onaylandı'
-           : d.durum === 'Reddedildi' ? 'Reddedildi'
-           : d.durum === 'Onay bekliyor' ? 'Bekliyor' : 'Sırada',
+    { rol:'Etki analizi', kisi:DB.empName(d.sorumlu), tarih:asamaTarih('Etki Analizi'),
+      durum:asamaDurum('Etki Analizi'),
+      not:(d.etkiSure || d.etkiMaliyet)
+        ? 'Süre ve bedel etkisi yazıldı'
+        : 'Süre ve bedel etkisi henüz yazılmadı' },
+    { rol:'İç onay', kisi:DB.empName(d.sorumlu), tarih:asamaTarih('İç Onay'),
+      durum:asamaDurum('İç Onay'),
+      not:d.kapsamIci ? 'Kapsam içi görüldü' : 'Kapsam dışı — ticari onaya taşınır' },
+    { rol:'Müşteri onayı', kisi:musteri ? musteri.kisa : (proje ? proje.musteriAd : null),
+      tarih:asamaTarih('Müşteri Onayı'), durum:asamaDurum('Müşteri Onayı'),
+      not:'Müşteri tarafının kapsam ve bedel onayı' },
+    { rol:'Ticari onay', kisi:ony ? DB.empName(ony.onaylayan) : null,
+      tarih:asamaTarih('Ticari Onay'), durum:asamaDurum('Ticari Onay'),
+      not:d.kapsamIci ? 'Kapsam içi talep — ek bedel doğmaz' : 'Ek bedel ve zeyilname kararı' },
+    { rol:'Karar', kisi:ony ? DB.empName(ony.onaylayan) : null,
+      tarih:KARARLI.indexOf(d.durum) !== -1 ? (ony ? ony.tarih : d.tarih) : null,
+      durum:redEdildi ? d.durum
+           : ONAYLANMIS.indexOf(d.durum) !== -1 ? 'Onaylandı' : 'Sırada',
       not:d.karar && d.karar !== '—' ? d.karar : null }
   ];
 
-  var onayAksiyon = (canOnay && acik)
+  /* Aksiyonlar geçiş tablosundan gelir: yapılabilir adım yoksa buton basılmaz,
+     yetkisiz adım devre dışı basılır ve kimin yapabileceğini söyler (L-23). */
+  function onayBtn(id, adim, cls, ikon){
+    return '<button type="button" class="btn ' + cls + '" id="' + id + '"' +
+      (adim.izin ? '' : ' disabled title="Bu işlemi yalnız şunlar yapabilir: ' +
+        esc(yetkiMetin(akisKural && akisKural.yetki)) + '"') +
+      '>' + ico(ikon) + ' ' + esc(adim.etiket) + '</button>';
+  }
+  var onayAksiyon = (adimIleri || adimRed)
     ? '<div class="u-row u-mt-8">' +
-        '<button type="button" class="btn btn-acc" id="btnOnayla">' + ico('i-stamp') + ' Talebi onayla</button>' +
-        '<button type="button" class="btn btn-danger" id="btnReddet">' + ico('i-x-circle') + ' Talebi reddet</button>' +
+        (adimIleri ? onayBtn('btnOnayla', adimIleri, 'btn-acc', 'i-stamp') : '') +
+        (adimRed ? onayBtn('btnReddet', adimRed, 'btn-danger', 'i-x-circle') : '') +
       '</div>'
     : '';
 
   var onayDurumNot;
   if(!acik){
-    onayDurumNot = GV.notice({ tone:d.durum === 'Onaylandı' ? 'ok' : 'neutral',
-      icon:d.durum === 'Onaylandı' ? 'i-check-circle' : 'i-x-circle',
+    onayDurumNot = GV.notice({ tone:ONAYLANMIS.indexOf(d.durum) !== -1 ? 'ok' : 'neutral',
+      icon:ONAYLANMIS.indexOf(d.durum) !== -1 ? 'i-check-circle' : 'i-x-circle',
       title:'Talep karara bağlandı',
       text:d.kod + ' durumu “' + d.durum + '”. ' +
            (d.karar && d.karar !== '—' ? 'Karar: ' + d.karar + '. ' : '') +
-           'Karara bağlanmış talepte onay/red aksiyonu basılmaz.' });
-  } else if(!canOnay){
-    onayDurumNot = GV.notice({ tone:'neutral', icon:'i-lock', title:'Onay yetkiniz yok',
-      text:'Talep hâlâ “' + d.durum + '” durumunda ama rolünüzde onay yetkisi bulunmadığı için ' +
-           'onaylama ve reddetme aksiyonları gösterilmiyor.' });
+           'Karara bağlanmış talepte yalnız zincirin kalan adımları (uygulama · teslim · kapanış) yürür.' });
+  } else if(!adimIleri && !adimRed){
+    onayDurumNot = GV.notice({ tone:'neutral', icon:'i-lock', title:'Bu durumda yapılabilir adım yok',
+      text:'Talep “' + d.durum + '” durumunda ve geçiş tablosunda bu durumdan ileri bir adım tanımlı değil.' });
+  } else if(!(adimIleri && adimIleri.izin) && !(adimRed && adimRed.izin)){
+    onayDurumNot = GV.notice({ tone:'neutral', icon:'i-lock', title:'Bu adımı yürütme yetkiniz yok',
+      text:'Talep “' + d.durum + '” durumunda; bu adımı yalnız şunlar yürütebilir: ' +
+           yetkiMetin(akisKural && akisKural.yetki) + '.' });
   } else {
     onayDurumNot = GV.notice({ tone:'warn', icon:'i-hourglass', title:'Talep karar bekliyor',
       text:d.kod + ' ' + (beklemeGun != null ? beklemeGun + ' gündür ' : '') + '“' + d.durum +
-           '” durumunda. Onay ya da red kararı bu ekrandan verilir.' });
+           '” durumunda. Sıradaki adım: ' + (adimIleri ? '“' + adimIleri.etiket + '”' : 'yok') +
+           '. Karar bu ekrandan verilir.' });
   }
 
   var pOnay = '<div class="gc-body">' + onayDurumNot +
@@ -633,10 +760,12 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      6. SÖZLEŞME ETKİSİ — hesap ekranda AÇIK, maskeli
      ================================================================= */
-  var uygulandi = d.durum === 'Onaylandı';
+  /* Onay kararı alınmış olan HER durum (Onaylandı · Uygulama · Teslim · Kapandı)
+     sözleşme bedeline yansıma sorusunu doğurur — tek durum değil. */
+  var uygulandi = ONAYLANMIS.indexOf(d.durum) !== -1;
   var pSozlesme = '<div class="gc-body">' + finansNot +
     (sozlesme
-      ? (d.durum === 'Reddedildi'
+      ? (redEdildi
           ? GV.notice({ tone:'neutral', icon:'i-x-circle', title:'Talep reddedildi — sözleşme bedeli değişmez',
               text:d.kod + ' reddedildiği için ' + sozlesme.kod + ' bedeli olduğu gibi kalır. ' +
                    'Aşağıdaki hesap yalnız “onaylansaydı ne olurdu” projeksiyonudur.' })
@@ -813,8 +942,10 @@ document.addEventListener('gv:ready', function(){
      AKSİYONLAR — mount yenilendiği için dinleyici birikmez (L-16)
      ================================================================= */
   mount.addEventListener('click', function(e){
-    if(e.target.closest('#btnOnayla')) return onayModal();
-    if(e.target.closest('#btnReddet')) return redModal();
+    if(e.target.closest('#btnOnayla')) return adimCalistir(adimIleri);
+    if(e.target.closest('#btnReddet')) return adimCalistir(adimRed);
+    var b = e.target.closest('[data-adim]');
+    if(b) return adimCalistir(adimlar[+b.dataset.adim]);
   });
 });
 </script>

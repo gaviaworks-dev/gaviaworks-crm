@@ -135,6 +135,53 @@ document.addEventListener('gv:ready', function(){
   var acikTalep = GV.destek.acik(t);   /* REVİZE 09 — tek tanım domain.js'te */
 
   /* =================================================================
+     BEKLEME ÇİPİ (ADR-19) — bekleme bir DURUM DEĞİL, ikinci eksendir:
+     talep “Devam ediyor” olmayı sürdürür, yalnız bir şeyi bekler. Eskiden
+     bunun için `Müşteri bekleniyor` diye ayrı bir durum vardı ve talep
+     ilerlemeyi bırakmış görünüyordu. Rozet DURUMU söyler, çip NEYİ
+     BEKLEDİĞİNİ — dil görev ekseniyle birebir aynı (`app-gorev-detay.html`).
+     ================================================================= */
+  var beklemeCip = t.beklemeNedeni
+    ? '<span class="tag" title="Bekleme nedeni">' + ico('i-clock','ic-sm') +
+      esc(t.beklemeNedeni) + ' bekleniyor</span>'
+    : '';
+
+  /* =================================================================
+     İŞ AKIŞI — merkezî geçiş motoru (şartname §6.1 · DB.transitions.ticket)
+     Ekran durum YAZMAZ: yapılabilir adımları `GV.flow.adimlar` verir, geçişi
+     `GV.flow.gec` uygular, aktivite kaydını ve bakım kotası düşümünü de o
+     yapar. Eskiden bu ekranda hiç durum aksiyonu yoktu; talep kapatma yalnız
+     listeden, ara adımlar hiçbir yerden yürütülemiyordu.
+     ================================================================= */
+  var adimlar   = GV.flow ? GV.flow.adimlar('ticket', t.kod) : [];
+  var akisKural = GV.flow ? GV.flow.kural('ticket', t.durum) : null;
+
+  /* Hedef durum başına ikon — buton yazısı geçiş tablosundaki `etiket`ten gelir */
+  var ADIM_IKON = { 'Triage':'i-filter', 'Atandı':'i-user-plus', 'Devam ediyor':'i-play',
+                    'Çözüldü':'i-check', 'Müşteri Onayı':'i-stamp', 'Kapandı':'i-check-circle',
+                    'Yeniden Açıldı':'i-refresh' };
+  /* Geçiş tablosunun zorunlu alan anahtarı → kullanıcının gördüğü etiket */
+  var ALAN_AD = { sorumlu:'Sorumlu', oncelik:'Öncelik', cozumAciklama:'Çözüm açıklaması' };
+  function alanAd(k){ return ALAN_AD[k] || k; }
+  var ILISKI_AD = { sorumlu:'talebin sorumlusu', veren:'talebi açan', onaylayan:'onaylayan',
+                    kontrolEden:'kontrol eden' };
+  function yetkiAd(k){ return ILISKI_AD[k] || DB.roleName(k); }
+  function yetkiMetin(roller){ return (roller || []).map(yetkiAd).join(', '); }
+
+  /* Müşteri oturumunda yalnız YAPILABİLİR adım basılır: iç iş akışının
+     devre dışı düğmelerini portal kullanıcısına göstermek iç süreci sızdırır.
+     Personel oturumunda `izin:false` adım SESSİZCE ÖLÜ bırakılmaz (L-23):
+     devre dışı basılır ve kimin yapabileceği `title`de yazar. */
+  var gorunurAdim = icBlok ? adimlar : adimlar.filter(function(a){ return a.izin; });
+  var adimBtn = gorunurAdim.map(function(a){
+    var i = adimlar.indexOf(a);
+    return '<button type="button" class="btn ' + a.tone + '" data-adim="' + i + '"' +
+      (a.izin ? '' : ' disabled title="Bu işlemi yalnız şunlar yapabilir: ' +
+        esc(yetkiMetin(akisKural && akisKural.yetki)) + '"') +
+      '>' + ico(ADIM_IKON[a.hedef] || 'i-refresh') + ' ' + esc(a.etiket) + '</button>';
+  }).join('');
+
+  /* =================================================================
      SLA — components.md §9: iki eksenin KÖTÜSÜ
      tüketim = geçen / hedef · ≥1 İhlal edildi · ≥0,75 Risk altında · altı Zamanında
      ================================================================= */
@@ -384,7 +431,10 @@ document.addEventListener('gv:ready', function(){
       kod:kod, proje:opt.proje || null, baslik:opt.baslik,
       talep:'Müşteri', tarih:DB.today,
       etkiSure:opt.etkiSure, etkiMaliyet:opt.etkiMaliyet,
-      durum:'Değerlendiriliyor', kapsamIci:false, karar:null,
+      /* Değişiklik talebi sözlüğü şartnameye hizalandı (ADR): eski
+         `Değerlendiriliyor` → `Etki Analizi`. Süre ve maliyet etkisi
+         kullanıcıdan alındığı için kayıt doğrudan etki analizinde açılır. */
+      durum:'Etki Analizi', kapsamIci:false, karar:null,
       sorumlu:opt.sorumlu || t.sorumlu,
       destek:t.kod, aktif:true
     });
@@ -491,7 +541,7 @@ document.addEventListener('gv:ready', function(){
              GV.notice({ tone:'warn', title:'Süre ve maliyet etkisi TALEPTE YAZILI DEĞİL',
                text:'Destek kaydı bir revizyonun kaç saat ve kaç lira etkisi olacağını bilmiyor; ' +
                     'iki değer sizden alınır. Tahmin üretilseydi ölçüm gibi görünen bir sayı olurdu. ' +
-                    'Kayıt “Değerlendiriliyor” durumunda açılır ve ' + t.kod + ' talebine bağlanır.' }) +
+                    'Kayıt “Etki Analizi” durumunda açılır ve ' + t.kod + ' talebine bağlanır.' }) +
            '</div>' +
 
            /* --- SATIŞ FIRSATI --- */
@@ -536,7 +586,7 @@ document.addEventListener('gv:ready', function(){
                                       etkiMaliyet:crMal, sorumlu:el.querySelector('#dgCrSorumlu').value });
               donusumYenile();
               GV.result({ tone:'ok', title:'Revizyon talebi oluşturuldu',
-                text:crKod + ' “Değerlendiriliyor” durumunda açıldı ve ' + t.kod + ' talebine bağlandı.',
+                text:crKod + ' “Etki Analizi” durumunda açıldı ve ' + t.kod + ' talebine bağlandı.',
                 actions:[
                   { label:'Revizyonu aç', cls:'btn-acc', onClick:function(){
                       location.href = 'app-proje-degisiklik-detay.html?id=' + crKod; } },
@@ -635,7 +685,7 @@ document.addEventListener('gv:ready', function(){
   var head =
     '<div class="gv-rec-head"><div>' +
       '<div class="gv-rec-id"><span class="gv-rec-code">' + t.kod + '</span>' +
-        GV.badge(t.durum) + GV.pri(t.oncelik) + GV.badge(t.slaDurum) +
+        GV.badge(t.durum) + beklemeCip + GV.pri(t.oncelik) + GV.badge(t.slaDurum) +
         (t.ucretli ? '<span class="badge is-warn no-dot">Ücretli</span>' : '<span class="tag">Bakım paketi kapsamında</span>') +
         (t.aktif === false ? '<span class="tag">Pasif</span>' : '') + '</div>' +
       '<h1>' + esc(t.baslik) + '</h1>' +
@@ -650,7 +700,11 @@ document.addEventListener('gv:ready', function(){
           esc(proje.ad) + '</a></span>' : '') +
         '<span>' + ico('i-hourglass','ic-sm') + 'SLA ' + esc(t.sla) + '</span>' +
       '</div>' +
-    '</div></div>';
+    '</div>' +
+    /* İş akışı düğmeleri kaydın başlığında durur — “uzun statü dropdown’ı”
+       yerine yalnız YAPILABİLİR işlem butondur (şartname §6.1). */
+    (adimBtn ? '<div class="ph-actions">' + adimBtn + '</div>' : '') +
+    '</div>';
 
   /* =================================================================
      SEKMELER
@@ -695,7 +749,12 @@ document.addEventListener('gv:ready', function(){
       ['Kategori', '<span class="tag">' + esc(t.kategori) + '</span>'],
       ['Öncelik', GV.pri(t.oncelik)],
       ['Etki', '<span class="tag">' + esc(t.etki) + '</span>'],
-      ['Durum', GV.badge(t.durum)],
+      /* Durum ve bekleme AYNI SATIRDA, ayrı iki işaret olarak durur — bekleme
+         için ayrı bölüm ya da sekme açılmaz; bekleme mevcut durumun niteliğidir. */
+      ['Durum', GV.badge(t.durum) + (beklemeCip ? ' ' + beklemeCip : '')],
+      ['Bekleme nedeni', t.beklemeNedeni
+        ? esc(t.beklemeNedeni) + ' <span class="cell-sub">durum “' + esc(t.durum) + '” olarak kalır</span>'
+        : '<span class="u-faint">Talep bir şey beklemiyor</span>'],
       ['Geliş kanalı', t.kanal
         ? '<span class="tag">' + esc(t.kanal) + '</span>'
         : '<span class="u-faint">Kanal kaydı yok</span>'],
@@ -800,7 +859,7 @@ document.addEventListener('gv:ready', function(){
 
   var eskalasyonVar = P && P.eskalasyon && P.eskalasyon !== 'Yok';
   var eskalasyonDurum = !acikTalep
-    ? GV.badge('Kapatıldı, eskalasyon gerekmiyor', 'is-neutral')
+    ? GV.badge('Kapandı, eskalasyon gerekmiyor', 'is-neutral')
     : slaHesap === 'İhlal edildi'
       ? GV.badge('Eskalasyon gerekli', 'is-danger')
       : slaHesap === 'Risk altında'
@@ -1185,7 +1244,7 @@ document.addEventListener('gv:ready', function(){
       ['Öncelik', GV.pri(t.oncelik)],
       ['Açılış zamanı', '<span class="cell-date">' + F.dt(t.acilis) + '</span>'],
       ['Atanan personel', GV.user(t.sorumlu, { sm:true })],
-      ['Talep durumu', GV.badge(t.durum)],
+      ['Talep durumu', GV.badge(t.durum) + (beklemeCip ? ' ' + beklemeCip : '')],
       ['SLA durumu', GV.badge(slaHesap)],
       ['Memnuniyet', t.memnuniyet != null ? puanBadge(t.memnuniyet) : '<span class="u-faint">Yanıt yok</span>']
     ]) + '</div></section>' +
@@ -1252,6 +1311,120 @@ document.addEventListener('gv:ready', function(){
   /* =================================================================
      AKSİYONLAR
      ================================================================= */
+  /* ---- İŞ AKIŞI ADIMLARI — tek mutasyon noktası `GV.flow.gec` -------
+     Ekran hedefi kendisi YAZMAZ; motor geçiş tablosunu uygular (hedef geçerli
+     mi · yetki · zorunlu alan · kapı) ve aktivite kaydını da o yazar.
+     Başarısızlık dürüstçe bildirilir: “kapı” redleri (bakım kotası aşımı,
+     ADR-10) uyarı tonuyla, kuralın kendi metniyle basılır. */
+  function hataMetni(res){
+    if(!res) return 'Geçiş yapılamadı';
+    if(res.why === 'yetki')   return 'Bu geçişi yalnız şunlar yapabilir: ' + yetkiMetin(res.roller);
+    if(res.why === 'zorunlu') return 'Şu alanlar dolu olmadan geçilemez: ' + res.eksik.map(alanAd).join(', ');
+    if(res.why === 'kapi')    return res.mesaj;
+    if(res.why === 'gerekce') return res.mesaj || 'Bu işlem için neden kodu ve açıklama zorunludur';
+    return res.mesaj || res.why;
+  }
+
+  function uygula(hedef, ek, opts){
+    var r = GV.flow.gec('ticket', t.kod, hedef, ek, opts || {});
+    if(!r || !r.ok){
+      GV.toast(hataMetni(r), (r && r.why === 'kapi') ? 'warn' : 'danger');
+      return false;
+    }
+    var kimler = (r.bildirim || []).map(yetkiAd);
+    GV.toast(t.kod + ' “' + r.yeni + '” oldu' +
+      (kimler.length ? ' · bildirim: ' + kimler.join(', ') : ''), 'ok');
+    setTimeout(function(){ GV.refresh(); }, 700);
+    return true;
+  }
+
+  /* Eksik zorunlu alanı ve/veya neden kodunu SORAN modal. Kullanıcıyı “önce
+     kaydı düzenle” diye başka ekrana yollamak yerine tam o alan burada
+     istenir; değerler `ek`, neden kodu `opts.neden` olarak motora geçer. */
+  var ADIM_KISI = DB.employees.filter(function(e){ return e.aktif !== false; });
+  function alanGirdi(alan){
+    var id = 'ek_' + alan, lbl = alanAd(alan);
+    if(alan === 'sorumlu'){
+      return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label><select id="' + id + '">' +
+        '<option value="">Seçin</option>' +
+        ADIM_KISI.map(function(e){
+          return '<option value="' + esc(e.kod) + '"' + (e.kod === t.sorumlu ? ' selected' : '') + '>' +
+                 esc(e.ad + ' · ' + e.pozisyon) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+    if(alan === 'oncelik'){
+      return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label><select id="' + id + '">' +
+        '<option value="">Seçin</option>' +
+        DB.priorities.map(function(o){
+          return '<option value="' + esc(o) + '"' + (o === t.oncelik ? ' selected' : '') + '>' + esc(o) + '</option>';
+        }).join('') + '</select></div>';
+    }
+    if(alan === 'cozumAciklama'){
+      /* Çözüldü adımının zorunlu alanı. Kullanıcıyı “önce kaydı düzenle” diye
+         forma yollamak yerine metin tam burada istenir; motor onu kayda yazar. */
+      return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label>' +
+        '<textarea id="' + id + '" rows="3" placeholder="Sorun nasıl çözüldü?">' +
+        esc(t.cozumAciklama || '') + '</textarea></div>';
+    }
+    return '<div class="field f-col-12"><label for="' + id + '">' + lbl + '</label>' +
+      '<input type="text" class="inp" id="' + id + '" value="' + esc(t[alan] == null ? '' : t[alan]) + '"></div>';
+  }
+
+  function nedenGirdi(){
+    return '<div class="field f-col-12"><label for="adimNeden">Neden kodu<span class="req">*</span></label>' +
+      '<select id="adimNeden"><option value="">Neden seçin</option>' +
+      (DB.reasonCodes || []).map(function(r){
+        return '<option value="' + esc(r.kod) + '">' + esc(r.ad) + '</option>'; }).join('') +
+      '</select><div class="f-hint">Şartname [2.0.6] gerekçeyi neden KODU + açıklama olarak ister; ' +
+      'serbest metin tek başına raporlanamaz.</div></div>';
+  }
+
+  function adimModal(a){
+    var gerekceVar = !!a.gerekce;
+    var eksik = a.eksik || [];
+    GV.modal({
+      title:a.etiket, text:t.kod + ' · “' + t.durum + '” → “' + a.hedef + '”',
+      icon:ADIM_IKON[a.hedef] || 'i-refresh', size:'sm',
+      body:'<div class="gv-fields">' + eksik.map(alanGirdi).join('') +
+        (gerekceVar ? nedenGirdi() : '') + '</div>' +
+        '<div class="field u-mt-4"><label for="adimNot">Açıklama' + (gerekceVar ? '<span class="req">*</span>' : '') + '</label>' +
+        '<textarea id="adimNot" rows="2" placeholder="Geçiş gerekçesi"></textarea></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:a.etiket, cls:a.tone === 'btn-line' ? 'btn-acc' : a.tone, onClick:function(close, el){
+            var ek = {}, bos = [];
+            eksik.forEach(function(alan){
+              var v = (el.querySelector('#ek_' + alan).value || '').trim();
+              if(!v) bos.push(alanAd(alan)); else ek[alan] = v;
+            });
+            var neden = gerekceVar ? (el.querySelector('#adimNeden').value || '') : null;
+            var not   = el.querySelector('#adimNot').value.trim();
+            if(gerekceVar && !neden) bos.push('Neden kodu');
+            if(gerekceVar && !not)   bos.push('Açıklama');
+            if(bos.length){ GV.toast(bos.join(', ') + ' zorunludur', 'danger'); return false; }
+            return uygula(a.hedef, Object.keys(ek).length ? ek : null,
+                          { neden:neden || null, not:not || null }) ? undefined : false;
+          } }
+      ]
+    });
+  }
+
+  function adimCalistir(a){
+    if(!a) return;
+    if((a.eksik && a.eksik.length) || a.gerekce){ adimModal(a); return; }
+    /* Kapatma geri dönüşü zor bir adımdır: onay sorulur. İleri akışın normal
+       adımı (Triage Et · Ata · Çalışmaya Başla) tek tıkla ilerler. */
+    if(a.hedef !== 'Kapandı'){ uygula(a.hedef, null, null); return; }
+    GV.confirm({ title:a.etiket, tone:'warn', okLabel:a.etiket,
+      text:t.kod + ' talebi “' + t.durum + '” durumundan “' + a.hedef + '” durumuna geçecek' +
+           (t.ucretli ? '.' : ' ve harcanan efor (' + F.hours(t.harcananSure) + ') bakım paketi kotasından düşülecek.')
+    }).then(function(ok){ if(ok) uygula(a.hedef, null, null); });
+  }
+
+  Array.prototype.forEach.call(mount.querySelectorAll('[data-adim]'), function(b){
+    b.addEventListener('click', function(){ adimCalistir(adimlar[+b.dataset.adim]); });
+  });
+
   mount.addEventListener('click', function(e){
     if(e.target.closest('#btnDonusturBos')) donusturModal();
   });
