@@ -398,7 +398,8 @@ document.addEventListener('gv:ready', function(){
         text:'Kaydettiğinizde sıradaki personel numarası atanır (şu an en yüksek numara ' +
              DB.employees.length + ' kayıtta), departman adı seçilen departmandan yazılır, ' +
              'seçilen departmanın kadro sayacı yeniden sayılır, aktivite geçmişine “Personel ' +
-             'kaydı oluşturuldu” satırı düşülür ve personel listesine dönülür. Haftalık doluluk ' +
+             'kaydı oluşturuldu” satırı düşülür ve yeni açılan personel kartına gidilir. ' +
+             'Haftalık doluluk ' +
              '0 başlar: kapasite planına eklenene kadar yük hesabı yapılmaz — ölçüm, ' +
              toplamPersonel + ' personelin ' + kapasiteli + ' tanesinin kapasite kaydı var.',
         actions:[{ label:'Personel listesi', href:'app-personel.html' },
@@ -432,7 +433,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var sections = [];
 
-  sections.push({ title:'Kimlik',
+  sections.push({ tab:'kisisel', title:'Kimlik',
     desc:'Personelin kişisel künyesi. Personel numarası kaydederken sistem tarafından atanır, ' +
          'elle girilmez. Avatar için ayrı bir fotoğraf alanı yok; baş harfler bu görevi görür.',
     fields:[
@@ -476,7 +477,7 @@ document.addEventListener('gv:ready', function(){
         hint:'Uzaktan çalışanlarda “Uzaktan · şehir” biçimi kullanılır.' }
     ]});
 
-  sections.push({ title:'Organizasyon',
+  sections.push({ tab:'gorev', title:'Organizasyon',
     desc:'Personelin unvanı, bağlı olduğu departman, yöneticisi ve sistemdeki rolleri. ' +
          'Departman yöneticisinin o departmanın kadrosunda olması zorunlu değildir — ölçüm: ' +
          DB.departments.length + ' departmanın ' + yonKendiDep + ' tanesinde yönetici kendi ' +
@@ -523,7 +524,7 @@ document.addEventListener('gv:ready', function(){
              'Bu alanın kendisi veriye yazılmaz, ürettiği liste yazılır.' }
     ]});
 
-  sections.push({ title:'Çalışma ve özlük',
+  sections.push({ tab:'gorev', title:'Çalışma ve özlük',
     desc:'Çalışma biçimi, sözleşme türü, işe giriş ve izin bakiyesi. Haftalık doluluk bu formda ' +
          'yer almaz: kapasite planından okunur, elle yazılırsa iki eksen ayrışır.',
     fields:[
@@ -591,7 +592,7 @@ document.addEventListener('gv:ready', function(){
   /* Ücret — alan bazlı yetki: 'maas' yetkisi yoksa bu bölüm HİÇ basılmaz.
      Basılmadığında kaydet akışı da bu iki alana dokunmaz. */
   if(canMaas){
-    sections.push({ title:'Ücret',
+    sections.push({ tab:'sgk', title:'Ücret',
       desc:'Aylık maaş ve saatlik ücret aynı anda dolmaz: kadrolu personelde aylık maaş, ' +
            'proje bazlı çalışanda saatlik ücret yazılır. Ölçüm: ' + toplamPersonel +
            ' kaydın ' + ucretTek + ' tanesinde ikisinden yalnız biri dolu.',
@@ -619,7 +620,7 @@ document.addEventListener('gv:ready', function(){
       ]});
   }
 
-  sections.push({ title:'İletişim',
+  sections.push({ tab:'iletisim', title:'İletişim',
     desc:'Kurumsal iletişim bilgileri ve acil durumda aranacak kişi. E-posta ve telefon ' +
          'sistemde tekildir.',
     fields:[
@@ -655,7 +656,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Yetkinlik ve uzmanlık',
+  sections.push({ tab:'yetkinlik', title:'Yetkinlik ve uzmanlık',
     desc:'Üç liste de virgülle ayrılarak girilir. Personel listesindeki hızlı arama yetkinlik ve ' +
          'teknoloji alanlarını da tarar, bu yüzden değerler kısa ve tekil yazılır.',
     fields:[
@@ -676,7 +677,7 @@ document.addEventListener('gv:ready', function(){
         hint:'Geçerli sertifikalar; virgülle ayrılır. Eğitim kayıtlarından ayrı bir alandır.' }
     ]});
 
-  sections.push({ title:'Kayıt durumu',
+  sections.push({ tab:'gorev', title:'Kayıt durumu',
     desc:'Pasife alınan personel listelerin varsayılan görünümünden düşer; görev, izin, zimmet ' +
          've performans kayıtları silinmez.',
     fields:[
@@ -703,8 +704,90 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* =================================================================
+     SEKMELER — şartname [3.1.x] bu formu REFERANS ilan ediyor ve yedi
+     başlık sayıyor. Yalnız bu formda GERÇEKTEN karşılığı olan başlıklar
+     sekme olur; olmayan başlık uydurulmaz (boş panel = ölü kontrol):
+
+       Kişisel            → Kimlik
+       İletişim           → İletişim
+       Görev & Departman  → Organizasyon + Çalışma ve özlük + Kayıt durumu
+       SGK & Maaş         → Ücret — YALNIZ 'maas' yetkisi varsa. Yetkisiz
+                            rolde bölüm hiç basılmıyor, o yüzden sekme de
+                            listeye eklenmiyor.
+       Evrak · Zimmet · İzin-Avans-Rapor → karşılığı YOK. Zimmet, izin ve
+                            doküman kendi koleksiyonlarında tutulur; bu
+                            form yalnız personel kaydının kendisini yazar
+                            (yukarıdaki kapsam notu bunu söylüyor).
+
+     "Yetkinlik" şartname başlıklarında geçmez ama formda bölüm olarak
+     vardır; sekmesiz bölüm bırakmamak için kendi sekmesini alır.
+     Zorunlu alanların çoğu (5 adet) ilk sekmededir — normal akış orada biter.
+     ================================================================= */
+  var tabs = [
+    { key:'kisisel',  label:'Kişisel',           icon:'i-user' },
+    { key:'iletisim', label:'İletişim',          icon:'i-phone' },
+    { key:'gorev',    label:'Görev & Departman', icon:'i-briefcase' }
+  ];
+  if(canMaas) tabs.push({ key:'sgk', label:'SGK & Maaş', icon:'i-wallet' });
+  tabs.push({ key:'yetkinlik', label:'Yetkinlik', icon:'i-award' });
+
   var form = GV.form({
-    mount:'#formMount', id:'personel', record:formRec, sections:sections
+    mount:'#formMount', id:'personel', record:formRec, sections:sections, tabs:tabs,
+
+    /* Sağ bağlam paneli — girilen değerlerden TÜREYEN, kaydetmeden önce
+       görülmesi gereken özet: baş harf önizlemesi, seçilen departmanın
+       kadro sayacının ne olacağı, giriş tarihinden hesaplanan kıdem ve
+       ücret ekseninin hangi tarafının dolu olduğu. Her tuş vuruşunda
+       çağrılır; içinde DB üzerinde tam tarama ya da dinleyici yok. */
+    aside:function(v){
+      var out = '';
+      var ad = String(v.ad || '').trim();
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-user',
+        title:ad || (duzenle ? kayit.ad : 'Yeni personel kaydı'),
+        text:(v.pozisyon ? String(v.pozisyon) : 'Unvan girilmedi') +
+             (v.rol ? ' · ' + DB.roleName(v.rol) : '') +
+             (ad ? ' · baş harfler ' + basHarf(ad) : '') });
+
+      var d = v.dep ? DB.dep(v.dep) : null;
+      if(d){
+        var kadro = kadroSayisi(d.kod);
+        out += GV.notice({
+          tone:'info', icon:'i-building', title:d.ad + ' · ' + d.kod,
+          text:'Yönetici ' + DB.empName(d.yonetici) + ' · kadro ' + kadro +
+               ((duzenle && kayit.dep === d.kod)
+                 ? ' (bu kayıt dahil, sayaç değişmez)'
+                 : ' · kaydedince ' + (kadro + 1)) +
+               (v.yonetici ? ' · yöneticisi ' + DB.empName(v.yonetici)
+                           : ' · yöneticisi yok (en üst kademe)') });
+      }
+
+      if(v.girisTarihi){
+        var g = -F.days(v.girisTarihi);
+        var yil = Math.floor(g / 365), ay = Math.floor((g % 365) / 30.44);
+        out += GV.notice({
+          tone:g < 0 ? 'warn' : 'neutral', icon:'i-calendar',
+          title:g < 0 ? 'İşe giriş ileri tarihte' : 'Kıdem',
+          text:g < 0
+            ? F.date(v.girisTarihi) + ' bugünden (' + F.date(DB.today) + ') ileride — kıdem eksiye düşer.'
+            : (yil ? yil + ' yıl ' : '') + ay + ' ay · ' + F.num(g) + ' gün' });
+      }
+
+      if(canMaas){
+        var m = Number(v.maas || 0), s = Number(v.saatlikUcret || 0);
+        out += GV.notice({
+          tone:(m > 0 && s > 0) || (!m && !s) ? 'warn' : 'ok', icon:'i-wallet',
+          title:'Ücret ekseni',
+          text:(m > 0 && s > 0)
+            ? 'Aylık maaş ve saatlik ücret aynı anda dolu — biri 0 olmalı.'
+            : m > 0 ? F.money(m) + ' aylık brüt · yıllık ' + F.money(m * 12)
+            : s > 0 ? F.money(s) + ' saatlik brüt · 160 saatlik ayda ' + F.money(s * 160)
+            : 'Aylık maaş ya da saatlik ücretten biri girilmelidir.' });
+      }
+      return out;
+    }
   });
 
   /* =================================================================
@@ -977,8 +1060,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-personel.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden
+       yükleme mutasyonu siler. Hedefi GV.afterSave seçer: personel kartı
+       yayında ve yetki varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu
+       yüzden düzenleme yolunda değişken vardır ama değeri yoktur) —
+       düzenlemede kaydın kendi numarası kullanılır.
+       Bu form personel kaydının kendisinden başka kayıt üretmiyor (zimmet,
+       izin, kapasite kendi ekranlarından açılır), bu yüzden alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-personel-detay.html',
+      liste: 'app-personel.html'
+    });
   }
 
   GV.pageHead({
