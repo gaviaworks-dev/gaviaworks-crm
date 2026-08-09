@@ -332,7 +332,7 @@ document.addEventListener('gv:ready', function(){
     ust += '<section class="gv-card"><div class="gc-body">' +
       GV.notice({ tone:'info', title:'Yeni toplantı kaydı oluşturuluyor',
         text:'Kaydettiğinizde sıradaki toplantı kodu atanır, aktivite geçmişine “Toplantı kaydı ' +
-             'oluşturuldu” satırı düşer ve toplantı listesine dönülür. Katılımcılara davet gönderme, ' +
+             'oluşturuldu” satırı düşer ve oluşturulan toplantının kartı açılır. Katılımcılara davet gönderme, ' +
              'takvim (ICS) bağlantısı ve online toplantı bağlantısı üretme bu formun kapsamı ' +
              'dışındadır; yer alanı serbest metindir. Ölçüm: sistemde ' + toplamToplanti +
              ' toplantı kayıtlı — ' + planliSayi + ' planlı, ' + tamamSayi + ' tamamlanmış, ' +
@@ -403,7 +403,7 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var sections = [];
 
-  sections.push({ title:'Toplantı kimliği',
+  sections.push({ tab:'kimlik', title:'Toplantı kimliği',
     desc:'Toplantının başlığı, türü ve durumu. Tür, listenin sekmelerini ve filtresini besler; ' +
          'toplantı kodu kaydederken sistem tarafından atanır.',
     fields:[
@@ -437,7 +437,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Zaman ve yer',
+  sections.push({ tab:'kimlik', title:'Zaman ve yer',
     desc:'Başlangıç günü, saati ve süresi. Bitiş saati süreden hesaplanır, ayrı alan olarak tutulmaz.',
     fields:[
       { key:'gun', label:'Tarih', type:'date', required:true, cols:4,
@@ -476,7 +476,7 @@ document.addEventListener('gv:ready', function(){
              YERLER.join(' · ') + '.' }
     ]});
 
-  sections.push({ title:'Bağlam',
+  sections.push({ tab:'baglam', title:'Bağlam',
     desc:'Toplantının bağlı olduğu müşteri ve proje. Müşteri ve proje toplantısında bağ zorunludur; ' +
          'iç toplantılarda (departman, personel, satın alma) bağ tutulmaz.',
     fields:[
@@ -545,12 +545,12 @@ document.addEventListener('gv:ready', function(){
       return '';
     } });
 
-  sections.push({ title:'Katılımcılar',
+  sections.push({ tab:'katilimci', title:'Katılımcılar',
     desc:'Personel katılımcılar onay kutusuyla seçilir (' + DB.employees.length + ' personel). Kişi ' +
          'bazında katılım durumu (katıldı / mazeretli) kayıtta tutulmaz.',
     fields:katFields });
 
-  sections.push({ title:'Gündem ve not',
+  sections.push({ tab:'gundem', title:'Gündem ve not',
     desc:'Gündem maddeleri toplantı öncesinde, not ise toplantı sonrasında yazılır. Not alanı yalnız ' +
          'tamamlanmış toplantılarda tutulur.',
     fields:[
@@ -580,7 +580,7 @@ document.addEventListener('gv:ready', function(){
         } }
     ]});
 
-  sections.push({ title:'Kayıt durumu',
+  sections.push({ tab:'kayit', title:'Kayıt durumu',
     desc:'Kayıt durumu arşiv eksenidir; toplantı durumundan (planlı / tamamlandı / iptal) ayrı bir alandır.',
     fields:[
       { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
@@ -599,8 +599,25 @@ document.addEventListener('gv:ready', function(){
   var zorunlu = [];
   sections.forEach(function(s){ (s.fields || []).forEach(function(f){ if(f.required) zorunlu.push(f.label); }); });
 
+  /* Sekme şeridi — altı bölüm beş sekmeye dağılır. Zorunlu alanların dokuzundan
+     yedisi (başlık, tür, durum, tarih, saat, süre, yer) ilk sekmede toplanır ki
+     normal akış ilk panelde bitsin; kalan iki zorunlu kural katılımcı ve gündem
+     sekmesindedir. Yetkiye bağlı gizlenen bölüm yok — bu formda alan bazlı kapı
+     bulunmuyor, kapı yalnız ekle / düzenle ekseninde ve form kurulmadan önce.
+     Sağ bağlam paneli (cfg.aside) KURULMADI: sayfa aynı işi yapan canlı
+     “Plan Özeti” kartını zaten kuruyor (#planOzet) — çakışma uyarısı, zaman
+     aralığı ve katılımcı sayacı orada her tuş vuruşunda yeniden çiziliyor.
+     İkinci bir panel aynı hesabı iki yerde tutardı. */
+  var tabs = [
+    { key:'kimlik',    label:'Kimlik ve zaman', icon:'i-calendar' },
+    { key:'baglam',    label:'Bağlam',          icon:'i-building' },
+    { key:'katilimci', label:'Katılımcılar',    icon:'i-users' },
+    { key:'gundem',    label:'Gündem ve not',   icon:'i-list' },
+    { key:'kayit',     label:'Kayıt durumu',    icon:'i-settings' }
+  ];
+
   var form = GV.form({
-    mount:'#formMount', id:'toplanti', record:formRec, sections:sections
+    mount:'#formMount', id:'toplanti', record:formRec, sections:sections, tabs:tabs
   });
 
   /* =================================================================
@@ -863,8 +880,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-toplanti.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden yükleme
+       mutasyonu siler. Hedefi GV.afterSave seçer: toplantı kartı yayında ve yetki
+       varsa detaya, yoksa listeye ([3.1.16]).
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, bu yüzden
+       düzenleme yolunda değişken vardır ama değeri yoktur) — düzenlemede kaydın
+       kendi numarası kullanılır.
+       Bu form toplantı kaydından başka kayıt üretmiyor: karar kaydı yalnız karar
+       ekranından açılır, davet ve takvim bağlantısı kapsam dışı — alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      detay: 'app-toplanti-detay.html',
+      liste: 'app-toplanti.html'
+    });
   }
 
   function kaydet(){

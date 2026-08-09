@@ -547,7 +547,7 @@ document.addEventListener('gv:ready', function(){
            tamamKayit + ' tamamlanmış, ' + acikKayit + ' açık dönem.' });
   }
 
-  sections.push({ title:'Değerlendirilen personel ve dönem',
+  sections.push({ tab:'kimlik', title:'Değerlendirilen personel ve dönem',
     desc:'Kayıt kodu personel ve dönemden üretilir, elle girilmez. Bir personelin bir dönemde yalnız ' +
          'bir değerlendirmesi olur.' +
          (canOnay ? '' : ' Dönemi kapatma yetkisi rolünüzde tanımlı olmadığı için durum alanı forma ' +
@@ -583,14 +583,14 @@ document.addEventListener('gv:ready', function(){
     );
   }
 
-  sections.push({ title:'Değerlendirme puanları',
+  sections.push({ tab:'puan', title:'Değerlendirme puanları',
     desc:'Üç değerlendirmenin ortalaması genel puanı verir; genel puan elle girilmez, aşağıdaki kartta ' +
          'hesaplanır ve tek başına bir karara çevrilmez.' +
          (canOnay ? '' : ' Yönetici ve proje yöneticisi puanı onay yetkisi isteyen karar alanlarıdır; ' +
                          'rolünüzde bu yetki tanımlı olmadığı için forma basılmadı.'),
     fields:puanAlanlari });
 
-  sections.push({ title:'Yetkinlik puanları',
+  sections.push({ tab:'yetkinlik', title:'Yetkinlik puanları',
     desc:'Dönem içindeki davranış ve yetkinlik gözlemleri. Boş bırakılan yetkinlik ortalamaya girmez; ' +
          'dönem “Tamamlandı” olarak kapatılıyorsa hepsi doldurulur.',
     fields:[
@@ -608,7 +608,7 @@ document.addEventListener('gv:ready', function(){
         validate:puanDogrula('Müşteri geri bildirimi') }
     ]});
 
-  sections.push({ title:'Dönem çıktıları — görev ekseni',
+  sections.push({ tab:'cikti', title:'Dönem çıktıları — görev ekseni',
     desc:'Görev sayısı, zamanında teslim ve revizyon oranı elle girilir: görev kayıtlarında çeyrek dönem ' +
          'ekseni yok ve kayıtlı görevler bir dönemin tamamını kapsamıyor. Ölçülen görev kesiti aşağıdaki ' +
          'karşılaştırma kartında ayrıca gösterilir.',
@@ -672,12 +672,14 @@ document.addEventListener('gv:ready', function(){
       } }
   );
 
-  sections.push({ title:'Eğitim ihtiyacı ve gelişim planı',
+  sections.push({ tab:'gelisim', title:'Eğitim ihtiyacı ve gelişim planı',
     desc:'İşaretlenen konular personelin eğitim ihtiyacı olarak kaydedilir ve performans listesinde ' +
          '“Eğitim İhtiyacı Olanlar” sekmesine düşer. Kayıt eğitim planı ya da eğitim kaydı üretmez.',
     fields:egitimAlanlari });
 
-  sections.push({ title:'Kayıt durumu',
+  /* Arşiv ekseni ilk sekmede, dönem ekseninin (durum alanı) hemen altında durur:
+     iki eksen ayrı alandır ve ayrımın görünmesi için aynı panelde tutulur. */
+  sections.push({ tab:'kimlik', title:'Kayıt durumu',
     desc:'Değerlendirme durumu dönem eksenidir, kayıt durumu ise arşiv eksenidir; ikisi ayrı alandır.',
     fields:[
       { key:'aktif', label:'Kayıt durumu', type:'switch', cols:12,
@@ -692,8 +694,93 @@ document.addEventListener('gv:ready', function(){
     (s.fields || []).forEach(function(f){ if(f.required) zorunluSayisi++; });
   });
 
+  /* Sekme şeridi — altı bölüm beş panele dağılır. Zorunlu alanların üçü de
+     (personel, dönem, durum) ilk sekmededir; normal akış orada biter.
+     Yetkiye bağlı gizlenen alanlar bölümün tamamını götürmüyor: onay yetkisi
+     olmayan rolde “Değerlendirme puanları” bölümü öz değerlendirme ve kalite
+     sonucuyla ayakta kalır, bu yüzden koşullu sekme yok. */
+  var tabs = [
+    { key:'kimlik',    label:'Personel & Dönem',       icon:'i-user' },
+    { key:'puan',      label:'Değerlendirme Puanları', icon:'i-award' },
+    { key:'yetkinlik', label:'Yetkinlik',              icon:'i-target' },
+    { key:'cikti',     label:'Dönem Çıktıları',        icon:'i-tasks' },
+    { key:'gelisim',   label:'Eğitim & Gelişim',       icon:'i-graduation' }
+  ];
+
   var form = GV.form({
-    mount:'#formMount', id:'performans', record:formRec, sections:sections
+    mount:'#formMount', id:'performans', record:formRec, sections:sections, tabs:tabs,
+
+    /* Sağ bağlam paneli — sekmeler girilen puanları ayrı panellere dağıttığı
+       için türetilen genel puan artık tek bir panelden görünmüyor. Panel her
+       sekmede aynı kalır ve yalnız TÜREYEN değerleri gösterir: seçilen
+       personelin künyesi, üç değerlendirmenin ortalaması, yetkinlik
+       ortalaması, dönem çakışması ve atanacak kod. İçinde döngü, DB üzerinde
+       tam tarama ya da dinleyici yok; sayfanın altındaki üç ölçüm kartı
+       (puan · görev ekseni · gelişim) olduğu gibi kalır, bu panel onların
+       yerine geçmez, sekme gezerken görünür kalan çekirdeği taşır. */
+    aside:function(v){
+      var oz  = okunanPuan(v, 'ozDegerlendirme');
+      var yon = okunanPuan(v, 'yoneticiDegerlendirme');
+      var pm  = okunanPuan(v, 'pmDegerlendirme');
+      var genel = ort([oz, yon, pm]);
+      var girilen = [oz, yon, pm].filter(function(x){ return x != null; }).length;
+      var yetkinlikOrt = ort(['problemCozme','teknikGelisim','ekipCalismasi','iletisim','musteriGeriBildirim']
+        .map(function(k){ return okunanPuan(v, k); }));
+      var empK = v.personel ? (DB.emp(v.personel) || null) : null;
+
+      var out = '';
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-user',
+        title:empK ? DB.empName(v.personel) : 'Personel seçilmedi',
+        text:(empK
+               ? (empK.pozisyon || 'Unvan yazılmamış') + ' · ' + DB.depName(empK.dep) +
+                 ' · yöneticisi ' + (empK.yonetici ? DB.empName(empK.yonetici) : 'tanımlı değil')
+               : 'Değerlendirilecek kişi ilk sekmeden seçilir.') +
+             ' · Dönem ' + (metin(v.donem) || 'seçilmedi') +
+             ' · ' + (durumOf(v) === 'Açık' ? 'Bekliyor' : 'Tamamlandı') });
+
+      out += GV.notice({
+        tone:genel == null ? 'neutral' : 'info',
+        icon:genel == null ? 'i-info' : 'i-award',
+        title:genel == null ? 'Genel puan henüz hesaplanamıyor'
+                            : 'Genel puan ' + bir(genel) + ' / ' + PUAN_MAX,
+        text:(genel == null
+               ? 'Öz değerlendirme, yönetici ve proje yöneticisi puanlarından en az biri girilmeden ' +
+                 'genel puan hesaplanmaz. Girilen puan: ' + girilen + ' / 3.'
+               : girilen + ' değerlendirmenin ortalaması' +
+                 (sirketOrt == null ? ''
+                   : ' · kayıtlı ortalama ' + bir(sirketOrt) + ' / ' + PUAN_MAX +
+                     ' (' + (genel > sirketOrt ? 'üstünde' : genel < sirketOrt ? 'altında' : 'aynı') + ')') +
+                 '. Bu sayı bir karar değildir.') +
+             ' Yetkinlik ortalaması: ' +
+             (yetkinlikOrt == null ? 'hesaplanamadı' : bir(yetkinlikOrt) + ' / ' + PUAN_MAX) + '.' });
+
+      var carpisan = (v.personel && v.donem)
+        ? ayniDonemKaydi(v.personel, v.donem, duzenle ? kayit.kod : null) : null;
+      if(carpisan){
+        out += GV.notice({
+          tone:'warn', icon:'i-alert', title:'Bu dönem zaten değerlendirilmiş',
+          text:DB.empName(v.personel) + ' için ' + v.donem + ' dönemi ' + carpisan.kod +
+               ' koduyla açılmış. Bir personelin bir dönemde tek değerlendirmesi olur.' });
+      }
+
+      out += GV.notice({
+        tone:'neutral', icon:'i-tag',
+        title:duzenle ? 'Kayıt kodu ' + kayit.kod : 'Atanacak kod ' + yeniKod(v.donem),
+        text:duzenle
+          ? 'Düzenlemede kod değişmez; personel ya da dönem değişse de kayıt bu kodda kalır.'
+          : 'Kod dönemden üretilir; dönem değişince yeniden hesaplanır.' });
+
+      if(!v.aktif){
+        out += GV.notice({
+          tone:'warn', icon:'i-alert-circle', title:'Kayıt arşive alınıyor',
+          text:'Değerlendirme listelerde, sekmelerde ve sayaçlarda görünmeyecek. Personelin diğer ' +
+               'dönemleri ve eğitim kayıtları silinmez.' });
+      }
+
+      return out;
+    }
   });
 
   /* =================================================================
@@ -1037,8 +1124,20 @@ document.addEventListener('gv:ready', function(){
     }
 
     form.setDirty(false);
-    /* location.reload() YASAK (ders L-15) — normal akış listeye dönmektir. */
-    setTimeout(function(){ location.href = 'app-performans.html'; }, 700);
+    /* location.reload() YASAK (ders L-15) — mock veri bellektedir, yeniden yükleme
+       mutasyonu siler. Hedefi GV.afterSave seçer ([3.1.16]): performans
+       değerlendirmesinin detay ekranı henüz yok (app-performans-detay.html diye bir
+       dosya yayında değil), bu yüzden `detay` alanı verilmiyor — yordam listeye
+       döner ve şeritte bunu kullanıcıya açıkça söyler.
+       `kod` yalnız yeni kayıt yolunda üretilir (var işlev kapsamlıdır, düzenleme
+       yolunda değişken vardır ama değeri yoktur) — düzenlemede kaydın kendi kodu
+       kullanılır. Bu form değerlendirme kaydından başka kayıt üretmiyor: eğitim,
+       hedef ve ücret kayıtları kendi ekranlarından açılır, bu yüzden alt bağlantı yok. */
+    GV.afterSave({
+      kod:   duzenle ? kayit.kod : kod,
+      yeni:  !duzenle,
+      liste: 'app-performans.html'
+    });
   }
 
   function kaydet(){
