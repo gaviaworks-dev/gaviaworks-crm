@@ -356,7 +356,7 @@ DB.statusMigration = {
   project:  { 'Planlama':'Plan', 'Kontrol / Test':'Test/Kabul', 'Teslim Sürecinde':'Teslim', 'Askıda':'Beklemede' },
   contract: { 'Gecikti':'Aktif', 'İptal':'İptal Edildi' },
   quote:    { 'Teklif hazırlanıyor':'Taslak', 'İletildi':'Gönderildi', 'Müşteri değerlendirmesinde':'Müşteri İncelemesi', 'Revize teklif':'Müzakere/Revizyon' },
-  invoice:  { 'Gecikti':'Vadesi Geçti' },
+  invoice:  { 'Gecikti':'Ödenmedi + gecikti:true' },
   bug:      { 'Açık':'Yeni' },
   ticket:   { 'Çalışılıyor':'Devam ediyor', 'Kapatıldı':'Kapandı', 'Müşteri bekleniyor':'Devam ediyor' },
   purchase: { 'Onay bekliyor':'Onaya Gönderildi', 'Sipariş verildi':'Sipariş', 'Teslim alındı':'Tam Teslim' },
@@ -379,7 +379,10 @@ DB.analysisStatuses = ['Taslak','Hazırlanıyor','Teknik İnceleme','Onay bekliy
    yaşam döngüsüdür ve geçiş motorundan yazılır; `durum` ÖDEME durumudur ve
    tahsis toplamından TÜRETİLİR — kullanıcı elle yazamaz. */
 DB.invoiceDocStatuses = ['Taslak','Onaylandı','Gönderildi','Kabul','Ret','İptal','İade'];
-DB.invoicePayStatuses = ['Ödenmedi','Kısmi Ödendi','Ödendi','Vadesi Geçti'];
+/* Ödeme durumu ÜÇ değerlidir; gecikme AYRI eksendir (`fatura.gecikti`).
+   Şartname [10.4.3] `Vadesi Geçti`yi "süreçsel durum" diye ayırıyor —
+   ödeme durumuyla aynı alanda tutmak kısmi ödeme bilgisini yutuyordu. */
+DB.invoicePayStatuses = ['Ödenmedi','Kısmi Ödendi','Ödendi'];
 DB.purchaseStatuses = ['Taslak','Onaya Gönderildi','İnceleme','Onaylandı','RFQ/Satın Alma',
   'Sipariş','Kısmi Teslim','Tam Teslim','Kapandı','İade','Reddedildi','İptal Edildi'];
 DB.deliveryStatuses = ['Taslak','İç Kontrol','Müşteriye Gönderildi','Kabul','Kısmi Kabul',
@@ -415,27 +418,27 @@ DB.transitions = {
 
   /* Proje — şartname [5.2.1]/[5.2.2] · kapanış kapısı ADR-04 */
   project:{
-    'Plan':            { next:['Başlatma Onayı','İptal Edildi'], yetki:['pm','sahip','gm'], zorunlu:['pm','baslangic','bitis'], etiket:'Başlatma Onayına Gönder', tone:'btn-acc' },
-    'Başlatma Onayı':  { next:['Aktif','Plan','İptal Edildi'],   yetki:['sahip','gm'],      zorunlu:[], kapi:'projeAktif', etiket:'Projeyi Başlat', tone:'btn-ok' },
+    'Plan':            { next:['Başlatma Onayı','İptal Edildi'], yetki:['pm','sahip','genelmudur'], zorunlu:['pm','baslangic','planlananBitis'], etiket:'Başlatma Onayına Gönder', tone:'btn-acc' },
+    'Başlatma Onayı':  { next:['Aktif','Plan','İptal Edildi'],   yetki:['sahip','genelmudur'],      zorunlu:[], kapi:'projeAktif', etiket:'Projeyi Başlat', tone:'btn-ok' },
     'Aktif':           { next:['Beklemede','Test/Kabul','İptal Edildi'], yetki:['pm','sahip'], zorunlu:[], etiket:'Teste Al', tone:'btn-acc' },
-    'Beklemede':       { next:['Aktif','İptal Edildi'],          yetki:['pm','sahip'],      zorunlu:['beklemeNedeni','beklemeDonus'], gerekce:true, etiket:'Devam Ettir', tone:'btn-acc' },
-    'Test/Kabul':      { next:['Teslim','Aktif'],                yetki:['pm','sahip'],      zorunlu:[], kapi:'projeTeslim', istisnaRol:['sahip','gm'], etiket:'Teslime Al', tone:'btn-acc' },
+    'Beklemede':       { next:['Aktif','İptal Edildi'],          yetki:['pm','sahip'],      zorunlu:[], gerekce:true, etiket:'Devam Ettir', tone:'btn-acc' },
+    'Test/Kabul':      { next:['Teslim','Aktif'],                yetki:['pm','sahip'],      zorunlu:[], kapi:'projeTeslim', istisnaRol:['sahip','genelmudur'], etiket:'Teslime Al', tone:'btn-acc' },
     'Teslim':          { next:['Kapanış','Test/Kabul'],          yetki:['pm','sahip'],      zorunlu:[], etiket:'Kapanışa Al', tone:'btn-acc' },
-    'Kapanış':         { next:['Tamamlandı','Teslim'],           yetki:['pm','sahip','gm'], zorunlu:[], kapi:'projeKapanis', istisnaRol:['sahip','gm'], etiket:'Projeyi Tamamla', tone:'btn-ok' },
-    'Tamamlandı':      { next:['Arşivlendi'],                    yetki:['sahip','gm'],      zorunlu:[], etiket:'Arşivle', tone:'btn-line' },
-    'İptal Edildi':    { next:['Arşivlendi'],                    yetki:['sahip','gm'],      zorunlu:[], gerekce:true, etiket:'Arşivle', tone:'btn-line' },
+    'Kapanış':         { next:['Tamamlandı','Teslim'],           yetki:['pm','sahip','genelmudur'], zorunlu:[], kapi:'projeKapanis', istisnaRol:['sahip','genelmudur'], etiket:'Projeyi Tamamla', tone:'btn-ok' },
+    'Tamamlandı':      { next:['Arşivlendi'],                    yetki:['sahip','genelmudur'],      zorunlu:[], etiket:'Arşivle', tone:'btn-line' },
+    'İptal Edildi':    { next:['Arşivlendi'],                    yetki:['sahip','genelmudur'],      zorunlu:[], gerekce:true, etiket:'Arşivle', tone:'btn-line' },
     'Arşivlendi':      { next:[], terminal:true }
   },
 
   /* Sözleşme — şartname [8.1.2]/[8.1.3] · aktivasyon kapısı [8.1.6] */
   contract:{
-    'Taslak':            { next:['İç İnceleme','İptal Edildi'],            yetki:['satis','sahip','gm'], zorunlu:['musteri','tutar'], etiket:'İç İncelemeye Gönder', tone:'btn-acc' },
-    'İç İnceleme':       { next:['Müşteri İncelemesi','Taslak','İptal Edildi'], yetki:['sahip','gm'],    zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
-    'Müşteri İncelemesi':{ next:['İmza','İç İnceleme','İptal Edildi'],     yetki:['satis','sahip','gm'], zorunlu:[], etiket:'İmzaya Al', tone:'btn-acc' },
-    'İmza':              { next:['Aktif','Müşteri İncelemesi','İptal Edildi'], yetki:['sahip','gm'],     zorunlu:['imzaTarihi'], kapi:'sozlesmeAktif', etiket:'Sözleşmeyi Aktive Et', tone:'btn-ok' },
-    'Aktif':             { next:['Askıda','Yenileme/Zeyil','Tamamlandı','Feshedildi'], yetki:['sahip','gm'], zorunlu:[], etiket:'Tamamlandı İşaretle', tone:'btn-ok' },
-    'Askıda':            { next:['Aktif','Feshedildi'],                    yetki:['sahip','gm'],         zorunlu:[], gerekce:true, etiket:'Askıyı Kaldır', tone:'btn-acc' },
-    'Yenileme/Zeyil':    { next:['Aktif','İptal Edildi'],                  yetki:['sahip','gm'],         zorunlu:[], etiket:'Zeyili Yürürlüğe Al', tone:'btn-ok' },
+    'Taslak':            { next:['İç İnceleme','İptal Edildi'],            yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:['musteri','tutar'], etiket:'İç İncelemeye Gönder', tone:'btn-acc' },
+    'İç İnceleme':       { next:['Müşteri İncelemesi','Taslak','İptal Edildi'], yetki:['sahip','genelmudur'],    zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
+    'Müşteri İncelemesi':{ next:['İmza','İç İnceleme','İptal Edildi'],     yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'İmzaya Al', tone:'btn-acc' },
+    'İmza':              { next:['Aktif','Müşteri İncelemesi','İptal Edildi'], yetki:['sahip','genelmudur'],     zorunlu:['imzaTarihi'], kapi:'sozlesmeAktif', etiket:'Sözleşmeyi Aktive Et', tone:'btn-ok' },
+    'Aktif':             { next:['Askıda','Yenileme/Zeyil','Tamamlandı','Feshedildi'], yetki:['sahip','genelmudur'], zorunlu:[], etiket:'Tamamlandı İşaretle', tone:'btn-ok' },
+    'Askıda':            { next:['Aktif','Feshedildi'],                    yetki:['sahip','genelmudur'],         zorunlu:[], gerekce:true, etiket:'Askıyı Kaldır', tone:'btn-acc' },
+    'Yenileme/Zeyil':    { next:['Aktif','İptal Edildi'],                  yetki:['sahip','genelmudur'],         zorunlu:[], etiket:'Zeyili Yürürlüğe Al', tone:'btn-ok' },
     'Tamamlandı':        { next:[], terminal:true },
     'Feshedildi':        { next:[], terminal:true },
     'İptal Edildi':      { next:[], terminal:true }
@@ -443,37 +446,37 @@ DB.transitions = {
 
   /* Teklif — şartname [7.3.1]/[7.3.2]/[7.3.3] · ADR-18 (icOnay eritildi) */
   quote:{
-    'Taslak':            { next:['İç Onay','İptal Edildi'],                yetki:['satis','sahip','gm'], zorunlu:['musteri','tutar'], kapi:'teklifOnAnaliz', istisnaRol:['sahip','gm'], etiket:'İç Onaya Gönder', tone:'btn-acc' },
-    'İç Onay':           { next:['Onaylandı','Taslak','İptal Edildi'],     yetki:['sahip','gm'],         zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
-    'Onaylandı':         { next:['Gönderildi','Taslak'],                   yetki:['satis','sahip','gm'], zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
-    'Gönderildi':        { next:['Müşteri İncelemesi','Süresi Doldu','İptal Edildi'], yetki:['satis','sahip','gm'], zorunlu:[], etiket:'İncelemede İşaretle', tone:'btn-line' },
-    'Müşteri İncelemesi':{ next:['Kazanıldı','Kaybedildi','Müzakere/Revizyon','Süresi Doldu'], yetki:['satis','sahip','gm'], zorunlu:[], etiket:'Kazanıldı', tone:'btn-ok' },
-    'Müzakere/Revizyon': { next:['Taslak','Kazanıldı','Kaybedildi'],       yetki:['satis','sahip','gm'], zorunlu:[], etiket:'Revizyon Oluştur', tone:'btn-acc' },
+    'Taslak':            { next:['İç Onay','İptal Edildi'],                yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:['musteri','toplam'], kapi:'teklifOnAnaliz', istisnaRol:['sahip','genelmudur'], etiket:'İç Onaya Gönder', tone:'btn-acc' },
+    'İç Onay':           { next:['Onaylandı','Taslak','İptal Edildi'],     yetki:['sahip','genelmudur'],         zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
+    'Onaylandı':         { next:['Gönderildi','Taslak'],                   yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
+    'Gönderildi':        { next:['Müşteri İncelemesi','Süresi Doldu','İptal Edildi'], yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'İncelemede İşaretle', tone:'btn-line' },
+    'Müşteri İncelemesi':{ next:['Kazanıldı','Kaybedildi','Müzakere/Revizyon','Süresi Doldu'], yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Kazanıldı', tone:'btn-ok' },
+    'Müzakere/Revizyon': { next:['Taslak','Kazanıldı','Kaybedildi'],       yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Revizyon Oluştur', tone:'btn-acc' },
     'Kazanıldı':         { next:[], terminal:true },
     'Kaybedildi':        { next:[], terminal:true, gerekce:true },
-    'Süresi Doldu':      { next:['Taslak'],                                yetki:['satis','sahip','gm'], zorunlu:[], etiket:'Yeniden Aç', tone:'btn-line' },
+    'Süresi Doldu':      { next:['Taslak'],                                yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Yeniden Aç', tone:'btn-line' },
     'İptal Edildi':      { next:[], terminal:true }
   },
 
   /* Ön analiz — şartname [7.2.1]/[7.2.2] */
   analysis:{
-    'Taslak':          { next:['Hazırlanıyor','İptal Edildi'],           yetki:['satis','pm','sahip','gm'], zorunlu:['musteri'], etiket:'Hazırlamaya Başla', tone:'btn-acc' },
-    'Hazırlanıyor':    { next:['Teknik İnceleme','İptal Edildi'],        yetki:['satis','pm','sahip','gm'], zorunlu:[], etiket:'Teknik İncelemeye Gönder', tone:'btn-acc' },
-    'Teknik İnceleme': { next:['Onay bekliyor','İade/Revizyon','Reddedildi'], yetki:['pm','takimlideri','sahip','gm'], zorunlu:[], etiket:'Onaya Gönder', tone:'btn-acc' },
-    'Onay bekliyor':   { next:['Onaylandı','İade/Revizyon','Reddedildi'], yetki:['sahip','gm'],             zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
-    'Onaylandı':       { next:['İade/Revizyon'],                          yetki:['sahip','gm'],             zorunlu:[], gerekce:true, etiket:'Revizyona Aç', tone:'btn-line' },
-    'İade/Revizyon':   { next:['Hazırlanıyor','İptal Edildi'],            yetki:['satis','pm','sahip','gm'], zorunlu:[], gerekce:true, etiket:'Yeniden Hazırla', tone:'btn-acc' },
+    'Taslak':          { next:['Hazırlanıyor','İptal Edildi'],           yetki:['satismudur','satistemsilci','pm','sahip','genelmudur'], zorunlu:['lead','hizmet'], etiket:'Hazırlamaya Başla', tone:'btn-acc' },
+    'Hazırlanıyor':    { next:['Teknik İnceleme','İptal Edildi'],        yetki:['satismudur','satistemsilci','pm','sahip','genelmudur'], zorunlu:[], etiket:'Teknik İncelemeye Gönder', tone:'btn-acc' },
+    'Teknik İnceleme': { next:['Onay bekliyor','İade/Revizyon','Reddedildi'], yetki:['pm','takimlideri','sahip','genelmudur'], zorunlu:[], etiket:'Onaya Gönder', tone:'btn-acc' },
+    'Onay bekliyor':   { next:['Onaylandı','İade/Revizyon','Reddedildi'], yetki:['sahip','genelmudur'],             zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
+    'Onaylandı':       { next:['İade/Revizyon'],                          yetki:['sahip','genelmudur'],             zorunlu:[], gerekce:true, etiket:'Revizyona Aç', tone:'btn-line' },
+    'İade/Revizyon':   { next:['Hazırlanıyor','İptal Edildi'],            yetki:['satismudur','satistemsilci','pm','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'Yeniden Hazırla', tone:'btn-acc' },
     'Reddedildi':      { next:[], terminal:true, gerekce:true },
     'İptal Edildi':    { next:[], terminal:true, gerekce:true }
   },
 
   /* Fatura BELGE ekseni — ödeme durumu ayrı ve türetilir ([10.4.5]) */
   invoice:{
-    'Taslak':    { next:['Onaylandı','İptal'],            yetki:['finans','sahip','gm'], zorunlu:['musteri','toplam'], etiket:'Onayla', tone:'btn-ok' },
-    'Onaylandı': { next:['Gönderildi','Taslak','İptal'],  yetki:['finans','sahip','gm'], zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
-    'Gönderildi':{ next:['Kabul','Ret','İptal','İade'],   yetki:['finans','sahip','gm'], zorunlu:[], etiket:'Kabul İşaretle', tone:'btn-ok' },
-    'Kabul':     { next:['İade'],                          yetki:['finans','sahip','gm'], zorunlu:[], gerekce:true, etiket:'İade Et', tone:'btn-danger-line' },
-    'Ret':       { next:['Taslak','İptal'],                yetki:['finans','sahip','gm'], zorunlu:[], gerekce:true, etiket:'Taslağa Al', tone:'btn-line' },
+    'Taslak':    { next:['Onaylandı','İptal'],            yetki:['muhasebe','sahip','genelmudur'], zorunlu:['musteri','toplam'], etiket:'Onayla', tone:'btn-ok' },
+    'Onaylandı': { next:['Gönderildi','Taslak','İptal'],  yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
+    'Gönderildi':{ next:['Kabul','Ret','İptal','İade'],   yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], etiket:'Kabul İşaretle', tone:'btn-ok' },
+    'Kabul':     { next:['İade'],                          yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'İade Et', tone:'btn-danger-line' },
+    'Ret':       { next:['Taslak','İptal'],                yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'Taslağa Al', tone:'btn-line' },
     'İptal':     { next:[], terminal:true, gerekce:true },
     'İade':      { next:[], terminal:true, gerekce:true }
   },
@@ -497,7 +500,7 @@ DB.transitions = {
     'Yeni':          { next:['Triage','Kapandı'],                yetki:['destek','pm','sahip'], zorunlu:[], etiket:'Triage Et', tone:'btn-acc' },
     'Triage':        { next:['Atandı'],                          yetki:['destek','pm','sahip'], zorunlu:['sorumlu','oncelik'], etiket:'Ata', tone:'btn-acc' },
     'Atandı':        { next:['Devam ediyor','Triage'],           yetki:['sorumlu','destek','pm'], zorunlu:[], etiket:'Çalışmaya Başla', tone:'btn-acc' },
-    'Devam ediyor':  { next:['Çözüldü','Triage'],                yetki:['sorumlu','destek','pm'], zorunlu:['cozum'], etiket:'Çözüldü İşaretle', tone:'btn-ok' },
+    'Devam ediyor':  { next:['Çözüldü','Triage'],                yetki:['sorumlu','destek','pm'], zorunlu:['cozumAciklama'], etiket:'Çözüldü İşaretle', tone:'btn-ok' },
     'Çözüldü':       { next:['Müşteri Onayı','Devam ediyor'],    yetki:['sorumlu','destek','pm'], zorunlu:[], etiket:'Müşteri Onayına Gönder', tone:'btn-acc' },
     'Müşteri Onayı': { next:['Kapandı','Devam ediyor'],          yetki:['destek','pm','sahip','musteri'], zorunlu:[], kapi:'destekKota', etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':       { next:['Yeniden Açıldı'],                  yetki:['destek','pm','sahip'], zorunlu:[], gerekce:true, etiket:'Yeniden Aç', tone:'btn-line' },
@@ -506,14 +509,14 @@ DB.transitions = {
 
   /* Satın alma talebi — şartname [10.1.1]–[10.1.4] */
   purchase:{
-    'Taslak':          { next:['Onaya Gönderildi','İptal Edildi'],       yetki:['veren','depmudur','operasyon','sahip','gm'], zorunlu:['baslik','tahminiMaliyet'], etiket:'Onaya Gönder', tone:'btn-acc' },
-    'Onaya Gönderildi':{ next:['İnceleme','Onaylandı','İade','Reddedildi','İptal Edildi'], yetki:['depmudur','operasyon','sahip','gm'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
-    'İnceleme':        { next:['Onaylandı','İade','Reddedildi'],         yetki:['depmudur','operasyon','sahip','gm'], zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
-    'Onaylandı':       { next:['RFQ/Satın Alma','İptal Edildi'],         yetki:['operasyon','sahip','gm'],  zorunlu:[], etiket:'Teklif Toplamaya Al', tone:'btn-acc' },
-    'RFQ/Satın Alma':  { next:['Sipariş','İptal Edildi'],                yetki:['operasyon','sahip','gm'],  zorunlu:[], etiket:'Sipariş Oluştur', tone:'btn-acc' },
-    'Sipariş':         { next:['Kısmi Teslim','Tam Teslim','İptal Edildi'], yetki:['operasyon','sahip','gm'], zorunlu:[], etiket:'Teslim Al', tone:'btn-acc' },
-    'Kısmi Teslim':    { next:['Tam Teslim','Kapandı'],                  yetki:['operasyon','sahip','gm'],  zorunlu:[], etiket:'Tam Teslim İşaretle', tone:'btn-ok' },
-    'Tam Teslim':      { next:['Kapandı'],                                yetki:['operasyon','sahip','gm'],  zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
+    'Taslak':          { next:['Onaya Gönderildi','İptal Edildi'],       yetki:['veren','depmudur','operasyon','sahip','genelmudur'], zorunlu:['urun','tahminiMaliyet'], etiket:'Onaya Gönder', tone:'btn-acc' },
+    'Onaya Gönderildi':{ next:['İnceleme','Onaylandı','İade','Reddedildi','İptal Edildi'], yetki:['depmudur','operasyon','sahip','genelmudur'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
+    'İnceleme':        { next:['Onaylandı','İade','Reddedildi'],         yetki:['depmudur','operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
+    'Onaylandı':       { next:['RFQ/Satın Alma','İptal Edildi'],         yetki:['operasyon','sahip','genelmudur'],  zorunlu:[], etiket:'Teklif Toplamaya Al', tone:'btn-acc' },
+    'RFQ/Satın Alma':  { next:['Sipariş','İptal Edildi'],                yetki:['operasyon','sahip','genelmudur'],  zorunlu:[], etiket:'Sipariş Oluştur', tone:'btn-acc' },
+    'Sipariş':         { next:['Kısmi Teslim','Tam Teslim','İptal Edildi'], yetki:['operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Teslim Al', tone:'btn-acc' },
+    'Kısmi Teslim':    { next:['Tam Teslim','Kapandı'],                  yetki:['operasyon','sahip','genelmudur'],  zorunlu:[], etiket:'Tam Teslim İşaretle', tone:'btn-ok' },
+    'Tam Teslim':      { next:['Kapandı'],                                yetki:['operasyon','sahip','genelmudur'],  zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':         { next:[], terminal:true },
     'İade':            { next:['Taslak'],                                 yetki:['veren','operasyon','sahip'], zorunlu:[], gerekce:true, etiket:'Revize Et', tone:'btn-acc' },
     'Reddedildi':      { next:['Taslak'],                                 yetki:['veren','operasyon','sahip'], zorunlu:[], gerekce:true, etiket:'Revize Et', tone:'btn-line' },
@@ -523,8 +526,8 @@ DB.transitions = {
   /* İzin — şartname [11.1.1]/[11.1.2] · bakiye kapısı ADR-06 */
   leave:{
     'Taslak':        { next:['Onay bekliyor','İptal edildi'],  yetki:['veren'],            zorunlu:['baslangic','bitis','tur'], etiket:'Onaya Gönder', tone:'btn-acc' },
-    'Onay bekliyor': { next:['Onaylandı','Reddedildi','İptal edildi'], yetki:['onaylayan','ik','sahip','gm'], zorunlu:[], kapi:'izinBakiye', etiket:'Onayla', tone:'btn-ok' },
-    'Onaylandı':     { next:['İptal edildi'],                   yetki:['ik','sahip','gm'],  zorunlu:[], gerekce:true, etiket:'İptal Et', tone:'btn-danger-line' },
+    'Onay bekliyor': { next:['Onaylandı','Reddedildi','İptal edildi'], yetki:['onaylayan','ik','sahip','genelmudur'], zorunlu:[], kapi:'izinBakiye', etiket:'Onayla', tone:'btn-ok' },
+    'Onaylandı':     { next:['İptal edildi'],                   yetki:['ik','sahip','genelmudur'],  zorunlu:[], gerekce:true, etiket:'İptal Et', tone:'btn-danger-line' },
     'Reddedildi':    { next:[], terminal:true, gerekce:true },
     'İptal edildi':  { next:[], terminal:true, gerekce:true }
   },
@@ -532,7 +535,7 @@ DB.transitions = {
   /* Teslim — şartname [9.4.2]/[9.4.3] · kritik hata kapısı ADR-05 */
   delivery:{
     'Taslak':               { next:['İç Kontrol','Geri Çekildi'],           yetki:['pm','sahip'],  zorunlu:['ad','tarih'], etiket:'İç Kontrole Gönder', tone:'btn-acc' },
-    'İç Kontrol':           { next:['Müşteriye Gönderildi','Taslak'],       yetki:['pm','sahip'],  zorunlu:[], kapi:'teslimKritikHata', istisnaRol:['sahip','gm'], etiket:'Müşteriye Gönder', tone:'btn-acc' },
+    'İç Kontrol':           { next:['Müşteriye Gönderildi','Taslak'],       yetki:['pm','sahip'],  zorunlu:[], kapi:'teslimKritikHata', istisnaRol:['sahip','genelmudur'], etiket:'Müşteriye Gönder', tone:'btn-acc' },
     'Müşteriye Gönderildi': { next:['Kabul','Kısmi Kabul','Ret','Geri Çekildi'], yetki:['pm','sahip','musteri'], zorunlu:[], etiket:'Kabul İşaretle', tone:'btn-ok' },
     'Kabul':                { next:['Kapandı'],                              yetki:['pm','sahip'],  zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kısmi Kabul':          { next:['Revizyon','Kapandı'],                   yetki:['pm','sahip'],  zorunlu:[], etiket:'Revizyona Al', tone:'btn-acc' },
@@ -544,12 +547,12 @@ DB.transitions = {
 
   /* Değişiklik talebi — şartname [9.3.2]/[9.3.3] · zeyil ADR-09 */
   change:{
-    'Taslak':        { next:['Etki Analizi','İptal Edildi'],       yetki:['pm','sahip','gm'], zorunlu:['baslik'], etiket:'Etki Analizine Al', tone:'btn-acc' },
-    'Etki Analizi':  { next:['İç Onay','Reddedildi','İptal Edildi'], yetki:['pm','sahip','gm'], zorunlu:['etkiSure','etkiMaliyet'], etiket:'İç Onaya Gönder', tone:'btn-acc' },
-    'İç Onay':       { next:['Müşteri Onayı','Reddedildi','Etki Analizi'], yetki:['pm','sahip','gm'], zorunlu:[], etiket:'Müşteri Onayına Gönder', tone:'btn-acc' },
-    'Müşteri Onayı': { next:['Ticari Onay','Reddedildi'],          yetki:['pm','sahip','gm','musteri'], zorunlu:[], etiket:'Ticari Onaya Gönder', tone:'btn-acc' },
-    'Ticari Onay':   { next:['Onaylandı','Reddedildi'],            yetki:['sahip','gm','finans'], zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
-    'Onaylandı':     { next:['Uygulama'],                           yetki:['pm','sahip','gm'], zorunlu:[], etiket:'Uygulamaya Al', tone:'btn-acc' },
+    'Taslak':        { next:['Etki Analizi','İptal Edildi'],       yetki:['pm','sahip','genelmudur'], zorunlu:['baslik'], etiket:'Etki Analizine Al', tone:'btn-acc' },
+    'Etki Analizi':  { next:['İç Onay','Reddedildi','İptal Edildi'], yetki:['pm','sahip','genelmudur'], zorunlu:['etkiSure','etkiMaliyet'], etiket:'İç Onaya Gönder', tone:'btn-acc' },
+    'İç Onay':       { next:['Müşteri Onayı','Reddedildi','Etki Analizi'], yetki:['pm','sahip','genelmudur'], zorunlu:[], etiket:'Müşteri Onayına Gönder', tone:'btn-acc' },
+    'Müşteri Onayı': { next:['Ticari Onay','Reddedildi'],          yetki:['pm','sahip','genelmudur','musteri'], zorunlu:[], etiket:'Ticari Onaya Gönder', tone:'btn-acc' },
+    'Ticari Onay':   { next:['Onaylandı','Reddedildi'],            yetki:['sahip','genelmudur','muhasebe'], zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
+    'Onaylandı':     { next:['Uygulama'],                           yetki:['pm','sahip','genelmudur'], zorunlu:[], etiket:'Uygulamaya Al', tone:'btn-acc' },
     'Uygulama':      { next:['Teslim'],                             yetki:['pm','sahip'],      zorunlu:[], etiket:'Teslime Al', tone:'btn-acc' },
     'Teslim':        { next:['Kapandı'],                            yetki:['pm','sahip'],      zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':       { next:[], terminal:true },
@@ -559,22 +562,22 @@ DB.transitions = {
 
   /* Satın alma siparişi — şartname [10.3.2] satır bazlı kabul */
   order:{
-    'Taslak':       { next:['Sipariş','İptal Edildi'],           yetki:['operasyon','sahip','gm'], zorunlu:['tedarikci','toplam'], etiket:'Siparişi Ver', tone:'btn-acc' },
-    'Sipariş':      { next:['Kısmi Teslim','Tam Teslim','İptal Edildi'], yetki:['operasyon','sahip','gm'], zorunlu:[], etiket:'Teslim Al', tone:'btn-acc' },
-    'Kısmi Teslim': { next:['Tam Teslim','İade','Kapandı'],      yetki:['operasyon','sahip','gm'], zorunlu:[], etiket:'Tam Teslim İşaretle', tone:'btn-ok' },
-    'Tam Teslim':   { next:['Kapandı','İade'],                    yetki:['operasyon','sahip','gm'], zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
+    'Taslak':       { next:['Sipariş','İptal Edildi'],           yetki:['operasyon','sahip','genelmudur'], zorunlu:['tedarikci','toplam'], etiket:'Siparişi Ver', tone:'btn-acc' },
+    'Sipariş':      { next:['Kısmi Teslim','Tam Teslim','İptal Edildi'], yetki:['operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Teslim Al', tone:'btn-acc' },
+    'Kısmi Teslim': { next:['Tam Teslim','İade','Kapandı'],      yetki:['operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Tam Teslim İşaretle', tone:'btn-ok' },
+    'Tam Teslim':   { next:['Kapandı','İade'],                    yetki:['operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':      { next:[], terminal:true },
-    'İade':         { next:['Kapandı'],                           yetki:['operasyon','sahip','gm'], zorunlu:[], gerekce:true, etiket:'Kapat', tone:'btn-line' },
+    'İade':         { next:['Kapandı'],                           yetki:['operasyon','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'Kapat', tone:'btn-line' },
     'İptal Edildi': { next:[], terminal:true, gerekce:true }
   },
 
   /* Departman talebi — şartname [8.4.9] · ADR-03 (görevden türer) */
   request:{
-    'Taslak':               { next:['Gönderildi','İptal'],                    yetki:['veren'],                    zorunlu:['baslik','hedefDep'], etiket:'Gönder', tone:'btn-acc' },
-    'Gönderildi':           { next:['İnceleme','Reddedildi','İptal'],         yetki:['depmudur','pm','sahip','gm'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
-    'İnceleme':             { next:['Kabul','Ek Bilgi/Revizyon','Reddedildi'], yetki:['depmudur','pm','sahip','gm'], zorunlu:[], etiket:'Kabul Et', tone:'btn-ok' },
+    'Taslak':               { next:['Gönderildi','İptal'],                    yetki:['veren'],                    zorunlu:['baslik','talepEdilenDep'], etiket:'Gönder', tone:'btn-acc' },
+    'Gönderildi':           { next:['İnceleme','Reddedildi','İptal'],         yetki:['depmudur','pm','sahip','genelmudur'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
+    'İnceleme':             { next:['Kabul','Ek Bilgi/Revizyon','Reddedildi'], yetki:['depmudur','pm','sahip','genelmudur'], zorunlu:[], etiket:'Kabul Et', tone:'btn-ok' },
     'Ek Bilgi/Revizyon':    { next:['Gönderildi','İptal'],                    yetki:['veren'],                    zorunlu:[], gerekce:true, etiket:'Yeniden Gönder', tone:'btn-acc' },
-    'Kabul':                { next:['Göreve Dönüştürüldü'],                   yetki:['depmudur','pm','sahip','gm'], zorunlu:[], etiket:'Göreve Dönüştür', tone:'btn-acc' },
+    'Kabul':                { next:['Göreve Dönüştürüldü'],                   yetki:['depmudur','pm','sahip','genelmudur'], zorunlu:[], etiket:'Göreve Dönüştür', tone:'btn-acc' },
     'Göreve Dönüştürüldü':  { next:[], terminal:true, turetilmis:true },
     'Reddedildi':           { next:['Gönderildi'],                            yetki:['veren'],                    zorunlu:[], gerekce:true, etiket:'Revize Et', tone:'btn-line' },
     'İptal':                { next:[], terminal:true, gerekce:true }
