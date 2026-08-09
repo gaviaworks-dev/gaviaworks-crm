@@ -56,8 +56,11 @@ function hedefNot(){
   const baska = list.filter(x => (x.owner || x.owner_user_id) !== sahip)[0];
   return {
     kod: n.kod || n.id, sahip: sahip,
-    metin: String(n.body || n.title || '').slice(0, 40).trim(),
-    baslik: String(n.title || '').trim(),
+    metin: String(n.body || '').slice(0, 40).trim(),
+    /* Alan adı `baslik` — `title` şartnamedeki karşılığı, VERİDE yok.
+       İlk yazımda `n.title` okunuyordu ve başlık hiç aranmıyordu: eksen
+       sızıntının yarısına kör kalmıştı (L-29 — araç neye baktığını da ölçer). */
+    baslik: String(n.baslik || n.title || '').trim(),
     baskaSahip: baska ? (baska.owner || baska.owner_user_id) : null,
     toplam: list.length
   };
@@ -71,6 +74,11 @@ async function ac(ctx, hedef, rol, emp){
   }, [rol, emp]);
   await page.goto(BASE + hedef, { waitUntil:'domcontentloaded' }).catch(()=>{});
   await page.waitForTimeout(450);
+  /* SAYFA GERÇEKTEN YÜKLENDİ Mİ (ders L-19). İlk koşumda sunucu ölmüştü ve
+     eksen bunu "özellik yok" diye raporladı: `GV.notes.olustur yok`,
+     `arama kutusu bulunamadı`. Yüklenmemiş sayfada yapılan ölçüm ne geçer ne
+     kalır — GEÇERSİZDİR ve öyle söylenir. */
+  page.__yuklendi = await page.evaluate(() => !!document.querySelector('.gv-app')).catch(() => false);
   return page;
 }
 
@@ -85,6 +93,7 @@ const GORUNEN = `(function(){
 (async () => {
   const bulgular = [];
   const atlanan = [];
+  const gecersiz = [];
   const gecen = [];
 
   const modulVar = fs.existsSync(path.join(ROOT, LISTE));
@@ -102,12 +111,23 @@ const GORUNEN = `(function(){
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport:{ width:1440, height:900 } });
 
-  /* Kimler denenecek: sahibi OLMAYAN bir personel + iki superadmin rolü. */
+  /* Kimler denenecek: hepsi hedef notun SAHİBİ OLMAYAN kimlikler.
+     ⚠️ İlk yazımda superadmin satırları `emp:'EMP-001'` sabitiyle koşuyordu ve
+     hedef not "gövdesi en uzun" diye seçildiği için çoğu zaman EMP-001'e ait
+     çıkıyordu: eksen, sahibinin kendi notunu görmesini SIZINTI sayıyordu.
+     İki ajan bağımsız olarak aynı yanlış pozitifi bildirdi. Kimlik artık
+     hedeften TÜRETİLİR; sahibiyle çakışırsa vaka atlanır, sessizce geçmez
+     (L-26: araç ölçemediğini ne yeşile ne kırmızıya yazar). */
+  const digerEmp = hedef.baskaSahip;
+  if (!digerEmp){
+    console.log('GEÇERSİZ — veride ikinci bir not sahibi yok, yabancı kimlik kurulamıyor');
+    process.exit(2);
+  }
   const yabanci = [
-    { rol:'sahip',       emp:'EMP-001', ad:'sahip (superadmin)' },
-    { rol:'sistem',      emp:'EMP-001', ad:'sistem (superadmin)' },
-    { rol:'ik',          emp:hedef.baskaSahip || 'EMP-002', ad:'başka kullanıcı' }
-  ].filter(x => x.emp !== hedef.sahip || x.rol !== 'ik');
+    { rol:'sahip',  emp:digerEmp, ad:'sahip (superadmin)' },
+    { rol:'sistem', emp:digerEmp, ad:'sistem (superadmin)' },
+    { rol:'ik',     emp:digerEmp, ad:'başka kullanıcı' }
+  ];
 
   const arananlar = [hedef.metin, hedef.baslik].filter(x => x && x.length > 6);
   if (!arananlar.length){
@@ -121,9 +141,13 @@ const GORUNEN = `(function(){
     for (const hedefUrl of [LISTE, LISTE + '?id=' + encodeURIComponent(hedef.kod),
                             FORM + '?id=' + encodeURIComponent(hedef.kod)]){
       const page = await ac(ctx, hedefUrl, y.rol, y.emp);
+      const eksen = y.rol === 'ik' ? 'N1' : 'N2';
+      if (!page.__yuklendi){
+        gecersiz.push(eksen + ' [' + y.ad + '] ' + hedefUrl + ' — sayfa yüklenmedi, ölçüm GEÇERSİZ');
+        await page.close(); continue;
+      }
       const metin = await page.evaluate(GORUNEN).catch(()=>'');
       const s = sizdiMi(metin);
-      const eksen = y.rol === 'ik' ? 'N1' : 'N2';
       if (s.length) bulgular.push(eksen + ' [' + y.ad + '] ' + hedefUrl + ' → içerik göründü: "' + s[0] + '"');
       else gecen.push(eksen + ' ' + y.ad + ' · ' + hedefUrl);
       await page.close();
@@ -136,7 +160,7 @@ const GORUNEN = `(function(){
     const sonuc = await page.evaluate((q) => {
       /* Genel arama yüzeyi: shell'in arama kutusu. Yoksa ölçüm ATLANIR,
          "geçti" sayılmaz (L-26: ölçemediğini sessizce yeşile yazma). */
-      var el = document.querySelector('#gvSearch, [data-search], input[type=search]');
+      var el = document.querySelector('#gvGlobalSearch, [data-search], input[type=search]');
       if(!el) return { yok:true };
       el.value = q;
       el.dispatchEvent(new Event('input', { bubbles:true }));
@@ -216,6 +240,10 @@ const GORUNEN = `(function(){
   console.log('hedef not: ' + hedef.kod + ' · sahibi ' + hedef.sahip + ' · toplam ' + hedef.toplam + ' not');
   console.log('denenen kimlik: ' + yabanci.length + ' · aranan dizge: ' + arananlar.length);
   console.log('geçen kontrol: ' + gecen.length);
+  if (gecersiz.length){
+    console.log('\n=== GEÇERSİZ ÖLÇÜM (sayfa yüklenmedi) ===');
+    gecersiz.forEach(a => console.log('  ! ' + a));
+  }
   if (atlanan.length){
     console.log('\n=== ÖLÇÜLEMEYEN (yeşil DEĞİL, ayrı sayaçta) ===');
     atlanan.forEach(a => console.log('  ? ' + a));
@@ -225,6 +253,10 @@ const GORUNEN = `(function(){
     bulgular.forEach(b => console.log('  ✘ ' + b));
     console.log('\nEKSİK — ' + bulgular.length + ' sızıntı');
     process.exit(1);
+  }
+  if (gecersiz.length){
+    console.log('\nGEÇERSİZ — ' + gecersiz.length + ' vaka yüklenmemiş sayfada ölçüldü; sunucuyu kontrol edip yeniden koş');
+    process.exit(2);
   }
   if (atlanan.length){
     console.log('\nKISMİ — sızıntı yok ama ' + atlanan.length + ' kontrol ölçülemedi');
