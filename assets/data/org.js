@@ -421,7 +421,7 @@ DB.transitions = {
     'Plan':            { next:['Başlatma Onayı','İptal Edildi'], yetki:['pm','sahip','genelmudur'], zorunlu:['pm','baslangic','planlananBitis'], etiket:'Başlatma Onayına Gönder', tone:'btn-acc' },
     'Başlatma Onayı':  { next:['Aktif','Plan','İptal Edildi'],   yetki:['sahip','genelmudur'],      zorunlu:[], kapi:'projeAktif', etiket:'Projeyi Başlat', tone:'btn-ok' },
     'Aktif':           { next:['Beklemede','Test/Kabul','İptal Edildi'], yetki:['pm','sahip'], zorunlu:[], etiket:'Teste Al', tone:'btn-acc' },
-    'Beklemede':       { next:['Aktif','İptal Edildi'],          yetki:['pm','sahip'],      zorunlu:[], gerekce:true, etiket:'Devam Ettir', tone:'btn-acc' },
+    'Beklemede':       { next:['Aktif','İptal Edildi'],          yetki:['pm','sahip'],      zorunlu:[], girisGerekce:true, etiket:'Devam Ettir', tone:'btn-acc' },
     'Test/Kabul':      { next:['Teslim','Aktif'],                yetki:['pm','sahip'],      zorunlu:[], kapi:'projeTeslim', istisnaRol:['sahip','genelmudur'], etiket:'Teslime Al', tone:'btn-acc' },
     'Teslim':          { next:['Kapanış','Test/Kabul'],          yetki:['pm','sahip'],      zorunlu:[], etiket:'Kapanışa Al', tone:'btn-acc' },
     'Kapanış':         { next:['Tamamlandı','Teslim'],           yetki:['pm','sahip','genelmudur'], zorunlu:[], kapi:'projeKapanis', istisnaRol:['sahip','genelmudur'], etiket:'Projeyi Tamamla', tone:'btn-ok' },
@@ -437,7 +437,7 @@ DB.transitions = {
     'Müşteri İncelemesi':{ next:['İmza','İç İnceleme','İptal Edildi'],     yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'İmzaya Al', tone:'btn-acc' },
     'İmza':              { next:['Aktif','Müşteri İncelemesi','İptal Edildi'], yetki:['sahip','genelmudur'],     zorunlu:['imzaTarihi'], kapi:'sozlesmeAktif', etiket:'Sözleşmeyi Aktive Et', tone:'btn-ok' },
     'Aktif':             { next:['Askıda','Yenileme/Zeyil','Tamamlandı','Feshedildi'], yetki:['sahip','genelmudur'], zorunlu:[], etiket:'Tamamlandı İşaretle', tone:'btn-ok' },
-    'Askıda':            { next:['Aktif','Feshedildi'],                    yetki:['sahip','genelmudur'],         zorunlu:[], gerekce:true, etiket:'Askıyı Kaldır', tone:'btn-acc' },
+    'Askıda':            { next:['Aktif','Feshedildi'],                    yetki:['sahip','genelmudur'],         zorunlu:[], girisGerekce:true, etiket:'Askıyı Kaldır', tone:'btn-acc' },
     'Yenileme/Zeyil':    { next:['Aktif','İptal Edildi'],                  yetki:['sahip','genelmudur'],         zorunlu:[], etiket:'Zeyili Yürürlüğe Al', tone:'btn-ok' },
     'Tamamlandı':        { next:[], terminal:true },
     'Feshedildi':        { next:[], terminal:true },
@@ -453,7 +453,7 @@ DB.transitions = {
     'Müşteri İncelemesi':{ next:['Kazanıldı','Kaybedildi','Müzakere/Revizyon','Süresi Doldu'], yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Kazanıldı', tone:'btn-ok' },
     'Müzakere/Revizyon': { next:['Taslak','Kazanıldı','Kaybedildi'],       yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Revizyon Oluştur', tone:'btn-acc' },
     'Kazanıldı':         { next:[], terminal:true },
-    'Kaybedildi':        { next:[], terminal:true, gerekce:true },
+    'Kaybedildi':        { next:[], terminal:true, girisGerekce:true },
     'Süresi Doldu':      { next:['Taslak'],                                yetki:['satismudur','satistemsilci','sahip','genelmudur'], zorunlu:[], etiket:'Yeniden Aç', tone:'btn-line' },
     'İptal Edildi':      { next:[], terminal:true }
   },
@@ -465,9 +465,9 @@ DB.transitions = {
     'Teknik İnceleme': { next:['Onay bekliyor','İade/Revizyon','Reddedildi'], yetki:['pm','takimlideri','sahip','genelmudur'], zorunlu:[], etiket:'Onaya Gönder', tone:'btn-acc' },
     'Onay bekliyor':   { next:['Onaylandı','İade/Revizyon','Reddedildi'], yetki:['sahip','genelmudur'],             zorunlu:[], etiket:'Onayla', tone:'btn-ok' },
     'Onaylandı':       { next:['İade/Revizyon'],                          yetki:['sahip','genelmudur'],             zorunlu:[], gerekce:true, etiket:'Revizyona Aç', tone:'btn-line' },
-    'İade/Revizyon':   { next:['Hazırlanıyor','İptal Edildi'],            yetki:['satismudur','satistemsilci','pm','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'Yeniden Hazırla', tone:'btn-acc' },
-    'Reddedildi':      { next:[], terminal:true, gerekce:true },
-    'İptal Edildi':    { next:[], terminal:true, gerekce:true }
+    'İade/Revizyon':   { next:['Hazırlanıyor','İptal Edildi'],            yetki:['satismudur','satistemsilci','pm','sahip','genelmudur'], zorunlu:[], girisGerekce:true, etiket:'Yeniden Hazırla', tone:'btn-acc' },
+    'Reddedildi':      { next:[], terminal:true, girisGerekce:true },
+    'İptal Edildi':    { next:[], terminal:true, girisGerekce:true }
   },
 
   /* Fatura BELGE ekseni — ödeme durumu ayrı ve türetilir ([10.4.5]) */
@@ -476,9 +476,9 @@ DB.transitions = {
     'Onaylandı': { next:['Gönderildi','Taslak','İptal'],  yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], etiket:'Müşteriye Gönder', tone:'btn-acc' },
     'Gönderildi':{ next:['Kabul','Ret','İptal','İade'],   yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], etiket:'Kabul İşaretle', tone:'btn-ok' },
     'Kabul':     { next:['İade'],                          yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'İade Et', tone:'btn-danger-line' },
-    'Ret':       { next:['Taslak','İptal'],                yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'Taslağa Al', tone:'btn-line' },
-    'İptal':     { next:[], terminal:true, gerekce:true },
-    'İade':      { next:[], terminal:true, gerekce:true }
+    'Ret':       { next:['Taslak','İptal'],                yetki:['muhasebe','sahip','genelmudur'], zorunlu:[], girisGerekce:true, etiket:'Taslağa Al', tone:'btn-line' },
+    'İptal':     { next:[], terminal:true, girisGerekce:true },
+    'İade':      { next:[], terminal:true, girisGerekce:true }
   },
 
   /* Hata — şartname [9.2.1]/[9.2.2] */
@@ -491,8 +491,8 @@ DB.transitions = {
     'Yeniden Test':  { next:['Kapandı','Yeniden Açıldı'],                 yetki:['pm','takimlideri','sahip'], zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Yeniden Açıldı':{ next:['Triage'],                                    yetki:['pm','takimlideri','sahip'], zorunlu:[], gerekce:true, etiket:'Triage Et', tone:'btn-acc' },
     'Kapandı':       { next:['Yeniden Açıldı'],                            yetki:['pm','takimlideri','sahip'], zorunlu:[], gerekce:true, etiket:'Yeniden Aç', tone:'btn-line' },
-    'Reddedildi':    { next:['Yeniden Açıldı'], gerekce:true,              yetki:['pm','sahip'],               zorunlu:[], etiket:'Yeniden Aç', tone:'btn-line' },
-    'Mükerrer':      { next:[], terminal:true, gerekce:true }
+    'Reddedildi':    { next:['Yeniden Açıldı'], girisGerekce:true,              yetki:['pm','sahip'],               zorunlu:[], etiket:'Yeniden Aç', tone:'btn-line' },
+    'Mükerrer':      { next:[], terminal:true, girisGerekce:true }
   },
 
   /* Destek talebi — şartname [9.5.1]/[9.5.2] · ADR-19 (bekleme ayrı eksen) */
@@ -518,9 +518,9 @@ DB.transitions = {
     'Kısmi Teslim':    { next:['Tam Teslim','Kapandı'],                  yetki:['operasyon','sahip','genelmudur'],  zorunlu:[], etiket:'Tam Teslim İşaretle', tone:'btn-ok' },
     'Tam Teslim':      { next:['Kapandı'],                                yetki:['operasyon','sahip','genelmudur'],  zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':         { next:[], terminal:true },
-    'İade':            { next:['Taslak'],                                 yetki:['veren','operasyon','sahip'], zorunlu:[], gerekce:true, etiket:'Revize Et', tone:'btn-acc' },
-    'Reddedildi':      { next:['Taslak'],                                 yetki:['veren','operasyon','sahip'], zorunlu:[], gerekce:true, etiket:'Revize Et', tone:'btn-line' },
-    'İptal Edildi':    { next:[], terminal:true, gerekce:true }
+    'İade':            { next:['Taslak'],                                 yetki:['veren','operasyon','sahip'], zorunlu:[], girisGerekce:true, etiket:'Revize Et', tone:'btn-acc' },
+    'Reddedildi':      { next:['Taslak'],                                 yetki:['veren','operasyon','sahip'], zorunlu:[], gerekce:true, girisGerekce:true, etiket:'Revize Et', tone:'btn-line' },
+    'İptal Edildi':    { next:[], terminal:true, girisGerekce:true }
   },
 
   /* İzin — şartname [11.1.1]/[11.1.2] · bakiye kapısı ADR-06 */
@@ -528,8 +528,8 @@ DB.transitions = {
     'Taslak':        { next:['Onay bekliyor','İptal edildi'],  yetki:['veren'],            zorunlu:['baslangic','bitis','tur'], etiket:'Onaya Gönder', tone:'btn-acc' },
     'Onay bekliyor': { next:['Onaylandı','Reddedildi','İptal edildi'], yetki:['onaylayan','ik','sahip','genelmudur'], zorunlu:[], kapi:'izinBakiye', etiket:'Onayla', tone:'btn-ok' },
     'Onaylandı':     { next:['İptal edildi'],                   yetki:['ik','sahip','genelmudur'],  zorunlu:[], gerekce:true, etiket:'İptal Et', tone:'btn-danger-line' },
-    'Reddedildi':    { next:[], terminal:true, gerekce:true },
-    'İptal edildi':  { next:[], terminal:true, gerekce:true }
+    'Reddedildi':    { next:[], terminal:true, girisGerekce:true },
+    'İptal edildi':  { next:[], terminal:true, girisGerekce:true }
   },
 
   /* Teslim — şartname [9.4.2]/[9.4.3] · kritik hata kapısı ADR-05 */
@@ -539,10 +539,10 @@ DB.transitions = {
     'Müşteriye Gönderildi': { next:['Kabul','Kısmi Kabul','Ret','Geri Çekildi'], yetki:['pm','sahip','musteri'], zorunlu:[], etiket:'Kabul İşaretle', tone:'btn-ok' },
     'Kabul':                { next:['Kapandı'],                              yetki:['pm','sahip'],  zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kısmi Kabul':          { next:['Revizyon','Kapandı'],                   yetki:['pm','sahip'],  zorunlu:[], etiket:'Revizyona Al', tone:'btn-acc' },
-    'Ret':                  { next:['Revizyon'],                             yetki:['pm','sahip'],  zorunlu:[], gerekce:true, etiket:'Revizyona Al', tone:'btn-acc' },
+    'Ret':                  { next:['Revizyon'],                             yetki:['pm','sahip'],  zorunlu:[], gerekce:true, girisGerekce:true, etiket:'Revizyona Al', tone:'btn-acc' },
     'Revizyon':             { next:['İç Kontrol','Geri Çekildi'],            yetki:['pm','sahip'],  zorunlu:[], etiket:'İç Kontrole Gönder', tone:'btn-acc' },
     'Kapandı':              { next:[], terminal:true },
-    'Geri Çekildi':         { next:['Taslak'],                               yetki:['pm','sahip'],  zorunlu:[], gerekce:true, etiket:'Taslağa Al', tone:'btn-line' }
+    'Geri Çekildi':         { next:['Taslak'],                               yetki:['pm','sahip'],  zorunlu:[], girisGerekce:true, etiket:'Taslağa Al', tone:'btn-line' }
   },
 
   /* Değişiklik talebi — şartname [9.3.2]/[9.3.3] · zeyil ADR-09 */
@@ -556,8 +556,8 @@ DB.transitions = {
     'Uygulama':      { next:['Teslim'],                             yetki:['pm','sahip'],      zorunlu:[], etiket:'Teslime Al', tone:'btn-acc' },
     'Teslim':        { next:['Kapandı'],                            yetki:['pm','sahip'],      zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':       { next:[], terminal:true },
-    'Reddedildi':    { next:[], terminal:true, gerekce:true },
-    'İptal Edildi':  { next:[], terminal:true, gerekce:true }
+    'Reddedildi':    { next:[], terminal:true, girisGerekce:true },
+    'İptal Edildi':  { next:[], terminal:true, girisGerekce:true }
   },
 
   /* Satın alma siparişi — şartname [10.3.2] satır bazlı kabul */
@@ -567,8 +567,8 @@ DB.transitions = {
     'Kısmi Teslim': { next:['Tam Teslim','İade','Kapandı'],      yetki:['operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Tam Teslim İşaretle', tone:'btn-ok' },
     'Tam Teslim':   { next:['Kapandı','İade'],                    yetki:['operasyon','sahip','genelmudur'], zorunlu:[], etiket:'Kapat', tone:'btn-ok' },
     'Kapandı':      { next:[], terminal:true },
-    'İade':         { next:['Kapandı'],                           yetki:['operasyon','sahip','genelmudur'], zorunlu:[], gerekce:true, etiket:'Kapat', tone:'btn-line' },
-    'İptal Edildi': { next:[], terminal:true, gerekce:true }
+    'İade':         { next:['Kapandı'],                           yetki:['operasyon','sahip','genelmudur'], zorunlu:[], gerekce:true, girisGerekce:true, etiket:'Kapat', tone:'btn-line' },
+    'İptal Edildi': { next:[], terminal:true, girisGerekce:true }
   },
 
   /* Departman talebi — şartname [8.4.9] · ADR-03 (görevden türer) */
@@ -576,11 +576,11 @@ DB.transitions = {
     'Taslak':               { next:['Gönderildi','İptal'],                    yetki:['veren'],                    zorunlu:['baslik','talepEdilenDep'], etiket:'Gönder', tone:'btn-acc' },
     'Gönderildi':           { next:['İnceleme','Reddedildi','İptal'],         yetki:['depmudur','pm','sahip','genelmudur'], zorunlu:[], etiket:'İncelemeye Al', tone:'btn-acc' },
     'İnceleme':             { next:['Kabul','Ek Bilgi/Revizyon','Reddedildi'], yetki:['depmudur','pm','sahip','genelmudur'], zorunlu:[], etiket:'Kabul Et', tone:'btn-ok' },
-    'Ek Bilgi/Revizyon':    { next:['Gönderildi','İptal'],                    yetki:['veren'],                    zorunlu:[], gerekce:true, etiket:'Yeniden Gönder', tone:'btn-acc' },
+    'Ek Bilgi/Revizyon':    { next:['Gönderildi','İptal'],                    yetki:['veren'],                    zorunlu:[], girisGerekce:true, etiket:'Yeniden Gönder', tone:'btn-acc' },
     'Kabul':                { next:['Göreve Dönüştürüldü'],                   yetki:['depmudur','pm','sahip','genelmudur'], zorunlu:[], etiket:'Göreve Dönüştür', tone:'btn-acc' },
     'Göreve Dönüştürüldü':  { next:[], terminal:true, turetilmis:true },
-    'Reddedildi':           { next:['Gönderildi'],                            yetki:['veren'],                    zorunlu:[], gerekce:true, etiket:'Revize Et', tone:'btn-line' },
-    'İptal':                { next:[], terminal:true, gerekce:true }
+    'Reddedildi':           { next:['Gönderildi'],                            yetki:['veren'],                    zorunlu:[], gerekce:true, girisGerekce:true, etiket:'Revize Et', tone:'btn-line' },
+    'İptal':                { next:[], terminal:true, girisGerekce:true }
   }
 };
 
@@ -673,3 +673,65 @@ DB.salaryHistory = [
   { personel:'EMP-014', maas:64000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
   { personel:'EMP-016', maas:22000, baslangic:DB.today, bitis:null, kaynak:'gozlem' }
 ];
+
+
+/* =====================================================================
+   İŞ TAKVİMİ — şartname [9.5.3] · [11.1.3] · ADR-12 (CLOUD TURU)
+   ---------------------------------------------------------------------
+   Ölçülen kusur üç yerde aynıydı: hiçbir hesapta tarih bilinci yoktu.
+     · SLA `app-destek-detay.html` düz DUVAR SAATİ farkı alıyordu; bir
+       talebin `calismaSaati` alanı ("Mesai içi" / "7/24") yalnız etiket
+       olarak basılıyor, hesabı hiç yönlendirmiyordu. Cuma 17:00'de açılan
+       "mesai içi" bir talep hafta sonu boyunca ihlale düşüyordu.
+     · İzin süresi TAKVİM GÜNÜ sayıyordu; hafta sonu ve tatil düşülmüyordu.
+     · Tatil listesi kalıcı veri değildi — `app-ayar-sirket.html:82` bunu
+       "veri modelinde YOK … varsayımdır" diye yazıyordu.
+
+   ⚠️ DİNİ BAYRAM TARİHLERİ YAZILMADI. Ramazan ve Kurban bayramı hicri
+   takvime bağlıdır ve yıldan yıla kayar; kesin olmadığım bir tarihi resmî
+   tatil diye yazmak, ölçüm gibi görünen bir kurgu olurdu (L-13). Aşağıda
+   yalnız TARİHİ SABİT ulusal bayramlar var. Dini bayramlar ve şirkete özel
+   kapanışlar `app-ayar-sirket.html` üzerinden eklenir; `kaynak` alanı
+   hangisinin nereden geldiğini söyler. */
+DB.holidays = [
+  { tarih:'2025-01-01', ad:'Yılbaşı',                                  kaynak:'ulusal' },
+  { tarih:'2025-04-23', ad:'Ulusal Egemenlik ve Çocuk Bayramı',        kaynak:'ulusal' },
+  { tarih:'2025-05-01', ad:'Emek ve Dayanışma Günü',                   kaynak:'ulusal' },
+  { tarih:'2025-05-19', ad:'Atatürk’ü Anma, Gençlik ve Spor Bayramı',  kaynak:'ulusal' },
+  { tarih:'2025-07-15', ad:'Demokrasi ve Millî Birlik Günü',           kaynak:'ulusal' },
+  { tarih:'2025-08-30', ad:'Zafer Bayramı',                            kaynak:'ulusal' },
+  { tarih:'2025-10-29', ad:'Cumhuriyet Bayramı',                       kaynak:'ulusal' },
+  { tarih:'2026-01-01', ad:'Yılbaşı',                                  kaynak:'ulusal' },
+  { tarih:'2026-04-23', ad:'Ulusal Egemenlik ve Çocuk Bayramı',        kaynak:'ulusal' },
+  { tarih:'2026-05-01', ad:'Emek ve Dayanışma Günü',                   kaynak:'ulusal' },
+  { tarih:'2026-05-19', ad:'Atatürk’ü Anma, Gençlik ve Spor Bayramı',  kaynak:'ulusal' },
+  { tarih:'2026-07-15', ad:'Demokrasi ve Millî Birlik Günü',           kaynak:'ulusal' },
+  { tarih:'2026-08-30', ad:'Zafer Bayramı',                            kaynak:'ulusal' },
+  { tarih:'2026-10-29', ad:'Cumhuriyet Bayramı',                       kaynak:'ulusal' }
+];
+
+/* Mesai penceresi — `DB.company` içindeki gün/saat tanımının makine okunur
+   hâli. SLA ve izin hesabı bunu okur; ekranlar artık kendi saatini saymaz. */
+DB.workCalendar = {
+  gunler:[1,2,3,4,5],              /* Pzt–Cum · 0 = Pazar */
+  baslangic:'09:00', bitis:'18:00',
+  ogleBaslangic:'12:30', ogleBitis:'13:30',
+  saatDilimi:'Europe/Istanbul'
+};
+
+/* SLA bekleme politikası — ADR-11. Bekleme SLA'yı hangi durumda durdurur?
+   `Müşteri bekleniyor` müşterinin kendi gecikmesidir, sayaç durur.
+   `Üçüncü Taraf` gecikmesinde tedarikçi seçimi bizim sorumluluğumuzdadır,
+   sayaç DURMAZ — müşteriye karşı muhafazakâr taraf budur.
+   Aralıklar her hâlde saklanır ki politika değişirse geçmiş yeniden
+   hesaplanabilsin. */
+DB.slaWaitPolicy = {
+  'Müşteri':          { durdurur:true  },
+  'Üçüncü Taraf':     { durdurur:false },
+  'Departman':        { durdurur:false },
+  'Bilgi':            { durdurur:false },
+  'Dosya':            { durdurur:false },
+  'Teknik Karar':     { durdurur:false },
+  'Yönetici Onayı':   { durdurur:false },
+  'Diğer':            { durdurur:false }
+};

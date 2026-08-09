@@ -238,10 +238,21 @@
       var eksik = Flow.eksikAlanlar(rec, kural, ek);
       if(eksik.length) return { ok:false, why:'zorunlu', eksik:eksik };
 
-      /* Gerekçe zorunluluğu — şartname [2.0.6]: neden KODU + açıklama */
+      /* Gerekçe zorunluluğu — şartname [2.0.6]: neden KODU + açıklama.
+         İKİ AYRI ANLAM, iki ayrı bayrak:
+           `gerekce`      → BU DURUMDAN ÇIKMAK gerekçe ister (ör. kapanmış
+                            bir kaydı yeniden açmak).
+           `girisGerekce` → BU DURUMA GİRMEK gerekçe ister (ör. ret, iptal,
+                            iade, fesih — olumsuz karar).
+         Tek bayrakla yürütülünce ikisi karışıyordu: `Kapandı` üzerindeki
+         "yeniden açarken gerekçe iste" bayrağı, talebi KAPATIRKEN de gerekçe
+         dayatıyordu. */
       var hk = Flow.kural(tur, hedef) || {};
-      if((kural.gerekce || hk.gerekce) && !opts.neden)
-        return { ok:false, why:'gerekce', mesaj:'Bu işlem için neden kodu ve açıklama zorunludur' };
+      if((kural.gerekce || hk.girisGerekce) && !opts.neden)
+        return { ok:false, why:'gerekce',
+                 mesaj:hk.girisGerekce
+                   ? '"' + hedef + '" kararı için neden kodu ve açıklama zorunludur'
+                   : '"' + eski + '" durumundan çıkmak için neden kodu ve açıklama zorunludur' };
 
       /* Ek engel kapısı */
       var kapiUyari = null;
@@ -330,6 +341,146 @@
 
   GV.flow  = Flow;
   GV.gates = Gates;
+
+  /* ===================================================================
+     İŞ TAKVİMİ / SLA MOTORU — şartname §9.5.3 · §11.1.3 (CLOUD TURU)
+     -------------------------------------------------------------------
+     Üç ayrı ekran aynı hatayı yapıyordu: hiçbirinde tarih bilinci yoktu.
+     SLA düz duvar saati farkı alıyor, izin takvim günü sayıyor, tatil
+     listesi kalıcı veri bile değildi. Üçü de artık buradan geçer.
+     =================================================================== */
+  var Calendar = {
+    _tatil:null,
+    tatilSeti:function(){
+      if(Calendar._tatil) return Calendar._tatil;
+      Calendar._tatil = {};
+      ((window.DB && DB.holidays) || []).forEach(function(h){ Calendar._tatil[h.tarih] = h; });
+      return Calendar._tatil;
+    },
+    takvim:function(){ return (window.DB && DB.workCalendar) || { gunler:[1,2,3,4,5], baslangic:'09:00', bitis:'18:00' }; },
+
+    tatilMi:function(gun){ return !!Calendar.tatilSeti()[String(gun).slice(0,10)]; },
+    haftaSonuMu:function(gun){
+      var d = new Date(String(gun).slice(0,10) + 'T12:00:00');
+      return Calendar.takvim().gunler.indexOf(d.getDay()) === -1;
+    },
+    isGunuMu:function(gun){ return !Calendar.haftaSonuMu(gun) && !Calendar.tatilMi(gun); },
+
+    /* İki tarih ARASINDAKİ iş günü sayısı — iki uç dahil.
+       İzin hesabının tabanı budur (ADR-12): hafta sonu ve resmî tatil
+       bakiyeden düşmez. Eskiden takvim günü sayılıyordu ve cuma–pazartesi
+       arası 4 günlük izin çalışanın bakiyesinden 4 gün yiyordu. */
+    isGunu:function(bas, bit){
+      if(!bas) return 0;
+      var a = new Date(String(bas).slice(0,10) + 'T12:00:00');
+      var b = new Date(String(bit || bas).slice(0,10) + 'T12:00:00');
+      if(b < a) return 0;
+      var n = 0, g = new Date(a);
+      while(g <= b){
+        var iso = g.toISOString().slice(0,10);
+        if(Calendar.isGunuMu(iso)) n++;
+        g.setDate(g.getDate() + 1);
+      }
+      return n;
+    },
+
+    /* İki zaman damgası arasındaki MESAİ DAKİKASI. SLA sayacının tabanı.
+       Hafta sonu, resmî tatil ve öğle arası sayılmaz. */
+    mesaiDakika:function(bas, bit){
+      if(!bas) return 0;
+      var t = Calendar.takvim();
+      var a = new Date(String(bas).replace(' ', 'T'));
+      var b = new Date(String(bit || (DB.today + 'T18:00')).replace(' ', 'T'));
+      if(isNaN(a) || isNaN(b) || b <= a) return 0;
+      var dk = function(hhmm){ var p = String(hhmm).split(':'); return (+p[0]) * 60 + (+p[1] || 0); };
+      var acilis = dk(t.baslangic), kapanis = dk(t.bitis);
+      var ogleA = t.ogleBaslangic ? dk(t.ogleBaslangic) : null;
+      var ogleB = t.ogleBitis ? dk(t.ogleBitis) : null;
+      var toplam = 0, g = new Date(a); g.setHours(0,0,0,0);
+      var son = new Date(b); son.setHours(0,0,0,0);
+      while(g <= son){
+        var iso = g.toISOString().slice(0,10);
+        if(Calendar.isGunuMu(iso)){
+          var gunBas = new Date(g); gunBas.setMinutes(acilis);
+          var gunBit = new Date(g); gunBit.setMinutes(kapanis);
+          var s = a > gunBas ? a : gunBas;
+          var e = b < gunBit ? b : gunBit;
+          if(e > s){
+            var d = (e - s) / 60000;
+            /* öğle arası kesişimi düşülür */
+            if(ogleA != null){
+              var oA = new Date(g); oA.setMinutes(ogleA);
+              var oB = new Date(g); oB.setMinutes(ogleB);
+              var ks = s > oA ? s : oA, ke = e < oB ? e : oB;
+              if(ke > ks) d -= (ke - ks) / 60000;
+            }
+            toplam += Math.max(0, d);
+          }
+        }
+        g.setDate(g.getDate() + 1);
+      }
+      return Math.round(toplam);
+    },
+
+    /* SLA geçen süresi — 7/24 politikada duvar saati, mesai politikasında
+       iş takvimi. Bekleme aralıkları politikaya göre DÜŞÜLÜR (ADR-11). */
+    gecenDakika:function(kayit, politika){
+      if(!kayit) return 0;
+      var bas = kayit.acilis || kayit.olusturma;
+      var bit = kayit.kapanisTarihi || null;
+      var yediYirmiDort = politika && /7\s*[\/x]\s*24/i.test(String(politika.calismaSaati || ''));
+      var ham = yediYirmiDort
+        ? Math.max(0, (new Date(String(bit || saat()).replace(' ','T')) -
+                       new Date(String(bas).replace(' ','T'))) / 60000)
+        : Calendar.mesaiDakika(bas, bit);
+      var duran = Calendar.beklemeDakika(kayit, yediYirmiDort);
+      return { ham:Math.round(ham), duran:duran, net:Math.max(0, Math.round(ham - duran)),
+               eksen:yediYirmiDort ? '7/24' : 'mesai' };
+    },
+
+    /* SLA'yı durduran bekleme aralıklarının toplamı */
+    beklemeDakika:function(kayit, yediYirmiDort){
+      var pol = (window.DB && DB.slaWaitPolicy) || {};
+      var araliklar = kayit.beklemeAraliklari || [];
+      var t = 0;
+      araliklar.forEach(function(a){
+        var p = pol[a.neden];
+        if(!p || !p.durdurur) return;
+        t += yediYirmiDort
+          ? Math.max(0, (new Date(String(a.bitis || saat()).replace(' ','T')) -
+                         new Date(String(a.baslangic).replace(' ','T'))) / 60000)
+          : Calendar.mesaiDakika(a.baslangic, a.bitis);
+      });
+      return Math.round(t);
+    },
+
+    /* Beklemeyi başlat / bitir — aralık HER HÂLDE saklanır, politika
+       sonradan değişse bile geçmiş yeniden hesaplanabilsin diye. */
+    beklemeBaslat:function(kayit, neden, not){
+      if(!kayit) return { ok:false, why:'kayıt yok' };
+      kayit.beklemeAraliklari = kayit.beklemeAraliklari || [];
+      var acik = kayit.beklemeAraliklari.filter(function(a){ return !a.bitis; })[0];
+      if(acik) return { ok:false, why:'Zaten açık bir bekleme var (' + acik.neden + ')' };
+      kayit.beklemeNedeni = neden;
+      kayit.beklemeAraliklari.push({ neden:neden, baslangic:saat(), bitis:null, not:not || null });
+      var p = (window.DB && DB.slaWaitPolicy && DB.slaWaitPolicy[neden]) || {};
+      log(kayit.kod, 'Bekleme başladı — ' + neden + (p.durdurur ? ' (SLA duruyor)' : ' (SLA işlemeye devam ediyor)'),
+          '', neden, 'warn', 'i-hourglass');
+      return { ok:true, durdurur:!!p.durdurur };
+    },
+    beklemeBitir:function(kayit){
+      if(!kayit || !kayit.beklemeAraliklari) return { ok:false, why:'bekleme yok' };
+      var acik = kayit.beklemeAraliklari.filter(function(a){ return !a.bitis; })[0];
+      if(!acik) return { ok:false, why:'açık bekleme yok' };
+      acik.bitis = saat();
+      var neden = kayit.beklemeNedeni;
+      kayit.beklemeNedeni = null;
+      log(kayit.kod, 'Bekleme bitti — ' + neden, neden, '', 'ok', 'i-play');
+      return { ok:true, aralik:acik };
+    }
+  };
+
+  GV.calendar = Calendar;
 
   /* ===================================================================
      ONAY MOTORU — şartname §6.3 (CLOUD TURU)
@@ -1427,6 +1578,36 @@
       if(typeof t !== 'string') return t;
       if(!window.DB || !DB.tickets) return null;
       return DB.tickets.filter(function(x){ return x.kod === t; })[0] || null;
+    },
+
+    /* Talebin bakım paketi — şartname [9.5.5] kotanın buradan düşmesini istiyor.
+       ⚠️ BAĞ DOLAYLIDIR: `ticket.bakimPaketi` bir paket KODU değil, paket TİPİ
+       taşıyor ('Standart' · 'Kurumsal'). Paket kaydına müşteri üzerinden
+       ulaşılır; tip yazılıysa aynı tipteki paket tercih edilir.
+       Eşleşme yoksa `null` döner ve kota düşümü YAPILMAZ — olmayan bir paketten
+       saat düşmek, ölçüm gibi görünen bir kurgu olurdu. */
+    paketOf:function(t){
+      var k = Destek.kayit(t);
+      if(!k || !window.DB || !DB.supportPackages) return null;
+      var aday = DB.supportPackages.filter(function(p){
+        return p.aktif !== false && p.durum !== 'Sona erdi' && p.musteri === k.musteri; });
+      if(!aday.length) return null;
+      if(k.proje){
+        var projeli = aday.filter(function(p){ return p.proje === k.proje; });
+        if(projeli.length) aday = projeli;
+      }
+      if(k.bakimPaketi){
+        var tipli = aday.filter(function(p){ return p.tip === k.bakimPaketi; });
+        if(tipli.length) return tipli[0];
+      }
+      return aday[0];
+    },
+
+    /* Kotadan düşülecek süre — ücretli talep pakete yazılmaz ([9.5.5]) */
+    kotaDusum:function(t){
+      var k = Destek.kayit(t);
+      if(!k || k.ucretli) return 0;
+      return k.harcananSure || 0;
     },
 
     acik:function(t){
