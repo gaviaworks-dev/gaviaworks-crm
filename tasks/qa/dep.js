@@ -64,7 +64,12 @@ for (let i = hdr + 1; i < cmpSrc.length; i++) {
      yedi satır `work.js (projects)` tekrarına çevirirdi. */
   const cells = l.replace(/^>?\s*\|/, '').split('|');
   if (cells.length < 2) continue;
-  const desenler = [...cells[0].matchAll(/`(GV\.[A-Za-z0-9_.*]+)`/g)].map(x => x[1]);
+  /* Ad ile kapanış ters tırnağı arasındaki her şey atlanır. Bu tablo bugün
+     imzasız yazıyor (`GV.fin.*`), ama komşu API tablosu imza da yazıyor
+     (`GV.fin.settleInvoice(kod, tarih?)`); iki tablonun üslubu ayrıştığı için
+     satır buraya o üslupla kopyalandığında sessizce okunmaz hâle gelirdi.
+     Desen ikisini de kabul eder. */
+  const desenler = [...cells[0].matchAll(/`(GV\.[A-Za-z0-9_.*]+)[^`]*`/g)].map(x => x[1]);
   if (!desenler.length) continue;
   const dosyalar = [...cells.slice(1).join('|').matchAll(/`([a-z0-9_]+\.js)`/g)].map(x => x[1]);
   /* Bağımlılığı OLMAYAN yordam da tabloya yazılır (`—`): "veri okumaz" ile
@@ -88,7 +93,13 @@ if (CONTRACT.length < 5)
    kalırdı. Tablo satırı olmayan bir çağrı ihlaldir; bunu ölçebilmek için
    "hangi çağrılar domain yordamıdır" sorusunun cevabı kaynaktan gelir. */
 const domainSrc = fs.readFileSync(path.join(ROOT, 'assets/js/domain.js'), 'utf8');
-const NS = [...domainSrc.matchAll(/^\s*GV\.([A-Za-z]+)\s*=\s*[A-Z]/gm)].map(m => m[1]);
+/* ⚠️ Desen ilk yazımında `=` sonrası BÜYÜK HARF arıyordu (`= Task`) ve bu
+   yüzden IIFE ile kurulan isim alanlarını (`GV.notes = (function(){`,
+   `GV.sales = (function(){`) HİÇ görmedi: iki yeni servis eklendi, eksen
+   sayıyı değiştirmeden "TEMİZ" dedi. Tam olarak bu bloğun üstündeki yorumun
+   uyardığı hata — araç kendi uyarısına düştü (L-24 · L-27 ailesi).
+   Artık üç kalıp da tanınır: `= Ad`, `= {`, `= (function`. */
+const NS = [...domainSrc.matchAll(/^\s*GV\.([A-Za-z]+)\s*=\s*(?:[A-Z]|\{|\(function)/gm)].map(m => m[1]);
 if (!NS.length) throw new Error('dep: domain.js içinde GV.<isimAlanı> ataması bulunamadı');
 const CALL_RE = new RegExp('GV\\.(' + NS.join('|') + ')\\.([A-Za-z0-9_]+)', 'g');
 
