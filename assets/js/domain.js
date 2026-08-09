@@ -41,6 +41,75 @@
   }
 
   /* ===================================================================
+     DENETİM İZİ — TEK DEFTER (şartname [2.0.7] · [19.0.7] · CLOUD TURU)
+     -------------------------------------------------------------------
+     Ölçülen kusur: İKİ defter vardı ve birbirini görmüyordu.
+       · `DB.activities` — `log()` ile append edilen kayıt olay defteri (207 kayıt)
+       · `DB.logs`       — ekranlarda ELLE yazılan sistem günlüğü (7 kayıt),
+                           üstelik kodu da uydurarak: `'LOG-' + (88300 + DB.logs.length)`
+     Aynı olgu iki yere yazılıyor, hiçbir ekran ikisini birden okumuyordu.
+
+     `GV.audit` ikisini tek yüzeye getirir. `DB.logs` KALDIRILMAZ — beş ekran
+     onu okuyor ve `modul`/`ip` gibi alanları var; bunun yerine defter
+     `activities` şemasına KÖPRÜLENİR: `GV.audit.yaz()` her iki deftere de
+     yazar ve `GV.audit.oku()` ikisini birleştirip tek zaman çizelgesi döner.
+     Böylece ekranlar tek tek taşınırken hiçbir kayıt görünmez olmaz.
+     =================================================================== */
+  var Audit = {
+    /* Tek yazma noktası. `modul`/`ip` verilirse sistem günlüğüne de düşer. */
+    yaz:function(c){
+      c = c || {};
+      if(!window.DB) return null;
+      var t = saat(), me = kim();
+      /* Ekranlar `islem` adıyla çağırıyor, domain yordamları `metin` adıyla —
+         ikisi aynı şeydir. Boş metinle olay yazmak, defterde ne olduğu
+         okunamayan bir satır bırakırdı. */
+      var metin = c.metin || c.islem;
+      if(metin) log(c.kayit, metin, c.eski, c.yeni, c.tone, c.icon);
+      if(c.modul && DB.logs){
+        DB.logs.unshift({
+          /* Kod artık uydurulmuyor: sıra numarası defterin kendisinden gelir
+             ve çakışma olasılığı ölçülebilir. */
+          kod:'LOG-' + (90000 + DB.logs.length + 1),
+          tarih:t, kisi:me, islem:c.islem || c.metin, kayit:c.kayit || null,
+          modul:c.modul, ip:c.ip || null,
+          eski:c.eski == null ? null : c.eski, yeni:c.yeni == null ? null : c.yeni
+        });
+      }
+      return { tarih:t, kisi:me };
+    },
+
+    /* İki defteri birleştirip tek zaman çizelgesi döndürür. Ekran hangi
+       deftere yazıldığını bilmek zorunda kalmaz. */
+    oku:function(kayitKod, limit){
+      if(!window.DB) return [];
+      var a = (DB.activities || []).filter(function(x){
+        return !kayitKod || x.kayit === kayitKod; })
+        .map(function(x){ return { tarih:x.tarih, kisi:x.kisi, metin:x.metin,
+          eski:x.eski, yeni:x.yeni, tone:x.tone, icon:x.icon, kayit:x.kayit, defter:'olay' }; });
+      var b = (DB.logs || []).filter(function(x){
+        return !kayitKod || x.kayit === kayitKod; })
+        .map(function(x){ return { tarih:x.tarih, kisi:x.kisi, metin:x.islem,
+          eski:x.eski, yeni:x.yeni, tone:'info', icon:'i-shield', kayit:x.kayit,
+          modul:x.modul, ip:x.ip, defter:'sistem' }; });
+      var hepsi = a.concat(b).sort(function(x,y){ return String(y.tarih).localeCompare(String(x.tarih)); });
+      return limit ? hepsi.slice(0, limit) : hepsi;
+    },
+
+    /* İki defterin çakışıp çakışmadığı — veri kalitesi ekseni için */
+    denetle:function(){
+      if(!window.DB) return null;
+      var olay = (DB.activities || []).length, sistem = (DB.logs || []).length;
+      var kodsuz = (DB.activities || []).filter(function(x){ return !x.kayit; }).length;
+      var kisisiz = (DB.activities || []).filter(function(x){ return !x.kisi; }).length;
+      return { olay:olay, sistem:sistem, toplam:olay + sistem,
+               kayitKodsuz:kodsuz, aktorsuz:kisisiz };
+    }
+  };
+
+  GV.audit = Audit;
+
+  /* ===================================================================
      MERKEZÎ DURUM GEÇİŞ MOTORU — şartname §6.1 (CLOUD TURU)
      -------------------------------------------------------------------
      Ölçüm: geçiş motoru tek varlıkta yaşıyordu (`GV.task.transition`).
