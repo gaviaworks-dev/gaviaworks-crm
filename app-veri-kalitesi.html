@@ -1,0 +1,1848 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Veri Kalitesi ve Sistem Sağlığı — GaviaWorks CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/ui.css">
+</head>
+<body data-sec="ayarlar" data-screen="veri-kalitesi">
+<div id="uyari"></div>
+<div id="karne"></div>
+<div id="liste"></div>
+
+<script src="assets/data/org.js"></script>
+<script src="assets/data/crm.js"></script>
+<script src="assets/data/work.js"></script>
+<script src="assets/data/ops.js"></script>
+<script src="assets/data/hr.js"></script>
+<script src="assets/data/misc.js"></script>
+
+<script>
+/* =====================================================================
+   HAM ONAY SAYACI ANLIK GÖRÜNTÜSÜ — [17.0.6] ölçülebilsin diye.
+
+   `domain.js` yüklenirken `GV.approval.tazeleSayaclar()` çalışır ve
+   `DB.purchases[].onayAdim / onayToplam` alanlarını onay zincirinden
+   YENİDEN TÜRETİP ÜZERİNE YAZAR. Bu doğru davranıştır (şartname [6.3.10]:
+   sayaç değil türetim) — ama yan etkisi şudur: sayfa kodu çalışmaya
+   başladığında elle yazılmış sayaç ARTIK YOKTUR, kayıt zincirle birebir
+   uyumlu görünür ve "elle tutulmuş sayaç" kontrolü hep sıfır bulgu verir.
+
+   Sıfır bulgu ile ölçülememe aynı şey değildir (L-13 · L-25). Bu yüzden
+   ham değerler motor devreye girmeden ÖNCE, veri dosyalarından okunduğu
+   hâliyle burada dondurulur. Bu blok veriye hiçbir şey yazmaz; yalnız
+   okur. Sıra önemlidir: bu script veri dosyalarından SONRA, `shell.js` ve
+   `domain.js`'ten ÖNCE durmak zorundadır.
+   ===================================================================== */
+window.__DQ_HAM_ONAY = (function(){
+  if(!window.DB || !DB.purchases) return null;
+  return DB.purchases.map(function(p){
+    return { kod:p.kod, onayAdim:p.onayAdim, onayToplam:p.onayToplam };
+  });
+})();
+</script>
+
+<script src="assets/js/shell.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/domain.js"></script>
+<script>
+document.addEventListener('gv:ready', function(){
+  var F = GV.fmt, esc = GV.esc, ico = GV.ico;
+
+  var ROL   = GV.perm.role();
+  var rolAd = DB.roleName(ROL);
+
+  /* Şartname: sayfa `sahip` / `genelmudur` / `sistem` rollerine açılır.
+     Yetki matrisi ekseni değil ROL eksenidir: veri kalitesi taraması tüm
+     modüllerin ham kayıtlarını yan yana koyar; "kendi kayıtları" diye bir
+     kapsamı yoktur, o yüzden kapsamlı rollere hiç açılmaz. */
+  var ACIK_ROLLER = ['sahip','genelmudur','sistem'];
+  var yetkili = ACIK_ROLLER.indexOf(ROL) !== -1;
+
+  GV.pageHead({
+    eyebrow:'Ayarlar', title:'Veri Kalitesi ve Sistem Sağlığı',
+    sub:'On iki tutarlılık kontrolü · tarama anı ' + F.date(DB.today),
+    actions:[
+      { label:'Log Kayıtları',   icon:'i-list',     href:'app-ayar-log.html' },
+      { label:'Onay Akışları',   icon:'i-stamp',    href:'app-ayar-onay.html' },
+      { label:'Arşiv',           icon:'i-archive',  href:'app-ayar-arsiv.html' }
+    ]
+  });
+
+  /* =================================================================
+     YETKİ KAPISI — `GV.guardRecord`in liste karşılığı.
+     Yetkisiz rolde tarama HİÇ ÇALIŞTIRILMAZ: bulgu metinleri kayıt
+     kodu, müşteri unvanı, sözleşme tutarı ve personel kodu taşır;
+     "listeyi gizle ama hesabı yap" burada sızıntı yüzeyidir.
+     ================================================================= */
+  if(!yetkili){
+    document.getElementById('uyari').innerHTML = '<div class="u-mb-4">' + GV.notice({
+      tone:'warn', icon:'i-lock', title:'Veri kalitesi taramasına erişim yetkiniz yok',
+      text:'“' + rolAd + '” rolü bu ekranı açamaz. Tarama; müşteri, sözleşme, fatura, personel ve ' +
+           'zimmet kayıtlarını tek listede yan yana koyar ve her bulguda kayıt kodunu, ilgili tutarı ve ' +
+           'sorumlusunu yazar. Bu nedenle ekran yalnız sahip, genel müdür ve sistem yöneticisi rollerine ' +
+           'açıktır. Yetkisiz rolde tarama başlatılmaz — liste gizlenmez, hiç hesaplanmaz.',
+      actions:[{ label:'Ana Panele Dön', href:'app-panel.html', cls:'btn-line' },
+               { label:'Yetki Matrisi',  href:'app-ayar-yetki.html', cls:'btn-line' }]
+    }) + '</div>';
+
+    document.getElementById('liste').innerHTML = '<div class="gv-card">' + GV.empty({
+      icon:'i-lock', title:'Tarama çalıştırılmadı',
+      desc:'Bu rolde kontrol motoru hiç kurulmaz; bulgu sayısı, kontrol karnesi ve çıktı alma da dâhil ' +
+           'hiçbir veri bu ekrana gelmez. Erişim gerekiyorsa sistem yöneticinizden veri kalitesi ' +
+           'ekranı yetkisi isteyin.'
+    }) + '</div>';
+    return;
+  }
+
+  /* =================================================================
+     ORTAK YARDIMCILAR
+     ================================================================= */
+  /* Bu veri setinde boş değer üç biçimde yazılır: null, '' ve '—'.
+     Üçünü de boş saymayan her kural yalancı bulgu üretir (ilk turda
+     iki tedarikçinin '—' vergi numarası "mükerrer vergi no" çıkmıştı). */
+  function bos(v){ return v == null || v === '' || v === '—' || v === '-'; }
+
+  /* Unvan karşılaştırmasında şirket eki gürültüdür: "Deniz Lojistik A.Ş."
+     ile "Deniz Lojistik Ltd. Şti." aynı firmanın iki yazımı olabilir. */
+  function norm(s){
+    return String(s || '').toLocaleLowerCase('tr')
+      .replace(/[.,]/g, ' ')
+      .replace(/\b(a\s*ş|ltd|şti|sti|inc)\b/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  function gecmis(d){ return !bos(d) && String(d) < DB.today; }
+
+  /* Kayıt kodundan ekran adresi. Yayında olmayan hedefleri `GV.isBuilt`
+     eler; sahte bağlantı bırakılmaz. */
+  var HREF = {
+    'MUS-':'app-musteri-detay.html?id=',      'YTK-':'app-musteri-yetkili.html?q=',
+    'LEAD-':'app-lead-detay.html?id=',        'ANL-':'app-onanaliz-detay.html?id=',
+    'TKL-':'app-teklif-detay.html?id=',       'REF-':'app-referans-detay.html?id=',
+    'KOM-':'app-komisyon-detay.html?id=',     'ILT-':'app-musteri-iletisim.html?q=',
+    'PRJ-':'app-proje-detay.html?id=',        'MOD-':'app-proje-detay.html?id=',
+    'MS-':'app-odemeplani.html?q=',           'PMS-':'app-proje-milestone.html?q=',
+    'SPR-':'app-proje-sprint.html?q=',        'GRV-':'app-gorev-detay.html?id=',
+    'HTA-':'app-proje-hata-detay.html?id=',   'TST-':'app-proje-test-detay.html?id=',
+    'TSL-':'app-proje-teslim-detay.html?id=', 'DGS-':'app-proje-degisiklik-detay.html?id=',
+    'TLP-':'app-istalebi-detay.html?id=',     'ONY-':'app-panel-onaylar.html?q=',
+    'SZL-':'app-sozlesme-detay.html?id=',     'FTR-':'app-fatura-detay.html?id=',
+    'THS-':'app-tahsilat-detay.html?id=',     'DST-':'app-destek-detay.html?id=',
+    'BKP-':'app-destek-paket.html?q=',        'ANK-':'app-destek-memnuniyet.html?q=',
+    'DMB-':'app-demirbas-detay.html?id=',     'ZMT-':'app-zimmet.html?q=',
+    'ARC-':'app-arac-detay.html?id=',         'PLC-':'app-arac-sigorta.html?q=',
+    'MYN-':'app-arac-muayene.html?q=',        'BKM-':'app-arac-bakim.html?q=',
+    'SAT-':'app-satinalma-detay.html?id=',    'SIP-':'app-siparis-detay.html?id=',
+    'TDR-':'app-tedarikci-detay.html?id=',    'DOK-':'app-dokuman-detay.html?id=',
+    'EMP-':'app-personel-detay.html?id=',     'IZN-':'app-izin-detay.html?id=',
+    'ZMN-':'app-zaman.html?q=',               'TSH-':'app-zaman-onay.html?q=',
+    'DEP-':'app-ayar-departman.html?q=',      'TOP-':'app-toplanti-detay.html?id=',
+    'KRR-':'app-toplanti-karar.html?q=',      'ENT-':'app-ayar-entegrasyon.html?q=',
+    'BTC-':'app-butce.html?q='
+  };
+  function kayitHref(kod){
+    if(!kod) return null;
+    var p = Object.keys(HREF).filter(function(x){ return String(kod).indexOf(x) === 0; })
+                  .sort(function(a,b){ return b.length - a.length; })[0];
+    return p ? HREF[p] + encodeURIComponent(kod) : null;
+  }
+  function kayitBag(kod){
+    var h = kayitHref(kod);
+    return h ? '<a href="' + h + '">' + esc(kod) + '</a>' : '<span class="u-num">' + esc(kod) + '</span>';
+  }
+
+  /* Kaydın sorumlusu — [17.0.12] "sorumlu" alanı. Her koleksiyonda farklı
+     adla durur; UYDURULMAZ, bulunamazsa boş bırakılır. */
+  var TUM_KOD = {};
+  Object.keys(DB).forEach(function(k){
+    if(!Array.isArray(DB[k])) return;
+    DB[k].forEach(function(r){ if(r && r.kod && !TUM_KOD[r.kod]) TUM_KOD[r.kod] = { kol:k, rec:r }; });
+  });
+  var SORUMLU_ALAN = ['sorumlu','pm','hazirlayan','talepEden','onaylayan','yukleyen',
+                      'personel','olusturan','veren','yonetici','acan','kisi','surucu','zimmetli'];
+  function kayitSorumlu(kod){
+    var t = TUM_KOD[kod]; if(!t) return null;
+    for(var i = 0; i < SORUMLU_ALAN.length; i++){
+      var v = t.rec[SORUMLU_ALAN[i]];
+      if(!bos(v) && /^EMP-/.test(String(v))) return v;
+    }
+    return null;
+  }
+  function kayitModul(kod){
+    var t = TUM_KOD[kod]; if(!t) return '—';
+    return MODUL_AD[t.kol] || t.kol;
+  }
+  var MODUL_AD = {
+    customers:'Müşteri', contacts:'Müşteri', interactions:'Müşteri', referrers:'Satış',
+    leads:'Satış', analyses:'Satış', quotes:'Satış', commissions:'Satış',
+    projects:'Proje', projectModules:'Proje', milestones:'Finans', projectMilestones:'Proje',
+    sprints:'Proje', tasks:'Görev', deptRequests:'Görev', bugs:'Proje', tests:'Proje',
+    deliveries:'Proje', changeRequests:'Proje', approvals:'Onay',
+    assets:'Varlık', assignments:'Varlık', vehicles:'Filo', maintenance:'Filo',
+    inspections:'Filo', policies:'Filo', fuelLogs:'Filo', vehicleExpenses:'Filo',
+    accidents:'Filo', fines:'Filo', suppliers:'Satın Alma', purchases:'Satın Alma',
+    orders:'Satın Alma', tickets:'Destek', supportPackages:'Destek', surveys:'Destek',
+    leaves:'Personel', timelogs:'Personel', timesheets:'Personel', performance:'Personel',
+    trainings:'Personel', onboarding:'Personel', employees:'Personel', departments:'Ayarlar',
+    contracts:'Finans', invoices:'Finans', payments:'Finans',
+    meetings:'Toplantı', decisions:'Toplantı', documents:'Doküman',
+    integrations:'Ayarlar', capacity:'Personel'
+  };
+
+  /* Kaydın olay geçmişindeki ilk ve son hareket — [17.0.12] "ilk / son
+     görülme"nin bu prototipteki DÜRÜST karşılığı. Tarama geçmişi
+     saklanmadığı için bulgunun kendisinin ne zaman doğduğu bilinmez;
+     bilinen şey ETKİLENEN KAYDIN ne zaman dokunulduğudur ve kolon adı
+     da bunu söyler. Uydurma bir "ilk tespit" tarihi yazılmaz. */
+  var AKT = {};
+  (DB.activities || []).forEach(function(a){ (AKT[a.kayit] = AKT[a.kayit] || []).push(a); });
+  function hareket(kodlar){
+    var t = [];
+    (kodlar || []).forEach(function(k){
+      (AKT[k] || []).forEach(function(a){ if(a.tarih) t.push(String(a.tarih)); });
+    });
+    if(!t.length) return { ilk:null, son:null };
+    t.sort();
+    return { ilk:t[0], son:t[t.length - 1] };
+  }
+
+  /* =================================================================
+     KONTROL MOTORU
+     Her kontrol `{ olculdu, kapsam, neden, bulgular[] }` döndürür.
+     `olculdu:false` ⇒ KONTROL YAPILAMADI. "Geçti" DEĞİL, "temiz" DEĞİL.
+     Ölçülemeyen kontrolün bulgusu da sıfırdır; ikisini aynı yeşile
+     yazmak, olmayan bir güvenceyi rapor etmek olurdu (L-13 · L-25).
+     ================================================================= */
+  function yeniKontrol(){ return { bulgular:[], olculdu:true, kapsam:'', neden:null }; }
+  function ekle(K, o){
+    /* kayitlar: bulgu bir ilişkiden doğduğunda birden çok kayıt taşır
+       (ör. iki mükerrer müşteri). İlk kod birincil kayıttır. */
+    K.bulgular.push({
+      onem:o.onem, kural:o.kural, kayitlar:o.kayitlar, aciklama:o.aciklama,
+      oto:!!o.oto, otoNot:o.otoNot || null
+    });
+  }
+
+  var KONTROLLER = [];
+
+  /* -----------------------------------------------------------------
+     [17.0.2] · K1 — Kaynaksız / yetim bağlı kayıt
+     Bir alan dolu ama işaret ettiği kayıt yok. Harita elle yazılır;
+     "her *-kodlu alan yabancı anahtardır" varsayımı yanlış bulgu üretir
+     (`orders.fatura` tedarikçinin kendi fatura numarasıdır, bizim
+     `DB.invoices` kaydımız değildir; `automations.kullanici` bir rol
+     tarifidir, personel kodu değildir).
+     ----------------------------------------------------------------- */
+  var BAG = [
+    ['customers','sorumlu','employees'], ['customers','referans','referrers'],
+    ['contacts','musteri','customers'],
+    ['leads','musteri','customers'], ['leads','referans','referrers'],
+    ['leads','sorumlu','employees'], ['leads','destek','tickets'],
+    ['analyses','lead','leads'], ['analyses','hazirlayan','employees'],
+    ['quotes','musteri','customers'], ['quotes','lead','leads'],
+    ['quotes','analiz','analyses'], ['quotes','hazirlayan','employees'],
+    ['quoteItems','teklif','quotes'],
+    ['interactions','musteri','customers'], ['interactions','lead','leads'],
+    ['interactions','kisi','employees'], ['interactions','kontak','contacts'],
+    ['commissions','referans','referrers'], ['commissions','musteri','customers'],
+    ['referrers','kontak','contacts'], ['referrers','sorumlu','employees'],
+    ['projects','musteri','customers'], ['projects','pm','employees'],
+    ['projects','teknikSorumlu','employees'], ['projects','musteriSorumlu','employees'],
+    ['projectModules','proje','projects'], ['projectModules','sorumlu','employees'],
+    ['milestones','proje','projects'], ['milestones','sozlesme','contracts'],
+    ['milestones','milestone','projectMilestones'],
+    ['projectMilestones','proje','projects'], ['projectMilestones','sorumlu','employees'],
+    ['sprints','proje','projects'],
+    ['tasks','proje','projects'], ['tasks','modul','projectModules'], ['tasks','sprint','sprints'],
+    ['tasks','musteri','customers'], ['tasks','dep','departments'], ['tasks','olusturan','employees'],
+    ['tasks','veren','employees'], ['tasks','sorumlu','employees'], ['tasks','kontrolEden','employees'],
+    ['tasks','onaylayan','employees'], ['tasks','destek','tickets'],
+    ['subtasks','ustGorev','tasks'], ['subtasks','sorumlu','employees'],
+    ['checklists','gorev','tasks'], ['taskDeps','gorev','tasks'], ['taskDeps','bagimli','tasks'],
+    ['deptRequests','talepEdenDep','departments'], ['deptRequests','talepEdilenDep','departments'],
+    ['deptRequests','talepEden','employees'], ['deptRequests','sorumlu','employees'],
+    ['deptRequests','musteri','customers'], ['deptRequests','proje','projects'],
+    ['bugs','proje','projects'], ['bugs','gorev','tasks'], ['bugs','bulan','employees'],
+    ['bugs','sorumlu','employees'], ['bugs','sprint','sprints'], ['bugs','destek','tickets'],
+    ['bugs','test','tests'],
+    ['tests','proje','projects'], ['tests','sorumlu','employees'], ['tests','sprint','sprints'],
+    ['deliveries','proje','projects'], ['deliveries','milestone','milestones'],
+    ['deliveries','teslimEden','employees'], ['deliveries','test','tests'],
+    ['changeRequests','proje','projects'], ['changeRequests','sorumlu','employees'],
+    ['changeRequests','destek','tickets'],
+    ['approvals','talepEden','employees'], ['approvals','onaylayan','employees'],
+    ['assets','tedarikci','suppliers'], ['assets','dep','departments'],
+    ['assets','zimmetli','employees'], ['assets','siparis','orders'],
+    ['assignments','demirbas','assets'], ['assignments','personel','employees'],
+    ['assignments','iadeAlan','employees'],
+    ['vehicles','anaSurucu','employees'], ['vehicles','yedekSurucu','employees'],
+    ['vehicles','dep','departments'], ['vehicles','proje','projects'], ['vehicles','siparis','orders'],
+    ['maintenance','arac','vehicles'], ['inspections','arac','vehicles'],
+    ['policies','arac','vehicles'], ['fuelLogs','arac','vehicles'], ['fuelLogs','surucu','employees'],
+    ['vehicleExpenses','arac','vehicles'], ['accidents','arac','vehicles'],
+    ['accidents','surucu','employees'], ['fines','arac','vehicles'], ['fines','surucu','employees'],
+    ['purchases','talepEden','employees'], ['purchases','dep','departments'],
+    ['purchases','proje','projects'],
+    ['purchaseApprovals','talep','purchases'], ['purchaseApprovals','kisi','employees'],
+    ['supplierQuotes','talep','purchases'], ['supplierQuotes','tedarikci','suppliers'],
+    ['orders','talep','purchases'], ['orders','tedarikci','suppliers'],
+    ['orderLines','siparis','orders'], ['orderReturns','siparis','orders'],
+    ['tickets','musteri','customers'], ['tickets','proje','projects'],
+    ['tickets','sorumlu','employees'], ['tickets','acan','contacts'],
+    ['tickets','cozenPersonel','employees'],
+    ['supportPackages','musteri','customers'], ['supportPackages','proje','projects'],
+    ['supportPackages','sozlesme','contracts'], ['supportPackages','sorumlu','employees'],
+    ['surveys','musteri','customers'],
+    ['leaves','personel','employees'], ['leaves','vekil','employees'], ['leaves','onaylayan','employees'],
+    ['timelogs','personel','employees'], ['timelogs','gorev','tasks'], ['timelogs','proje','projects'],
+    ['timelogs','musteri','customers'], ['timelogs','modul','projectModules'],
+    ['timesheets','personel','employees'], ['timesheets','onaylayan','employees'],
+    ['performance','personel','employees'], ['capacity','personel','employees'],
+    ['onboarding','personel','employees'], ['onboarding','sorumlu','employees'],
+    ['salaryHistory','personel','employees'],
+    ['contracts','musteri','customers'], ['contracts','teklif','quotes'],
+    ['contracts','proje','projects'], ['contracts','sorumlu','employees'],
+    ['invoices','musteri','customers'], ['invoices','sozlesme','contracts'],
+    ['invoices','proje','projects'], ['invoices','milestone','milestones'],
+    ['payments','fatura','invoices'], ['payments','musteri','customers'],
+    ['payments','sorumlu','employees'],
+    ['paymentAllocations','tahsilat','payments'], ['paymentAllocations','fatura','invoices'],
+    ['meetings','musteri','customers'], ['meetings','proje','projects'],
+    ['decisions','toplanti','meetings'], ['decisions','sorumlu','employees'],
+    ['decisions','gorev','tasks'],
+    ['documents','musteri','customers'], ['documents','proje','projects'],
+    ['documents','arac','vehicles'], ['documents','yukleyen','employees'],
+    ['documentVersions','dokuman','documents'], ['documentVersions','yukleyen','employees'],
+    ['documentApprovals','dokuman','documents'], ['documentApprovals','kisi','employees'],
+    ['channels','proje','projects'], ['channels','dep','departments'],
+    ['messages','kanal','channels'], ['messages','kisi','employees'], ['messages','gorev','tasks'],
+    ['reminders','gonderen','employees'],
+    ['notifications','kisi','employees'], ['announcements','yazan','employees'],
+    ['announcements','dep','departments'],
+    ['logs','kisi','employees'], ['activities','kisi','employees'],
+    ['employees','dep','departments'], ['employees','yonetici','employees'],
+    ['departments','yonetici','employees']
+  ];
+  var BAG_DIZI = [
+    ['projects','ekip','employees'], ['tasks','yardimci','employees'],
+    ['tasks','izleyiciler','employees'], ['channels','uyeler','employees'],
+    ['trainings','katilimci','employees'], ['meetings','katilimci','employees'],
+    ['announcements','okuyanlar','employees']
+  ];
+  /* Onay kuyruğu kaydı hangi koleksiyona bakar — türü söyler. */
+  var ONAY_KOL = {
+    'Satın alma talebi':'purchases', 'İzin talebi':'leaves', 'Teklif iç onayı':'quotes',
+    'Görev onayı':'tasks', 'Değişiklik talebi':'changeRequests', 'Ön analiz onayı':'analyses',
+    'Komisyon kazancı':'commissions', 'Timesheet onayı':'timesheets'
+  };
+
+  function kontrol1(){
+    var K = yeniKontrol(), kodSeti = {}, tarandi = 0;
+    function var_(kol, kod){
+      if(!kodSeti[kol]) kodSeti[kol] = (DB[kol] || []).reduce(function(m, r){ m[r.kod] = 1; return m; }, {});
+      return !!kodSeti[kol][kod];
+    }
+    function yetim(kayitKod, kol, alan, deger, hedef){
+      ekle(K, { onem:'Kritik', kural:'Yetim yabancı anahtar',
+        kayitlar:[kayitKod],
+        aciklama:'`' + kol + '.' + alan + '` alanı “' + deger + '” değerini taşıyor, ama bu kodda bir ' +
+                 hedef + ' kaydı yok. Kaynağı olmayan bağ, kaydı açan her ekranda “—” ya da boş ad ' +
+                 'olarak görünür ve raporlarda sessizce dışarıda kalır.',
+        oto:false, otoNot:'Otomatik düzeltilemez: doğru hedef kaydın hangisi olduğu veriden türetilemez. ' +
+                          'Bağ ya elle düzeltilir ya da kopartılır.' });
+    }
+    BAG.forEach(function(b){
+      var kol = b[0], alan = b[1], hedef = b[2];
+      (DB[kol] || []).forEach(function(r){
+        var v = r[alan];
+        if(bos(v)) return;
+        tarandi++;
+        if(!var_(hedef, v)) yetim(r.kod || (kol + ':' + alan), kol, alan, v, hedef);
+      });
+    });
+    BAG_DIZI.forEach(function(b){
+      var kol = b[0], alan = b[1], hedef = b[2];
+      (DB[kol] || []).forEach(function(r){
+        (Array.isArray(r[alan]) ? r[alan] : []).forEach(function(v){
+          if(bos(v)) return;
+          tarandi++;
+          if(!var_(hedef, v)) yetim(r.kod || kol, kol, alan + '[]', v, hedef);
+        });
+      });
+    });
+    /* Onay kuyruğu → kaynak kayıt (tür bazlı hedef) */
+    (DB.approvals || []).forEach(function(a){
+      var kol = ONAY_KOL[a.tur];
+      tarandi++;
+      if(!kol){
+        ekle(K, { onem:'Yüksek', kural:'Tanımsız onay türü', kayitlar:[a.kod],
+          aciklama:'Onay kaydının türü “' + a.tur + '” — `DB.approvalTypes` içinde böyle bir tür yok. ' +
+                   'Onay sonuçlandığında hangi kaydın hangi duruma geçeceği bilinmiyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: onay tipi tanımı eklenmeli.' });
+        return;
+      }
+      if(!var_(kol, a.kayit)) yetim(a.kod, 'approvals', 'kayit', a.kayit, kol);
+    });
+    /* Serbest hedefli alanlar: herhangi bir koleksiyondaki kayda işaret eder */
+    ['activities','logs','reminders'].forEach(function(kol){
+      (DB[kol] || []).forEach(function(r){
+        [['kayit', r.kayit], ['alici', r.alici]].forEach(function(p){
+          if(bos(p[1])) return;
+          tarandi++;
+          if(!TUM_KOD[p[1]]) yetim(r.kod || (kol + ':' + p[1]), kol, p[0], p[1], 'herhangi bir koleksiyon');
+        });
+      });
+    });
+    /* Departman grubu bir koleksiyon değil, `DB.departmentGroups` metin listesi */
+    var grup = (DB.departmentGroups || []).reduce(function(m, g){ m[g] = 1; return m; }, {});
+    (DB.departments || []).forEach(function(d){
+      if(bos(d.ustDepartman)) return;
+      tarandi++;
+      if(!grup[d.ustDepartman]) yetim(d.kod, 'departments', 'ustDepartman', d.ustDepartman, 'departman grubu');
+    });
+    K.kapsam = F.num(tarandi) + ' bağ · ' + BAG.length + ' alan haritası';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.3] · K2 — Mükerrer kayıt
+     Aynı iş varlığının iki kaydı. Anahtar başına ayrı kural, çünkü
+     "aynı e-posta" ile "aynı vergi numarası" farklı ağırlıkta kanıttır.
+     ----------------------------------------------------------------- */
+  function kontrol2(){
+    var K = yeniKontrol(), tarandi = 0;
+    function mukerrer(kol, kuralAd, onem, anahtar, aciklama, oto, otoNot){
+      var m = {};
+      (DB[kol] || []).forEach(function(r){
+        tarandi++;
+        var k = anahtar(r);
+        if(bos(k)) return;
+        (m[k] = m[k] || []).push(r.kod);
+      });
+      Object.keys(m).forEach(function(k){
+        if(m[k].length < 2) return;
+        ekle(K, { onem:onem, kural:kuralAd, kayitlar:m[k],
+          aciklama:aciklama(k, m[k]), oto:oto, otoNot:otoNot });
+      });
+    }
+    mukerrer('customers', 'Mükerrer müşteri (vergi no)', 'Kritik',
+      function(r){ return bos(r.vergiNo) ? null : String(r.vergiNo); },
+      function(k, a){ return 'Aynı vergi numarası (' + k + ') ' + a.length + ' müşteri kartında yazılı. ' +
+        'Vergi numarası tek bir tüzel kişiye aittir; ciro, bekleyen tahsilat ve memnuniyet bu kartlar ' +
+        'arasında bölünür ve hiçbir raporda toplam doğru çıkmaz.'; },
+      false, 'Otomatik düzeltilemez: hangi kartın ana kayıt olacağı ve bağlı ' +
+             'teklif/sözleşme/faturanın hangisine taşınacağı iş kararıdır ([18.0.2] birleştirme akışı).');
+    mukerrer('customers', 'Mükerrer müşteri (unvan)', 'Yüksek',
+      function(r){ return norm(r.unvan) || null; },
+      function(k, a){ return 'Şirket eki ayıklandığında ' + a.length + ' müşteri kartının unvanı aynı: “' + k + '”.'; },
+      false, 'Otomatik düzeltilemez — birleştirme kararı gerektirir.');
+    mukerrer('customers', 'Mükerrer müşteri (e-posta)', 'Orta',
+      function(r){ return bos(r.eposta) ? null : String(r.eposta).toLowerCase(); },
+      function(k, a){ return 'Aynı kurumsal e-posta (' + k + ') ' + a.length + ' müşteri kartında.'; },
+      false, 'Otomatik düzeltilemez — birleştirme kararı gerektirir.');
+    mukerrer('contacts', 'Mükerrer kişi (e-posta)', 'Yüksek',
+      function(r){ return bos(r.eposta) ? null : String(r.eposta).toLowerCase(); },
+      function(k, a){ return 'Aynı e-posta (' + k + ') ' + a.length + ' müşteri yetkilisi kaydında. ' +
+        'Portal oturumu yetkili kaydından kurulduğu için aynı kişi iki farklı kimlikle giriş yapabilir.'; },
+      false, 'Otomatik düzeltilemez — kimlik birleştirme oturum kayıtlarını da etkiler.');
+    mukerrer('contacts', 'Mükerrer kişi (müşteri + ad)', 'Orta',
+      function(r){ return r.musteri + '|' + norm(r.ad); },
+      function(k, a){ return 'Aynı müşteride aynı adla ' + a.length + ' yetkili kaydı var.'; },
+      false, 'Otomatik düzeltilemez — birleştirme kararı gerektirir.');
+    mukerrer('suppliers', 'Mükerrer tedarikçi (vergi no)', 'Yüksek',
+      function(r){ return bos(r.vergiNo) ? null : String(r.vergiNo); },
+      function(k, a){ return 'Aynı vergi numarası (' + k + ') ' + a.length + ' tedarikçi kartında; ' +
+        'sipariş hacmi ve puan iki kart arasında bölünüyor.'; },
+      false, 'Otomatik düzeltilemez — birleştirme kararı gerektirir.');
+    mukerrer('suppliers', 'Mükerrer tedarikçi (unvan)', 'Orta',
+      function(r){ return norm(r.unvan) || null; },
+      function(k, a){ return a.length + ' tedarikçi kartının unvanı aynı: “' + k + '”.'; },
+      false, 'Otomatik düzeltilemez — birleştirme kararı gerektirir.');
+    mukerrer('projects', 'Mükerrer proje (ad)', 'Orta',
+      function(r){ return norm(r.ad) || null; },
+      function(k, a){ return a.length + ' proje aynı adı taşıyor: “' + k + '”.'; },
+      false, 'Otomatik düzeltilemez.');
+    mukerrer('invoices', 'Mükerrer fatura (sözleşme + taksit)', 'Kritik',
+      function(r){ return bos(r.milestone) || bos(r.sozlesme) ? null : r.sozlesme + '|' + r.milestone; },
+      function(k, a){ return 'Aynı sözleşme taksiti için ' + a.length + ' fatura kesilmiş (' +
+        k.replace('|', ' · taksit ') + '). Aynı iş iki kez faturalanmış olabilir.'; },
+      false, 'Otomatik düzeltilemez: hangi faturanın iptal edileceği finans kararıdır; ' +
+             'gönderilmiş belge bu ekrandan silinemez ([18.0.4]).');
+    mukerrer('payments', 'Mükerrer tahsilat (fatura)', 'Kritik',
+      function(r){ return bos(r.fatura) ? null : r.fatura; },
+      function(k, a){ return 'Aynı faturaya (' + k + ') ' + a.length + ' tahsilat kaydı bağlı; ' +
+        'müşteri bakiyesi olduğundan düşük görünür.'; },
+      false, 'Otomatik düzeltilemez — finansal kayıt.');
+    mukerrer('paymentAllocations', 'Mükerrer ödeme tahsisi', 'Yüksek',
+      function(r){ return r.tahsilat + '|' + r.fatura; },
+      function(k, a){ return 'Aynı tahsilat–fatura çifti için ' + a.length + ' tahsis satırı var; ' +
+        'tahsis toplamı fatura tutarını aşar.'; },
+      false, 'Otomatik düzeltilemez — finansal kayıt.');
+    mukerrer('leads', 'Mükerrer fırsat (firma + hizmet)', 'Orta',
+      function(r){ return norm(r.firma) + '|' + norm(r.hizmet); },
+      function(k, a){ return 'Aynı firmaya aynı hizmet için ' + a.length + ' fırsat kaydı açılmış; ' +
+        'pipeline hacmi çift sayılıyor.'; },
+      false, 'Otomatik düzeltilemez.');
+    /* Fırsat ↔ müşteri: firma zaten müşteri kartı olarak varken bağ kurulmamışsa
+       aynı şirket iki ayrı varlık olarak yaşıyor demektir. */
+    (DB.leads || []).forEach(function(l){
+      if(!bos(l.musteri)) return;
+      var c = (DB.customers || []).filter(function(c){ return norm(c.unvan) === norm(l.firma); })[0];
+      if(!c) return;
+      ekle(K, { onem:'Orta', kural:'Fırsat ile müşteri kartı ayrı yaşıyor', kayitlar:[l.kod, c.kod],
+        aciklama:'Fırsatın firması “' + l.firma + '” zaten ' + c.kod + ' müşteri kartı olarak kayıtlı, ' +
+                 'ama fırsatta `musteri` bağı boş. Aynı şirket sistemde iki ayrı varlık olarak duruyor.',
+        oto:true, otoNot:'Otomatik düzeltilebilir: fırsatın `musteri` alanı ' + c.kod +
+                         ' kaydına bağlanır. Bu ekranda uygulanmıyor — aşağıdaki otomatik düzeltme notuna bakın.' });
+    });
+    K.kapsam = F.num(tarandi) + ' kayıt · 12 benzersizlik anahtarı';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.4] · K3 — Uyuşmayan müşteri–teklif–sözleşme–proje bağı
+     Zincirin bir ucundaki müşteri, öbür ucundakinden farklıysa fatura
+     yanlış firmaya kesilir. Kopyalanmış `musteriAd` alanları da burada
+     denetlenir: kart adı değişince kopya eskir.
+     ----------------------------------------------------------------- */
+  function kontrol3(){
+    var K = yeniKontrol(), tarandi = 0;
+    function bul(kol, kod){ return bos(kod) ? null : (DB[kol] || []).filter(function(x){ return x.kod === kod; })[0] || null; }
+    function celiski(onem, kuralAd, kodlar, aciklama, oto, otoNot){
+      ekle(K, { onem:onem, kural:kuralAd, kayitlar:kodlar, aciklama:aciklama, oto:oto, otoNot:otoNot });
+    }
+    var ADKOPYA = 'Kopyalanmış ad alanı eskimiş';
+    var AD_OTO  = 'Otomatik düzeltilebilir: kopya alan ana karttan yeniden yazılır (geri alınabilir).';
+
+    (DB.contracts || []).forEach(function(s){
+      tarandi++;
+      var q = bul('quotes', s.teklif), p = bul('projects', s.proje), c = bul('customers', s.musteri);
+      if(q && q.musteri !== s.musteri) celiski('Kritik', 'Zincirde müşteri değişiyor', [s.kod, q.kod],
+        'Sözleşmenin müşterisi ' + s.musteri + ', kaynak teklifin (' + q.kod + ') müşterisi ' + q.musteri +
+        '. Zincirin iki ucu farklı firmayı gösteriyor.', false,
+        'Otomatik düzeltilemez: hangi ucun doğru olduğu veriden bilinemez.');
+      if(p && p.musteri !== s.musteri) celiski('Kritik', 'Zincirde müşteri değişiyor', [s.kod, p.kod],
+        'Sözleşmenin müşterisi ' + s.musteri + ', bağlı projenin (' + p.kod + ') müşterisi ' + p.musteri + '.',
+        false, 'Otomatik düzeltilemez.');
+      if(c && !bos(s.musteriAd) && c.unvan !== s.musteriAd) celiski('Orta', ADKOPYA, [s.kod, c.kod],
+        'Sözleşmedeki `musteriAd` “' + s.musteriAd + '”, müşteri kartındaki unvan “' + c.unvan + '”.',
+        true, AD_OTO);
+    });
+    (DB.quotes || []).forEach(function(q){
+      tarandi++;
+      var l = bul('leads', q.lead), a = bul('analyses', q.analiz), c = bul('customers', q.musteri);
+      if(l && !bos(l.musteri) && l.musteri !== q.musteri) celiski('Yüksek', 'Zincirde müşteri değişiyor', [q.kod, l.kod],
+        'Teklifin müşterisi ' + q.musteri + ', kaynak fırsatın (' + l.kod + ') müşterisi ' + l.musteri + '.',
+        false, 'Otomatik düzeltilemez.');
+      if(a && !bos(a.lead) && !bos(q.lead) && a.lead !== q.lead) celiski('Yüksek', 'Zincirde kaynak değişiyor', [q.kod, a.kod],
+        'Teklifin dayandığı ön analiz (' + a.kod + ') başka bir fırsata bağlı: ' + a.lead + ' ≠ ' + q.lead + '.',
+        false, 'Otomatik düzeltilemez.');
+      if(c && !bos(q.firma) && norm(c.unvan) !== norm(q.firma)) celiski('Orta', ADKOPYA, [q.kod, c.kod],
+        'Teklifteki `firma` “' + q.firma + '”, müşteri kartındaki unvan “' + c.unvan + '”.', true, AD_OTO);
+    });
+    (DB.invoices || []).forEach(function(i){
+      tarandi++;
+      var s = bul('contracts', i.sozlesme), p = bul('projects', i.proje), c = bul('customers', i.musteri);
+      if(s && s.musteri !== i.musteri) celiski('Kritik', 'Zincirde müşteri değişiyor', [i.kod, s.kod],
+        'Fatura ' + i.musteri + ' müşterisine kesilmiş, dayandığı sözleşme (' + s.kod + ') ' + s.musteri +
+        ' müşterisine ait. Fatura yanlış firmaya düzenlenmiş olabilir.', false, 'Otomatik düzeltilemez — finansal belge.');
+      if(s && !bos(s.proje) && !bos(i.proje) && s.proje !== i.proje) celiski('Yüksek', 'Zincirde proje değişiyor', [i.kod, s.kod],
+        'Faturanın projesi ' + i.proje + ', sözleşmenin projesi ' + s.proje + '.', false, 'Otomatik düzeltilemez.');
+      if(p && p.musteri !== i.musteri) celiski('Kritik', 'Zincirde müşteri değişiyor', [i.kod, p.kod],
+        'Faturanın müşterisi ' + i.musteri + ', projenin müşterisi ' + p.musteri + '.', false, 'Otomatik düzeltilemez.');
+      if(c && !bos(i.musteriAd) && c.unvan !== i.musteriAd) celiski('Orta', ADKOPYA, [i.kod, c.kod],
+        'Faturadaki `musteriAd` “' + i.musteriAd + '”, kart unvanı “' + c.unvan + '”.', true, AD_OTO);
+    });
+    (DB.payments || []).forEach(function(t){
+      tarandi++;
+      var i = bul('invoices', t.fatura), c = bul('customers', t.musteri);
+      if(i && i.musteri !== t.musteri) celiski('Kritik', 'Zincirde müşteri değişiyor', [t.kod, i.kod],
+        'Tahsilatın müşterisi ' + t.musteri + ', faturanın müşterisi ' + i.musteri + '.', false, 'Otomatik düzeltilemez.');
+      if(c && !bos(t.musteriAd) && c.unvan !== t.musteriAd) celiski('Orta', ADKOPYA, [t.kod, c.kod],
+        'Tahsilattaki `musteriAd` “' + t.musteriAd + '”, kart unvanı “' + c.unvan + '”.', true, AD_OTO);
+    });
+    (DB.milestones || []).forEach(function(m){
+      tarandi++;
+      var s = bul('contracts', m.sozlesme);
+      if(s && !bos(s.proje) && s.proje !== m.proje) celiski('Yüksek', 'Zincirde proje değişiyor', [m.kod, s.kod],
+        'Taksit ' + m.proje + ' projesine yazılı, bağlı sözleşme ' + s.proje + ' projesine ait.',
+        false, 'Otomatik düzeltilemez.');
+    });
+    (DB.projects || []).forEach(function(p){
+      tarandi++;
+      var c = bul('customers', p.musteri);
+      if(c && !bos(p.musteriAd) && c.unvan !== p.musteriAd) celiski('Orta', ADKOPYA, [p.kod, c.kod],
+        'Projedeki `musteriAd` “' + p.musteriAd + '”, kart unvanı “' + c.unvan + '”.', true, AD_OTO);
+    });
+    (DB.tickets || []).forEach(function(t){
+      tarandi++;
+      var p = bul('projects', t.proje), c = bul('customers', t.musteri), y = bul('contacts', t.acan);
+      if(p && p.musteri !== t.musteri) celiski('Yüksek', 'Zincirde müşteri değişiyor', [t.kod, p.kod],
+        'Talebin müşterisi ' + t.musteri + ', bağlı projenin müşterisi ' + p.musteri + '.', false, 'Otomatik düzeltilemez.');
+      if(y && y.musteri !== t.musteri) celiski('Kritik', 'Talebi açan başka müşterinin yetkilisi', [t.kod, y.kod],
+        'Talebi açan yetkili (' + t.acan + ') ' + y.musteri + ' müşterisine bağlı, talep ise ' + t.musteri +
+        ' müşterisine açılmış. Müşteri portalı kapsamı bu bağdan kurulduğu için yabancı bir kayıt görünebilir.',
+        false, 'Otomatik düzeltilemez — kapsam güvenliğini ilgilendirir.');
+      if(c && !bos(t.musteriAd) && c.unvan !== t.musteriAd) celiski('Orta', ADKOPYA, [t.kod, c.kod],
+        'Talepteki `musteriAd` “' + t.musteriAd + '”, kart unvanı “' + c.unvan + '”.', true, AD_OTO);
+    });
+    (DB.supportPackages || []).forEach(function(b){
+      tarandi++;
+      var s = bul('contracts', b.sozlesme), p = bul('projects', b.proje);
+      if(s && s.musteri !== b.musteri) celiski('Yüksek', 'Zincirde müşteri değişiyor', [b.kod, s.kod],
+        'Bakım paketinin müşterisi ' + b.musteri + ', bağlı sözleşmenin müşterisi ' + s.musteri + '.',
+        false, 'Otomatik düzeltilemez.');
+      if(p && p.musteri !== b.musteri) celiski('Yüksek', 'Zincirde müşteri değişiyor', [b.kod, p.kod],
+        'Bakım paketinin müşterisi ' + b.musteri + ', bağlı projenin müşterisi ' + p.musteri + '.',
+        false, 'Otomatik düzeltilemez.');
+    });
+    (DB.tasks || []).forEach(function(g){
+      tarandi++;
+      var p = bul('projects', g.proje), m = bul('projectModules', g.modul), s = bul('sprints', g.sprint);
+      if(p && !bos(g.musteri) && p.musteri !== g.musteri) celiski('Orta', 'Zincirde müşteri değişiyor', [g.kod, p.kod],
+        'Görevin müşterisi ' + g.musteri + ', projenin müşterisi ' + p.musteri + '.', false, 'Otomatik düzeltilemez.');
+      if(m && !bos(g.proje) && m.proje !== g.proje) celiski('Yüksek', 'Modül başka projeye ait', [g.kod, m.kod],
+        'Görev ' + g.proje + ' projesinde, seçili modül (' + m.kod + ') ' + m.proje + ' projesine ait.',
+        false, 'Otomatik düzeltilemez.');
+      if(s && !bos(g.proje) && s.proje !== g.proje) celiski('Yüksek', 'Sprint başka projeye ait', [g.kod, s.kod],
+        'Görev ' + g.proje + ' projesinde, seçili sprint (' + s.kod + ') ' + s.proje + ' projesine ait.',
+        false, 'Otomatik düzeltilemez.');
+    });
+    (DB.commissions || []).forEach(function(k){
+      tarandi++;
+      var c = bul('customers', k.musteri);
+      if(c && c.referans !== k.referans) celiski('Yüksek', 'Yönlendiren zinciri kopuk', [k.kod, c.kod],
+        'Komisyon ' + k.referans + ' yönlendirenine yazılmış, müşteri kartındaki yönlendiren ' +
+        (c.referans || '(boş)') + '. Komisyon yanlış kişiye hesaplanıyor olabilir.', false, 'Otomatik düzeltilemez.');
+      if(c && !bos(k.firma) && norm(c.unvan) !== norm(k.firma)) celiski('Orta', ADKOPYA, [k.kod, c.kod],
+        'Komisyondaki `firma` “' + k.firma + '”, kart unvanı “' + c.unvan + '”.', true, AD_OTO);
+    });
+    (DB.timelogs || []).forEach(function(l){
+      tarandi++;
+      var g = bul('tasks', l.gorev);
+      if(g && !bos(l.proje) && !bos(g.proje) && g.proje !== l.proje) celiski('Orta', 'Zaman kaydı başka projeye yazılmış',
+        [l.kod, g.kod], 'Zaman kaydının projesi ' + l.proje + ', bağlı görevin projesi ' + g.proje +
+        '. Proje maliyeti yanlış projeye yükleniyor.', true,
+        'Otomatik düzeltilebilir: satırın projesi görevin projesine eşitlenir (geri alınabilir).');
+    });
+    (DB.bugs || []).forEach(function(h){
+      tarandi++;
+      var g = bul('tasks', h.gorev);
+      if(g && !bos(g.proje) && g.proje !== h.proje) celiski('Orta', 'Hata ile görev farklı projede', [h.kod, g.kod],
+        'Hata ' + h.proje + ' projesinde, bağlı görev ' + g.proje + ' projesinde.', false, 'Otomatik düzeltilemez.');
+    });
+    (DB.deliveries || []).forEach(function(d){
+      tarandi++;
+      var m = bul('milestones', d.milestone);
+      if(m && m.proje !== d.proje) celiski('Yüksek', 'Teslim ile taksit farklı projede', [d.kod, m.kod],
+        'Teslim ' + d.proje + ' projesine, bağlı taksit ' + m.proje + ' projesine ait.', false, 'Otomatik düzeltilemez.');
+    });
+    (DB.orders || []).forEach(function(o){
+      tarandi++;
+      var tercih = (DB.supplierQuotes || []).filter(function(x){ return x.talep === o.talep && x.tercih; })[0];
+      if(tercih && tercih.tedarikci !== o.tedarikci) celiski('Yüksek', 'Sipariş tercih edilen teklifle uyuşmuyor',
+        [o.kod], 'Sipariş ' + o.tedarikci + ' tedarikçisine verilmiş, talepte tercih edilen teklif ' +
+        tercih.tedarikci + ' tedarikçisine ait.', false, 'Otomatik düzeltilemez — satın alma kararı.');
+    });
+    K.kapsam = F.num(tarandi) + ' zincir bağı · 13 koleksiyon';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.5] · K4 — Durum ile olay geçmişinin uyuşmaması
+
+     İLK KURGU YANLIŞTI ve iki yalancı bulgu üretti. "Son aktivitenin
+     `yeni` değeri kaydın durumundan farklıysa bulgu" kuralı, durum
+     alanına ait OLMAYAN olayları da durum sanıyordu: teklifte
+     `Bekliyor → Onaylandı` satırı `icOnay` alanınındır, sözleşmedeki
+     `Planlandı → Tamamlandı` satırı taksitindir. İkisi de "durum
+     uyuşmuyor" diye rapor edilmişti.
+
+     Doğru kural, geçiş tablosunu hakem yapar:
+       (a) Çıkış durumu tabloda ama varış durumu tabloda değilse —
+           olay geçmişi başka bir durum sözlüğü konuşuyor demektir
+           (`Taslak → İletildi`, oysa teklif sözlüğünde `Gönderildi` var).
+       (b) İkisi de tabloda ama aralarında kenar yoksa — kayıt, motorun
+           bugün reddedeceği bir adımdan geçmiş.
+       (c) Son geçerli olayın varışından bugünkü duruma tabloda hiçbir
+           yolla ULAŞILAMIYORSA — geçmiş, kaydın bugünkü hâlini
+           açıklamıyor. "Eşit değilse bulgu" demek, arada olayı
+           yazılmamış meşru adımları da suçlardı.
+     ----------------------------------------------------------------- */
+  function kontrol4(){
+    var K = yeniKontrol(), tarandi = 0, kayitliVarlik = 0;
+    var VARLIK = {};
+    Object.keys(DB.flowEntities || {}).forEach(function(t){
+      var d = DB.flowEntities[t];
+      var tb = (t === 'task') ? DB.taskTransitions : (DB.transitions || {})[t];
+      if(!tb) return;
+      VARLIK[d.koleksiyon] = { tur:t, alan:d.alan, ad:d.ad, tb:tb };
+    });
+    var haritaKod = {};
+    Object.keys(VARLIK).forEach(function(kol){
+      (DB[kol] || []).forEach(function(r){ haritaKod[r.kod] = { kol:kol, rec:r }; kayitliVarlik++; });
+    });
+    function erisir(tb, bas, hedef){
+      if(bas === hedef) return true;
+      var gor = {}, kuyruk = [bas];
+      while(kuyruk.length){
+        var d = kuyruk.shift();
+        if(gor[d]) continue;
+        gor[d] = 1;
+        var nx = (tb[d] && tb[d].next) || [];
+        for(var i = 0; i < nx.length; i++){
+          if(nx[i] === hedef) return true;
+          if(!gor[nx[i]]) kuyruk.push(nx[i]);
+        }
+      }
+      return false;
+    }
+    Object.keys(AKT).forEach(function(kod){
+      var t = haritaKod[kod];
+      if(!t) return;
+      var v = VARLIK[t.kol], tb = v.tb;
+      var sirali = AKT[kod].slice().sort(function(a, b){ return String(a.tarih).localeCompare(String(b.tarih)); });
+      tarandi += sirali.length;
+      sirali.forEach(function(x){
+        if(bos(x.eski) || bos(x.yeni)) return;
+        if(tb[x.eski] && !tb[x.yeni])
+          ekle(K, { onem:'Orta', kural:'Olay geçmişinde tabloda olmayan durum adı', kayitlar:[kod],
+            aciklama:'“' + x.eski + '” durumundan “' + x.yeni + '” durumuna geçildiği yazılı (' +
+                     F.dt(x.tarih) + '), ama ' + v.ad.toLocaleLowerCase('tr') +
+                     ' geçiş tablosunda “' + x.yeni + '” diye bir durum yok. Olay geçmişi ile durum ' +
+                     'makinesi aynı sözlüğü konuşmuyor; zaman çizelgesinden okunan durum hiçbir ekranın ' +
+                     'filtresine düşmez.',
+            oto:false, otoNot:'Otomatik düzeltilemez: “' + x.yeni + '” adının tablodaki hangi duruma ' +
+                              'karşılık geldiği veriden türetilemez ([2.0.4] durum sözlüğü tek kaynak).' });
+      });
+      var cift = sirali.filter(function(x){
+        return !bos(x.eski) && !bos(x.yeni) && tb[x.eski] && tb[x.yeni];
+      });
+      cift.forEach(function(x){
+        if(((tb[x.eski] || {}).next || []).indexOf(x.yeni) !== -1) return;
+        ekle(K, { onem:'Yüksek', kural:'Olay geçmişinde tabloda olmayan geçiş', kayitlar:[kod],
+          aciklama:'Kayıt “' + x.eski + '” durumundan “' + x.yeni + '” durumuna geçirilmiş (' +
+                   F.dt(x.tarih) + '), ama geçiş tablosunda bu kenar yok — bugün `GV.flow.gec` ' +
+                   'aynı adımı reddederdi. Geçmişte tabloyu atlayan bir yazma olmuş.',
+          oto:false, otoNot:'Otomatik düzeltilemez: ya tabloya eksik kenar eklenmeli ya da geçmiş ' +
+                            'kayıt düzeltilmeli; ikisi de karar gerektirir.' });
+      });
+      if(!cift.length) return;
+      var son = cift[cift.length - 1], simdi = t.rec[v.alan];
+      if(!erisir(tb, son.yeni, simdi))
+        ekle(K, { onem:'Yüksek', kural:'Durum olay geçmişiyle açıklanamıyor', kayitlar:[kod],
+          aciklama:'Olay geçmişindeki son durum adımı “' + son.yeni + '” (' + F.dt(son.tarih) +
+                   '), kaydın bugünkü `' + v.alan + '` değeri ise “' + simdi + '”. Geçiş tablosunda ' +
+                   '“' + son.yeni + '” durumundan “' + simdi + '” durumuna giden hiçbir yol yok — ' +
+                   'kayıt olay geçmişinin açıklayamadığı bir duruma getirilmiş.',
+          oto:false, otoNot:'Otomatik düzeltilemez: eksik olan olay mı, yanlış olan durum mu — ' +
+                            'veriden ayırt edilemez.' });
+    });
+    K.kapsam = F.num(tarandi) + ' olay · ' + F.num(kayitliVarlik) + ' durumlu kayıt · ' +
+               Object.keys(VARLIK).length + ' geçiş tablosu';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.6] · K5 — Elle tutulmuş veya mükerrer onay sayacı
+     Üç eksen: (1) veri dosyasındaki ham sayaç zincirle uyuşuyor mu,
+     (2) zincirde mükerrer adım / aynı kişi birden çok adımda,
+     (3) onay kuyruğu ile kaynak kaydın durumu birbirini tutuyor mu.
+     ----------------------------------------------------------------- */
+  function kontrol5(){
+    var K = yeniKontrol(), tarandi = 0;
+    var ham = window.__DQ_HAM_ONAY;
+    if(!ham){
+      K.olculdu = false;
+      K.neden = 'Ham sayaç anlık görüntüsü alınamadı — `DB.purchases` yüklenmemiş.';
+      K.kapsam = 'yok';
+      return K;
+    }
+    ham.forEach(function(h){
+      tarandi++;
+      var d = GV.approval.adim('Satın alma talebi', h.kod);
+      if(!d){
+        if(h.onayAdim != null || h.onayToplam != null)
+          ekle(K, { onem:'Yüksek', kural:'Zinciri olmayan elle sayaç', kayitlar:[h.kod],
+            aciklama:'Kayıtta `onayAdim`/`onayToplam` = ' + h.onayAdim + '/' + h.onayToplam +
+                     ' yazılı, ama bu talebe bağlı hiç onay zinciri kaydı yok. Sayaç hiçbir olaydan ' +
+                     'türemiyor; elle yazılmış bir rakam.',
+            oto:false, otoNot:'Otomatik düzeltilemez: zincir yokken doğru değer sıfır mı, yoksa zincirin ' +
+                              'kendisi mi eksik — veriden bilinemez.' });
+        return;
+      }
+      if(h.onayAdim !== d.adim || h.onayToplam !== d.toplam)
+        ekle(K, { onem:'Yüksek', kural:'Elle tutulmuş onay sayacı', kayitlar:[h.kod],
+          aciklama:'Veri dosyasında yazılı sayaç ' + h.onayAdim + '/' + h.onayToplam +
+                   ', onay zincirinden türetilen gerçek değer ' + d.adim + '/' + d.toplam +
+                   '. Kayıt kartı, zincirde henüz onaylanmamış bir adımı onaylanmış gösteriyordu. ' +
+                   '`GV.approval.tazeleSayaclar()` bu sayfayı açarken sayacı zincirden yeniden ' +
+                   'türetti — ekranda artık doğru değer görünüyor, ama veri dosyasındaki yazılı ' +
+                   'değer hâlâ yanlış.',
+          oto:true, otoNot:'Otomatik düzeltilebilir ve zaten yükleme anında düzeltiliyor: ' +
+                           '`GV.approval.tazeleSayaclar()` sayacı zincirden türetir. Kalıcı çözüm ' +
+                           'alanı veriden kaldırmaktır ([6.3.10] — sayaç değil türetim).' });
+      var kez = {};
+      GV.approval.zincir('Satın alma talebi', h.kod).forEach(function(z){
+        if(z.kisi) kez[z.kisi] = (kez[z.kisi] || 0) + 1;
+      });
+      Object.keys(kez).forEach(function(k){
+        if(kez[k] < 2) return;
+        ekle(K, { onem:'Orta', kural:'Görevler ayrılığı uyarısı', kayitlar:[h.kod, k],
+          aciklama:GV.approval.sodUyari('Satın alma talebi', h.kod, k) +
+                   ' Aynı kişinin iki kez onay vermesi zinciri tek imzaya indirir.',
+          oto:false, otoNot:'Otomatik düzeltilemez: 16 kişilik şirkette zinciri kilitlememek için ' +
+                            'engellenmez, uyarılır ve audit’e işaretlenir (ADR — [6.3.6]).' });
+      });
+    });
+    /* Mükerrer zincir adımı — aynı talepte aynı sıra numarası iki kez */
+    var sira = {};
+    (DB.purchaseApprovals || []).forEach(function(z){
+      tarandi++;
+      var k = z.talep + '|' + z.sira;
+      (sira[k] = sira[k] || []).push(z);
+    });
+    Object.keys(sira).forEach(function(k){
+      if(sira[k].length < 2) return;
+      ekle(K, { onem:'Yüksek', kural:'Mükerrer onay adımı', kayitlar:[k.split('|')[0]],
+        aciklama:'Onay zincirinde ' + k.split('|')[1] + '. sıra ' + sira[k].length +
+                 ' kez tanımlanmış. Adım sayısı zincirden türetildiği için toplam adım şişiyor.',
+        oto:false, otoNot:'Otomatik düzeltilemez: hangi satırın fazlalık olduğu iş kararıdır.' });
+    });
+    /* Onay kuyruğu ↔ kaynak kayıt durumu */
+    (DB.approvals || []).forEach(function(a){
+      var kol = ONAY_KOL[a.tur];
+      if(!kol) return;
+      var r = (DB[kol] || []).filter(function(x){ return x.kod === a.kayit; })[0];
+      if(!r) return;
+      tarandi++;
+      var alan = (kol === 'invoices') ? 'belgeDurum' : 'durum';
+      if(a.durum === 'Bekliyor' && ['Onaylandı','Reddedildi','Tamamlandı','Kapandı'].indexOf(r[alan]) !== -1)
+        ekle(K, { onem:'Yüksek', kural:'Onay kuyruğu kaynak kayıtla çelişiyor', kayitlar:[a.kod, r.kod],
+          aciklama:'Onay kaydı hâlâ “Bekliyor”, ama kaynak kayıt (' + r.kod + ') “' + r[alan] +
+                   '” durumunda. Kayıt onay kuyruğu üzerinden değil, doğrudan geçirilmiş olabilir.',
+          oto:false, otoNot:'Otomatik düzeltilemez: kuyruk kaydını sonuçlandırmak karar üretmektir; ' +
+                            'kim onayladığı bilinmiyor.' });
+      if(a.durum === 'Onaylandı' && ['Onaya Gönderildi','Onay bekliyor','Taslak'].indexOf(r[alan]) !== -1)
+        ekle(K, { onem:'Yüksek', kural:'Onay kuyruğu kaynak kayıtla çelişiyor', kayitlar:[a.kod, r.kod],
+          aciklama:'Onay “Onaylandı” görünüyor ama kaynak kayıt (' + r.kod + ') hâlâ “' + r[alan] +
+                   '” durumunda. Onayın yan etkisi kaynak kayda hiç uygulanmamış.',
+          oto:false, otoNot:'Otomatik düzeltilemez — geçiş kapılarından geçmesi gerekir.' });
+    });
+    /* Doküman onay zinciri — ayrı bir sayaç alanı yok, türetim doğrudan denetlenir */
+    (DB.documents || []).forEach(function(d){
+      var z = (DB.documentApprovals || []).filter(function(x){ return x.dokuman === d.kod; });
+      if(!z.length) return;
+      tarandi++;
+      var red = z.some(function(x){ return x.durum === 'Reddedildi'; });
+      var tam = z.every(function(x){ return x.durum === 'Onaylandı'; });
+      var turetilen = red ? 'Reddedildi' : tam ? 'Onaylandı' : 'Bekliyor';
+      if(turetilen === d.onay) return;
+      ekle(K, { onem:'Yüksek', kural:'Doküman onayı zincirle uyuşmuyor', kayitlar:[d.kod],
+        aciklama:'Doküman kartında onay “' + d.onay + '”, onay zincirinden türeyen değer “' + turetilen +
+                 '” (' + z.filter(function(x){ return x.durum === 'Onaylandı'; }).length + '/' + z.length + ').',
+        oto:true, otoNot:'Otomatik düzeltilebilir: kart alanı zincirden yeniden türetilir (geri alınabilir).' });
+    });
+    K.kapsam = F.num(tarandi) + ' sayaç / zincir adımı · ' + ham.length + ' satın alma talebi';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.7] · K6 — Başarısız / uzun süren entegrasyon ve dead-letter
+
+     ÖLÇÜLEMEZ. `DB.integrations` on satırdır ve yalnız `kod · ad ·
+     kategori · durum · aciklama · aktif` taşır. Ne çalışma kaydı, ne
+     deneme sayısı, ne son hata, ne kuyruk derinliği, ne dead-letter
+     koleksiyonu var — repoda "hata kuyruğu / dead-letter / replay"
+     kavramının hiçbir karşılığı yok.
+
+     Buradaki `durum:'Hata'` alanı bir ÇALIŞMA SONUCU değil, bağlantının
+     elle işaretlenmiş hâlidir; onu "başarısız entegrasyon sayısı" diye
+     saymak, ölçülmemiş bir şeyi ölçülmüş göstermek olurdu.
+     ----------------------------------------------------------------- */
+  function kontrol6(){
+    var K = yeniKontrol();
+    var ALAN = ['sonCalisma','sonSenkron','sonHata','hataSayisi','deneme','kuyruk','deadLetter','sure'];
+    var varMi = (DB.integrations || []).some(function(x){
+      return ALAN.some(function(a){ return a in x; });
+    });
+    if(varMi) return K;   /* alanlar bir gün eklenirse kontrol kendiliğinden ölçmeye başlar */
+    K.olculdu = false;
+    K.kapsam = (DB.integrations || []).length + ' entegrasyon tanımı · 0 çalışma kaydı';
+    K.neden = 'Bu kontrol için kayıt yok. `DB.integrations` yalnız bağlantı tanımı tutuyor ' +
+              '(kod · ad · kategori · durum · açıklama); çalışma kaydı, deneme sayısı, son hata mesajı, ' +
+              'süre ve dead-letter kuyruğu bu depoda hiç yok. Kontrol ÇALIŞTIRILAMADI — sıfır bulgu ' +
+              'çıkması “entegrasyonlar sağlıklı” demek değildir. Ölçüm için `DB.integrationErrors` ' +
+              'koleksiyonu ve entegrasyon çalışma günlüğü gerekir ([13.0.13] · [19.0.16]).';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.8] · K7 — Eksik zorunlu ilişki / imza / belge / kabul / ödeme tahsisi
+     Kaydın kendi durumunun gerektirdiği kanıt yoksa bulgu. Kural
+     tabanı uydurulmaz: zorunlu doküman listesi `DB.company`den,
+     zorunlu alanlar geçiş tablosundan okunur.
+     ----------------------------------------------------------------- */
+  function kontrol7(){
+    var K = yeniKontrol(), tarandi = 0;
+    (DB.contracts || []).forEach(function(s){
+      tarandi++;
+      if(['Aktif','Tamamlandı','İmza'].indexOf(s.durum) !== -1 && bos(s.imzaTarihi))
+        ekle(K, { onem:'Kritik', kural:'İmzasız yürürlükte sözleşme', kayitlar:[s.kod],
+          aciklama:'Sözleşme “' + s.durum + '” durumunda ama `imzaTarihi` boş. ' +
+                   F.money(s.toplam) + ' tutarındaki iş imzasız yürüyor görünüyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: imza tarihi uydurulamaz, imzalı nüshadan okunmalıdır.' });
+      if(bos(s.teklif))
+        ekle(K, { onem:'Düşük', kural:'Sözleşmenin kaynak teklifi yok', kayitlar:[s.kod],
+          aciklama:'Sözleşme hiçbir teklife bağlı değil. Doğrudan sözleşme mümkündür, ama teklif → ' +
+                   'sözleşme izlenebilirlik zinciri bu kayıtta kopuk; kazanma oranı ve teklif ' +
+                   'dönüşüm raporları bu işi hiç görmez.',
+          oto:false, otoNot:'Otomatik düzeltilemez: hangi teklifin kaynak olduğu veriden türetilemez.' });
+    });
+    (DB.projects || []).forEach(function(p){
+      tarandi++;
+      var s = (DB.contracts || []).filter(function(x){ return x.proje === p.kod; })[0];
+      if(!s && ['İptal Edildi','Arşivlendi'].indexOf(p.durum) === -1)
+        ekle(K, { onem:'Yüksek', kural:'Projenin sözleşmesi yok', kayitlar:[p.kod],
+          aciklama:'Projeye bağlı hiçbir sözleşme kaydı yok, ama sözleşme tutarı ' +
+                   F.money(p.sozlesmeTutari) + ' olarak yazılı. Tutarın dayandığı belge sistemde ' +
+                   'bulunmuyor; gelir bu projede belgesiz duruyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: sözleşme kaydı üretmek belge üretmektir.' });
+      if(['Tamamlandı','Kapanış','Arşivlendi'].indexOf(p.durum) === -1) return;
+      var zorunlu = (DB.company || {}).zorunluProjeDokuman || [];
+      var eksik = zorunlu.filter(function(t){
+        return !(DB.documents || []).some(function(d){
+          return d.proje === p.kod && d.tur === t && d.onay === 'Onaylandı'; });
+      });
+      if(eksik.length)
+        ekle(K, { onem:'Orta', kural:'Kapanmış projede zorunlu doküman eksik', kayitlar:[p.kod],
+          aciklama:'Proje “' + p.durum + '” durumunda ama `DB.company.zorunluProjeDokuman` listesinde ' +
+                   'onaylı karşılığı olmayan tür var: ' + eksik.join(' · ') + '. ' +
+                   '`GV.proje.kapanisKontrol` aynı maddeyi kapanış kapısında da ölçer.',
+          oto:false, otoNot:'Otomatik düzeltilemez: eksik olan belgenin kendisidir, alan değil.' });
+    });
+    (DB.invoices || []).forEach(function(i){
+      tarandi++;
+      if(i.durum !== 'Ödendi') return;
+      var t = (DB.paymentAllocations || []).filter(function(x){ return x.fatura === i.kod; });
+      if(!t.length){
+        ekle(K, { onem:'Yüksek', kural:'Ödenmiş faturanın tahsisi yok', kayitlar:[i.kod],
+          aciklama:'Fatura “Ödendi” görünüyor ama `DB.paymentAllocations` içinde bu faturaya ' +
+                   'yazılmış hiçbir tahsis satırı yok. Hangi tahsilatın bu faturayı kapattığı belli değil.',
+          oto:false, otoNot:'Otomatik düzeltilemez: eşleşecek tahsilatın hangisi olduğu iş kararıdır.' });
+        return;
+      }
+      var toplam = t.reduce(function(a, x){ return a + (x.tutar || 0); }, 0);
+      if(toplam !== i.toplam)
+        ekle(K, { onem:'Yüksek', kural:'Tahsis toplamı fatura tutarını tutmuyor', kayitlar:[i.kod],
+          aciklama:'Faturaya tahsis edilen toplam ' + F.money(toplam) + ', fatura tutarı ' +
+                   F.money(i.toplam) + '. Aradaki fark ' + F.money(Math.abs(i.toplam - toplam)) + '.',
+          oto:false, otoNot:'Otomatik düzeltilemez — finansal kayıt.' });
+    });
+    (DB.payments || []).forEach(function(p){
+      tarandi++;
+      if(!p.tahsilEdildi) return;
+      if(!(DB.paymentAllocations || []).some(function(x){ return x.tahsilat === p.kod; }))
+        ekle(K, { onem:'Yüksek', kural:'Tahsil edilmiş ödemenin tahsisi yok', kayitlar:[p.kod],
+          aciklama:'Tahsilat “tahsil edildi” işaretli ama hangi faturaya sayıldığı yazılı değil.',
+          oto:false, otoNot:'Otomatik düzeltilemez — finansal kayıt.' });
+    });
+    (DB.deliveries || []).forEach(function(d){
+      tarandi++;
+      if(d.durum === 'Onaylandı' && d.musteriOnay !== 'Onaylandı')
+        ekle(K, { onem:'Yüksek', kural:'Onaylanmış teslimde müşteri kabulü yok', kayitlar:[d.kod],
+          aciklama:'Teslim “Onaylandı” durumunda ama `musteriOnay` = “' + d.musteriOnay +
+                   '”. Kabul kanıtı olmadan teslim kapanmış görünüyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: müşteri kabulü müşteriden gelir.' });
+      if(d.musteriOnay === 'Onaylandı' && bos(d.onayTarihi))
+        ekle(K, { onem:'Orta', kural:'Kabul tarihi boş', kayitlar:[d.kod],
+          aciklama:'Müşteri onayı “Onaylandı” ama `onayTarihi` boş; kabulün ne zaman verildiği bilinmiyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: tarih uydurulamaz.' });
+    });
+    (DB.assignments || []).forEach(function(z){
+      tarandi++;
+      if(z.durum !== 'Aktif') return;
+      if(z.personelOnay !== 'Onaylandı')
+        ekle(K, { onem:'Yüksek', kural:'Aktif zimmette personel kabulü yok', kayitlar:[z.kod, z.demirbas],
+          aciklama:'Zimmet “Aktif” ama personel onayı “' + z.personelOnay + '”. Demirbaş kaydında ' +
+                   'cihaz zimmetli görünürken, personel kabulü henüz yok — kayıp/hasar sorumluluğu ' +
+                   'hangi tarafta, belirsiz.',
+          oto:false, otoNot:'Otomatik düzeltilemez: kabul personelden gelir.' });
+      if(bos(z.tutanak))
+        ekle(K, { onem:'Orta', kural:'Aktif zimmette tutanak yok', kayitlar:[z.kod],
+          aciklama:'Zimmet aktif ama teslim tutanağı belgesi bağlı değil.',
+          oto:false, otoNot:'Otomatik düzeltilemez: eksik olan belgedir.' });
+    });
+    (DB.assets || []).forEach(function(a){
+      tarandi++;
+      var z = (DB.assignments || []).filter(function(x){ return x.demirbas === a.kod && x.durum === 'Aktif'; });
+      if(a.durum === 'Zimmetli' && !z.length)
+        ekle(K, { onem:'Yüksek', kural:'Zimmetli demirbaşın zimmet kaydı yok', kayitlar:[a.kod],
+          aciklama:'Demirbaş “Zimmetli” ve kartta zimmetli kişi ' + (a.zimmetli || '(boş)') +
+                   ' yazılı, ama `DB.assignments` içinde bu demirbaşa ait aktif zimmet kaydı yok. ' +
+                   'Zimmet tutanağı, kabul ve iade zinciri bu cihazda hiç yok.',
+          oto:false, otoNot:'Otomatik düzeltilemez: zimmet kaydı üretmek tutanak üretmektir.' });
+    });
+    (DB.quotes || []).forEach(function(q){
+      tarandi++;
+      if(q.durum === 'Kazanıldı' && !(DB.contracts || []).some(function(s){ return s.teklif === q.kod; }))
+        ekle(K, { onem:'Yüksek', kural:'Kazanılmış teklifin sözleşmesi yok', kayitlar:[q.kod],
+          aciklama:'Teklif “Kazanıldı” durumunda ama hiçbir sözleşme bu teklife dayanmıyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez.' });
+    });
+    (DB.orders || []).forEach(function(o){
+      tarandi++;
+      if(o.durum === 'Tam Teslim' && bos(o.fatura))
+        ekle(K, { onem:'Orta', kural:'Teslim alınmış siparişin faturası yok', kayitlar:[o.kod],
+          aciklama:'Sipariş tam teslim edilmiş ama tedarikçi fatura numarası girilmemiş.',
+          oto:false, otoNot:'Otomatik düzeltilemez.' });
+    });
+    (DB.tickets || []).forEach(function(t){
+      tarandi++;
+      if(['Çözüldü','Kapandı','Müşteri Onayı'].indexOf(t.durum) === -1) return;
+      if(bos(t.cozumAciklama))
+        ekle(K, { onem:'Orta', kural:'Zorunlu alan boş geçilmiş', kayitlar:[t.kod],
+          aciklama:'Talep “' + t.durum + '” durumunda ama `cozumAciklama` boş. Geçiş tablosunda ' +
+                   '“Devam ediyor → Çözüldü” adımı bu alanı ZORUNLU sayıyor; kayıt o kapıdan ' +
+                   'geçmeden bu duruma gelmiş.',
+          oto:false, otoNot:'Otomatik düzeltilemez: çözüm açıklaması uydurulamaz.' });
+    });
+    (DB.leaves || []).forEach(function(l){
+      tarandi++;
+      if(l.durum === 'Onaylandı' && bos(l.onayTarihi))
+        ekle(K, { onem:'Düşük', kural:'Onaylı izinde onay tarihi yok', kayitlar:[l.kod],
+          aciklama:'İzin onaylı ama onay tarihi boş; bakiye düşümünün ne zaman yapıldığı izlenemiyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: tarih uydurulamaz.' });
+    });
+    K.kapsam = F.num(tarandi) + ' kayıt · 11 zorunluluk kuralı';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.9] · K8 — Süresi dolmuş ama aktif görünen kayıt
+     Referans tarih `DB.today`; `new Date()` DEĞİL (prototip zamanı
+     veriden gelir, tarayıcı saatinden değil).
+     ----------------------------------------------------------------- */
+  function kontrol8(){
+    var K = yeniKontrol(), tarandi = 0;
+    function suresi(onem, kuralAd, kod, aciklama, oto, otoNot){
+      ekle(K, { onem:onem, kural:kuralAd, kayitlar:[kod], aciklama:aciklama, oto:oto, otoNot:otoNot });
+    }
+    (DB.contracts || []).forEach(function(s){
+      tarandi++;
+      if(s.durum === 'Aktif' && gecmis(s.bitis))
+        suresi('Yüksek', 'Süresi dolmuş sözleşme aktif', s.kod,
+          'Sözleşme bitişi ' + F.date(s.bitis) + ' — bugünden ' + Math.abs(F.days(s.bitis)) +
+          ' gün önce doldu, ama durum hâlâ “Aktif”. Süresi dolmuş sözleşme üzerinden iş yürüyor ' +
+          've bakım/destek kotası bu sözleşmeye yazılmayı sürdürüyor görünüyor.',
+          true, 'Otomatik düzeltilebilir: `GV.flow.gec(\'contract\', ...)` ile “Tamamlandı” ya da ' +
+                '“Yenileme/Zeyil” durumuna geçirilir. Geçiş yetki ve kapı denetiminden geçer, ' +
+                'aktiviteye yazılır ve geri alınabilir ([17.0.13]).');
+    });
+    (DB.supportPackages || []).forEach(function(b){
+      tarandi++;
+      if(b.durum === 'Aktif' && gecmis(b.bitis))
+        suresi('Yüksek', 'Süresi dolmuş bakım paketi aktif', b.kod,
+          'Paket bitişi ' + F.date(b.bitis) + ' geçti, durum hâlâ “Aktif”. Kapanan destek talepleri ' +
+          'süresi dolmuş kotadan düşülüyor.',
+          true, 'Otomatik düzeltilebilir: paket durumu “Süresi Doldu” yapılır; ' +
+                '`GV.yenileme.isaretle` ile yenilemeye alınabilir.');
+    });
+    (DB.policies || []).forEach(function(p){
+      tarandi++;
+      if(p.aktif !== false && gecmis(p.bitis))
+        suresi('Kritik', 'Süresi dolmuş poliçe aktif', p.kod,
+          p.tur + ' poliçesi ' + F.date(p.bitis) + ' tarihinde bitti ama kayıt aktif. ' +
+          'Araç sigortasız yolda olabilir.',
+          false, 'Otomatik düzeltilemez: yenileme bir satın alma işlemidir.');
+    });
+    (DB.inspections || []).forEach(function(m){
+      tarandi++;
+      if(m.aktif !== false && gecmis(m.sonrakiTarih) && m.durum !== 'Geçersiz')
+        suresi('Kritik', 'Süresi dolmuş muayene geçerli görünüyor', m.kod,
+          'Muayene geçerliliği ' + F.date(m.sonrakiTarih) + ' tarihinde doldu ama kayıt “' + m.durum + '”.',
+          false, 'Otomatik düzeltilemez: muayene bir dış işlemdir.');
+    });
+    (DB.documents || []).forEach(function(d){
+      tarandi++;
+      if(d.aktif !== false && gecmis(d.sonKullanma))
+        suresi('Orta', 'Süresi dolmuş belge aktif', d.kod,
+          '“' + d.ad + '” belgesinin son kullanma tarihi ' + F.date(d.sonKullanma) +
+          ' — doldu, ama belge aktif listede duruyor ve onaylı sayılıyor.',
+          true, 'Otomatik düzeltilebilir: belge “Süresi Doldu” olarak işaretlenip yenileme ' +
+                'hatırlatması üretilir (geri alınabilir).');
+    });
+    (DB.quotes || []).forEach(function(q){
+      tarandi++;
+      if(['Gönderildi','Müşteri İncelemesi','Müzakere/Revizyon'].indexOf(q.durum) !== -1 && gecmis(q.gecerlilik))
+        suresi('Orta', 'Geçerliliği dolmuş teklif açık', q.kod,
+          'Teklif geçerliliği ' + F.date(q.gecerlilik) + ' tarihinde doldu ama durum “' + q.durum +
+          '”. Pipeline’da hâlâ açık fırsat gibi sayılıyor.',
+          true, 'Otomatik düzeltilebilir: teklif “Süresi Doldu” durumuna geçirilir (geri alınabilir).');
+    });
+    (DB.sprints || []).forEach(function(s){
+      tarandi++;
+      if(s.durum === 'Aktif' && gecmis(s.bitis))
+        suresi('Düşük', 'Bitiş tarihi geçmiş sprint aktif', s.kod,
+          'Sprint bitişi ' + F.date(s.bitis) + ' geçti, durum “Aktif”.',
+          true, 'Otomatik düzeltilebilir: sprint kapatılır.');
+    });
+    (DB.projects || []).forEach(function(p){
+      tarandi++;
+      if(['Aktif','Test/Kabul','Teslim'].indexOf(p.durum) !== -1 && gecmis(p.planlananBitis) && bos(p.gercekBitis))
+        suresi('Orta', 'Planlanan bitişi geçmiş proje açık', p.kod,
+          'Planlanan bitiş ' + F.date(p.planlananBitis) + ' — ' + Math.abs(F.days(p.planlananBitis)) +
+          ' gün geçti, proje “' + p.durum + '” durumunda ve gerçek bitiş tarihi boş. ' +
+          'Plan tarihi güncellenmediği için gecikme hiçbir raporda görünmüyor.',
+          false, 'Otomatik düzeltilemez: yeni bitiş tarihi bir plan kararıdır.');
+    });
+    (DB.vehicles || []).forEach(function(v){
+      tarandi++;
+      if(v.mulkiyet === 'Kiralık' && gecmis(v.sozlesmeBit) && v.durum !== 'Pasif')
+        suresi('Yüksek', 'Kiralama sözleşmesi bitmiş araç aktif', v.kod,
+          'Kiralama sözleşmesi ' + F.date(v.sozlesmeBit) + ' tarihinde bitti ama araç “' + v.durum + '”.',
+          false, 'Otomatik düzeltilemez: iade mi, uzatma mı — iş kararıdır.');
+    });
+    K.kapsam = F.num(tarandi) + ' süreli kayıt · 9 koleksiyon · referans ' + F.date(DB.today);
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.10] · K9 — Birden fazla aktif zimmet veya çakışan kapasite/tarih
+     ----------------------------------------------------------------- */
+  function kontrol9(){
+    var K = yeniKontrol(), tarandi = 0;
+    /* Aynı demirbaşta birden çok aktif zimmet */
+    var perDemirbas = {};
+    (DB.assignments || []).forEach(function(z){
+      tarandi++;
+      if(z.durum !== 'Aktif') return;
+      (perDemirbas[z.demirbas] = perDemirbas[z.demirbas] || []).push(z);
+    });
+    Object.keys(perDemirbas).forEach(function(d){
+      var a = perDemirbas[d];
+      if(a.length < 2) return;
+      ekle(K, { onem:'Kritik', kural:'Aynı demirbaşta birden fazla aktif zimmet',
+        kayitlar:[d].concat(a.map(function(x){ return x.kod; })),
+        aciklama:d + ' demirbaşı aynı anda ' + a.length + ' kişide aktif görünüyor: ' +
+                 a.map(function(x){ return x.personel; }).join(' · ') +
+                 '. Tek fiziksel cihaz iki tutanağa bağlı.',
+        oto:false, otoNot:'Otomatik düzeltilemez: cihazın gerçekte kimde olduğu veriden bilinemez.' });
+    });
+    /* Kart zimmetlisi ile zimmet kaydı çelişiyor */
+    (DB.assets || []).forEach(function(a){
+      var z = (DB.assignments || []).filter(function(x){ return x.demirbas === a.kod && x.durum === 'Aktif'; });
+      tarandi++;
+      if(a.durum !== 'Zimmetli' && z.length)
+        ekle(K, { onem:'Yüksek', kural:'Demirbaş durumu zimmetle çelişiyor', kayitlar:[a.kod].concat(z.map(function(x){ return x.kod; })),
+          aciklama:'Demirbaş “' + a.durum + '” durumunda ama ' + z.length + ' aktif zimmet kaydı var.',
+          oto:false, otoNot:'Otomatik düzeltilemez: hangi tarafın doğru olduğu belirsiz.' });
+      if(z.length === 1 && !bos(a.zimmetli) && a.zimmetli !== z[0].personel)
+        ekle(K, { onem:'Yüksek', kural:'Demirbaş kartı ile zimmet kaydı farklı kişi gösteriyor',
+          kayitlar:[a.kod, z[0].kod],
+          aciklama:'Kartta zimmetli kişi ' + a.zimmetli + ', zimmet kaydında ' + z[0].personel + '.',
+          oto:true, otoNot:'Otomatik düzeltilebilir: kart alanı zimmet kaydından yeniden türetilir.' });
+    });
+    /* Aynı personelde aynı kategoride birden çok aktif zimmet */
+    var perKat = {};
+    (DB.assignments || []).filter(function(z){ return z.durum === 'Aktif'; }).forEach(function(z){
+      var a = (DB.assets || []).filter(function(x){ return x.kod === z.demirbas; })[0];
+      if(!a) return;
+      (perKat[z.personel + '|' + a.kategori] = perKat[z.personel + '|' + a.kategori] || []).push(z.kod);
+    });
+    Object.keys(perKat).forEach(function(k){
+      if(perKat[k].length < 2) return;
+      var p = k.split('|');
+      ekle(K, { onem:'Düşük', kural:'Aynı personelde aynı kategoride çoklu zimmet',
+        kayitlar:[p[0]].concat(perKat[k]),
+        aciklama:p[0] + ' personelinde “' + p[1] + '” kategorisinde ' + perKat[k].length +
+                 ' aktif zimmet var. Meşru olabilir (yedek cihaz) ama iade edilmemiş bir cihazın da işareti olabilir.',
+        oto:false, otoNot:'Otomatik düzeltilemez: yedek cihaz mı, iade edilmemiş cihaz mı — iş kararıdır.' });
+    });
+    /* Çakışan izin tarihleri */
+    var perKisi = {};
+    (DB.leaves || []).forEach(function(l){
+      tarandi++;
+      if(['Onaylandı','Onay bekliyor'].indexOf(l.durum) === -1) return;
+      (perKisi[l.personel] = perKisi[l.personel] || []).push(l);
+    });
+    Object.keys(perKisi).forEach(function(p){
+      var a = perKisi[p];
+      for(var i = 0; i < a.length; i++) for(var j = i + 1; j < a.length; j++){
+        if(a[i].baslangic > a[j].bitis || a[j].baslangic > a[i].bitis) continue;
+        ekle(K, { onem:'Yüksek', kural:'Çakışan izin tarihi', kayitlar:[a[i].kod, a[j].kod],
+          aciklama:p + ' için iki izin talebinin tarihleri örtüşüyor: ' +
+                   F.date(a[i].baslangic) + '–' + F.date(a[i].bitis) + ' ve ' +
+                   F.date(a[j].baslangic) + '–' + F.date(a[j].bitis) + '. Bakiye iki kez düşülür.',
+          oto:false, otoNot:'Otomatik düzeltilemez: hangi talebin geçerli olduğu İK kararıdır.' });
+      }
+    });
+    /* Kapasite tutarlılığı */
+    (DB.capacity || []).forEach(function(c){
+      tarandi++;
+      if(c.planlanan > c.kapasite)
+        ekle(K, { onem:'Yüksek', kural:'Kapasite aşımı', kayitlar:[c.personel],
+          aciklama:'Planlanan yük ' + c.planlanan + ' saat, haftalık kapasite ' + c.kapasite +
+                   ' saat. Kişi kapasitesinin üstünde planlanmış.',
+          oto:false, otoNot:'Otomatik düzeltilemez: yük dağıtımı bir plan kararıdır.' });
+      if(c.kapasite){
+        var x = c.planlanan / c.kapasite * 100;
+        if(c.doluluk < Math.floor(x) || c.doluluk > Math.ceil(x))
+          ekle(K, { onem:'Düşük', kural:'Doluluk oranı planlanan/kapasite ile tutmuyor', kayitlar:[c.personel],
+            aciklama:'Kayıtta doluluk %' + c.doluluk + ' yazılı, planlanan/kapasite oranı ise %' +
+                     x.toFixed(1) + '. Yuvarlama payı dışında bir sapma var.',
+            oto:true, otoNot:'Otomatik düzeltilebilir: doluluk planlanan/kapasite oranından yeniden türetilir.' });
+      }
+      var e = (DB.employees || []).filter(function(x){ return x.kod === c.personel; })[0];
+      if(e && e.doluluk != null && e.doluluk !== c.doluluk)
+        ekle(K, { onem:'Orta', kural:'Doluluk iki yerde farklı yazılı', kayitlar:[c.personel],
+          aciklama:'Personel kartında doluluk %' + e.doluluk + ', kapasite kaydında %' + c.doluluk + '.',
+          oto:true, otoNot:'Otomatik düzeltilebilir: kart alanı kapasite kaydından türetilir.' });
+    });
+    /* Çakışan toplantı — ortak katılımcı */
+    var top = (DB.meetings || []).filter(function(m){ return m.durum !== 'İptal'; });
+    for(var i = 0; i < top.length; i++) for(var j = i + 1; j < top.length; j++){
+      var a = top[i], b = top[j];
+      var as = new Date(a.tarih), ae = new Date(as.getTime() + (a.sure || 0) * 60000);
+      var bs = new Date(b.tarih), be = new Date(bs.getTime() + (b.sure || 0) * 60000);
+      if(!(as < be && bs < ae)) continue;
+      var ortak = (a.katilimci || []).filter(function(x){ return (b.katilimci || []).indexOf(x) !== -1; });
+      if(!ortak.length) continue;
+      ekle(K, { onem:'Orta', kural:'Çakışan toplantı', kayitlar:[a.kod, b.kod],
+        aciklama:'İki toplantının saatleri örtüşüyor ve ortak katılımcı var: ' + ortak.join(' · ') + '.',
+        oto:false, otoNot:'Otomatik düzeltilemez: hangi toplantının taşınacağı iş kararıdır.' });
+    }
+    top.forEach(function(){ tarandi++; });
+    /* Aynı projede birden çok aktif sprint */
+    var perProje = {};
+    (DB.sprints || []).forEach(function(s){
+      tarandi++;
+      if(s.durum !== 'Aktif') return;
+      (perProje[s.proje] = perProje[s.proje] || []).push(s.kod);
+    });
+    Object.keys(perProje).forEach(function(p){
+      if(perProje[p].length < 2) return;
+      ekle(K, { onem:'Orta', kural:'Aynı projede birden fazla aktif sprint', kayitlar:[p].concat(perProje[p]),
+        aciklama:p + ' projesinde ' + perProje[p].length + ' sprint aynı anda “Aktif”.',
+        oto:false, otoNot:'Otomatik düzeltilemez.' });
+    });
+    /* Aynı araçta aynı türde çakışan poliçe */
+    var perArac = {};
+    (DB.policies || []).filter(function(p){ return p.aktif !== false; }).forEach(function(p){
+      tarandi++;
+      (perArac[p.arac + '|' + p.tur] = perArac[p.arac + '|' + p.tur] || []).push(p);
+    });
+    Object.keys(perArac).forEach(function(k){
+      var a = perArac[k];
+      for(var i2 = 0; i2 < a.length; i2++) for(var j2 = i2 + 1; j2 < a.length; j2++){
+        if(a[i2].baslangic > a[j2].bitis || a[j2].baslangic > a[i2].bitis) continue;
+        ekle(K, { onem:'Orta', kural:'Çakışan poliçe dönemi', kayitlar:[a[i2].kod, a[j2].kod],
+          aciklama:k.split('|')[0] + ' aracında aynı türde (' + k.split('|')[1] +
+                   ') iki poliçenin geçerlilik aralığı örtüşüyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez.' });
+      }
+    });
+    K.kapsam = F.num(tarandi) + ' kayıt · zimmet · izin · kapasite · toplantı · sprint · poliçe';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     [17.0.11] · K10 — Güncelliğini yitirmiş rol/izin önbelleği
+
+     Bu prototipte TTL’li bir izin önbelleği yok — ama bir önbellek VAR:
+     `sessionStorage['gv.session']`. Oturum açılırken personel kaydından
+     kopyalanan ad · departman · rol · e-posta orada donar ve sonraki her
+     sayfa yüklemesinde `DB` yerine ORADAN okunur. Personel kaydı
+     değişince kopya eskir; kullanıcı eski rolüyle gezmeye devam eder.
+     Ölçülen tam olarak budur. İkinci eksen, izin matrisinin rol
+     sözlüğüyle örtüşmesidir: matriste satırı olmayan bir rol, yetki
+     sorularına sessizce en dar cevabı verir.
+     ----------------------------------------------------------------- */
+  function kontrol10(){
+    var K = yeniKontrol(), tarandi = 0;
+    var oturum = GV.shell.session();
+    if(!oturum){
+      K.olculdu = false;
+      K.kapsam = 'oturum yok';
+      K.neden = 'Bu kontrol için kayıt yok: tarayıcıda `gv.session` önbelleği bulunamadı, ' +
+                'karşılaştırılacak bir kopya yok. Kontrol ÇALIŞTIRILAMADI.';
+      return K;
+    }
+    /* 1 — oturum önbelleği ile canlı personel kaydı */
+    if(oturum.emp){
+      var e = DB.emp(oturum.emp);
+      tarandi++;
+      if(!e){
+        ekle(K, { onem:'Kritik', kural:'Oturum önbelleği olmayan personele bağlı', kayitlar:[oturum.emp],
+          aciklama:'Oturumda `emp` = ' + oturum.emp + ' yazılı ama böyle bir personel kaydı yok. ' +
+                   'Silinmiş/arşivlenmiş bir kullanıcının oturumu hâlâ geçerli.',
+          oto:true, otoNot:'Otomatik düzeltilebilir: oturum düşürülür ve yeniden kimlik doğrulaması istenir.' });
+      }else{
+        /* `rol` alanı BİLEREK bu listede yok. `buildSession(emp, roleKey)`
+           aktif rolü oturuma yazar; birden çok rolü olan kullanıcı rol
+           değiştirdiğinde `oturum.rol` ile `employee.rol` MEŞRU olarak
+           ayrışır. İlk kurguda bu liste `rol`u da içeriyordu ve `genelmudur`
+           rolüne geçen sahip kullanıcı anında "kritik önbellek eskimesi"
+           üretiyordu. Rolün doğru sorusu eşitlik değil ÜYELİKTİR ve
+           aşağıda ayrıca sorulur. */
+        [['ad','ad','Ad'], ['dep','dep','Departman'],
+         ['depAd','depAd','Departman adı'], ['eposta','eposta','E-posta']].forEach(function(p){
+          var onbellek = oturum[p[0]], canli = e[p[1]];
+          if(onbellek === undefined || bos(onbellek) || bos(canli)) return;
+          tarandi++;
+          if(String(onbellek) === String(canli)) return;
+          ekle(K, { onem:'Orta', kural:'Oturum önbelleği eskimiş', kayitlar:[oturum.emp],
+            aciklama:p[2] + ' alanı oturum önbelleğinde “' + onbellek + '”, personel kaydında “' + canli +
+                     '”. Oturum kopyası açılışta dondurulduğu için ekranlarda eski değer görünüyor.',
+            oto:true, otoNot:'Otomatik düzeltilebilir: oturum kaydı personel kaydından yeniden kurulur ' +
+                             '(çıkış–giriş ya da oturum tazeleme). Gerçek sistemde bu, izin ' +
+                             'önbelleğinin sürüm damgasıyla geçersizleştirilmesidir ([19.0.6]).' });
+        });
+        /* Türetilmiş etiketler — sözlük değişince kopya eskir */
+        [['rolAd', bos(oturum.rol) ? null : DB.roleName(oturum.rol), 'Rol adı'],
+         ['depAd', bos(oturum.dep) ? null : DB.depName(oturum.dep), 'Departman adı']].forEach(function(p){
+          if(oturum[p[0]] === undefined || bos(oturum[p[0]]) || bos(p[1])) return;
+          tarandi++;
+          if(String(oturum[p[0]]) === String(p[1])) return;
+          ekle(K, { onem:'Düşük', kural:'Oturumdaki türetilmiş etiket eskimiş', kayitlar:[oturum.emp],
+            aciklama:p[2] + ' oturum önbelleğinde “' + oturum[p[0]] + '”, sözlükten bugün türeyen ' +
+                     'değer “' + p[1] + '”. Etiket değişmiş, oturum kopyası güncellenmemiş.',
+            oto:true, otoNot:'Otomatik düzeltilebilir: etiket sözlükten yeniden türetilir.' });
+        });
+        /* Oturumdaki rol, kişinin sahip olduğu roller arasında mı */
+        if(!bos(oturum.rol) && Array.isArray(e.roller) && e.roller.indexOf(oturum.rol) === -1){
+          tarandi++;
+          ekle(K, { onem:'Kritik', kural:'Oturum rolü kişinin rolleri arasında yok', kayitlar:[oturum.emp],
+            aciklama:'Oturum “' + oturum.rol + '” rolüyle açılmış, ama personel kaydındaki `roller` ' +
+                     'listesi bu rolü içermiyor (' + e.roller.join(' · ') + '). Kullanıcı kendisine ' +
+                     'verilmemiş bir rolün yetkileriyle geziyor.',
+            oto:true, otoNot:'Otomatik düzeltilebilir: oturum rolü kişinin birincil rolüne düşürülür.' });
+        }
+      }
+    }
+    /* 2 — rol sözlüğü ile izin matrisi örtüşmesi */
+    var rolVar = (DB.roles || []).reduce(function(m, r){ m[r.key] = 1; return m; }, {});
+    (DB.roles || []).forEach(function(r){
+      tarandi++;
+      if(!DB.permMatrix[r.key])
+        ekle(K, { onem:'Kritik', kural:'Rol tanımlı ama izin satırı yok', kayitlar:[r.key],
+          aciklama:'“' + r.ad + '” rolü `DB.roles` içinde tanımlı ama `DB.permMatrix` içinde satırı yok. ' +
+                   '`GV.perm.matrix()` bu rolde en dar varsayılana düşer; kullanıcı sebebi ' +
+                   'görünmeyen biçimde yetkisiz kalır.',
+          oto:false, otoNot:'Otomatik düzeltilemez: rolün hangi yetkileri alacağı bir yetki kararıdır.' });
+    });
+    Object.keys(DB.permMatrix || {}).forEach(function(k){
+      tarandi++;
+      if(!rolVar[k])
+        ekle(K, { onem:'Orta', kural:'İzin satırı karşılıksız', kayitlar:[k],
+          aciklama:'`DB.permMatrix` içinde “' + k + '” için satır var ama `DB.roles` içinde böyle bir ' +
+                   'rol tanımlı değil. Ölü izin satırı; rol silinmiş ama matris temizlenmemiş.',
+          oto:true, otoNot:'Otomatik düzeltilebilir: karşılıksız satır kaldırılır (geri alınabilir).' });
+    });
+    /* 3 — personel kayıtlarındaki roller */
+    (DB.employees || []).forEach(function(e){
+      tarandi++;
+      if(!rolVar[e.rol])
+        ekle(K, { onem:'Kritik', kural:'Tanımsız rol atanmış', kayitlar:[e.kod],
+          aciklama:'Personelin birincil rolü “' + e.rol + '” — `DB.roles` içinde böyle bir rol yok.',
+          oto:false, otoNot:'Otomatik düzeltilemez: doğru rolün hangisi olduğu İK kararıdır.' });
+      (e.roller || []).forEach(function(r){
+        if(!rolVar[r])
+          ekle(K, { onem:'Yüksek', kural:'Tanımsız rol atanmış', kayitlar:[e.kod],
+            aciklama:'Personelin `roller` listesinde tanımsız rol var: “' + r + '”.',
+            oto:false, otoNot:'Otomatik düzeltilemez.' });
+      });
+      if(Array.isArray(e.roller) && e.roller.indexOf(e.rol) === -1)
+        ekle(K, { onem:'Yüksek', kural:'Birincil rol roller listesinde yok', kayitlar:[e.kod],
+          aciklama:'Birincil rol “' + e.rol + '” ama `roller` listesi (' + (e.roller || []).join(' · ') +
+                   ') bunu içermiyor. Rol değiştirme menüsü kişinin kendi rolünü göstermez.',
+          oto:true, otoNot:'Otomatik düzeltilebilir: birincil rol `roller` listesine eklenir.' });
+    });
+    K.kapsam = F.num(tarandi) + ' karşılaştırma · oturum önbelleği + ' + (DB.roles || []).length +
+               ' rol + ' + Object.keys(DB.permMatrix || {}).length + ' izin satırı';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     K11 — Geçiş sözleşmesi denetimi (`GV.flow.denetle`)
+     Motorun kendi denetleyicisi. İki soruyu sorar: (a) veride tabloda
+     olmayan bir durum yazılı mı, (b) tablonun kendisi olmayan bir
+     duruma kenar mı çekiyor. İkincisi kayıt sayısından bağımsızdır —
+     bozuk tablo, o durumdaki kaydın hiç ilerleyememesi demektir.
+     ----------------------------------------------------------------- */
+  function kontrol11(){
+    var K = yeniKontrol(), tur = 0, kayit = 0;
+    Object.keys(DB.flowEntities || {}).forEach(function(t){
+      var d = GV.flow.denetle(t);
+      var tanim = DB.flowEntities[t];
+      if(!d){
+        ekle(K, { onem:'Kritik', kural:'Varlığın geçiş tablosu yok', kayitlar:[],
+          aciklama:'“' + tanim.ad + '” (' + t + ') `DB.flowEntities` içinde tanımlı ama geçiş tablosu ' +
+                   'bulunamadı. Bu varlıkta hiçbir durum değişikliği motordan geçemez.',
+          oto:false, otoNot:'Otomatik düzeltilemez: geçiş tablosu bir iş kuralı tanımıdır.' });
+        return;
+      }
+      tur++; kayit += d.kayit;
+      (d.bilinmeyenDurum || []).forEach(function(x){
+        var kodlar = (DB[tanim.koleksiyon] || [])
+          .filter(function(r){ return r[tanim.alan] === x; })
+          .map(function(r){ return r.kod; });
+        ekle(K, { onem:'Kritik', kural:'Veride tabloda olmayan durum', kayitlar:kodlar,
+          aciklama:'“' + tanim.ad + '” kayıtlarında “' + x + '” durumu yazılı, ama geçiş tablosunda ' +
+                   'böyle bir durum yok. `GV.flow.adimlar` bu kayıtlar için hiçbir düğme üretemez; ' +
+                   'kayıt akışta kilitli kalır.',
+          oto:false, otoNot:'Otomatik düzeltilemez: durumun tablodaki karşılığı bir iş kararıdır ' +
+                            '(`DB.statusMigration` eşlemesi gerekir).' });
+      });
+      (d.tablodaOlmayanHedef || []).forEach(function(x){
+        ekle(K, { onem:'Kritik', kural:'Geçiş tablosu olmayan duruma kenar çekiyor', kayitlar:[],
+          aciklama:'“' + tanim.ad + '” geçiş tablosunda bir kural “' + x + '” durumuna geçiş sunuyor, ' +
+                   'ama “' + x + '” tabloda tanımlı değil. O geçiş yapılırsa kayıt tanımsız bir ' +
+                   'duruma düşer ve bir daha ilerleyemez.',
+          oto:false, otoNot:'Otomatik düzeltilemez: eksik durum tanımı eklenmelidir.' });
+      });
+    });
+    K.kapsam = tur + ' varlık türü · ' + F.num(kayit) + ' kayıt · geçiş tablosu denetimi';
+    return K;
+  }
+
+  /* -----------------------------------------------------------------
+     K12 — Oran güvenilmezliği (`GV.proje.maliyet`)
+     `oranGuvenilmez`: zaman kaydının tarihini kapsayan maaş kaydı yok,
+     bugünkü oranla değerlendi. `maliyetsizPersonel`: hiç oran yok,
+     satır maliyete HİÇ girmedi. `kapsam:false`: maliyet ölçülemedi.
+     Üçüncüsü bir bulgu değil, ölçüm boşluğudur ve öyle raporlanır.
+     ----------------------------------------------------------------- */
+  function kontrol12(){
+    var K = yeniKontrol(), toplam = 0, olculen = 0;
+    (DB.projects || []).forEach(function(p){
+      toplam++;
+      var m = GV.proje.maliyet(p.kod);
+      if(m.kapsam) olculen++;
+      (m.maliyetsizPersonel || []).forEach(function(kisi){
+        ekle(K, { onem:'Yüksek', kural:'Maliyet oranı bulunamayan personel', kayitlar:[p.kod, kisi],
+          aciklama:kisi + ' personelinin bu projedeki onaylı saatleri maliyete HİÇ girmedi: ne saatlik ' +
+                   'ücreti, ne maaşı, ne maaş geçmişi var. Projenin maliyeti bu saatler kadar düşük, ' +
+                   'kârlılığı o kadar yüksek görünüyor.',
+          oto:false, otoNot:'Otomatik düzeltilemez: personelin maliyeti uydurulamaz; ' +
+                            'maaş ya da saatlik ücret girilmelidir.' });
+      });
+      (m.oranGuvenilmez || []).forEach(function(kisi){
+        ekle(K, { onem:'Orta', kural:'Güvenilmez maliyet oranı', kayitlar:[p.kod, kisi],
+          aciklama:kisi + ' personelinin bu projedeki bazı zaman kayıtları, o tarihi kapsayan maaş ' +
+                   'kaydı bulunamadığı için BUGÜNKÜ oranla değerlendi (`GV.hr.icMaliyet` üçüncü kademe). ' +
+                   'Geçmiş tarihli saatler bugünkü maaşla fiyatlanmış; proje maliyeti ve kârlılık ' +
+                   'sayısı bu kadar kaymış olabilir.',
+          oto:true, otoNot:'Otomatik düzeltilebilir: `DB.salaryHistory` içine o dönemi kapsayan kayıt ' +
+                           'girildiğinde oran kendiliğinden doğru kademeye çıkar; hesap yeniden türetilir.' });
+      });
+    });
+    K.kapsam = toplam + ' proje · ' + olculen + ' projede maliyet ölçülebildi';
+    if(!olculen && toplam){
+      K.olculdu = false;
+      K.neden = 'Bu kontrol için kayıt yok: hiçbir projede onaylı zaman kaydı ya da teslim alınmış ' +
+                'satın alma bulunmuyor, maliyet hiç hesaplanamadı. Kontrol ÇALIŞTIRILAMADI.';
+    }else if(olculen < toplam){
+      K.neden = (toplam - olculen) + ' projede maliyet HİÇ ölçülemedi (onaylı saat ve teslim alınmış ' +
+                'satın alma yok). O projeler için “temiz” denemez — ölçüm yapılmadı.';
+    }
+    return K;
+  }
+
+  /* =================================================================
+     KONTROL KAYDI — sıra, şartname referansı, açıklama
+     ================================================================= */
+  var TANIM = [
+    { id:'K1',  ref:'[17.0.2]',  ad:'Kaynaksız / yetim bağlı kayıt',
+      ozet:'Dolu bir bağ alanının işaret ettiği kayıt yok.', calis:kontrol1 },
+    { id:'K2',  ref:'[17.0.3]',  ad:'Mükerrer müşteri · kişi · fatura · ödeme · proje',
+      ozet:'Aynı iş varlığının iki kaydı — vergi no, unvan, e-posta, taksit ve fatura anahtarlarıyla.', calis:kontrol2 },
+    { id:'K3',  ref:'[17.0.4]',  ad:'Uyuşmayan müşteri–teklif–sözleşme–proje bağı',
+      ozet:'Zincirin bir ucundaki müşteri/proje, öbür ucundakinden farklı.', calis:kontrol3 },
+    { id:'K4',  ref:'[17.0.5]',  ad:'Durum ile olay geçmişinin uyuşmaması',
+      ozet:'Olay geçmişi kaydın bugünkü durumunu açıklamıyor ya da tablonun sözlüğünü konuşmuyor.', calis:kontrol4 },
+    { id:'K5',  ref:'[17.0.6]',  ad:'Elle tutulmuş veya mükerrer onay sayacı',
+      ozet:'Kayıtta yazılı onay sayacı ile onay zincirinden türeyen değer farklı.', calis:kontrol5 },
+    { id:'K6',  ref:'[17.0.7]',  ad:'Başarısız / uzun süren entegrasyon ve dead-letter',
+      ozet:'Entegrasyon çalışma günlüğü, deneme sayısı ve hata kuyruğu.', calis:kontrol6 },
+    { id:'K7',  ref:'[17.0.8]',  ad:'Eksik zorunlu ilişki · imza · belge · kabul · ödeme tahsisi',
+      ozet:'Kaydın durumunun gerektirdiği kanıt yok.', calis:kontrol7 },
+    { id:'K8',  ref:'[17.0.9]',  ad:'Süresi dolmuş ama aktif görünen kayıt',
+      ozet:'Bitiş tarihi geçtiği hâlde aktif duran sözleşme, poliçe, belge, paket, teklif.', calis:kontrol8 },
+    { id:'K9',  ref:'[17.0.10]', ad:'Birden fazla aktif zimmet veya çakışan kapasite / tarih',
+      ozet:'Aynı cihaz iki kişide, aynı kişi iki izinde, planlanan yük kapasitenin üstünde.', calis:kontrol9 },
+    { id:'K10', ref:'[17.0.11]', ad:'Güncelliğini yitirmiş rol / izin önbelleği',
+      ozet:'Oturum önbelleğindeki rol ve kimlik, personel kaydıyla ve izin matrisiyle uyuşuyor mu.', calis:kontrol10 },
+    { id:'K11', ref:'[6.1.1] · [19.0.3]', ad:'Geçiş sözleşmesi denetimi',
+      ozet:'`GV.flow.denetle` — veride tabloda olmayan durum, tabloda olmayan hedefe kenar.', calis:kontrol11 },
+    { id:'K12', ref:'[9.4.2] · ADR-07', ad:'Maliyet oranı güvenilmezliği',
+      ozet:'`GV.proje.maliyet` — tarihi kapsayan maaş kaydı olmadan bugünkü oranla değerlenen saatler.', calis:kontrol12 }
+  ];
+
+  /* =================================================================
+     TARAMAYI ÇALIŞTIR
+     ================================================================= */
+  var SONUC = [], BULGULAR = [], sayac = 0;
+  TANIM.forEach(function(t){
+    var K;
+    try{
+      K = t.calis();
+    }catch(err){
+      /* Bir kontrolün patlaması diğerlerini sessizce yutmasın — ve
+         asla "temiz" diye görünmesin. */
+      K = { bulgular:[], olculdu:false, kapsam:'hata',
+            neden:'Kontrol çalışırken hata oluştu: ' + (err && err.message ? err.message : err) +
+                  '. Sonuç ÖLÇÜLEMEDİ sayılır.' };
+    }
+    K.id = t.id; K.ref = t.ref; K.ad = t.ad; K.ozet = t.ozet;
+    SONUC.push(K);
+    K.bulgular.forEach(function(b){
+      sayac++;
+      var h = hareket(b.kayitlar);
+      BULGULAR.push({
+        kod:'DQ-' + (sayac < 10 ? '00' : sayac < 100 ? '0' : '') + sayac,
+        kontrol:t.id, kontrolAd:t.ad, kontrolRef:t.ref,
+        onem:b.onem, kural:b.kural, kayitlar:b.kayitlar,
+        kayit:b.kayitlar[0] || null,
+        modul:b.kayitlar.length ? kayitModul(b.kayitlar[0]) : 'Sistem',
+        aciklama:b.aciklama, oto:b.oto, otoNot:b.otoNot,
+        sorumlu:b.kayitlar.length ? kayitSorumlu(b.kayitlar[0]) : null,
+        ilkHareket:h.ilk, sonHareket:h.son
+      });
+    });
+  });
+
+  var ONEM_SIRA = { 'Kritik':0, 'Yüksek':1, 'Orta':2, 'Düşük':3 };
+  var ONEM_TON  = { 'Kritik':'is-danger', 'Yüksek':'is-warn', 'Orta':'is-info', 'Düşük':'is-neutral' };
+  BULGULAR.sort(function(a, b){
+    return (ONEM_SIRA[a.onem] - ONEM_SIRA[b.onem]) || a.kontrol.localeCompare(b.kontrol) ||
+           String(a.kayit).localeCompare(String(b.kayit), 'tr');
+  });
+
+  var OLCULMEYEN = SONUC.filter(function(k){ return !k.olculdu; });
+  var TARANAN_KAYIT = Object.keys(DB).reduce(function(n, k){
+    return n + (Array.isArray(DB[k]) ? DB[k].length : 0);
+  }, 0);
+
+  /* =================================================================
+     ÜST UYARILAR
+     ================================================================= */
+  var uyariHtml = GV.notice({
+    tone:'neutral', icon:'i-shield-check', title:'Tarama sayfa açılırken çalıştı — veriye hiçbir şey yazılmadı',
+    text:'On iki kontrol, ' + F.num(TARANAN_KAYIT) + ' kayıt üzerinde bu sayfa açılırken çalıştırıldı. ' +
+         'Bulgular kaydedilmez; her açılışta baştan hesaplanır. Bu prototipte tarama geçmişi tutulmadığı ' +
+         'için bir bulgunun “ilk / son görülme” tarihi bilinemez — kolonlarda yazan tarihler ETKİLENEN ' +
+         'KAYDIN olay geçmişindeki ilk ve son hareketidir, bulgunun kendisininki değil. Aynı nedenle ' +
+         'bulgu durumu (yeni · inceleniyor · çözüldü) ve çözüm auditi de tutulamıyor; ikisi de kalıcı ' +
+         'bir bulgu tablosu gerektirir ([17.0.12] · [19.0.12]).'
+  });
+
+  if(OLCULMEYEN.length){
+    uyariHtml += '<div class="u-mt-4">' + GV.notice({
+      tone:'warn', icon:'i-alert',
+      title:OLCULMEYEN.length + ' kontrol ÇALIŞTIRILAMADI — bu “geçti” demek değildir',
+      text:OLCULMEYEN.map(function(k){ return k.ref + ' ' + k.ad; }).join(' · ') + '. ' +
+           'Bu kontrollerin dayandığı veri bu depoda yok; sıfır bulgu çıkması ilgili alanın sağlıklı ' +
+           'olduğunu göstermez, ölçülmediğini gösterir. Karnede ayrı tonla, listede ise hiç ' +
+           'işaretlenmemiş olarak durur.'
+    }) + '</div>';
+  }
+
+  var kismi = SONUC.filter(function(k){ return k.olculdu && k.neden; });
+  if(kismi.length){
+    uyariHtml += '<div class="u-mt-4">' + GV.notice({
+      tone:'warn', icon:'i-info', title:'Kısmi ölçüm uyarısı',
+      text:kismi.map(function(k){ return k.ref + ' ' + k.ad + ' — ' + k.neden; }).join(' ')
+    }) + '</div>';
+  }
+
+  var otoAdet = BULGULAR.filter(function(b){ return b.oto; }).length;
+  uyariHtml += '<div class="u-mt-4">' + GV.notice({
+    tone:'info', icon:'i-wrench', title:'Otomatik düzeltme bu ekranda çalıştırılmıyor',
+    text:'Bulguların ' + otoAdet + ' tanesi ilkece otomatik düzeltilebilir; her satır bunu ayrı bir ' +
+         'kolonda ve detay penceresinde nasıl düzeltileceğiyle birlikte söyler. Düzeltmenin kendisi ' +
+         'burada YOKTUR: şartname [17.0.13] otomatik düzeltmenin geri alınabilir ve yetkilendirilmiş ' +
+         'olmasını şart koşuyor, bu da kalıcı bir düzeltme kaydı ve geri alma kuyruğu gerektiriyor. ' +
+         'Çalışmayan bir “Düzelt” düğmesi basmak yerine kolon dürüst bırakıldı. Ölçüm tarafı hazır; ' +
+         'eksik olan yürütme tarafıdır.'
+  }) + '</div>';
+
+  document.getElementById('uyari').innerHTML = '<div class="u-mb-4">' + uyariHtml + '</div>';
+
+  /* =================================================================
+     KONTROL KARNESİ — on iki kontrolün tek tek sonucu
+     `gv-checklist` bileşeni; ölçülemeyen satır ayrı tonda rozet ve
+     ayrı gerekçe metni taşır.
+     ================================================================= */
+  function karneRozet(k){
+    if(!k.olculdu) return '<span class="badge is-neutral no-dot">Ölçülemedi</span>';
+    /* KISMİ ÖLÇÜM ayrı bir hâldir. Kapsamın bir bölümü hiç ölçülememişken
+       "Temiz" yazmak, ölçülmemiş bölüm için de güvence vermek olurdu —
+       ölçülemeyen kontrolü yeşile yazmakla aynı hata, sadece daha sinsi. */
+    if(!k.bulgular.length)
+      return k.neden ? '<span class="badge is-warn no-dot">Kısmi · bulgu yok</span>'
+                     : '<span class="badge is-ok no-dot">Temiz</span>';
+    var kritik = k.bulgular.filter(function(b){ return b.onem === 'Kritik'; }).length;
+    var yuksek = k.bulgular.filter(function(b){ return b.onem === 'Yüksek'; }).length;
+    var ton = kritik ? 'is-danger' : yuksek ? 'is-warn' : 'is-info';
+    return '<span class="badge ' + ton + ' no-dot">' + k.bulgular.length + ' bulgu' +
+           (k.neden ? ' · kısmi' : '') + '</span>';
+  }
+  document.getElementById('karne').innerHTML =
+    '<div class="gv-card u-mb-4">' +
+      '<div class="gc-head"><div>' +
+        '<h2 class="gc-title">Kontrol karnesi</h2>' +
+        '<p class="gc-sub">On iki kontrolün her biri ayrı ayrı: ne tarandı, kaç bulgu çıktı, ' +
+        'ölçülebildi mi. Sıfır bulgu ile ölçülememe aynı satırda aynı renge yazılmaz.</p>' +
+      '</div></div>' +
+      '<ul class="gv-checklist">' + SONUC.map(function(k){
+        var alt = k.olculdu
+          ? (k.kapsam ? 'Tarandı: ' + k.kapsam : '') + (k.neden ? ' — ' + k.neden : '')
+          : (k.neden || 'Bu kontrol için kayıt yok.');
+        return '<li><span>' +
+            '<span class="cell-main">' + esc(k.ref) + ' ' + esc(k.ad) + '</span>' +
+            '<span class="cell-sub">' + esc(k.ozet) + '</span>' +
+            '<span class="cell-sub' + (k.olculdu ? '' : ' u-b') + '">' + esc(alt) + '</span>' +
+          '</span>' + karneRozet(k) + '</li>';
+      }).join('') + '</ul>' +
+    '</div>';
+
+  /* =================================================================
+     BULGU LİSTESİ
+     ================================================================= */
+  function kayitHucre(b){
+    if(!b.kayitlar.length) return '<span class="cell-main">Sistem geneli</span>' +
+      '<span class="cell-sub">tek kayda bağlı değil</span>';
+    var ana = kayitBag(b.kayitlar[0]);
+    var digerleri = b.kayitlar.slice(1);
+    return '<span class="cell-main">' + ana + '</span>' +
+      '<span class="cell-sub">' + esc(b.modul) +
+        (digerleri.length ? ' · +' + digerleri.length + ' ilgili kayıt' : '') + '</span>';
+  }
+
+  GV.list({
+    mount:'#liste', id:'veri-kalitesi', key:'kod',
+    source:function(){ return BULGULAR; },
+    exportName:'veri-kalitesi-bulgulari',
+    exportTitle:'Veri Kalitesi Bulguları — ' + F.date(DB.today),
+    pageSize:25, archive:false,
+    defaultSort:'onem', defaultDir:'asc',
+    search:{ placeholder:'Kayıt kodu, kural adı, kontrol veya açıklama ara',
+             fields:['kod','kural','kontrolAd','kontrolRef','aciklama','kayit','modul','onem'] },
+    kpis:[
+      { label:'Toplam bulgu', icon:'i-alert',
+        tone:BULGULAR.length ? 'danger' : 'ok',
+        calc:function(a){ return a.length; },
+        meta:function(){ return ico('i-check-circle','ic-sm') + ' ' +
+          (TANIM.length - OLCULMEYEN.length) + ' / ' + TANIM.length + ' kontrol ölçülebildi'; },
+        metaTone:'flat' },
+      { label:'Kritik ve yüksek', icon:'i-shield', tone:'warn',
+        calc:function(a){ return a.filter(function(b){ return b.onem === 'Kritik' || b.onem === 'Yüksek'; }).length; },
+        meta:function(a){ return ico('i-x-circle','ic-sm') + ' ' +
+          a.filter(function(b){ return b.onem === 'Kritik'; }).length + ' kritik'; },
+        metaTone:'flat' },
+      { label:'Ölçülemeyen kontrol', icon:'i-alert-circle',
+        tone:OLCULMEYEN.length ? 'warn' : 'accent',
+        calc:function(){ return OLCULMEYEN.length; },
+        meta:function(){ return ico('i-info','ic-sm') + ' ' +
+          (OLCULMEYEN.length ? 'sıfır bulgu ≠ temiz' : 'tüm kontroller ölçüldü'); },
+        metaTone:'flat' },
+      { label:'Taranan kayıt', icon:'i-server', tone:'accent',
+        format:function(v){ return F.num(v); },
+        calc:function(){ return TARANAN_KAYIT; },
+        meta:function(){ return ico('i-clock','ic-sm') + ' Tarama anı: ' + F.date(DB.today); },
+        metaTone:'flat' }
+    ],
+    tabs:[
+      { key:'tumu',   label:'Tümü',    icon:'i-list',   filter:null },
+      { key:'kritik', label:'Kritik',  icon:'i-x-circle',
+        filter:function(b){ return b.onem === 'Kritik'; } },
+      { key:'yuksek', label:'Yüksek',  icon:'i-alert',
+        filter:function(b){ return b.onem === 'Yüksek'; } },
+      { key:'orta',   label:'Orta',    icon:'i-info',
+        filter:function(b){ return b.onem === 'Orta'; } },
+      { key:'dusuk',  label:'Düşük',   icon:'i-minus',
+        filter:function(b){ return b.onem === 'Düşük'; } },
+      { key:'oto',    label:'Otomatik düzeltilebilir', icon:'i-wrench',
+        filter:function(b){ return b.oto; } }
+    ],
+    columns:[
+      { key:'onem', label:'Önem', width:'8%', locked:true,
+        sortValue:function(b){ return ONEM_SIRA[b.onem]; },
+        render:function(b){ return GV.badge(b.onem, ONEM_TON[b.onem] + ' no-dot'); } },
+      { key:'kayit', label:'Etkilenen kayıt', width:'14%',
+        sortValue:function(b){ return b.kayit || 'zzz'; },
+        render:kayitHucre,
+        exportValue:function(b){ return b.kayitlar.join(' + ') || 'Sistem geneli'; } },
+      { key:'kural', label:'Tespit kuralı', width:'17%',
+        render:function(b){ return '<span class="cell-main">' + esc(b.kural) + '</span>' +
+          '<span class="cell-sub">' + esc(b.kontrolRef) + ' · ' + esc(b.kontrol) + '</span>'; },
+        exportValue:function(b){ return b.kural + ' (' + b.kontrolRef + ')'; } },
+      { key:'kontrolAd', label:'Kontrol', width:'15%',
+        render:function(b){ return '<span class="tag">' + esc(b.kontrolAd) + '</span>'; } },
+      { key:'aciklama', label:'Bulgu', width:'27%', sortable:false, cellClass:'cell-wrap',
+        render:function(b){ return '<span class="u-sm">' + esc(b.aciklama) + '</span>'; } },
+      { key:'oto', label:'Otomatik düzeltilebilir', width:'11%',
+        sortValue:function(b){ return b.oto ? 0 : 1; },
+        render:function(b){ return b.oto
+          ? '<span class="badge is-info no-dot">Evet</span><span class="cell-sub">yürütme yok</span>'
+          : '<span class="badge is-neutral no-dot">Hayır</span><span class="cell-sub">elle karar</span>'; },
+        exportValue:function(b){ return b.oto ? 'Evet (yürütme yok)' : 'Hayır'; } },
+      { key:'sorumlu', label:'Kaydın sorumlusu', width:'12%', visible:false,
+        sortValue:function(b){ var e = b.sorumlu && DB.emp(b.sorumlu); return e ? e.ad : 'zzz'; },
+        render:function(b){ return b.sorumlu
+          ? GV.user(b.sorumlu, { sm:true })
+          : '<span class="u-faint u-sm">Kayıtta sorumlu alanı yok</span>'; },
+        exportValue:function(b){ return b.sorumlu ? DB.empName(b.sorumlu) : '—'; } },
+      { key:'modul', label:'Modül', width:'9%', visible:false,
+        render:function(b){ return '<span class="tag">' + esc(b.modul) + '</span>'; } },
+      { key:'sonHareket', label:'Kaydın son hareketi', width:'12%', visible:false,
+        sortValue:function(b){ return b.sonHareket || ''; },
+        render:function(b){ return b.sonHareket
+          ? '<span class="cell-main">' + F.date(b.sonHareket) + '</span>' +
+            '<span class="cell-sub">ilk: ' + (b.ilkHareket ? F.date(b.ilkHareket) : '—') + '</span>'
+          : '<span class="u-faint u-sm">Olay geçmişi yok</span>'; },
+        exportValue:function(b){ return b.sonHareket || '—'; } }
+    ],
+    filters:[
+      { key:'onem', label:'Önem', type:'multi', options:['Kritik','Yüksek','Orta','Düşük'],
+        test:function(b, v){ return v.indexOf(b.onem) !== -1; } },
+      { key:'kontrol', label:'Kontrol', type:'multi',
+        options:TANIM.map(function(t){ return { value:t.id, label:t.ref + ' ' + t.ad }; }),
+        test:function(b, v){ return v.indexOf(b.kontrol) !== -1; } },
+      { key:'modul', label:'Modül', type:'multi',
+        options:BULGULAR.map(function(b){ return b.modul; })
+          .filter(function(v, i, s){ return s.indexOf(v) === i; })
+          .sort(function(a, b){ return a.localeCompare(b, 'tr'); }),
+        test:function(b, v){ return v.indexOf(b.modul) !== -1; } },
+      { key:'oto', label:'Otomatik düzeltilebilir', type:'select',
+        options:[{ value:'evet', label:'Evet' }, { value:'hayir', label:'Hayır' }],
+        test:function(b, v){ return v === 'evet' ? b.oto : !b.oto; } },
+      { key:'kural', label:'Tespit kuralı', type:'text',
+        test:function(b, v){ return String(b.kural).toLocaleLowerCase('tr')
+          .indexOf(String(v).toLocaleLowerCase('tr')) !== -1; } },
+      { key:'kayit', label:'Kayıt kodu', type:'text',
+        test:function(b, v){ return b.kayitlar.join(' ').toLocaleLowerCase('tr')
+          .indexOf(String(v).toLocaleLowerCase('tr')) !== -1; } }
+    ],
+    rowClass:function(b){ return b.onem === 'Kritik' ? 'is-late' : ''; },
+    mobile:function(b){
+      return '<div class="gv-mrow-top"><span class="cell-main">' + esc(b.kural) + '</span>' +
+          GV.badge(b.onem, ONEM_TON[b.onem] + ' no-dot') + '</div>' +
+        '<div class="gv-mrow-code">' + b.kod + ' · ' + esc(b.kontrolRef) + ' · ' +
+          esc(b.kayitlar[0] || 'Sistem geneli') + '</div>' +
+        '<div class="gv-mrow-meta"><span>' + esc(b.modul) + '</span>' +
+          '<span>' + (b.oto ? 'Otomatik düzeltilebilir' : 'Elle karar') + '</span></div>' +
+        '<div class="gv-mrow-bottom"><span class="u-sm">' + esc(b.aciklama) + '</span></div>';
+    },
+    rowActions:[
+      { key:'detay', icon:'i-eye', label:'Bulgu detayı', run:function(b){ detay(b); } },
+      { key:'git', icon:'i-arrow-right', label:'Etkilenen kaydı aç',
+        show:function(b){ var h = kayitHref(b.kayitlar[0]); return !!(h && GV.isBuilt(h)); },
+        run:function(b){ location.href = kayitHref(b.kayitlar[0]); } }
+    ],
+    emptyState:{ icon:'i-check-circle', title:'Bu görünümde bulgu yok',
+      desc:'Seçili filtrelerde tutarsızlık bulunamadı. Bunun “her şey yolunda” demek olup olmadığını ' +
+           'kontrol karnesinden okuyun: ölçülemeyen bir kontrol de sıfır bulgu üretir, ama hiçbir ' +
+           'güvence vermez.' }
+  });
+
+  /* =================================================================
+     BULGU DETAYI — [17.0.12] alanlarının tamamı tek yerde
+     ================================================================= */
+  function detay(b){
+    var k = SONUC.filter(function(x){ return x.id === b.kontrol; })[0] || {};
+    var e = b.sorumlu ? DB.emp(b.sorumlu) : null;
+
+    var kayitSatiri = b.kayitlar.length
+      ? b.kayitlar.map(function(kod){
+          return '<div class="u-row u-wrap" style="gap:var(--sp-4)">' + kayitBag(kod) +
+                 '<span class="tag">' + esc(kayitModul(kod)) + '</span></div>';
+        }).join('')
+      : '<span class="u-faint">Tek bir kayda bağlı değil — sistem geneli bulgu</span>';
+
+    var dl = '<dl class="gv-dl">' + [
+      ['Bulgu no',            '<span class="u-num">' + b.kod + '</span>'],
+      ['Önem',               GV.badge(b.onem, ONEM_TON[b.onem] + ' no-dot')],
+      ['Tespit kuralı',      esc(b.kural)],
+      ['Kontrol',            esc(b.kontrolRef) + ' · ' + esc(b.kontrolAd)],
+      ['Etkilenen kayıt',    kayitSatiri],
+      ['Modül',              '<span class="tag">' + esc(b.modul) + '</span>'],
+      ['Kaydın sorumlusu',   e ? GV.user(b.sorumlu) + '<span class="cell-sub">' + esc(DB.roleName(e.rol)) +
+                                 ' · ' + esc(e.depAd) + '</span>'
+                               : '<span class="u-faint">Bu kayıtta sorumlu alanı yok — atama yapılamaz</span>'],
+      ['Otomatik düzeltilebilir', b.oto
+        ? '<span class="badge is-info no-dot">Evet</span>'
+        : '<span class="badge is-neutral no-dot">Hayır</span>'],
+      ['Kaydın ilk hareketi', b.ilkHareket ? F.dt(b.ilkHareket) : '<span class="u-faint">Olay geçmişi yok</span>'],
+      ['Kaydın son hareketi', b.sonHareket ? F.dt(b.sonHareket) : '<span class="u-faint">Olay geçmişi yok</span>'],
+      ['Bulgunun ilk görülmesi', '<span class="u-faint">Tarama geçmişi tutulmuyor — bilinemez</span>'],
+      ['Bulgu durumu / çözüm auditi', '<span class="u-faint">Kalıcı bulgu tablosu yok — tutulamıyor</span>']
+    ].map(function(p){ return '<div><dt>' + esc(p[0]) + '</dt><dd>' + p[1] + '</dd></div>'; }).join('') + '</dl>';
+
+    var gecmisBlok = b.kayitlar.length && AKT[b.kayitlar[0]]
+      ? '<h3 class="gc-title u-mt-4">Etkilenen kaydın son hareketleri</h3>' +
+        GV.activity(AKT[b.kayitlar[0]].slice()
+          .sort(function(x, y){ return String(y.tarih).localeCompare(String(x.tarih)); })
+          .slice(0, 6)
+          .map(function(a){
+            return { kisi:a.kisi ? DB.empName(a.kisi) : '—', tarih:a.tarih, metin:a.metin,
+                     tone:a.tone, icon:a.icon, eski:a.eski, yeni:a.yeni };
+          }))
+      : '<p class="u-sm u-faint u-mt-4">Etkilenen kaydın olay geçmişi yok — bulgunun ne zaman ' +
+        'doğduğuna dair tek dolaylı kanıt da bu kayıtta bulunmuyor.</p>';
+
+    var h = kayitHref(b.kayitlar[0]);
+    var acts = [{ label:'Kapat', cls:'btn-line' }];
+    if(h && GV.isBuilt(h)) acts.unshift({ label:'Etkilenen kaydı aç', cls:'btn-acc',
+      onClick:function(){ location.href = h; } });
+
+    GV.drawer({
+      title:'Bulgu · ' + b.kod,
+      body:'<div class="gv-rec-head"><div>' +
+             '<div class="gv-rec-id"><span class="gv-rec-code">' + b.kod + '</span>' +
+               GV.badge(b.onem, ONEM_TON[b.onem] + ' no-dot') +
+               '<span class="tag">' + esc(b.kontrolRef) + '</span></div>' +
+             '<div class="gv-rec-meta"><span>' + ico('i-search','ic-sm') + esc(b.kural) + '</span>' +
+               '<span>' + ico('i-folder','ic-sm') + esc(b.modul) + '</span></div>' +
+           '</div></div>' +
+
+           '<h3 class="gc-title u-mt-0">Ne bulundu</h3>' +
+           '<p class="u-sm">' + esc(b.aciklama) + '</p>' +
+
+           '<h3 class="gc-title u-mt-4">Bu kontrol ne ölçüyor</h3>' +
+           GV.notice({ tone:k.olculdu ? 'neutral' : 'warn',
+             icon:k.olculdu ? 'i-info' : 'i-alert',
+             title:esc(k.ref || '') + ' ' + esc(k.ad || ''),
+             text:(k.ozet || '') + ' Tarandı: ' + (k.kapsam || '—') + '.' +
+                  (k.neden ? ' ' + k.neden : '') }) +
+
+           '<h3 class="gc-title u-mt-4">Otomatik düzeltme</h3>' +
+           GV.notice({ tone:b.oto ? 'info' : 'neutral', icon:b.oto ? 'i-wrench' : 'i-lock',
+             title:b.oto ? 'İlkece otomatik düzeltilebilir' : 'Otomatik düzeltilemez',
+             text:b.otoNot + (b.oto
+               ? ' Düzeltme bu ekrandan çalıştırılmaz: [17.0.13] geri alınabilirlik ve ' +
+                 'yetkilendirme şart koşuyor, ikisi de kalıcı bir düzeltme kaydı gerektiriyor.'
+               : '') }) +
+
+           dl + gecmisBlok +
+
+           '<p class="u-sm u-muted u-mt-4">' + esc('Bu bulgu kaydedilmez; sayfa her açıldığında ' +
+             'kurallar veriye yeniden uygulanır. Kural adı, önem derecesi ve otomatik düzeltilebilirlik ' +
+             'kontrol tanımından gelir — bulgu başına elle yazılmaz.') + '</p>',
+      actions:acts
+    });
+  }
+
+});
+</script>
+</body>
+</html>
