@@ -1179,9 +1179,23 @@
       if(ts && ts.durum !== 'Onaylandı')
         return { ok:false, why:'haftalık onaya bağlı', timesheet:ts.kod, hafta:ts.hafta };
       l.onay = 'Onaylandı';
-      log(l.kod, 'Zaman kaydı onaylandı' + (ts ? ' (' + ts.kod + ' haftası onaylı)' : ''),
+      /* ADR-07 — ORAN SNAPSHOT'I. Şartname [10.5.2] geçmiş zamanlara
+         bugünkü maliyeti uygulamayı yasaklıyor. Onay, oranın dondurulması
+         için doğru andır: onaylanmamış kayıt zaten maliyete girmiyor.
+         Bir kez yazılan snapshot bir daha değişmez — maaş zammı geçmiş
+         proje kârlılığını artık geriye dönük değiştiremez. */
+      if(!(l.oranSnapshot > 0)){
+        var oran = Hr.icMaliyet(l.personel, l.tarih);
+        if(oran){
+          l.oranSnapshot = oran.saat;
+          l.oranKaynak   = oran.kaynak;
+          l.oranTarih    = DB.today;
+        }
+      }
+      log(l.kod, 'Zaman kaydı onaylandı' + (ts ? ' (' + ts.kod + ' haftası onaylı)' : '') +
+          (l.oranSnapshot ? ' · maliyet oranı ' + l.oranSnapshot + ' ₺/saat olarak donduruldu' : ''),
           'Bekliyor', 'Onaylandı', 'ok', 'i-check-circle');
-      return { ok:true, kayit:l, timesheet:ts };
+      return { ok:true, kayit:l, timesheet:ts, oran:l.oranSnapshot || null };
     }
   };
 
@@ -1303,24 +1317,65 @@
      Hesabın iki girdisi `DB.company`'de yazılı sabittir.
      =================================================================== */
   var Hr = {
-    /* Şirkete saatlik iç maliyet — { saat, kaynak, formul } · yoksa null */
-    icMaliyet:function(kod){
+    /* Şirkete saatlik iç maliyet — { saat, kaynak, formul } · yoksa null
+       ─────────────────────────────────────────────────────────────────
+       ⚠️ CLOUD TURU · ADR-07 — YORDAM ARTIK TARİH ALIR.
+       Ölçülen kusur: yordamın tarih parametresi yoktu ve `Proje.maliyet`
+       HER zaman kaydına BUGÜNKÜ oranı çarpıyordu. Sonuç: bir maaş zammı
+       geçmiş projelerin maliyetini ve kârlılığını geriye dönük değiştiriyordu.
+       Şartname [10.5.2] bunu doğrudan yasaklıyor: "Bugünkü personel
+       maliyetini geçmiş zamanlara uygulama. Oran anlık görüntüsü veya
+       geçerlilik aralığı kullan."
+
+       ÜÇ KADEMELİ ÇÖZÜM, en güvenilirden en zayıfa:
+         1. Zaman kaydında `oranSnapshot` varsa O kullanılır — satır onaylanırken
+            dondurulmuş gerçek orandır.
+         2. Yoksa `DB.salaryHistory` içinde tarihi kapsayan kayıt aranır.
+         3. O da yoksa bugünkü orana düşülür ve `guvenilir:false` işaretlenir —
+            çağıran bunu ekranda söyleyebilsin diye. Sessizce bugünü kullanmak
+            tam da kapatılan hataydı. */
+    icMaliyet:function(kod, tarih){
       if(!window.DB || !DB.employees) return null;
       var e = DB.employees.filter(function(x){ return x.kod === kod; })[0];
       if(!e) return null;
       var c = DB.company || {};
-      if(e.saatlikUcret > 0)
-        return { saat:e.saatlikUcret, kaynak:'saatlikUcret',
+
+      /* 2 — tarihe göre geçerli maaş kaydı */
+      var gecmis = null;
+      if(tarih && DB.salaryHistory){
+        gecmis = DB.salaryHistory.filter(function(h){
+          return h.personel === kod && h.baslangic <= tarih &&
+                 (!h.bitis || h.bitis >= tarih); })[0] || null;
+      }
+
+      if(e.saatlikUcret > 0 && !gecmis)
+        return { saat:e.saatlikUcret, kaynak:'saatlikUcret', guvenilir:true,
                  formul:'Sözleşmeli saat ücreti · ' + e.saatlikUcret + ' ₺/saat' };
-      if(e.maas > 0){
-        var s = Math.round(e.maas * c.isverenMaliyetKatsayisi / c.aylikCalismaSaati);
-        return { saat:s, kaynak:'maas',
-                 formul:e.maas + ' ₺ brüt × ' + c.isverenMaliyetKatsayisi + ' ÷ ' +
-                        c.aylikCalismaSaati + ' saat = ' + s + ' ₺/saat' };
+
+      var maas = gecmis ? gecmis.maas : e.maas;
+      if(maas > 0){
+        var s = Math.round(maas * c.isverenMaliyetKatsayisi / c.aylikCalismaSaati);
+        return { saat:s, kaynak:gecmis ? 'maasGecmisi' : 'maas',
+                 guvenilir:!!gecmis || !tarih,
+                 donem:gecmis ? (gecmis.baslangic + ' →' + (gecmis.bitis || ' bugün')) : null,
+                 formul:maas + ' ₺ brüt × ' + c.isverenMaliyetKatsayisi + ' ÷ ' +
+                        c.aylikCalismaSaati + ' saat = ' + s + ' ₺/saat' +
+                        (gecmis ? ' (' + gecmis.baslangic + ' dönemi oranı)'
+                                : tarih ? ' (⚠ bu tarih için maaş geçmişi yok, bugünkü oran)' : '') };
       }
       /* İki eksenin ikisi de boşsa maliyet UYDURULMAZ — null döner ve
          çağıran bunu ekranda söyler. */
       return null;
+    },
+
+    /* Zaman kaydının maliyet oranı — snapshot varsa o, yoksa tarihe göre.
+       `Proje.maliyet` bunu çağırır; ham `icMaliyet`i çağırmaz. */
+    kayitOrani:function(l){
+      if(!l) return null;
+      if(l.oranSnapshot > 0)
+        return { saat:l.oranSnapshot, kaynak:'oranSnapshot', guvenilir:true,
+                 formul:'Satır onayında dondurulan oran · ' + l.oranSnapshot + ' ₺/saat' };
+      return Hr.icMaliyet(l.personel, l.tarih);
     },
 
     /* İstihdam ilişkisi dış kaynak mı — `sozlesme` alanından türetilir.
@@ -1507,7 +1562,7 @@
   Proje.maliyet = function(kod){
     var bos = { personel:0, disKaynak:0, satinAlma:0, diger:0, toplam:0,
                 gelir:0, brutKar:0, karlilikYuzde:null, kapsam:false,
-                maliyetsizPersonel:[] };
+                maliyetsizPersonel:[], oranGuvenilmez:[] };
     if(!window.DB || !DB.projects) return bos;
     var p = DB.projects.filter(function(x){ return x.kod === kod; })[0];
     if(!p) return bos;
@@ -1515,10 +1570,14 @@
     var onayli = (DB.timelogs || []).filter(function(l){
       return l.proje === kod && l.onay === 'Onaylandı'; });
 
-    var personel = 0, disKaynak = 0, eksik = [];
+    /* ADR-07 — her satır KENDİ TARİHİNİN oranıyla değerlenir. Eskiden
+       burada `Hr.icMaliyet(l.personel)` çağrılıyordu ve tarih hiç geçmiyordu:
+       2025 tarihli bir zaman kaydı 2026 maaşıyla fiyatlanıyordu. */
+    var personel = 0, disKaynak = 0, eksik = [], guvenilmez = [];
     onayli.forEach(function(l){
-      var m = Hr.icMaliyet(l.personel);
+      var m = Hr.kayitOrani(l);
       if(!m){ if(eksik.indexOf(l.personel) === -1) eksik.push(l.personel); return; }
+      if(m.guvenilir === false && guvenilmez.indexOf(l.personel) === -1) guvenilmez.push(l.personel);
       var tutar = l.sure * m.saat;
       if(Hr.disKaynak(l.personel)) disKaynak += tutar; else personel += tutar;
     });
@@ -1541,7 +1600,10 @@
       toplam:toplam, gelir:gelir,
       brutKar:olculdu ? gelir - toplam : null,
       karlilikYuzde:(olculdu && gelir) ? Math.round((gelir - toplam) / gelir * 100) : null,
-      kapsam:olculdu, saat:s.gerceklesen, maliyetsizPersonel:eksik
+      kapsam:olculdu, saat:s.gerceklesen, maliyetsizPersonel:eksik,
+      /* ADR-07: bu personellerin o tarihteki maaşı bilinmiyor, bugünkü oran
+         kullanıldı — ekran bunu söyleyebilsin diye ayrı liste. */
+      oranGuvenilmez:guvenilmez
     };
   };
 

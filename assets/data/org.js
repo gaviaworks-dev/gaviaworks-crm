@@ -640,3 +640,36 @@ DB.approvalFlows = [
       { sira:1, rol:'sahip', ad:'Şirket Sahibi', kosul:'hep', esik:null, sla:1 }
     ] }
 ];
+
+/* CLOUD TURU · ADR-07 — MAAŞ GEÇMİŞİ.
+   Şartname [10.5.2] geçmiş zaman kayıtlarına bugünkü maaşın uygulanmasını
+   yasaklıyor ve "oran anlık görüntüsü veya geçerlilik aralığı" istiyor.
+
+   ⚠️ GEÇMİŞ MAAŞ VERİDE YOKTU VE UYDURULMADI. Aşağıdaki satırlar yalnızca
+   BUGÜN GÖZLENEN oranı kaydeder (baslangic = DB.today, kaynak = 'gozlem');
+   daha erken bir dönem için kayıt YOKTUR. Bu bilerek böyledir: geçmişe
+   doğru uydurma maaş yazmak, ölçüm gibi görünen bir kurgu olurdu (L-13).
+
+   Sonuç: Hr.icMaliyet(kod, gecmisTarih) kapsayan kayıt bulamaz, bugünkü
+   orana düşer ve guvenilir:false işaretler — ekran bunu söyleyebilir.
+   Sessizce bugünü kullanmak, kapatılan hatanın ta kendisiydi.
+
+   İleriye dönük gerçek çözüm oranSnapshot'tır: zaman çizelgesi satırı
+   onaylanırken o günün oranı donar ve bir daha değişmez. */
+DB.salaryHistory = [
+  { personel:'EMP-001', maas:185000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-002', maas:112000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-003', maas:124000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-004', maas:96000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-005', maas:118000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-006', maas:88000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-007', maas:108000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-008', maas:94000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-009', maas:82000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-010', maas:106000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-011', maas:86000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-012', maas:92000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-013', maas:74000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-014', maas:64000, baslangic:DB.today, bitis:null, kaynak:'gozlem' },
+  { personel:'EMP-016', maas:22000, baslangic:DB.today, bitis:null, kaynak:'gozlem' }
+];
