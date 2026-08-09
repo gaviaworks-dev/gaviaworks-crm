@@ -495,7 +495,7 @@
   function renderRail(activeSec, cnt){
     var rail = document.getElementById('gvRail');
     if(!rail) return;
-    var html = '<a class="gv-logo" href="app-panel.html" aria-label="Gavia Works — Ana Panel">' + ico('i-gavia') + '</a>';
+    var html = '<a class="gv-logo" href="app-panel.html" aria-label="GaviaWorks — Ana Panel">' + ico('i-gavia') + '</a>';
     html += '<ul class="gv-rail-list">';
     RAIL_ORDER.forEach(function(key){
       if(!Perm.sec(key)) return;

@@ -1,4 +1,6 @@
-# B. Yönetici Özeti — GaviaWorks CRM / ERP / Operasyon Yönetim Sistemi
+# B. Yönetici Özeti — GaviaWorks — CRM, Proje ve Operasyon Yönetim Platformu
+
+> **Konumlandırma notu (ADR-16).** Ürün adından "ERP" ibaresi kaldırıldı. Şartname [1.0.4] tedarikçi borçları, banka/kasa, genel muhasebe, vergi, bordro, e-belge ve finansal mutabakat tamamlanmadan "tam ERP" tanımını yasaklıyor; ölçüm bu sekiz bileşenin sıfırının mevcut olduğunu gösterdi (`docs/P-cloud-gap-analizi.md` [10.5.4]).
 
 > **Neyden türetildi:** Bu belge diğer on bir çıktının (A · C · D · E · F · G · H · I · J · K · L)
 > üzerine yazılmıştır; içindeki her sayı o belgelerde ölçülerek elde edilmiştir, tahmin yoktur.
