@@ -7,11 +7,11 @@
 
 | | Sayı | Oran |
 |---|---:|---:|
-| **VAR** — tam karşılanıyor | **27** | %5,2 |
-| **KISMEN** — kısmen var, eksikleri sayılı | **259** | %49,9 |
+| **VAR** — tam karşılanıyor | **28** | %5,4 |
+| **KISMEN** — kısmen var, eksikleri sayılı | **258** | %49,7 |
 | **YOK** — karşılığı yok | **233** | %44,9 |
-| **BACKEND GEREKTİRİR** — sunucu/kalıcı veri olmadan anlamsız | **150** | %28,9 |
-| KARARLIK — belirsiz iş kuralı, açık soru olarak kaydedildi | 48 | %9,2 |
+| **BACKEND GEREKTİRİR** — sunucu/kalıcı veri olmadan anlamsız | **153** | %29,5 |
+| KARARLIK — belirsiz iş kuralı, açık soru olarak kaydedildi | 50 | %9,6 |
 
 VAR + KISMEN + YOK = 519. "BACKEND GEREKTİRİR" ve "KARARLIK" sınıf etiketleridir, durum sayısıyla çakışmaz.
 
@@ -19,15 +19,17 @@ VAR + KISMEN + YOK = 519. "BACKEND GEREKTİRİR" ve "KARARLIK" sınıf etiketler
 
 | Alan | Madde | VAR | KISMEN | YOK | BACKEND | KARARLIK |
 |---|---:|---:|---:|---:|---:|---:|
-| 1 — Satış ve CRM (lead, ön analiz, teklif, müşteri) | 40 | 0 | 22 | 18 | 7 | 5 |
-| 2 — Sözleşme, ödeme planı, proje yürütme | 52 | 0 | 35 | 17 | 12 | 12 |
-| 3 — Kalite, değişiklik, teslimat, destek | 36 | 3 | 17 | 16 | 4 | 7 |
-| 4 — Satın alma, tedarikçi, fatura, tahsilat | 39 | 1 | 21 | 17 | 4 | 1 |
+| 1 — Satış ve CRM (lead, ön analiz, teklif, müşteri) | 40 | 0 | 22 | 18 | 8 | 5 |
+| 2 — Sözleşme, ödeme planı, proje yürütme | 52 | 0 | 34 | 18 | 12 | 12 |
+| 3 — Kalite, değişiklik, teslimat, destek | 36 | 3 | 17 | 16 | 4 | 9 |
+| 4 — Satın alma, tedarikçi, fatura, tahsilat | 39 | 1 | 21 | 17 | 5 | 1 |
 | 5 — İK, zaman, kapasite, varlıklar | 43 | 2 | 23 | 18 | 19 | 6 |
 | 6a — Geçiş motoru, onay motoru, yetki, audit, mimari | 99 | 5 | 56 | 38 | 23 | 6 |
-| 6b — Form standardı, doküman/toplantı/sohbet/otomasyon, entegrasyon, faz | 71 | 9 | 33 | 29 | 28 | 3 |
-| 7 — Raporlama standardı, Notlarım, veri kalitesi, envanter | 139 | 7 | 52 | 80 | 53 | 8 |
-| **TOPLAM** | **519** | **27** | **259** | **233** | **150** | **48** |
+| 6b — Form standardı, doküman/toplantı/sohbet/otomasyon, entegrasyon, faz | 71 | 10 | 33 | 28 | 28 | 3 |
+| 7 — Raporlama standardı, Notlarım, veri kalitesi, envanter | 139 | 7 | 52 | 80 | 54 | 8 |
+| **TOPLAM** | **519** | **28** | **258** | **233** | **153** | **50** |
+
+Bu sayılar dosyanın kendi madde satırlarından üretilmiştir; `awk` ile yeniden ölçülebilir.
 
 ## Kesitler arası bulgular
 
