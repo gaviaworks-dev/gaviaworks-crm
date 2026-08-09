@@ -160,8 +160,11 @@ document.addEventListener('gv:ready', function(){
     'Onaylandı':'Onaylandı'
   };
 
-  /* TEK ÇAĞRI NOKTASI. Aktivite kaydını motor kendisi yazar. */
-  function uygula(hedef, ek, opts){
+  /* TEK ÇAĞRI NOKTASI. Aktivite kaydını motor kendisi yazar.
+     `sonra` YALNIZCA geçişin ardından başka bir zincir koşacaksa verilir
+     (bugün: "Kazanıldı" dönüşümü). Verilirse tazelemeyi o akış zamanlar —
+     yoksa `GV.refresh()` zincirin sonuç penceresini daha açılmadan kapatırdı. */
+  function uygula(hedef, ek, opts, sonra){
     if(IC_ONAY_AYNA[hedef]) ek = Object.assign({}, ek || {}, { icOnay:IC_ONAY_AYNA[hedef] });
     var r = GV.flow.gec('quote', q.kod, hedef, ek || null, opts || {});
     if(!r.ok){ GV.toast(flowHata(r), 'danger', 6000); return false; }
@@ -169,9 +172,15 @@ document.addEventListener('gv:ready', function(){
        karşılığı yok; eski davranış korunsun diye burada kapatılıyor. */
     if(hedef === 'Onaylandı' && onayKaydi) onayKaydi.durum = 'Onaylandı';
     GV.toast(q.kod + ' · ' + r.eski + ' → ' + r.yeni, 'ok');
+    if(typeof sonra === 'function'){ sonra(); return true; }
     setTimeout(function(){ GV.refresh(); }, 700);
     return true;
   }
+
+  /* Tazeleme her zaman GECİKMELİ: açık pencerenin kapanma animasyonu (220ms)
+     bitmeden `GV.refresh()` çağrılırsa aynı düğümü iki kez kapatmaya çalışır.
+     `location.reload()` YASAK — mock veri bellekte durur, reload değişikliği siler. */
+  function tazele(){ setTimeout(function(){ GV.refresh(); }, 300); }
 
   /* Neden kodu + açıklama isteyen geçişler (şartname [2.0.6]). */
   function gerekceModal(hedef, baslik){
@@ -223,7 +232,237 @@ document.addEventListener('gv:ready', function(){
     });
   }
 
+  /* =================================================================
+     "KAZANILDI" DÖNÜŞÜM SİHİRBAZI — şartname [7.3.6] · [20.1.5]–[20.1.8]
+     -------------------------------------------------------------------
+     Ölçülen kusur: teklif kazanılınca ekranda HİÇBİR ŞEY doğmuyordu.
+     Müşteri, sözleşme, ödeme planı ve proje elle açılıyordu; aynı firma
+     iki tekliften iki müşteri kaydı üretebiliyordu ([20.1.4]).
+
+     Bu ekran zinciri KENDİ KURMAZ — tek yazma noktası `GV.sales`:
+       · `GV.sales.mukerrer()`  → "bu firma zaten müşteri mi?"
+       · `GV.sales.kazanildi()` → müşteri → sözleşme → ödeme planı → proje
+     Ekranın işi üçtür: mükerrer sorusunu SOR, kararı servise TAŞI, doğan
+     kayıtların bağlantısını GÖSTER. `DB.customers` · `DB.contracts` ·
+     `DB.milestones` · `DB.projects` üzerine bu dosya kayıt yazmaz.
+
+     SIRA KASITLI: mükerrer sorusu geçişten ÖNCE sorulur — "Vazgeç" diyen
+     kullanıcı teklifi "Kazanıldı"ya taşınmış hâlde bulmasın. Zincir ise
+     geçiş BAŞARILI olduktan sonra koşar; durum yazma yetkisi hâlâ
+     `GV.flow.gec()` üzerindedir.
+     ================================================================= */
+
+  /* Mükerrer araması beş eksen okur ([7.1.3]) ama `DB.quotes` ve `DB.leads`
+     kayıtlarında VERGİ NUMARASI ALANI YOK — "kesin eşleşme" ekseni bu ekrandan
+     beslenemez. Kalan dört eksen (unvan · e-posta · telefon · e-posta alan adı)
+     çalışır ve hepsi İŞARETTİR; bu yüzden karar kullanıcıya sorulur, ekran
+     kendi başına birleştirme yapmaz. Teklif kartında iletişim alanı da yok,
+     onlar bağlı satış fırsatından tamamlanır. */
+  function donusumAdayi(){
+    return { firma:q.firma, unvan:q.firma,
+             eposta:lead ? lead.eposta : null,
+             tel:lead ? lead.tel : null,
+             web:lead ? lead.web : null };
+  }
+
+  /* Yönetici istisnası için neden kodu sözlüğü — `GV.action` ile aynı süzgeç. */
+  function istisnaKodlari(){
+    var k = (DB.reasonCodes || []).filter(function(r){ return (r.tur || []).indexOf('istisna') !== -1; });
+    return k.length ? k : (DB.reasonCodes || []);
+  }
+
+  function zincirHata(r){
+    if(r.why === 'teklif-yok')    return 'Teklif kaydı okunamadı; dönüşüm başlatılamadı.';
+    if(r.why === 'musteri-yok')   return 'Seçilen müşteri kaydı bulunamadı; dönüşüm başlatılamadı.';
+    if(r.why === 'zincir-hatasi') return 'Zincir yarıda kaldı ve üretilen kayıtların hepsi geri alındı: ' + (r.mesaj || '');
+    return r.mesaj || r.why || 'Dönüşüm zinciri koşamadı.';
+  }
+
+  /* Doğan kayıt kümesi — YENİ / MEVCUT ayrımı görünür kalır ([20.1.7]). */
+  function uretilenTablosu(list){
+    return '<div class="gv-tablewrap"><table class="gtable">' +
+      '<thead><tr><th>Kayıt</th><th>Kod</th><th>Durum</th></tr></thead><tbody>' +
+      list.map(function(u){
+        return '<tr><td><span class="cell-main">' + esc(u.tur) + '</span></td>' +
+          '<td><a class="cell-main" href="' + u.href + '">' + esc(u.kod) + '</a></td>' +
+          '<td>' + (u.yeni ? GV.badge('Yeni kayıt', 'is-ok') : GV.badge('Mevcut kayıt', 'is-neutral')) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  /* Zincirin sonucu — dört kaydın bağlantısı ve idempotency bildirimi. */
+  function donusumSonucu(r){
+    if(r.tekrar){
+      /* İDEMPOTENT ([20.1.8]): teklifte zaten sözleşme var, ikinci müşteri
+         DOĞMADI. Var olan kayıtların bağlantısı gene de verilir. */
+      var mevcutSzl = (DB.contracts || []).filter(function(c){ return c.kod === r.sozlesme; })[0] || null;
+      var mevcutMus = mevcutSzl && mevcutSzl.musteri ? mevcutSzl.musteri : q.musteri;
+      var liste = [];
+      if(mevcutMus) liste.push({ tur:'Müşteri', kod:mevcutMus, yeni:false, href:'app-musteri-detay.html?id=' + mevcutMus });
+      if(r.sozlesme){
+        liste.push({ tur:'Sözleşme',    kod:r.sozlesme, yeni:false, href:'app-sozlesme-detay.html?id=' + r.sozlesme });
+        liste.push({ tur:'Ödeme planı', kod:r.sozlesme, yeni:false, href:'app-odemeplani-detay.html?id=' + r.sozlesme });
+      }
+      /* Tekrar dalında `proje` KAYIT NESNESİ döner (başarı dalında kod döner) —
+         ikisi karışmasın diye burada koda indirgeniyor. */
+      var pk = r.proje && r.proje.kod ? r.proje.kod : (typeof r.proje === 'string' ? r.proje : null);
+      if(pk) liste.push({ tur:'Proje', kod:pk, yeni:false, href:'app-proje-detay.html?id=' + pk });
+
+      GV.modal({
+        title:'Bu teklif zaten dönüştürülmüş', text:q.kod + ' · ' + q.firma,
+        icon:'i-info', tone:'info',
+        body:GV.notice({ tone:'neutral', icon:'i-shield',
+            title:'Zincir ikinci kez koşmadı',
+            text:'Teklife bağlı sözleşme zaten vardı; ikinci bir müşteri veya sözleşme kaydı üretilmedi. ' +
+                 'Aşağıdaki kayıtlar önceki dönüşümde doğmuştu.' }) +
+          (liste.length ? uretilenTablosu(liste) : ''),
+        actions:[{ label:'Tamam', cls:'btn-acc', onClick:function(){ tazele(); } }]
+      });
+      return;
+    }
+
+    GV.modal({
+      title:'Teklif kazanıldı — dört kayıt hazır', text:q.kod + ' · ' + q.firma,
+      icon:'i-check-circle', tone:'ok',
+      body:GV.notice({ tone:'ok', icon:'i-check-circle',
+          title:(r.musteriYeni ? 'Yeni müşteri kartı açıldı' : 'Mevcut müşteri kartına bağlandı'),
+          text:'Sözleşme ve proje TASLAK doğar; ödeme planı ' + r.taksit +
+               ' taksitli taslaktır ve sözleşme bedelini tam böler. ' +
+               'İmza, tarih ve taksit tarihleri sözleşme ekranından girilir.' }) +
+        uretilenTablosu(r.uretilen || []),
+      actions:[
+        { label:'Sözleşmeye git', cls:'btn-line',
+          onClick:function(){ location.href = 'app-sozlesme-detay.html?id=' + r.sozlesme; } },
+        { label:'Teklifte kal', cls:'btn-acc', onClick:function(){ tazele(); } }
+      ]
+    });
+  }
+
+  /* Geçiş + zincir. `musteriOpt` mükerrer penceresinin kararıdır:
+     `{mevcut}` · `{istisna,neden,benzer}` · yoksa yeni müşteri.
+     İSTİSNA AÇIKLAMASI: servis neden KODUNU müşteri kartının izine yazar,
+     serbest metni saklamaz — o yüzden açıklama geçiş notuna taşınır ve
+     teklifin aktivite geçmişinde okunur kalır. */
+  function kazanildiKostur(musteriOpt){
+    var not = 'Teklif kazanıldı — dönüşüm zinciri';
+    if(musteriOpt && musteriOpt.mevcut)
+      not += ' · mevcut müşteriye bağlandı (' + musteriOpt.mevcut + ')';
+    if(musteriOpt && musteriOpt.istisna)
+      not += ' · mükerrer uyarısına rağmen yeni müşteri [' + musteriOpt.neden + ']' +
+             (musteriOpt.not ? ' — ' + musteriOpt.not : '');
+    uygula('Kazanıldı', null, { not:not }, function(){
+      var r = GV.sales.kazanildi(q, musteriOpt ? { musteri:musteriOpt } : {});
+      if(!r.ok){
+        GV.result({ tone:'danger', title:'Dönüşüm zinciri koşamadı',
+          text:q.kod + ' · ' + q.firma,
+          body:GV.notice({ tone:'danger', icon:'i-alert', title:'Kayıt üretilmedi',
+                           text:zincirHata(r) }) +
+               GV.notice({ tone:'neutral', icon:'i-info', title:'Teklif durumu değişti',
+                           text:'Teklif "Kazanıldı" durumuna geçti ama bağlı kayıtlar doğmadı. ' +
+                                'Sözleşme kaydı sözleşme ekranından elle açılabilir.' }),
+          actions:[{ label:'Tamam', cls:'btn-acc', onClick:function(){ tazele(); } }] });
+        return;
+      }
+      donusumSonucu(r);
+    });
+  }
+
+  /* MÜKERRER PENCERESİ — üç yol ([20.1.4]). Her eşleşmenin GEREKÇESİ yazılır;
+     kullanıcı "neden mükerrer sanıyorum"u okumadan karar vermez. */
+  function mukerrerModal(esler){
+    var kesinVar = esler.some(function(e){ return e.kesin; });
+    var kodlar = istisnaKodlari();
+
+    var tablo = '<div class="gv-tablewrap"><table class="gtable">' +
+      '<thead><tr><th>Mevcut müşteri</th><th>Neden mükerrer sanılıyor</th><th>Güç</th></tr></thead><tbody>' +
+      esler.map(function(e){
+        return '<tr>' +
+          '<td><a class="cell-main" href="app-musteri-detay.html?id=' + e.musteri.kod + '">' +
+            esc(e.musteri.unvan) + '</a><span class="cell-code">' + esc(e.musteri.kod) + ' · ' +
+            esc(e.musteri.durum) + '</span></td>' +
+          '<td class="cell-wrap">' + e.nedenler.map(function(n){
+            return '<span class="tag">' + esc(n) + '</span>'; }).join(' ') + '</td>' +
+          '<td>' + (e.kesin ? GV.badge('Kesin eşleşme', 'is-danger') : GV.badge('İşaret', 'is-warn')) + '</td>' +
+        '</tr>';
+      }).join('') + '</tbody></table></div>';
+
+    var govde =
+      GV.notice({ tone:kesinVar ? 'danger' : 'warn', icon:'i-alert',
+        title:esler.length + ' mükerrer müşteri şüphesi',
+        text:kesinVar
+          ? 'Vergi numarası birebir tutan bir müşteri kartı var. Yeni kart açmak aynı firmayı ikiye böler.'
+          : 'Aşağıdaki kayıtlar bu firmayla eşleşen işaretler taşıyor. İşaretler kesin kanıt değildir; kararı siz verirsiniz.' }) +
+      tablo +
+      '<div class="gv-fields u-mt-8">' +
+        '<div class="field f-col-12"><span class="f-lbl">Nasıl devam edilsin?</span>' +
+          '<div class="f-radios">' +
+            '<label class="f-radio"><input type="radio" name="mkYol" value="bagla" checked> Mevcut müşteriye bağla</label>' +
+            '<label class="f-radio"><input type="radio" name="mkYol" value="yeni"> Yine de yeni müşteri aç</label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field f-col-12" data-yol="bagla"><label for="mkMus">Bağlanacak müşteri</label>' +
+          '<select id="mkMus">' + esler.map(function(e){
+            return '<option value="' + esc(e.musteri.kod) + '">' + esc(e.musteri.unvan) + ' — ' +
+              esc(e.musteri.kod) + ' (' + esc(e.nedenler.join(', ')) + ')</option>';
+          }).join('') + '</select>' +
+          '<div class="f-hint">Sözleşme, ödeme planı ve proje bu müşterinin altında doğar; yeni kart açılmaz.</div>' +
+        '</div>' +
+        '<div class="field f-col-12" data-yol="yeni" hidden><label for="mkNeden">Neden kodu <span class="req">*</span></label>' +
+          '<select id="mkNeden"><option value="">Seçiniz…</option>' + kodlar.map(function(n){
+            return '<option value="' + esc(n.kod) + '">' + esc(n.ad) + '</option>'; }).join('') + '</select>' +
+        '</div>' +
+        '<div class="field f-col-12" data-yol="yeni" hidden><label for="mkNot">Açıklama <span class="req">*</span></label>' +
+          '<textarea id="mkNot" rows="3" placeholder="Neden ayrı bir müşteri kartı gerekiyor?"></textarea>' +
+          '<div class="f-hint">Karar yönetici istisnası olarak müşteri kartının aktivite geçmişine yazılır.</div>' +
+        '</div>' +
+      '</div>';
+
+    var pencere = GV.modal({
+      title:'Mükerrer müşteri kontrolü', text:q.kod + ' · ' + q.firma,
+      icon:'i-users', tone:kesinVar ? 'danger' : 'warn',
+      body:govde,
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Devam et', cls:'btn-acc', onClick:function(close, el){
+            var yol = (el.querySelector('input[name="mkYol"]:checked') || {}).value;
+            if(yol === 'yeni'){
+              var neden = el.querySelector('#mkNeden').value;
+              var not   = el.querySelector('#mkNot').value.trim();
+              if(!neden){ GV.toast('Neden kodu zorunludur', 'danger'); return false; }
+              if(!not){ GV.toast('Açıklama zorunludur', 'danger'); return false; }
+              kazanildiKostur({ istisna:true, neden:neden, not:not,
+                benzer:esler.map(function(e){ return e.musteri.kod; }) });
+              return;
+            }
+            var kod = el.querySelector('#mkMus').value;
+            if(!kod){ GV.toast('Bağlanacak müşteriyi seçin', 'danger'); return false; }
+            kazanildiKostur({ mevcut:kod });
+          } }
+      ]
+    });
+
+    /* Yol değişince yalnız o yolun alanları görünür; pencere kapanınca
+       dinleyici düğümle birlikte ölür (mount dışı, `document`e bağlanmadı). */
+    pencere.el.addEventListener('change', function(e){
+      if(!e.target || e.target.name !== 'mkYol') return;
+      var secili = e.target.value;
+      Array.prototype.forEach.call(pencere.el.querySelectorAll('[data-yol]'), function(d){
+        d.hidden = d.getAttribute('data-yol') !== secili;
+      });
+    });
+  }
+
+  function kazanildiAkisi(){
+    /* Teklif zaten bir müşteri kartına bağlıysa zincir O KARTA bağlanır ve
+       yeni müşteri doğmaz — mükerrer sorusunun sorulacak bir karşılığı yoktur.
+       İki müşteriyi birleştirmek ayrı bir iştir, bu turda kapsam dışı. */
+    var esler = q.musteri ? [] : GV.sales.mukerrer(donusumAdayi());
+    if(esler.length) return mukerrerModal(esler);
+    /* Eşleşme yoksa ek soru sorulmaz — zincir doğrudan koşar. */
+    kazanildiKostur(null);
+  }
+
   function gecisAkisi(adim){
+    if(adim.hedef === 'Kazanıldı') return kazanildiAkisi();
     if(adim.hedef === 'Gönderildi') return iletModal(adim.hedef);
     if(adim.gerekce) return gerekceModal(adim.hedef, adim.etiket);
     GV.confirm({
@@ -262,6 +501,17 @@ document.addEventListener('gv:ready', function(){
           { not:'Revize teklif oluşturuldu — v' + (q.versiyon + 1) });
       });
     } });
+  }
+
+  /* "Kazanıldı" dönüşümü satışın en pahalı anı — Onay Akışı sekmesinin
+     dibinde saklanmaz, sayfa başlığına da çıkar. Düğme YALNIZ geçiş gerçekten
+     yapılabiliyorken basılır (ölü buton yasağı): motor izni yoksa ya da zorunlu
+     alan eksikse hiç görünmez, "Kazanıldı" zaten bitiş durumu olduğu için
+     dönüşmüş teklifte `adimlar` boş döner ve düğme kendiliğinden kalkar. */
+  var kazanAdim = adimlar.filter(function(a){ return a.hedef === 'Kazanıldı'; })[0];
+  if(kazanAdim && kazanAdim.izin && !kazanAdim.eksik.length){
+    actions.push({ label:'Kazanıldı olarak işaretle', icon:'i-check-circle', cls:'btn-ok',
+      run:function(){ kazanildiAkisi(); } });
   }
 
   GV.pageHead({

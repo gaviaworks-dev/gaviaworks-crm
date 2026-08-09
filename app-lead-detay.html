@@ -565,57 +565,174 @@ document.addEventListener('gv:ready', function(){
     });
   });
 
-  /* ---- Müşteriye dönüştür ---- */
+  /* ---- Müşteriye dönüştür ---- (P3-01 · şartname [7.1.3] · [20.1.4] · [20.1.8])
+     ÖLÇÜLEN KUSUR: bu ekran kendi `MUS-` sayacını döndürüp müşteri nesnesini elle
+     kuruyor ve `DB.customers`a doğrudan yazıyordu — hiçbir MÜKERRER KONTROLÜ yoktu.
+     Aynı firma iki ayrı adaydan iki müşteri kaydı doğuruyor, kimse fark etmiyordu.
+
+     Artık dönüşüm ÖNCE ARAR (`GV.sales.mukerrer`), sonra TEK KAPIDAN üretir
+     (`GV.sales.musteriUret`). Kod üretimi, türetilen sayaçların sıfır doğması ve
+     müşteri kaydına düşen aktivite satırı servisin işidir; ekran yalnızca KARARI
+     verir. Bağ TEK YÖNLÜ kalır: aday müşteriyi gösterir (`lead.musteri`),
+     müşteride ayna alan açılmaz (components.md §9d). */
   var btnDon = document.getElementById('btnDonustur');
+
+  /* Adaydan müşteriye taşınan alanlar. Adayda vergi no ve web yok; mükerrer
+     araması bu ekranda üç eksenle (unvan · e-posta · telefon + e-posta alan adı)
+     çalışır, vergi no ekseni müşteri tarafında dolu olsa bile aday tarafı boş
+     olduğu için "kesin eşleşme" üretmez. */
+  function kaynakKaydi(){
+    return { kod:l.kod, firma:l.firma, unvan:l.firma, sektor:l.sektor, buyukluk:l.buyukluk,
+             sorumlu:l.sorumlu, kaynak:l.kaynak, referans:l.referans || null,
+             tel:l.tel, eposta:l.eposta,
+             sonIletisim:l.sonIletisim, kapanisTahmini:l.kapanisTahmini };
+  }
+
+  /* Üretimi uygular ve ADAY tarafının izini yazar. Müşteri kaydının aktivite
+     satırını servis kendi yazdığı için burada tekrarlanmaz (L-08). */
+  function donusumUygula(opts, aciklama){
+    var r = GV.sales.musteriUret(kaynakKaydi(), opts || {});
+    if(!r.ok){
+      GV.toast(r.why === 'musteri-yok'
+        ? 'Seçilen müşteri kaydı bulunamadı — bağlantı kurulamadı'
+        : 'Müşteri kaydı üretilemedi (' + (r.why || 'bilinmeyen') + ')', 'danger');
+      return null;
+    }
+    var eski = l.asama;
+    l.asama = 'Kazanıldı';
+    l.musteri = r.musteri.kod;
+    DB.activities.unshift({ kayit:l.kod, tarih:DB.today + 'T09:00', kisi:GV.session.emp,
+      metin:'Müşteri adayı ' + (r.yeni ? 'müşteri kaydına dönüştürüldü' : 'MEVCUT müşteri kaydına bağlandı') +
+            ' — ' + r.musteri.kod +
+            (r.istisna ? ' · yönetici istisnası' : '') + (aciklama ? ' — ' + aciklama : ''),
+      eski:eski, yeni:'Kazanıldı', tone:'ok', icon:'i-user-check' });
+    return r;
+  }
+
+  /* Sonuç ekranı ÖNCE tazelemeden sonra basılır: `GV.refresh()` açık overlay'leri
+     kapattığı için sırayı ters kurmak sonuç penceresini anında yok ederdi.
+     `location.reload()` KULLANILMAZ — mock veri bellekte, yeniden yükleme
+     yapılan değişikliği silerdi (ders L-15). */
+  function bitir(r){
+    setTimeout(function(){
+      GV.refresh();
+      GV.result({
+        tone:'ok',
+        title:r.yeni ? 'Aday müşteriye dönüştürüldü' : 'Aday mevcut müşteriye bağlandı',
+        text:l.firma + ' ' + (r.yeni
+              ? r.musteri.kod + ' koduyla müşteri listesine eklendi.'
+              : 'mevcut ' + r.musteri.kod + ' kaydına bağlandı; ikinci müşteri açılmadı.') +
+             ' Sözleşme ve proje kaydı bu müşteri üzerinden açılır.' +
+             (r.istisna ? ' Yönetici istisnası müşteri aktivitesine yazıldı.' : ''),
+        actions:[
+          { label:'Müşteri kaydını aç', cls:'btn-acc',
+            onClick:function(){ location.href = 'app-musteri-detay.html?id=' + r.musteri.kod; } },
+          { label:'Adayda kal', cls:'btn-line' }
+        ]
+      });
+    }, 280);
+  }
+
+  /* MÜKERRER PENCERESİ — üç yol ([20.1.4]): mevcuda bağla · uyarıya rağmen yeni
+     (neden kodu + açıklama ZORUNLU) · vazgeç. Her eşleşmenin GEREKÇESİ yazılır;
+     kullanıcı "neden mükerrer sanıyor" sorusunu pencerede görür. */
+  function mukerrerPenceresi(eslesme){
+    var kodlar = eslesme.map(function(e){ return e.musteri.kod; });
+    var kesin  = eslesme.filter(function(e){ return e.kesin; }).length > 0;
+
+    GV.modal({
+      /* `size` verilmez: sözlükte yalnız `is-sm` ve `is-lg` var; olmayan bir
+         ölçü sınıfı yazmak stil üretmeyen ölü nitelik olurdu. Varsayılan
+         genişlik iki sütunlu eşleşme listesine yetiyor. */
+      title:'Mükerrer müşteri kontrolü', tone:'warn', icon:'i-alert',
+      text:l.firma + ' için ' + eslesme.length + ' benzer müşteri kaydı bulundu',
+      body:
+        GV.notice({ tone:kesin ? 'danger' : 'warn', icon:'i-copy',
+          title:kesin ? 'Kesin eşleşme — vergi numarası aynı'
+                      : 'Benzerlik işareti bulundu (kesin kanıt değil)',
+          text:kesin ? 'Vergi numarası eşleşen kayıt aynı firmadır; yeni müşteri açmak mükerrer kayıt üretir.'
+                     : 'Aşağıdaki kayıtlar aynı firmaya işaret ediyor olabilir. Gerekçeleri okuyup karar verin.' }) +
+        '<div class="field u-mt-4"><span class="f-lbl">Eşleşen müşteri kayıtları</span>' +
+        '<div class="f-radios" style="flex-direction:column;align-items:stretch">' +
+        eslesme.map(function(e, i){
+          var c = e.musteri;
+          return '<label class="f-radio"><input type="radio" name="mukSec" value="' + esc(c.kod) + '"' +
+            (i === 0 ? ' checked' : '') + '><span>' +
+            '<span>' + esc(c.kod) + ' · ' + esc(c.kisa || c.unvan) + '</span> ' +
+            GV.badge(e.kesin ? 'Kesin eşleşme' : 'İşaret', e.kesin ? 'is-danger' : 'is-warn') +
+            '<span class="u-xs u-muted" style="display:block">' + esc(e.nedenler.join(' · ')) +
+            (c.durum ? ' — ' + esc(c.durum) : '') + '</span></span></label>';
+        }).join('') +
+        '</div><div class="f-hint">Seçilen kayda bağlanınca yeni müşteri AÇILMAZ; aday o kaydın altına düşer.</div></div>',
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Yine de yeni müşteri aç', cls:'btn-line', onClick:function(){
+            /* Gerekçe formu burada sıfırdan kurulmaz: ortak eylem penceresi
+               ([6.2.3]) neden kodunu ve açıklamayı zaten zorunlu tutuyor.
+               Bu pencere kapandıktan SONRA açılır; iki overlay üst üste binmez. */
+            setTimeout(function(){
+              GV.action({
+                eylem:'Yeni müşteri aç', tone:'warn',
+                kayit:{ kod:l.kod, baslik:l.firma },
+                sonuc:'Mükerrer uyarısına rağmen YENİ müşteri kaydı açılacak. Gerekçe, ' +
+                      'benzer kayıtların kodlarıyla birlikte yönetici istisnası olarak aktiviteye yazılır.',
+                gerekce:true, nedenTuru:'istisna',
+                etkilenen:kodlar,
+                run:function(v){
+                  var r = donusumUygula({ istisna:true, neden:v.neden, benzer:kodlar }, v.not);
+                  if(!r) return { ok:false, mesaj:'Müşteri kaydı üretilemedi' };
+                  bitir(r);
+                  return { ok:true, mesaj:r.musteri.kod + ' açıldı — yönetici istisnası kaydedildi' };
+                }
+              });
+            }, 280);
+          } },
+        { label:'Mevcut müşteriye bağla', cls:'btn-acc', onClick:function(close, el){
+            var sec = el.querySelector('input[name="mukSec"]:checked');
+            if(!sec){ GV.toast('Bağlanacak müşteri kaydını seçin', 'danger'); return false; }
+            var r = donusumUygula({ mevcut:sec.value });
+            if(!r) return false;
+            bitir(r);
+          } }
+      ]
+    });
+  }
+
   if(btnDon) btnDon.addEventListener('click', function(){
+    /* İDEMPOTENCY [20.1.8] — aynı dönüşüm ikinci kez çalışırsa İKİNCİ MÜŞTERİ
+       DOĞMAZ. Başlıktaki düğme `l.musteri` doluyken zaten basılmıyor, ama karar
+       veriye bakarak da verilir: bağ varsa var olan kayıt kullanılır. */
+    if(l.musteri){
+      var v = GV.sales.musteriUret(kaynakKaydi(), { mevcut:l.musteri });
+      if(v.ok){
+        GV.result({ tone:'info', title:'Bu aday zaten dönüştürülmüş',
+          text:l.kod + ' · ' + v.musteri.kod + ' kaydına bağlı. İkinci müşteri açılmadı.',
+          actions:[
+            { label:'Müşteri kaydını aç', cls:'btn-acc',
+              onClick:function(){ location.href = 'app-musteri-detay.html?id=' + v.musteri.kod; } },
+            { label:'Tamam', cls:'btn-line' }
+          ] });
+        return;
+      }
+      /* Bağ kırık (kayıt silinmiş): sessizce yeni açmak yerine kullanıcıya söylenir
+         ve normal dönüşüm akışı — mükerrer kontrolü dâhil — baştan koşar. */
+      GV.toast(l.musteri + ' kaydı bulunamadı; dönüşüm baştan değerlendiriliyor', 'warn');
+    }
+
+    /* Üretimden ÖNCE mükerrer araması. Eşleşme varsa karar penceresi açılır;
+       eşleşme yoksa ek soru sorulmaz, tek onayla üretilir. */
+    var eslesme = GV.sales.mukerrer({ firma:l.firma, eposta:l.eposta, tel:l.tel });
+    if(eslesme.length){ mukerrerPenceresi(eslesme); return; }
+
     GV.confirm({
       title:'Müşteriye dönüştür',
-      text:l.firma + ' müşteri kaydına dönüştürülecek, aday “Kazanıldı” aşamasına taşınacak.',
+      text:l.firma + ' müşteri kaydına dönüştürülecek, aday “Kazanıldı” aşamasına taşınacak. ' +
+           'Mükerrer kontrolü yapıldı, benzer müşteri kaydı bulunmadı.',
       okLabel:'Dönüştür'
     }).then(function(ok){
       if(!ok) return;
-      var eski = l.asama;
-      l.asama = 'Kazanıldı';
-
-      /* GERÇEK KAYIT ÜRETİLİR — toast "işlem oldu" demez (ders L-15). Önceden yalnız
-         aşama değişip aktivite yazılıyordu; sonuç metni "artık müşteri listesinde" diyordu
-         ama `DB.customers`'ta karşılığı doğmuyordu. Bağ iki yönlü değil: aday müşteriyi
-         gösterir (`lead.musteri`), müşteride ayna alan açılmaz (components.md §9d). */
-      var yeniMus = l.musteri ? DB.customers.filter(function(c){ return c.kod === l.musteri; })[0] : null;
-      if(!yeniMus){
-        var maxNo = 0;
-        DB.customers.forEach(function(c){
-          var m = /^MUS-\d{4}-(\d+)$/.exec(c.kod || ''); if(m) maxNo = Math.max(maxNo, +m[1]); });
-        var kod = 'MUS-' + String(DB.today).slice(0, 4) + '-' + String(maxNo + 1).padStart(3, '0');
-        yeniMus = {
-          kod:kod, unvan:l.firma, kisa:l.firma, sektor:l.sektor, buyukluk:l.buyukluk,
-          durum:'Aktif', risk:'Düşük', sorumlu:l.sorumlu,
-          kaynak:l.kaynak, referans:l.referans || null,
-          tel:l.tel, eposta:l.eposta, web:null, adres:null, vergiNo:null, vergiDairesi:null,
-          ilkKayit:DB.today, sonIletisim:l.sonIletisim || DB.today,
-          sonrakiAksiyon:'Sözleşme görüşmesi', sonrakiTarih:l.kapanisTahmini || null,
-          projeSayisi:0, aktifProje:0, toplamCiro:0, bekleyenTahsilat:0, memnuniyet:null,
-          aktif:true
-        };
-        DB.customers.unshift(yeniMus);
-        l.musteri = kod;
-        DB.activities.unshift({ kayit:kod, tarih:DB.today + 'T09:00', kisi:GV.session.emp,
-          metin:'Müşteri kaydı oluşturuldu (' + l.kod + ' adayından)', eski:null, yeni:kod,
-          tone:'ok', icon:'i-plus' });
-      }
-
-      DB.activities.unshift({ kayit:l.kod, tarih:DB.today + 'T09:00', kisi:GV.session.emp,
-        metin:'Müşteri adayı müşteri kaydına dönüştürüldü — ' + yeniMus.kod, eski:eski, yeni:'Kazanıldı',
-        tone:'ok', icon:'i-user-check' });
-      GV.result({
-        tone:'ok', title:'Aday müşteriye dönüştürüldü',
-        text:l.firma + ' ' + yeniMus.kod + ' koduyla müşteri listesine eklendi. ' +
-             'Sözleşme ve proje kaydı bu müşteri üzerinden açılır.',
-        actions:[
-          { label:'Müşteri listesine git', cls:'btn-acc', onClick:function(){ location.href = 'app-musteri.html'; } },
-          { label:'Adayda kal', cls:'btn-line', onClick:function(){ setTimeout(function(){ GV.refresh(); }, 200); } }
-        ]
-      });
+      var r = donusumUygula({});
+      if(r) bitir(r);
     });
   });
 });
