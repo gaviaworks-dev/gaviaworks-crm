@@ -25,20 +25,20 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P1-01 Merkezî geçiş motoru | ✅ bitti | `GV.flow` · 14 varlık · `flow.js` 0 bulgu |
 | P1-02 Ortak eylem penceresi | ✅ bitti | `GV.action` · 7 bileşen · boş gönderim reddediliyor |
 | P1-03 Onay motoru | ✅ bitti | `GV.approval` · zincir 1/3→3/3 · kaynak kayıt geçiyor |
-| P1-04 Yetki + tek audit defteri | ⏳ kısmi | `GV.flow`/`GV.approval` log yazıyor; `DB.logs` hâlâ ayrı |
+| P1-04 Yetki + tek audit defteri | ✅ bitti | `GV.audit` iki deftere yazıyor · 9 ekran taşındı |
 | P1-05 Finansal kanonik kaynak | ✅ bitti | `DB.paymentAllocations` · tek `GV.fin.balance` |
 | P1-06 İş takvimi / SLA | ✅ bitti | `GV.calendar` · `DB.holidays` · bekleme politikası |
-| P1-07 Veri kalitesi sayfası | ⏳ ajanda | — |
-| P1-08 Entegrasyon hata kuyruğu | ⛔ başlanmadı | — |
+| P1-07 Veri kalitesi sayfası | ✅ bitti | `app-veri-kalitesi.html` · 12 kontrol · 46 bulgu |
+| P1-08 Entegrasyon hata kuyruğu | ⏳ kısmi | koleksiyon açıldı (boş, dürüst); ekran yok |
 | P1-09 Notlarım test ağı | ⛔ başlanmadı | modül yazılmadan test yazılacak |
-| P2-01 CreateEditPage | ✅ motor bitti | `GV.form` sekme + sağ panel + sekme bazlı hata |
+| P2-01 CreateEditPage | ⏳ motor bitti | sekme + sağ panel + `readonly`; 36 formun göçü yapılmadı |
 | P2-02 Kayıt sonrası detay | ⛔ başlanmadı | 34 formun `kaydet()` sonu |
-| P2-03 Demo temizliği | ⛔ başlanmadı | 26 ekranda geliştirici notu |
+| P2-03 Demo temizliği | ✅ bitti | 59 ekran · kullanıcıya basılan geliştirici dili 0 |
 | P3-01 Satış zinciri | ⏳ kısmi | teklif ekranları motora bağlandı; dönüşüm sihirbazı yok |
-| P3-02 Sözleşme + plan + milestone | ⏳ ajanda | ödeme planı ekranları ajanda |
+| P3-02 Sözleşme + plan + milestone | ⏳ kısmi | ödeme planı 3 ekran bitti; milestone/sprint ekranları yok |
 | P3-03 Kalite zinciri | ⏳ kısmi | hata/teslim motora bağlandı; test varlıkları yok |
 | P3-04 Satın alma zinciri | ⏳ kısmi | onaya gönderme + motor bağlandı; tedarikçi faturası yok |
-| P3-05 Tahsilat formu | ⏳ ajanda | motor hazır (`GV.fin.tahsisEt`) |
+| P3-05 Tahsilat formu | ✅ bitti | form + tahsis dağıtım ekranı |
 | P3-06 İK zinciri | ⛔ başlanmadı | yaşam döngüsü, onboarding, zimmet kabulü |
 | P3-07 Destek zinciri | ⏳ kısmi | motor + kota düşümü bağlandı; bilgi bankası yok |
 | P4-01 ReportRegistry | ⛔ başlanmadı | — |
