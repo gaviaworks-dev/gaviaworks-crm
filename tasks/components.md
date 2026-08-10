@@ -354,6 +354,10 @@ GV.report({
 | `GV.fin.refreshCustomer(kod)` | `bekleyenTahsilat` türetir (L-08: sayaç yazılmaz, hesaplanır) | — |
 | `GV.delivery.approve(kod, karar, tarih?, not?)` | `karar ∈ GV.delivery.kararlar` (`Onaylandı`/`Bekliyor`/`Revizyon istendi`); onay ile teslim durumunu **aynı eksende** tutar | Liste yalnız `musteriOnay` yazıyor, detay `durum`u da güncelliyordu; yetki ekseni liste tarafında `onay`, detay tarafında `duzenle`ydi |
 | `GV.delivery.kararlar` | Karar sözlüğü | Süzgeçler ve mobil render bu listeden beslenir — üçüncü değer artık gizlenmiyor |
+| `GV.test.sayac(test)` | Koşum sayaçlarını **türetir**; dönüş her zaman `turetilmis` bayrağı taşır. `senaryoDetayi:false` olan eski kayıtta devralınan üç sayı korunur ve `turetilmis:false` döner | Sayı bir raporun sonucudur, kaydın kendisi değil. İki farklı güvenilirlikteki sayıyı aynı biçimde basmak yanlış beyandır — ekran bayrağı KULLANMAK zorundadır |
+| `GV.test.hataBaglami(sonucKod)` | Başarısız sonuçtan hata açmak için kaynak senaryo · adımlar · koşum · build · ortam · kanıtı toplar; `oneri` alanı hata formunu ön doldurur ([9.1.4]) | Ekran "başarısız senaryo var ama hata yok" uyarısını basıyor ama hata açacak düğme SUNMUYORDU |
+| `GV.test.hatasizBasarisiz(testKod)` | Hatası açılmamış başarısız sonuçlar | Boş dönmesi iyi haberdir, "ölçülemedi" değil |
+| `GV.test.senaryolar(plan?)` / `adimlar(senaryo)` | Senaryo ve adım okuma | Beklenen sonuç ADIMDA yazılır: koşum anında yazmak, sonucu gördükten sonra beklentiyi uydurmak olurdu |
 | `GV.notes.benim(opts?)` | Kişisel notların **TEK okuma kapısı** — oturum sahibinin kayıtları. Oturum yoksa BOŞ döner (yedek yok: "oturum yoksa hepsini göster" tam olarak kapatılan açıktır). Okur: `DB.personalNotes` (`notes.js`) | Kapsam `GV.perm` rol matrisinden GELMEZ; kişisel notta soru "bu rol görebilir mi" değil "bu kayıt kimin"dir (ADR-20) |
 | `GV.notes.bul(kod)` | Başkasının notunun ID'sinde **`null`** döner — "yetkin yok" DEMEZ; hata mesajı bile kaydın varlığını sızdırmamalı ([15.5.1]) | — |
 | `GV.notes.gorunum(key)` | `'' · acik · bugun · yaklasan · gecikmis · tamam · arsiv · cop` — "bugün" tanımı TEK yerde; ekran kendi koşulunu yazmaz | Liste sekmesi ile KPI sayacı ayrışamaz |
@@ -396,6 +400,7 @@ GV.report({
 > | `GV.delivery.approve` | `work.js` (`deliveries`) |
 > | `GV.delivery.kararlar` | — (sabit sözlük, hiçbir koleksiyon okumaz) |
 > | `GV.task.*` | `work.js` (`tasks` · `taskTransitions` · `taskStatuses` · `taskWaitReasons` · `priorities` · `activities`) · `org.js` (`employees`) |
+> | `GV.test.*` | `work.js` (`tests` · `testRuns` · `testCaseResults` · `testCases` · `testSteps` · `testPlans` · `builds` · `environments` · `testEvidence`) |
 > | `GV.notes.*` | `notes.js` (`personalNotes` · `personalNoteChecklistItems` · sözlükler) — **kurumsal veri dosyası OKUMAZ**, bu bir sınırdır (ADR-21) |
 > | `GV.sales.mukerrer` | `crm.js` (`customers`) |
 > | `GV.sales.musteriUret` | `crm.js` (`customers`) · `work.js` (`activities`) |

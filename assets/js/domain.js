@@ -214,6 +214,46 @@
         ? { ok:false, why:'Bakiye yetersiz: ' + gun + ' iş günü isteniyor, kalan ' + (e.izinBakiye || 0) + ' gün. Gün sayısını düşürün ya da izni "Ücretsiz izin" türüne çevirin.' }
         : { ok:true };
     },
+    /* [4.2.3] — PERSONEL AKTİFLEŞTİRME KAPISI.
+       "Zorunlu evrak eksikken personel Aktif olamaz." Kural `org.js` içinde
+       `transitions.employee['Onboarding'].kapi = 'personelEvrak'` diye
+       YAZILIYDI ama karşılığı olan yordam yoktu; motor eksik kapıyı sessizce
+       atlar, yani kural hiç uygulanmazdı — L-31'in tam tarifi ("uygulanmayan
+       kural, yanlış kuralın en sinsi hâlidir").
+       Zorunluluk sürecin adımlarından okunur (`DB.onboarding[].adimlar` →
+       `zorunlu:true`), ekranda ikinci bir liste tutulmaz. */
+    personelEvrak:function(e){
+      var surec = (window.DB && DB.onboarding || []).filter(function(o){
+        return o.personel === e.kod && o.tur === 'Giriş';
+      })[0];
+      /* Süreç kaydı YOKSA kapı açılmaz ama gerekçesi farklıdır: eksik evrak
+         değil, hiç başlamamış bir onboarding. İkisini aynı mesaja katmak
+         kullanıcıyı yanlış yere bakmaya gönderirdi. */
+      if(!surec) return { ok:false, why:'Bu personel için bir onboarding süreci açılmamış. ' +
+                                        'Aktifleştirmeden önce süreç başlatılmalı.' };
+      var eksik = (surec.adimlar || []).filter(function(a){
+        return a.zorunlu && a.durum !== 'Tamamlandı';
+      });
+      if(!eksik.length) return { ok:true };
+      return { ok:false, why:'Zorunlu onboarding adımı tamamlanmadı: ' +
+        eksik.map(function(a){ return a.ad; }).join(' · ') +
+        ' (' + eksik.length + ' adım). Personel Onboarding durumunda kalır.' };
+    },
+
+    /* [20.4.4] — AYRILIŞ KAPISI: aktif zimmet varken personel `Ayrıldı`
+       olamaz. Bugüne kadar `aktif:false` yapılırken zimmet HİÇ kontrol
+       edilmiyordu; şirket demirbaşı ayrılan personelin üstünde kalıyordu ve
+       hiçbir ekran bunu söylemiyordu. */
+    personelZimmet:function(e){
+      var acik = (window.DB && DB.assignments || []).filter(function(z){
+        return z.personel === e.kod && z.durum === 'Aktif' && !z.iadeTarihi;
+      });
+      if(!acik.length) return { ok:true };
+      return { ok:false, why:acik.length + ' zimmet hâlâ açık: ' +
+        acik.map(function(z){ return z.kod; }).join(' · ') +
+        '. Ayrılış tamamlanmadan demirbaşlar iade edilmeli.' };
+    },
+
     /* Destek kapanışı: bakım kotası aşımı — ADR-10 */
     destekKota:function(t){
       if(t.ucretli) return { ok:true };
@@ -2591,6 +2631,100 @@
     }
 
     return { mukerrer:mukerrer, musteriUret:musteriUret, kazanildi:kazanildi };
+  })();
+
+
+  /* ===================================================================
+     GV.test — TEST VARLIK MODELİ ([9.1.1] · [9.1.4] · paket P3-03)
+     -------------------------------------------------------------------
+     Sayaç artık VERİDEN TÜRETİLİR, kayıttan okunmaz — ama yalnız senaryo
+     dökümü OLAN koşumlarda. Eski beş kayıt `senaryoDetayi:false` taşıyor:
+     onların üç sayısı korunur ve `turetilmis:false` ile işaretlenir.
+     Sessizce "0 senaryo" demek, koşulmuş 62 senaryoyu yok saymak olurdu
+     (ders L-13: karşılığı olmayan veri "yok" diye yazılır, uydurulmaz).
+     =================================================================== */
+  GV.test = (function(){
+
+    function kosumlar(testKod){
+      return (DB.testRuns || []).filter(function(r){ return r.test === testKod; });
+    }
+    function sonuclar(kosumKod){
+      return (DB.testCaseResults || []).filter(function(x){ return x.kosum === kosumKod; });
+    }
+
+    /* Bir test kaydının sayaçları. Dönüş HER ZAMAN `turetilmis` bayrağı
+       taşır: çağıran "bu sayı ölçüldü mü yoksa devralındı mı" ayrımını
+       yapabilsin. Ekran bu ayrımı KULLANMAK zorundadır — iki farklı
+       güvenilirlikteki sayıyı aynı biçimde basmak yanlış beyandır. */
+    function sayac(test){
+      if(!test) return null;
+      var runs = kosumlar(test.kod);
+      var tumu = runs.reduce(function(a, r){ return a.concat(sonuclar(r.kod)); }, []);
+      if(test.senaryoDetayi === false || !tumu.length){
+        return { turetilmis:false, senaryo:test.senaryo || 0,
+                 basarili:test.basarili || 0, basarisiz:test.basarisiz || 0,
+                 engellendi:null, kosulmadi:null, kosum:runs.length };
+      }
+      function say(v){ return tumu.filter(function(x){ return x.sonuc === v; }).length; }
+      return { turetilmis:true, senaryo:tumu.length,
+               basarili:say('Başarılı'), basarisiz:say('Başarısız'),
+               engellendi:say('Engellendi'), kosulmadi:say('Koşulmadı'),
+               kosum:runs.length };
+    }
+
+    /* [9.1.4] — Başarısız sonuçtan hata açma. Kaynak test/senaryo/build/ortam
+       ve kanıt OTOMATİK bağlanır; ekran bunları tek tek toplamaz.
+       Bugünkü kusur: ekran "başarısız senaryo var ama hata yok" uyarısını
+       basıyor ama hata açacak düğme sunmuyordu. */
+    function hataBaglami(sonucKod){
+      var r = (DB.testCaseResults || []).filter(function(x){ return x.kod === sonucKod; })[0];
+      if(!r) return null;
+      var kosum = (DB.testRuns || []).filter(function(x){ return x.kod === r.kosum; })[0] || {};
+      var sen   = (DB.testCases || []).filter(function(x){ return x.kod === r.senaryo; })[0] || {};
+      var build = (DB.builds || []).filter(function(x){ return x.kod === kosum.build; })[0] || {};
+      var ort   = (DB.environments || []).filter(function(x){ return x.kod === kosum.ortam; })[0] || {};
+      var kanit = (DB.testEvidence || []).filter(function(x){ return x.sonuc === r.kod; });
+      var adimlar = (DB.testSteps || []).filter(function(x){ return x.senaryo === r.senaryo; })
+                      .sort(function(a,b){ return (a.sira||0)-(b.sira||0); });
+      return {
+        sonuc:r, senaryo:sen, kosum:kosum, build:build, ortam:ort,
+        kanit:kanit, adimlar:adimlar,
+        /* Hata formunun ön dolduracağı alanlar — yapılandırılmış repro
+           adımın kendisinden gelir, kullanıcıdan serbest metin istenmez. */
+        oneri:{
+          proje:kosum.proje || sen.proje || null,
+          modul:sen.modul || null,
+          baslik:sen.ad ? (sen.ad + ' — ' + r.sonuc.toLocaleLowerCase('tr')) : null,
+          surum:build.surum || null,
+          ortam:ort.ad || null,
+          test:kosum.test || null,
+          adimMetni:adimlar.map(function(a, i){
+            return (i + 1) + '. ' + a.adim + ' → beklenen: ' + a.beklenen; }).join('\n'),
+          gerceklesen:r.not || null
+        }
+      };
+    }
+
+    /* Hatası olmayan başarısız sonuçlar — ekran bunlar için "hata aç"
+       düğmesi sunar. Boş dönmesi iyi haberdir, ölçülemedi demek değildir. */
+    function hatasizBasarisiz(testKod){
+      var kods = kosumlar(testKod).map(function(r){ return r.kod; });
+      return (DB.testCaseResults || []).filter(function(x){
+        return kods.indexOf(x.kosum) !== -1 && x.sonuc === 'Başarısız' && !x.hata;
+      });
+    }
+
+    function senaryolar(planKod){
+      return (DB.testCases || []).filter(function(c){ return !planKod || c.plan === planKod; });
+    }
+    function adimlar(senaryoKod){
+      return (DB.testSteps || []).filter(function(x){ return x.senaryo === senaryoKod; })
+               .sort(function(a,b){ return (a.sira||0)-(b.sira||0); });
+    }
+
+    return { sayac:sayac, kosumlar:kosumlar, sonuclar:sonuclar,
+             hataBaglami:hataBaglami, hatasizBasarisiz:hatasizBasarisiz,
+             senaryolar:senaryolar, adimlar:adimlar };
   })();
 
 })();
