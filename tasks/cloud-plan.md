@@ -34,12 +34,12 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 | P2-01 CreateEditPage | ✅ bitti | 38/38 form göç etti · 63 sekmeli hedef · `formtab.js` 276 panel TEMİZ |
 | P2-02 Kayıt sonrası detay | ✅ bitti | `GV.afterSave` · 38/38 form · 26'sı detaya, 12'si listeye (detay ekranı yok) |
 | P2-03 Demo temizliği | ✅ bitti | 59 ekran · kullanıcıya basılan geliştirici dili 0 |
-| P3-01 Satış zinciri | ⏳ kısmi | teklif ekranları motora bağlandı; dönüşüm sihirbazı yok |
+| P3-01 Satış zinciri | ⏳ kısmi | `GV.sales` mükerrer araması (5 eksen) + Kazanıldı zinciri (müşteri→sözleşme→plan→proje, idempotent, geri almalı). **Teklif sürümleme hâlâ sahte** — revizyon yeni kayıt üretmiyor |
 | P3-02 Sözleşme + plan + milestone | ⏳ kısmi | ödeme planı 3 ekran bitti; milestone/sprint ekranları yok |
-| P3-03 Kalite zinciri | ⏳ kısmi | hata/teslim motora bağlandı; test varlıkları yok |
+| P3-03 Kalite zinciri | ⏳ kısmi | 9 test varlığı açıldı (`testPlans·testCases·testSteps·testRuns·testCaseResults·testEvidence·builds·environments`) · `GV.test.sayac` **türetiyor**, eski 5 kayıt `senaryoDetayi:false` ile dürüstçe devralınmış · başarısızdan hata açma bağlandı. **Veri kısmi: 1 plan, 1 koşum** |
 | P3-04 Satın alma zinciri | ⏳ kısmi | onaya gönderme + motor bağlandı; tedarikçi faturası yok |
 | P3-05 Tahsilat formu | ✅ bitti | form + tahsis dağıtım ekranı |
-| P3-06 İK zinciri | ⛔ başlanmadı | yaşam döngüsü, onboarding, zimmet kabulü |
+| P3-06 İK zinciri | ⏳ kısmi | `employee` **15. geçiş varlığı** (6 durum) · `Gates.personelEvrak` + `Gates.personelZimmet` uygulanıyor · onboarding şablonları + ilk çıkış kaydı. **Ekran tarafı yapılmadı**: `durum` hiçbir ekranda okunmuyor, `aktif` paralel duruyor; zimmet kabulü çelişkisi açık |
 | P3-07 Destek zinciri | ⏳ kısmi | motor + kota düşümü bağlandı; bilgi bankası yok |
 | P4-01 ReportRegistry | ✅ bitti | `DB.reportRegistry` 105 kayıt (ekrandan üretildi) · `GV.cell`/`GV.cols` · 7 rapor prelude'ü −1.298 satır · `reg.js` TEMİZ |
 | P4-02 Export servisi | ⏳ kısmi | ekran değeri çıktıya taşınıyor (`xport.js` **TEMİZ**, 646 kolon) · CSV formül koruması · künye · yazdırma CSS'i · tüm kayıtlar onayı. **XLSX/PDF hâlâ gerçek biçim değil — backend payı** |
@@ -48,20 +48,16 @@ Bu bölüm koşum sırasında güncellenir. Kaynak: `git log` + `node tasks/qa/f
 
 **ADR:** 17 blokaj sorusu `tasks/cloud-kararlar.md` içinde karara bağlandı; 5'i 🔸 teyit bekliyor.
 
-### Sıradaki altı paket — nereden başlanacağı
+### Altı paketin sonucu — ölçülmüş
 
-Ayrıntılı yol tarifi `tasks/handoff.md` §4'tedir. Özet ve sıra önerisi:
-
-| # | Paket | Hazır motor | İlk dosya | Blokaj |
-|---|---|---|---|---|
-| **A** | Form göçü (`CreateEditPage`) | `GV.form` sekme + `aside` + `readonly` **hazır** | `app-personel-form.html` (7 sekme), sonra `app-proje-form.html` (8 sekme) | AS-6.3 |
-| **B** | Satış dönüşüm sihirbazı | `GV.flow` quote/contract · `Gates.teklifOnAnaliz` · `Gates.sozlesmeAktif` · ödeme planı ekranları | `app-teklif-detay.html` "Kazanıldı" akışı | AS-1.3 · AS-5.2 · AS-3.5 |
-| **C** | Test varlık modeli | — (yeni koleksiyonlar) | `assets/data/work.js` → `testPlans/testCases/testSteps/testRuns/builds/environments` | — |
-| **D** | İK yaşam döngüsü | `GV.flow` (15. varlık aynı sözleşmeyle) · `GV.calendar` · `Gates.izinBakiye` | `assets/data/org.js` → `flowEntities.employee` | AS-1.10 · AS-1.11 · AS-1.12 |
-| **E** | ReportRegistry + export | `GV.report` **hazır**, 8/8 rapor kullanıyor | `assets/js/ui.js` ortak kolon API'si | AS-2.10 · AS-2.11 · AS-6.6 |
-| **F** | Notlarım | `GV.form` sekmeli kabuk (A'dan sonra) | `tasks/qa/notes-isolation.js` **önce** | AS-4.3 · AS-4.4 · AS-4.5 |
-
-**A ve C diğerlerinin altyapısı.** F, A bittikten sonra başlamalı (sekmeli kabuğu kullanır) ve **testleri modülden önce** yazılır.
+| # | Paket | Sonuç | Kanıt |
+|---|---|---|---|
+| **A** | P2-01 form göçü | ✅ | 38/38 form · 64 sekmeli hedef · `formtab.js` 279 panel · 279 tıklama TEMİZ |
+| **B** | P2-02 kayıt sonrası detay | ✅ | `GV.afterSave` · 39/39 form · 26'sı detaya, 12'si listeye (detay ekranı yok) |
+| **C** | P3-01 dönüşüm sihirbazı | ⏳ | mükerrer + Kazanıldı zinciri ✅ · **teklif sürümleme yapılmadı** |
+| **D** | P3-03 test modeli · P3-06 İK | ⏳ | model + kapılar ✅ · **İK ekran tarafı, test verisi kısmi** |
+| **E** | P4-01 registry · P4-02 export | ⏳ | `xport.js` **kapandı** (652 kolon) · registry 105 kayıt · **XLSX/PDF backend** |
+| **F** | P4-03 Notlarım · P1-09 test ağı | ✅ | 6 senaryo TEMİZ; bozuk kopyada 7 sızıntı yakaladı |
 
 ### Kapanan ölçüm: `xport.js` ✅
 

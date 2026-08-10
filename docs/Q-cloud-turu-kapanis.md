@@ -128,6 +128,13 @@ Tümü repo değişmezken, tek tek koşuldu.
 
 ## 5. Prototipte yapılabilir olup yapılmayanlar
 
+> **GÜNCELLEME — sonraki tur.** Aşağıdaki tablo bu turun (Cloud) sonundaki
+> durumu gösterir ve **tarihsel kayıt olarak olduğu gibi bırakıldı**.
+> Bir sonraki tur bu altı paketi ele aldı; güncel durum
+> **`docs/R-prototip-kapsami-kapanis.md`** ve `tasks/cloud-plan.md`
+> durum tablosundadır. Kısaca: A ve F kapandı, B kapandı, C · D · E kısmi;
+> `xport.js` ekseni kapandı.
+
 Dürüstlük gereği: bu tur "prototipte yapılabilen her şeyi" bitirmedi.
 
 | Paket | Durum |
