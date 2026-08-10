@@ -25,6 +25,7 @@
 document.addEventListener('gv:ready', function(){
   var F = GV.fmt, esc = GV.esc, ico = GV.ico, mount = document.getElementById('rec');
   var yetkiDuzenle = GV.perm.can('duzenle');
+  var yetkiEkle    = GV.perm.can('ekle');
 
   var id = new URLSearchParams(location.search).get('id') || (DB.tests[0] || {}).kod;
   var t  = DB.tests.filter(function(x){ return x.kod === id; })[0];
@@ -57,12 +58,36 @@ document.addEventListener('gv:ready', function(){
   var projeActs = proje ? DB.activities.filter(function(a){ return a.kayit === proje.kod; }) : [];
 
   var tamam   = t.durum === 'Tamamlandı';
-  var kosuldu = (t.senaryo || 0) > 0;
-  var oran    = kosuldu ? Math.round(t.basarili / t.senaryo * 100) : null;
-  var hataOran= kosuldu ? Math.round(t.basarisiz / t.senaryo * 100) : null;
-  /* Sayı tutarlılığı: başarılı + başarısız = senaryo olmalı. */
-  var toplamSayim = (t.basarili || 0) + (t.basarisiz || 0);
-  var sayimTutar  = toplamSayim === (t.senaryo || 0);
+
+  /* =================================================================
+     SAYAÇ — TEK KAYNAK `GV.test.sayac()` ([9.1.1] · paket P3-03)
+     Kayıttaki `senaryo` / `basarili` / `basarisiz` alanları bu ekranda
+     ARTIK DOĞRUDAN OKUNMAZ. Yordam iki farklı güvenilirlikte sayı döndürür
+     ve bunu `turetilmis` bayrağıyla söyler:
+       true  → sayı gerçek senaryo sonuçlarından SAYILDI
+       false → eski kayıt; senaryo dökümü yok, üç sayı kayıttan DEVRALINDI
+     İkisini aynı biçimde basmak yanlış beyandır; ekran ayrımı her yüzeyde
+     görünür kılar (rozet · künye satırı · sekme uyarısı).
+     ================================================================= */
+  var S = GV.test.sayac(t) || { turetilmis:false, senaryo:0, basarili:0, basarisiz:0,
+                                engellendi:null, kosulmadi:null, kosum:0 };
+  var turetilmis = S.turetilmis === true;
+  var kosuldu    = (S.senaryo || 0) > 0;
+  var kosumlar   = GV.test.kosumlar(t.kod);
+  var hatasiz    = GV.test.hatasizBasarisiz(t.kod);
+
+  /* Başarı oranının PAYDASI iki modelde farklıdır ve etiketinde yazılır.
+     Türetilmiş sayaçta senaryonun bir kısmı Engellendi / Koşulmadı olabilir;
+     onları paydaya koymak "başarısız" saymak olurdu. */
+  var kosulan = turetilmis ? ((S.basarili || 0) + (S.basarisiz || 0)) : (S.senaryo || 0);
+  var oran    = kosulan ? Math.round(S.basarili / kosulan * 100) : null;
+  var hataOran= kosulan ? Math.round(S.basarisiz / kosulan * 100) : null;
+  var paydaEt = turetilmis ? 'koşulan senaryo içinde' : 'toplam senaryo içinde';
+
+  /* Sayım tutarlılığı yalnız DEVRALINAN sayaçta anlamlı bir denetimdir:
+     türetilmiş sayaçta dört sonuç sayısının toplamı zaten senaryo sayısıdır. */
+  var toplamSayim = (S.basarili || 0) + (S.basarisiz || 0);
+  var sayimTutar  = turetilmis ? true : toplamSayim === (S.senaryo || 0);
 
   function oranTon(o){ return o === 100 ? 'ok' : o >= 90 ? '' : o >= 70 ? 'warn' : 'danger'; }
   function simdi(){ return DB.today + 'T' + new Date().toTimeString().slice(0,5); }
@@ -93,7 +118,7 @@ document.addEventListener('gv:ready', function(){
   var digerHatalar = projeHatalari.filter(function(b){ return b.test !== t.kod; });
   var acikHatalar  = projeHatalari.filter(function(b){ return b.durum !== 'Kapandı'; });
   /* Kural: bağlı hata sayısı başarısız senaryo sayısını AŞAMAZ (canon eksen 15). */
-  var hataFazlasi = acilanHatalar.length > (t.basarisiz || 0);
+  var hataFazlasi = acilanHatalar.length > (S.basarisiz || 0);
 
   /* ---- İlgili teslim: `DB.deliveries[].test` alanında YAZILI bağ ---- */
   var projeTeslimleri = proje
@@ -140,6 +165,40 @@ document.addEventListener('gv:ready', function(){
     if(n == null) return '<span class="u-faint">—</span>';
     return '<b class="u-num' + (ton ? ' u-' + ton : '') + '">' + F.num(n) + '</b>';
   }
+  /* Kod → kayıt araması. YALNIZ sözlük koleksiyonlarında kullanılır
+     (build · ortam · plan); senaryo sonuç zinciri GV.test üzerinden okunur,
+     burada kendi filtre zincirim kurulmaz. */
+  function bul(arr, kod){
+    if(!kod) return null;
+    return (arr || []).filter(function(x){ return x.kod === kod; })[0] || null;
+  }
+
+  /* ---- Sayacın kaynağını söyleyen rozet ve açıklama ---- */
+  function kaynakRozeti(){
+    return turetilmis
+      ? '<span class="badge is-ok no-dot">Sayaç senaryo sonuçlarından türetildi</span>'
+      : '<span class="badge is-warn no-dot">Sayaç kayıttan devralındı</span>';
+  }
+  function kaynakAciklama(){
+    return turetilmis
+      ? 'Bu koşumun üç sayısı senaryo sonuç kayıtlarından tek tek sayıldı; ' +
+        'hangi senaryonun ne sonuç verdiği aşağıdaki tabloda okunur.'
+      : 'Bu kaydın senaryo dökümü yok: sayılar test kaydından devralındı. ' +
+        'Hangi senaryonun geçtiği, hangisinin düştüğü veride kayıtlı değildir — ' +
+        'bu yüzden senaryo tablosu yerine bu açıklama gösteriliyor, ' +
+        'sayı türetiliyormuş gibi yapılmıyor.';
+  }
+
+  /* ---- Sonuç sözlüğü: `Başarılı` ve `Başarısız` GV.badge ton haritasında YOK
+     (haritada yalnız `Engellendi` ve `Koşulmadı` var). Eksik iki anahtar için
+     yerel harita kurmak yerine fabrikanın açık ton kanalı kullanılır. ---- */
+  var SONUC_TON = { 'Başarılı':'is-ok', 'Başarısız':'is-danger' };
+
+  var colSonuc = GV.cols.durum('sonuc', 'Sonuç', {
+    extra:function(x){ return SONUC_TON[x.sonuc] || null; } });
+  var colKosan = GV.cols.kisi('kosan', 'Koşan', { bosMetin:'Koşulmadı' });
+  var colTarih = GV.cols.date('tarih', 'Tarih', { plain:true, bosMetin:'—',
+    sub:function(x){ return x.tarih ? esc(String(x.tarih).slice(11,16)) : ''; } });
 
   /* =================================================================
      MUTASYON — location.reload() KULLANILMAZ (ders L-15).
@@ -192,10 +251,14 @@ document.addEventListener('gv:ready', function(){
         '</div>' +
         (kosuldu
           ? '<div class="u-mt-4">' + GV.dl([
-              ['Toplam senaryo', sayiHucre(t.senaryo)],
-              ['Başarılı', sayiHucre(t.basarili, 'ok')],
-              ['Başarısız', sayiHucre(t.basarisiz, t.basarisiz ? 'danger' : null)],
-              ['Başarı oranı', GV.progress(oran, { tone:oranTon(oran) })]
+              ['Sayacın kaynağı', kaynakRozeti()],
+              ['Toplam senaryo', sayiHucre(S.senaryo)],
+              ['Başarılı', sayiHucre(S.basarili, 'ok')],
+              ['Başarısız', sayiHucre(S.basarisiz, S.basarisiz ? 'danger' : null)],
+              (S.engellendi == null ? null : ['Engellendi', sayiHucre(S.engellendi, 'warn')]),
+              (S.kosulmadi == null ? null : ['Koşulmadı', sayiHucre(S.kosulmadi)]),
+              ['Başarı oranı <span class="u-faint">(' + paydaEt + ')</span>',
+                GV.progress(oran, { tone:oranTon(oran) })]
             ]) + '</div>'
           : '<div class="gv-grid gv-grid-3 u-mt-4">' +
               '<div class="field"><label for="tkSenaryo">Toplam senaryo<span class="req">*</span></label>' +
@@ -209,10 +272,12 @@ document.addEventListener('gv:ready', function(){
                   'Başarılı + başarısız toplamı, toplam senaryo sayısına eşit olmalı.</span></div>' +
             '</div>') +
         GV.notice({ tone:kosuldu ? 'info' : 'warn',
-          title:kosuldu ? 'Senaryo sayıları kayıttan geldi' : 'Bu koşumun senaryo sonucu hiç yazılmamış',
+          title:kosuldu
+            ? (turetilmis ? 'Senaryo sayıları sonuç kayıtlarından sayıldı' : 'Senaryo sayıları kayıttan devralındı')
+            : 'Bu koşumun senaryo sonucu hiç yazılmamış',
           text:kosuldu
-            ? 'Test kaydı senaryo bazlı döküm tutmuyor; yalnız toplam / başarılı / başarısız sayıları var. ' +
-              'Tamamlama işlemi bu üç sayıyı değiştirmez, kaydın durumunu “Tamamlandı” yapar.'
+            ? kaynakAciklama() +
+              ' Tamamlama işlemi sayaçları değiştirmez, kaydın durumunu “Tamamlandı” yapar.'
             : 'Kayıtta toplam senaryo 0 görünüyor. Koşum tamamlandı işaretlenirken sonuç sayıları da yazılır; ' +
               'başarılı ile başarısız toplamı, toplam senaryo sayısına eşit olmak zorundadır.' }),
       actions:[
@@ -252,6 +317,145 @@ document.addEventListener('gv:ready', function(){
     });
   }
 
+  /* =================================================================
+     SENARYO ADIMLARI — [9.1.1]
+     Satırın "N adım" düğmesi sağ paneli açar: adımlar `GV.test.adimlar()`
+     ile SIRALI okunur, beklenen sonuç adımın kendisinde yazılıdır.
+     ================================================================= */
+  function adimPaneli(sonucKod){
+    var c = GV.test.hataBaglami(sonucKod);
+    if(!c){ GV.toast('Senaryo sonucu bulunamadı', 'warn'); return; }
+    var sen = c.senaryo, r = c.sonuc;
+    var adimlar = GV.test.adimlar(sen.kod);
+
+    GV.drawer({
+      title:(sen.ad || r.senaryo) + ' — adımlar',
+      body:
+        GV.dl([
+          ['Senaryo kodu', '<span class="u-num">' + esc(sen.kod || r.senaryo) + '</span>'],
+          ['Modül', sen.modul ? esc(DB.modName(sen.modul)) : null],
+          ['Senaryo türü', sen.tur ? GV.badge(sen.tur) : null],
+          ['Öncelik', sen.oncelik ? GV.pri(sen.oncelik) : null],
+          ['Ön koşul', sen.onKosul ? '<span class="cell-wrap">' + esc(sen.onKosul) + '</span>' : null],
+          ['Bu koşumdaki sonuç', GV.badge(r.sonuc, SONUC_TON[r.sonuc] || null)],
+          ['Koşan', r.kosan ? GV.user(r.kosan, { sm:true }) : '<span class="u-faint">Koşulmadı</span>'],
+          ['Sonuç zamanı', r.tarih ? F.dt(r.tarih) : '<span class="u-faint">—</span>'],
+          ['Koşum', c.kosum.kod
+            ? '<span class="u-num">' + esc(c.kosum.kod) + '</span>' +
+              ' <span class="cell-sub">' + esc(c.build.surum || '—') + ' · ' + esc(c.ortam.ad || '—') + '</span>'
+            : null],
+          ['Koşum notu', r.not ? '<span class="cell-wrap">' + esc(r.not) + '</span>' : null],
+          ['Bağlı hata', r.hata
+            ? '<a href="app-proje-hata-detay.html?id=' + esc(r.hata) + '">' + esc(r.hata) + '</a>'
+            : '<span class="u-faint">Yok</span>']
+        ]) +
+        '<div class="u-mt-8">' +
+        (adimlar.length
+          ? tbl('<th class="num">Sıra</th><th>Adım</th><th>Beklenen sonuç</th>',
+              adimlar.map(function(x){
+                return '<tr><td class="num"><span class="u-num">' + F.num(x.sira) + '</span></td>' +
+                  '<td class="cell-wrap">' + esc(x.adim) + '</td>' +
+                  '<td class="cell-wrap">' + esc(x.beklenen) + '</td></tr>';
+              }).join(''))
+          : GV.empty({ icon:'i-list', title:'Bu senaryonun adımı yazılmamış',
+              desc:'Senaryo tanımı var ama adım kaydı yok; beklenen sonuç adımda tutulduğu için ' +
+                   'bu senaryoda beklenen çıktı da okunamıyor.' })) +
+        '</div>' +
+        (c.kanit.length
+          ? '<div class="u-mt-8">' + sec('Kanıt',
+              tbl('<th>Kanıt</th><th>Tür</th><th>Not</th><th class="center">Zaman</th>',
+                c.kanit.map(function(k){
+                  return '<tr><td class="cell-wrap"><span class="cell-main">' + esc(k.ad) + '</span>' +
+                    '<span class="cell-code">' + esc(k.kod) + '</span></td>' +
+                    '<td>' + esc(k.tur) + '</td>' +
+                    '<td class="cell-wrap">' + esc(k.not || '') + '</td>' +
+                    '<td class="center"><span class="cell-date">' + F.dt(k.tarih) + '</span></td></tr>';
+                }).join('')) +
+              GV.notice({ tone:'neutral', icon:'i-paperclip', title:'Dosya yüklenmiyor',
+                text:'Prototipte dosya depolama yok; kanıt kaydı dosyanın adını ve türünü tutar, ' +
+                     'içeriğini değil.' })) + '</div>'
+          : '')
+    });
+  }
+
+  /* =================================================================
+     [9.1.4] — BAŞARISIZ SONUÇTAN HATA AÇMA
+     Bağlam `GV.test.hataBaglami()` ile TEK yordamdan gelir; ekran kaynak
+     senaryo · adım · build · ortam · kanıtı tek tek toplamaz. `oneri`
+     alanları adres parametresi olarak hata formuna taşınır.
+     location.reload() KULLANILMAZ (ders L-15) — bu bir SAYFA GEÇİŞİdir,
+     mevcut sayfanın yeniden yüklenmesi değil.
+     ================================================================= */
+  function hataFormAdresi(c){
+    var o = c.oneri, p = [];
+    function ekle(k, v){
+      if(v == null || v === '') return;
+      p.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+    }
+    ekle('proje', o.proje);
+    ekle('modul', o.modul);
+    ekle('baslik', o.baslik);
+    ekle('surum', o.surum);
+    ekle('ortam', o.ortam);
+    ekle('test', o.test);
+    ekle('adimMetni', o.adimMetni);
+    ekle('gerceklesen', o.gerceklesen);
+    ekle('sonuc', c.sonuc.kod);
+    return 'app-proje-hata-form.html' + (p.length ? '?' + p.join('&') : '');
+  }
+
+  function hataOlusturModal(sonucKod){
+    var c = GV.test.hataBaglami(sonucKod);
+    if(!c){ GV.toast('Senaryo sonucu bulunamadı', 'warn'); return; }
+    var o = c.oneri, r = c.sonuc, sen = c.senaryo;
+    var url = hataFormAdresi(c);
+
+    GV.modal({
+      title:'Başarısız senaryodan hata aç', text:r.kod + ' · ' + (sen.ad || r.senaryo),
+      icon:'i-bug', size:'lg',
+      body:
+        GV.dl([
+          ['Hata başlığı <span class="u-faint">(öneri)</span>', o.baslik
+            ? '<span class="cell-wrap">' + esc(o.baslik) + '</span>' : null],
+          ['Proje', o.proje ? esc(DB.projName(o.proje)) + ' <span class="cell-sub">' + esc(o.proje) + '</span>' : null],
+          ['Modül', o.modul ? esc(DB.modName(o.modul)) + ' <span class="cell-sub">' + esc(o.modul) + '</span>' : null],
+          ['Kaynak koşum', c.kosum.kod ? '<span class="u-num">' + esc(c.kosum.kod) + '</span>' : null],
+          ['Kaynak test kaydı', o.test ? '<span class="u-num">' + esc(o.test) + '</span>' : null],
+          ['Build sürümü', o.surum
+            ? '<span class="u-num">' + esc(o.surum) + '</span>' +
+              (c.build.commit ? ' <span class="cell-sub">' + esc(c.build.commit) + '</span>' : '')
+            : null],
+          ['Ortam', o.ortam ? esc(o.ortam) : null],
+          ['Gerçekleşen', o.gerceklesen ? '<span class="cell-wrap">' + esc(o.gerceklesen) + '</span>' : null],
+          ['Kanıt', c.kanit.length
+            ? c.kanit.map(function(k){ return '<span class="tag">' + esc(k.ad) + '</span>'; }).join(' ')
+            : null]
+        ]) +
+        '<div class="u-mt-8">' +
+        (c.adimlar.length
+          ? sec('Tekrarlama adımları <span class="u-faint">(senaryo adımlarından üretildi)</span>',
+              tbl('<th class="num">Sıra</th><th>Adım</th><th>Beklenen sonuç</th>',
+                c.adimlar.map(function(x, i){
+                  return '<tr><td class="num"><span class="u-num">' + F.num(i + 1) + '</span></td>' +
+                    '<td class="cell-wrap">' + esc(x.adim) + '</td>' +
+                    '<td class="cell-wrap">' + esc(x.beklenen) + '</td></tr>';
+                }).join('')))
+          : GV.notice({ tone:'warn', icon:'i-list', title:'Senaryonun adımı yazılmamış',
+              text:'Yapılandırılmış tekrarlama adımı üretilemedi; hata formunda adımlar elle yazılacak.' })) +
+        '</div>' +
+        GV.notice({ tone:'info', icon:'i-info', title:'Adreste taşınan alanların hepsini form okumuyor',
+          text:'Hata formu bugün yalnız `proje` ve `test` parametrelerini okuyor. `modul` · `baslik` · ' +
+               '`surum` · `ortam` · `adimMetni` · `gerceklesen` · `sonuc` adreste taşınıyor ama forma ' +
+               'yazılmıyor — form bu ekranın dosyası değil, o yüzden burada değiştirilmedi.' }),
+      actions:[
+        { label:'Vazgeç', cls:'btn-line' },
+        { label:'Hata formunu aç', cls:'btn-acc', icon:'i-bug', onClick:function(){
+            location.href = url;
+          } }
+      ]
+    });
+  }
+
   /* Ölü buton yasağı: yetki yoksa ya da koşum zaten tamamlandıysa buton HİÇ basılmaz. */
   var tamamlaBtn = (yetkiDuzenle && !tamam)
     ? '<button type="button" class="btn btn-acc" id="btnTamamla">' +
@@ -281,8 +485,9 @@ document.addEventListener('gv:ready', function(){
       '<div class="gv-rec-id"><span class="gv-rec-code">' + esc(t.kod) + '</span>' +
         GV.badge(t.durum) +
         GV.badge(t.tur) +
-        (t.basarisiz ? '<span class="badge is-danger">' + F.num(t.basarisiz) + ' başarısız senaryo</span>' : '') +
+        (S.basarisiz ? '<span class="badge is-danger">' + F.num(S.basarisiz) + ' başarısız senaryo</span>' : '') +
         (!kosuldu ? '<span class="badge is-warn no-dot">Senaryo koşulmadı</span>' : '') +
+        kaynakRozeti() +
         (!sayimTutar ? '<span class="badge is-danger no-dot">Sayım tutmuyor</span>' : '') +
         (t.aktif === false ? '<span class="tag">Arşiv</span>' : '') + '</div>' +
       '<h1>' + esc(t.ad) + '</h1>' +
@@ -292,8 +497,10 @@ document.addEventListener('gv:ready', function(){
         '<span>' + ico('i-flask','ic-sm') + esc(t.tur) + ' testi</span>' +
         '<span>' + ico('i-user','ic-sm') + 'Koşan ' + esc(DB.empName(t.sorumlu)) + '</span>' +
         '<span>' + ico('i-calendar','ic-sm') + F.date(t.tarih) + '</span>' +
-        '<span>' + ico('i-list','ic-sm') + (kosuldu ? F.num(t.senaryo) + ' senaryo' : 'Senaryo yazılmadı') + '</span>' +
-        (oran != null ? '<span>' + ico('i-percent','ic-sm') + '%' + F.num(oran) + ' başarı</span>' : '') +
+        '<span>' + ico('i-list','ic-sm') + (kosuldu ? F.num(S.senaryo) + ' senaryo' : 'Senaryo yazılmadı') + '</span>' +
+        '<span>' + ico('i-play','ic-sm') + (S.kosum ? F.num(S.kosum) + ' koşum kaydı' : 'Koşum kaydı yok') + '</span>' +
+        (oran != null ? '<span>' + ico('i-percent','ic-sm') + '%' + F.num(oran) + ' başarı ' +
+          '<span class="u-faint">(' + paydaEt + ')</span></span>' : '') +
       '</div>' +
     '</div></div>';
 
@@ -302,7 +509,8 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   var tabs = [
     { key:'genel',    lbl:'Genel',              ic:'i-info' },
-    { key:'senaryo',  lbl:'Senaryo Sonuçları',  ic:'i-list',     cnt:t.senaryo || 0 },
+    { key:'senaryo',  lbl:'Senaryo Sonuçları',  ic:'i-list',     cnt:S.senaryo || 0 },
+    { key:'kosum',    lbl:'Koşumlar',           ic:'i-play',     cnt:kosumlar.length },
     { key:'hata',     lbl:'Açılan Hatalar',     ic:'i-bug',      cnt:acilanHatalar.length },
     { key:'kapsam',   lbl:'Kapsam',             ic:'i-layers',   cnt:projeModulleri.length },
     { key:'teslim',   lbl:'İlgili Teslim',      ic:'i-package',  cnt:projeTeslimleri.length },
@@ -344,19 +552,35 @@ document.addEventListener('gv:ready', function(){
       ['Proje sağlığı', proje ? GV.badge(proje.saglik) : null]
     ])) +
 
-    sec('Senaryo Sayıları', GV.dl([
-      ['Toplam senaryo', kosuldu ? sayiHucre(t.senaryo) : '<span class="u-faint">0 — koşulmadı</span>'],
-      ['Başarılı senaryo', kosuldu ? sayiHucre(t.basarili, 'ok') : null],
+    sec('Senaryo Sayıları <span class="u-faint">(' + (turetilmis ? 'türetilmiş' : 'devralınmış') + ')</span>',
+      GV.dl([
+      ['Sayacın kaynağı', kaynakRozeti() +
+        ' <span class="cell-sub">' + (turetilmis
+          ? S.kosum + ' koşum kaydının senaryo sonuçları sayıldı'
+          : 'test kaydındaki üç sayı devralındı, senaryo dökümü yok') + '</span>'],
+      ['Toplam senaryo', kosuldu ? sayiHucre(S.senaryo) : '<span class="u-faint">0 — koşulmadı</span>'],
+      ['Başarılı senaryo', kosuldu ? sayiHucre(S.basarili, 'ok') : null],
       ['Başarısız senaryo', kosuldu
-        ? (t.basarisiz ? sayiHucre(t.basarisiz, 'danger') : '<span class="u-num u-ok">0</span>')
+        ? (S.basarisiz ? sayiHucre(S.basarisiz, 'danger') : '<span class="u-num u-ok">0</span>')
         : null],
-      ['Başarı oranı', oran == null
+      /* Engellendi / Koşulmadı YALNIZ türetilmiş sayaçta vardır; devralınan
+         kayıtta yordam null döndürür ve SATIRIN KENDİSİ basılmaz — "—" bile
+         yazılmaz, çünkü 0 yazmak "engellenen senaryo yoktu" iddiası olurdu,
+         oysa o kayıtta bu eksen hiç ölçülmemiştir. */
+      (S.engellendi == null ? null : ['Engellenen senaryo', sayiHucre(S.engellendi, 'warn')]),
+      (S.kosulmadi == null ? null : ['Koşulmayan senaryo', sayiHucre(S.kosulmadi)]),
+      ['Başarı oranı <span class="u-faint">(' + paydaEt + ')</span>', oran == null
         ? '<span class="u-faint">Henüz koşulmadı</span>'
         : GV.progress(oran, { tone:oranTon(oran) })],
-      ['Sayım tutarlılığı', sayimTutar
-        ? '<span class="badge is-ok no-dot">Başarılı + başarısız = toplam senaryo</span>'
-        : '<span class="badge is-danger no-dot">' + F.num(toplamSayim) + ' ≠ ' + F.num(t.senaryo || 0) +
-          ' — sayım tutmuyor</span>']
+      ['Koşum kaydı', S.kosum
+        ? '<b class="u-num">' + F.num(S.kosum) + '</b> <span class="cell-sub">build ve ortam künyesi Koşumlar sekmesinde</span>'
+        : '<span class="u-faint">Bu teste bağlı koşum kaydı yok</span>'],
+      ['Sayım tutarlılığı', turetilmis
+        ? '<span class="badge is-ok no-dot">Dört sonuç sayısının toplamı = senaryo sayısı</span>'
+        : (sayimTutar
+            ? '<span class="badge is-ok no-dot">Başarılı + başarısız = toplam senaryo</span>'
+            : '<span class="badge is-danger no-dot">' + F.num(toplamSayim) + ' ≠ ' + F.num(S.senaryo || 0) +
+              ' — sayım tutmuyor</span>')]
     ])) +
 
     sec('Tarih', GV.dl([
@@ -371,66 +595,155 @@ document.addEventListener('gv:ready', function(){
     ])) + '</div>' +
 
     '<div class="gc-body">' +
-    GV.notice({ tone:'neutral', icon:'i-info', title:'Koşumun taşımadığı tek şey senaryo bazlı döküm',
-      text:'Koşum kaydı modül kapsamını, sprintini, açtığı hataları ' +
-           've bağlandığı teslimi yazılı bağ olarak taşıyor. ' +
-           'Taşımadığı tek şey senaryo bazlı dökümdür: hangi senaryonun düştüğü kayıtlı değil, yalnız ' +
-           'başarılı/başarısız sayısı tutuluyor. Ortam ve sürüm bilgisi proje kartından okunur.' }) + '</div>';
+    (turetilmis
+      ? GV.notice({ tone:'ok', icon:'i-list', title:'Bu kayıt senaryo bazlı döküm taşıyor',
+          text:'Senaryo · adım · koşum · sonuç · kanıt zinciri veride yazılı. Sayaçlar sonuç ' +
+               'kayıtlarından sayıldı, kayıttan devralınmadı; hangi senaryonun düştüğü Senaryo Sonuçları ' +
+               'sekmesinden, hangi build ve ortamda koşulduğu Koşumlar sekmesinden okunur.' })
+      : GV.notice({ tone:'neutral', icon:'i-info', title:'Bu kaydın taşımadığı tek şey senaryo bazlı döküm',
+          text:'Koşum kaydı modül kapsamını, sprintini, açtığı hataları ' +
+               've bağlandığı teslimi yazılı bağ olarak taşıyor. ' +
+               'Taşımadığı tek şey senaryo bazlı dökümdür: hangi senaryonun düştüğü kayıtlı değil, yalnız ' +
+               'başarılı/başarısız sayısı tutuluyor — bu üç sayı devralındı, türetilmedi. Bu eksiklik ' +
+               'yalnız senaryo dökümü olmayan eski kayıtlar için geçerlidir; yeni model senaryo, adım, ' +
+               'koşum ve sonucu ayrı kayıt olarak tutar.' })) + '</div>';
 
   /* =================================================================
-     2. SENARYO SONUÇLARI — senaryo bazlı döküm veride YOK
+     SENARYO SONUÇ SATIRI — ortak satır çizici ([9.1.1] · [9.1.4])
+     Satırın bağlamı (senaryo · adımlar · kanıt · build · ortam) TEK yordamdan
+     gelir: GV.test.hataBaglami(). Sonuç koleksiyonu üzerinde bu ekranda
+     kendi filtre zinciri kurulmaz.
      ================================================================= */
-  var kirilim = kosuldu
+  var hatasizKod = hatasiz.map(function(x){ return x.kod; });
+
+  function kanitHucre(ctx){
+    var k = (ctx && ctx.kanit) || [];
+    if(!k.length) return '<span class="u-faint">—</span>';
+    return k.map(function(x){
+      return '<span class="tag">' + ico('i-paperclip','ic-sm') + ' ' + esc(x.ad) + '</span>' +
+        '<span class="cell-sub">' + esc(x.tur) + '</span>';
+    }).join(' ');
+  }
+
+  /* [9.1.4] — Hatası açılmamış başarısız sonuçta HATA OLUŞTUR aksiyonu.
+     Hangi sonucun düğme hak ettiğini GV.test.hatasizBasarisiz() söyler;
+     ekran `sonuc === 'Başarısız' && !hata` koşulunu yeniden kurmaz. */
+  function hataHucre(r){
+    if(r.hata){
+      return '<a class="cell-main" href="app-proje-hata-detay.html?id=' + esc(r.hata) + '">' +
+        esc(r.hata) + '</a><span class="cell-sub">bu sonuçtan açıldı</span>';
+    }
+    if(hatasizKod.indexOf(r.kod) === -1) return '<span class="u-faint">—</span>';
+    /* Ölü buton yasağı: ekleme yetkisi yoksa düğme HİÇ basılmaz. */
+    if(!yetkiEkle) return '<span class="badge is-warn no-dot">Hata açılmadı</span>';
+    return '<button type="button" class="btn btn-line btn-sm" data-hata="' + esc(r.kod) + '">' +
+      ico('i-bug','ic-sm') + ' Hata oluştur</button>';
+  }
+
+  function sonucSatir(r){
+    var ctx = GV.test.hataBaglami(r.kod);
+    var sen = (ctx && ctx.senaryo) || {};
+    var adimSay = ctx ? ctx.adimlar.length : 0;
+    return '<tr' + (r.sonuc === 'Başarısız' ? ' class="is-late"' : '') + '>' +
+      '<td class="cell-wrap"><span class="cell-main">' + esc(sen.ad || r.senaryo) + '</span>' +
+        '<span class="cell-code">' + esc(r.senaryo) +
+        (sen.oncelik ? ' · ' + esc(sen.oncelik) + ' öncelik' : '') + '</span></td>' +
+      '<td class="cell-wrap">' + (sen.modul
+        ? esc(DB.modName(sen.modul)) : '<span class="u-faint">—</span>') + '</td>' +
+      '<td class="center">' + colSonuc.render(r) + '</td>' +
+      '<td>' + colKosan.render(r) + '</td>' +
+      '<td class="center">' + colTarih.render(r) + '</td>' +
+      '<td class="cell-wrap">' + (r.not ? esc(r.not) : '<span class="u-faint">—</span>') + '</td>' +
+      '<td class="cell-wrap">' + kanitHucre(ctx) + '</td>' +
+      '<td>' + hataHucre(r) + '</td>' +
+      '<td>' + (adimSay
+        ? '<button type="button" class="btn btn-line btn-sm" data-adim="' + esc(r.kod) + '">' +
+          ico('i-list','ic-sm') + ' ' + adimSay + ' adım</button>'
+        : '<span class="u-faint">Adım yazılmamış</span>') + '</td></tr>';
+  }
+
+  var SONUC_BASLIK = '<th>Senaryo</th><th>Modül</th><th class="center">Sonuç</th><th>Koşan</th>' +
+    '<th class="center">Tarih</th><th>Not</th><th>Kanıt</th><th>Bağlı hata</th><th>Adımlar</th>';
+
+  /* Tüm koşumların sonuçları — her koşum için GV.test.sonuclar(). */
+  var tumSonuclar = kosumlar.reduce(function(a, r){
+    return a.concat(GV.test.sonuclar(r.kod)); }, []);
+
+  /* =================================================================
+     2. SENARYO SONUÇLARI — [9.1.1]
+     Senaryo tablosu YALNIZ `turetilmis:true` sayaçta basılır. Devralınan
+     kayıtta hangi senaryonun düştüğü veride YOK; tablo yerine bunu söyleyen
+     açıklama gösterilir (ders L-13 — olmayan bilgi uydurulmaz).
+     ================================================================= */
+  var kirilim = (!turetilmis && kosuldu)
     ? tbl('<th>Sonuç</th><th class="num">Senaryo</th><th>Pay</th><th>Anlamı</th>',
         '<tr>' +
           '<td><span class="badge is-ok no-dot">Başarılı</span></td>' +
-          '<td class="num">' + sayiHucre(t.basarili, 'ok') + '</td>' +
+          '<td class="num">' + sayiHucre(S.basarili, 'ok') + '</td>' +
           '<td>' + GV.progress(oran, { tone:oranTon(oran) }) + '</td>' +
           '<td class="cell-wrap">Beklenen davranışı veren senaryolar</td></tr>' +
-        '<tr' + (t.basarisiz ? ' class="is-late"' : '') + '>' +
-          '<td>' + (t.basarisiz
+        '<tr' + (S.basarisiz ? ' class="is-late"' : '') + '>' +
+          '<td>' + (S.basarisiz
             ? '<span class="badge is-danger no-dot">Başarısız</span>'
             : '<span class="badge is-neutral no-dot">Başarısız</span>') + '</td>' +
-          '<td class="num">' + (t.basarisiz
-            ? sayiHucre(t.basarisiz, 'danger') : '<span class="u-num u-ok">0</span>') + '</td>' +
-          '<td>' + GV.progress(hataOran, { tone:t.basarisiz ? 'danger' : 'ok' }) + '</td>' +
-          '<td class="cell-wrap">' + (t.basarisiz
+          '<td class="num">' + (S.basarisiz
+            ? sayiHucre(S.basarisiz, 'danger') : '<span class="u-num u-ok">0</span>') + '</td>' +
+          '<td>' + GV.progress(hataOran, { tone:S.basarisiz ? 'danger' : 'ok' }) + '</td>' +
+          '<td class="cell-wrap">' + (S.basarisiz
             ? 'Hata kaydına dönüşmesi beklenen senaryolar'
             : 'Bu koşumda başarısız senaryo çıkmadı') + '</td></tr>')
     : '';
 
   var pSenaryo = '<div class="gc-body">' +
-    GV.notice({ tone:'warn', icon:'i-list', title:'Senaryo bazlı döküm veride tutulmuyor',
-      text:'Test kaydı yalnız toplam senaryo, başarılı ve başarısız sayılarını taşıyor. Hangi senaryonun adı, ' +
-           'adımı, beklenen çıktısı ve sonucu ne oldu bilgisi kayıtta yok; bu yüzden aşağıda senaryo listesi değil ' +
-           'toplamların kırılımı gösteriliyor. Başarısız senaryoların hangileri olduğu bu ekrandan okunamaz.' }) +
+    (turetilmis
+      ? GV.notice({ tone:'ok', icon:'i-list', title:'Senaryo dökümü veride yazılı — sayaç buradan sayıldı',
+          text:'Aşağıdaki tablo koşum sonuç kayıtlarının kendisidir: her satır bir senaryonun bir koşumdaki ' +
+               'sonucudur. Toplam / başarılı / başarısız sayıları bu satırlardan sayıldı, test kaydından ' +
+               'devralınmadı. Başarısız satırlar hata kaydına dönüştürülebilir.' })
+      : GV.notice({ tone:'warn', icon:'i-list', title:'Bu koşumun senaryo dökümü yok — sayılar kayıttan devralındı',
+          text:'Bu test kaydı senaryo bazlı döküm tutmuyor; yalnız toplam senaryo, başarılı ve başarısız ' +
+               'sayıları var ve bu üç sayı kayıttan devralındı, sonuç kayıtlarından türetilmedi. Hangi senaryonun ' +
+               'adı, adımı ve beklenen çıktısı neydi bilgisi kayıtta yok; bu yüzden aşağıda senaryo tablosu değil ' +
+               'toplamların kırılımı gösteriliyor. Başarısız senaryoların hangileri olduğu — yalnız bu kayıt için — ' +
+               'bu ekrandan okunamaz.' })) +
     GV.dl([
-      ['Toplam senaryo', kosuldu ? sayiHucre(t.senaryo) : '<span class="u-faint">0</span>'],
-      ['Başarılı', kosuldu ? sayiHucre(t.basarili, 'ok') : null],
+      ['Sayacın kaynağı', kaynakRozeti()],
+      ['Toplam senaryo', kosuldu ? sayiHucre(S.senaryo) : '<span class="u-faint">0</span>'],
+      ['Başarılı', kosuldu ? sayiHucre(S.basarili, 'ok') : null],
       ['Başarısız', kosuldu
-        ? (t.basarisiz ? sayiHucre(t.basarisiz, 'danger') : '<span class="u-num u-ok">0</span>')
+        ? (S.basarisiz ? sayiHucre(S.basarisiz, 'danger') : '<span class="u-num u-ok">0</span>')
         : null],
-      ['Başarı oranı', oran == null
+      (S.engellendi == null ? null : ['Engellendi', sayiHucre(S.engellendi, 'warn')]),
+      (S.kosulmadi == null ? null : ['Koşulmadı', sayiHucre(S.kosulmadi)]),
+      ['Başarı oranı <span class="u-faint">(' + paydaEt + ')</span>', oran == null
         ? '<span class="u-faint">Henüz koşulmadı</span>'
         : GV.progress(oran, { tone:oranTon(oran) })],
-      ['Başarısızlık oranı', hataOran == null
+      ['Başarısızlık oranı <span class="u-faint">(' + paydaEt + ')</span>', hataOran == null
         ? '<span class="u-faint">—</span>'
-        : '<b class="u-num' + (t.basarisiz ? ' u-danger' : ' u-ok') + '">%' + F.num(hataOran) + '</b>'],
+        : '<b class="u-num' + (S.basarisiz ? ' u-danger' : ' u-ok') + '">%' + F.num(hataOran) + '</b>'],
       ['Koşum durumu', GV.badge(t.durum)],
-      ['Sayım tutarlılığı', sayimTutar
-        ? '<span class="badge is-ok no-dot">Tutarlı</span>'
-        : '<span class="badge is-danger no-dot">Başarılı + başarısız = ' + F.num(toplamSayim) +
-          ', toplam senaryo ' + F.num(t.senaryo || 0) + '</span>']
+      ['Sayım tutarlılığı', turetilmis
+        ? '<span class="badge is-ok no-dot">Dört sonuç sayısı toplamı = senaryo sayısı</span>'
+        : (sayimTutar
+            ? '<span class="badge is-ok no-dot">Tutarlı</span>'
+            : '<span class="badge is-danger no-dot">Başarılı + başarısız = ' + F.num(toplamSayim) +
+              ', toplam senaryo ' + F.num(S.senaryo || 0) + '</span>')]
     ]) + '</div>' +
 
     '<div class="gc-body' + (kosuldu ? ' flush' : '') + '">' +
-    (kosuldu
-      ? kirilim + sayac('<b>' + F.num(t.senaryo) + '</b> senaryo · <b>' + F.num(t.basarili) +
-          '</b> başarılı · <b>' + F.num(t.basarisiz) + '</b> başarısız · senaryo adları veride tutulmuyor')
-      : GV.empty({ icon:'i-list', title:'Bu koşumda senaryo sonucu yok',
-          desc:'Kayıtta toplam senaryo 0 görünüyor — koşum henüz yapılmadı ya da sonuçları girilmedi. ' +
-               'Senaryo sayıları yazıldığında başarı oranı burada hesaplanır.',
-          action:tamamlaBtn || '<a class="btn btn-line" href="app-proje-test.html">Test listesine dön</a>' })) +
+    (turetilmis
+      ? tbl(SONUC_BASLIK, tumSonuclar.map(sonucSatir).join('')) +
+        sayac('<b>' + F.num(S.senaryo) + '</b> senaryo sonucu · <b>' + F.num(S.basarili) +
+          '</b> başarılı · <b>' + F.num(S.basarisiz) + '</b> başarısız · <b>' + F.num(S.engellendi) +
+          '</b> engellendi · <b>' + F.num(S.kosulmadi) + '</b> koşulmadı')
+      : (kosuldu
+          ? kirilim + sayac('<b>' + F.num(S.senaryo) + '</b> senaryo · <b>' + F.num(S.basarili) +
+              '</b> başarılı · <b>' + F.num(S.basarisiz) +
+              '</b> başarısız · bu sayılar kayıttan devralındı, senaryo adları veride tutulmuyor')
+          : GV.empty({ icon:'i-list', title:'Bu koşumda senaryo sonucu yok',
+              desc:'Kayıtta toplam senaryo 0 görünüyor — koşum henüz yapılmadı ya da sonuçları girilmedi. ' +
+                   'Senaryo sayıları yazıldığında başarı oranı burada hesaplanır.',
+              action:tamamlaBtn || '<a class="btn btn-line" href="app-proje-test.html">Test listesine dön</a>' }))) +
     '</div>' +
 
     (tamamlaBtn && kosuldu
@@ -440,12 +753,99 @@ document.addEventListener('gv:ready', function(){
     (tamam
       ? '<div class="gc-body">' + GV.notice({ tone:'ok', icon:'i-check-circle', title:'Koşum tamamlandı',
           text:t.kod + ' ' + F.date(t.tarih) + ' tarihinde koşuldu ve tamamlandı olarak işaretlendi' +
-               (kosuldu ? ' — ' + F.num(t.senaryo) + ' senaryonun %' + F.num(oran) + ' kadarı geçti.' : '.') }) + '</div>'
+               (kosuldu ? ' — ' + F.num(kosulan) + ' koşulan senaryonun %' + F.num(oran) + ' kadarı geçti.' : '.') }) + '</div>'
       : (!yetkiDuzenle
           ? '<div class="gc-body">' + GV.notice({ tone:'neutral', icon:'i-lock', title:'Koşumu tamamlama yetkisi yok',
               text:'Rolünüzde düzenleme yetkisi bulunmadığı için “Koşumu tamamla” aksiyonu hiç basılmadı. ' +
                    'Koşum durumunu test sorumlusu veya proje yöneticisi değiştirir.' }) + '</div>'
           : ''));
+
+  /* =================================================================
+     3. KOŞUMLAR — [9.1.1] koşum künyesi: build · commit · ortam · sorumlu
+     Koşum kayıtları GV.test.kosumlar(), sonuçları GV.test.sonuclar() ile
+     okunur. Build ve ortam sözlük araması `bul()` ile yapılır; ortak katmanda
+     bu iki koleksiyon için kod→kayıt yardımcısı YOK (raporda bildirildi).
+     ================================================================= */
+  function kosumKunye(r){
+    var b = bul(DB.builds, r.build);
+    var o = bul(DB.environments, r.ortam);
+    var pl = bul(DB.testPlans, r.plan);
+    var sn = GV.test.sonuclar(r.kod);
+    return GV.dl([
+      ['Koşum kodu', '<span class="u-num">' + esc(r.kod) + '</span>'],
+      ['Durum', GV.badge(r.durum)],
+      ['Build sürümü', b
+        ? '<span class="u-num">' + esc(b.surum) + '</span>' +
+          ' <span class="cell-sub">' + esc(b.kod) + ' · ' + esc(b.durum) + ' · ' + F.date(b.tarih) + '</span>'
+        : (r.build ? '<span class="u-num">' + esc(r.build) + '</span>' : null)],
+      ['Commit', b && b.commit
+        ? ico('i-git','ic-sm') + ' <span class="u-num">' + esc(b.commit) + '</span>'
+        : null],
+      ['Ortam', o
+        ? ico('i-server','ic-sm') + ' ' + esc(o.ad) +
+          ' <span class="cell-sub">' + esc(o.tur) + ' · ' + esc(o.url) + '</span>'
+        : (r.ortam ? esc(r.ortam) : null)],
+      ['Koşum sorumlusu', kisiSatir(r.sorumlu)],
+      ['Build sorumlusu', b && b.sorumlu ? kisiSatir(b.sorumlu) : null],
+      ['Koşum aralığı', (r.baslangic || r.bitis)
+        ? '<span class="cell-date">' + F.date(r.baslangic) + ' → ' + F.date(r.bitis) + '</span>'
+        : null],
+      ['Test planı', pl
+        ? esc(pl.ad) + ' <span class="cell-sub">' + esc(pl.kod) + ' · çıkış ölçütü: ' +
+          esc(pl.cikisOlcutu) + '</span>'
+        : '<span class="u-faint">Plansız koşum</span>'],
+      ['Bu koşumda yazılı sonuç', sn.length
+        ? '<b class="u-num">' + F.num(sn.length) + '</b>'
+        : '<span class="u-faint">Sonuç satırı yok</span>']
+    ]);
+  }
+
+  function kosumBlok(r){
+    var sn = GV.test.sonuclar(r.kod);
+    return '<div class="gc-body">' +
+      sec('Koşum ' + esc(r.kod) + ' <span class="u-faint">(künye)</span>', kosumKunye(r)) + '</div>' +
+      '<div class="gc-body' + (sn.length ? ' flush' : '') + '">' +
+      (sn.length
+        ? (!turetilmis
+            ? '<div class="u-mb-8">' + GV.notice({ tone:'warn', icon:'i-alert',
+                title:'Aşağıdaki satırlar bu KOŞUMUN sonuçlarıdır, testin senaryo dökümü değildir',
+                text:'Test kaydının sayaçları (' + F.num(S.senaryo) + ' senaryo · ' + F.num(S.basarili) +
+                     ' başarılı · ' + F.num(S.basarisiz) + ' başarısız) bu ' + F.num(sn.length) +
+                     ' satırdan türetilmedi — kayıt senaryo dökümü taşımıyor, üç sayı ondan devralındı. ' +
+                     'İki küme aynı şeyi ölçmüyor: burada yalnız bu koşumda yazılmış sonuçlar görünür, ' +
+                     'testin tüm senaryoları değil.' }) + '</div>'
+            : '') +
+          tbl(SONUC_BASLIK, sn.map(sonucSatir).join('')) +
+          sayac('<b>' + F.num(sn.length) + '</b> sonuç satırı bu koşumda yazılı')
+        : GV.empty({ icon:'i-list', title:'Bu koşumda sonuç satırı yok',
+            desc:'Koşum kaydı açıldı ama hiçbir senaryonun sonucu yazılmamış. Sonuçlar yazıldığında ' +
+                 'senaryo dökümü ve sayaçlar buradan türetilir.' })) +
+      '</div>';
+  }
+
+  var pKosum = kosumlar.length
+    ? '<div class="gc-body">' +
+      GV.notice({ tone:'info', icon:'i-play', title:'Koşum künyesi: hangi sürümde, nerede, kim koştu',
+        text:'Bir test kaydı birden çok koşuma sahip olabilir; sonuç senaryoda değil KOŞUMDA tutulur, ' +
+             'yoksa “geçen sefer geçmişti” bilgisi kaybolurdu. Her koşum bir build ve bir ortama bağlıdır — ' +
+             'hata kaydı da bu künyeyi devralır.' }) +
+      GV.dl([
+        ['Test kaydı', '<span class="u-num">' + esc(t.kod) + '</span> <span class="cell-sub">' +
+          esc(t.ad) + '</span>'],
+        ['Koşum sayısı', '<b class="u-num">' + F.num(kosumlar.length) + '</b>'],
+        ['Sayacın kaynağı', kaynakRozeti() + ' <span class="cell-sub">' +
+          (turetilmis ? 'sonuç satırları sayıldı' : 'üç sayı test kaydından devralındı') + '</span>'],
+        ['Hatası açılmamış başarısız sonuç', hatasiz.length
+          ? '<b class="u-num u-danger">' + F.num(hatasiz.length) + '</b> <span class="cell-sub">' +
+            'her biri için “Hata oluştur” aksiyonu var</span>'
+          : '<span class="badge is-ok no-dot">Yok</span>' +
+            '<span class="cell-sub">başarısız sonuçların hepsi hata kaydına bağlanmış</span>']
+      ]) + '</div>' +
+      kosumlar.map(kosumBlok).join('')
+    : '<div class="gc-body flush">' + GV.empty({ icon:'i-play', title:'Bu teste bağlı koşum kaydı yok',
+        desc:'Test varlık modelinde koşum, “hangi senaryo kümesi hangi build ve ortamda çalıştı” ' +
+             'sorusunu yanıtlar. Bu kayıt için henüz koşum açılmamış; sayaçları test kaydından devralıyor.',
+        action:'<a class="btn btn-line" href="app-proje-test.html">Test listesine dön</a>' }) + '</div>';
 
   /* =================================================================
      3. AÇILAN HATALAR — bağ `DB.bugs[].test` alanında YAZILI (VB-08)
@@ -479,9 +879,17 @@ document.addEventListener('gv:ready', function(){
                'projenin kayıtlarıdır ve **bağ değildir**, yalnız bağlam olarak listelenir.' })) +
     GV.dl([
       ['Koşum tarihi', GV.dateCell(t.tarih, { done:tamam })],
-      ['Bu koşumdaki başarısız senaryo', t.basarisiz
-        ? sayiHucre(t.basarisiz, 'danger')
+      ['Bu koşumdaki başarısız senaryo <span class="u-faint">(' +
+        (turetilmis ? 'türetildi' : 'devralındı') + ')</span>', S.basarisiz
+        ? sayiHucre(S.basarisiz, 'danger')
         : '<span class="u-num u-ok">0</span>'],
+      ['Hatası açılmamış başarısız sonuç', hatasiz.length
+        ? '<b class="u-num u-danger">' + F.num(hatasiz.length) + '</b>' +
+          ' <span class="cell-sub">Koşumlar sekmesinde “Hata oluştur” aksiyonu var</span>'
+        : (tumSonuclar.length
+            ? '<span class="badge is-ok no-dot">Yok</span>' +
+              '<span class="cell-sub">yazılı sonuç satırlarının başarısız olanları hataya bağlanmış</span>'
+            : '<span class="u-faint">Ölçülemedi — bu kayıtta sonuç satırı tutulmuyor</span>')],
       ['Bu koşumdan açılan hata', acilanHatalar.length
         ? '<b class="u-num u-danger">' + acilanHatalar.length + '</b>'
         : '<span class="u-faint">Yok</span>'],
@@ -510,13 +918,13 @@ document.addEventListener('gv:ready', function(){
     (hataFazlasi
       ? '<div class="gc-body">' + GV.notice({ tone:'danger', icon:'i-alert-circle',
           title:'Bağlı hata sayısı başarısız senaryo sayısını aşıyor',
-          text:'Bu koşuma ' + acilanHatalar.length + ' hata bağlı ama yalnız ' + F.num(t.basarisiz) +
+          text:'Bu koşuma ' + acilanHatalar.length + ' hata bağlı ama yalnız ' + F.num(S.basarisiz) +
                ' senaryo başarısız görünüyor. İki sayıdan biri yanlış — canonical tarama bu çelişkiyi ' +
                'eksen 15\'te yakalar.' }) + '</div>'
-      : (t.basarisiz && !acilanHatalar.length)
+      : (S.basarisiz && !acilanHatalar.length)
         ? '<div class="gc-body">' + GV.notice({ tone:'warn', icon:'i-alert',
             title:'Başarısız senaryo var ama bağlı hata kaydı yok',
-            text:'Bu koşumda ' + F.num(t.basarisiz) + ' senaryo başarısız oldu; buna karşılık `test` alanı bu ' +
+            text:'Bu koşumda ' + F.num(S.basarisiz) + ' senaryo başarısız oldu; buna karşılık `test` alanı bu ' +
                  'koşumu gösteren hiçbir hata kaydı yok. Her düşen senaryo ayrı hata kaydı doğurmak zorunda ' +
                  'değildir, ama bu boşluk kayıtların hiç açılmadığı anlamına da gelebilir.' }) + '</div>'
         : '');
@@ -706,7 +1114,7 @@ document.addEventListener('gv:ready', function(){
       : '');
 
   var panels = {
-    genel:pGenel, senaryo:pSenaryo, hata:pHata,
+    genel:pGenel, senaryo:pSenaryo, kosum:pKosum, hata:pHata,
     kapsam:pKapsam, teslim:pTeslim, aktivite:pAktivite
   };
 
@@ -725,11 +1133,18 @@ document.addEventListener('gv:ready', function(){
       ['Koşum tarihi', '<span class="cell-date">' + F.date(t.tarih) + '</span>' +
         '<span class="cell-sub">' + esc(F.rel(t.tarih)) + '</span>'],
       ['Koşan kişi', GV.user(t.sorumlu, { sm:true })],
-      ['Toplam senaryo', kosuldu ? sayiHucre(t.senaryo) : '<span class="u-faint">Koşulmadı</span>'],
+      ['Toplam senaryo', kosuldu ? sayiHucre(S.senaryo) : '<span class="u-faint">Koşulmadı</span>'],
       ['Başarılı / başarısız', kosuldu
-        ? '<b class="u-num u-ok">' + F.num(t.basarili) + '</b> / <b class="u-num' +
-          (t.basarisiz ? ' u-danger' : '') + '">' + F.num(t.basarisiz) + '</b>'
-        : '<span class="u-faint">—</span>']
+        ? '<b class="u-num u-ok">' + F.num(S.basarili) + '</b> / <b class="u-num' +
+          (S.basarisiz ? ' u-danger' : '') + '">' + F.num(S.basarisiz) + '</b>'
+        : '<span class="u-faint">—</span>'],
+      ['Engellendi / koşulmadı', turetilmis
+        ? '<b class="u-num u-warn">' + F.num(S.engellendi) + '</b> / <b class="u-num">' +
+          F.num(S.kosulmadi) + '</b>'
+        : '<span class="u-faint">Devralınan sayaçta ölçülmedi</span>'],
+      ['Sayacın kaynağı', kaynakRozeti()],
+      ['Koşum kaydı', S.kosum ? '<b class="u-num">' + F.num(S.kosum) + '</b>'
+        : '<span class="u-faint">Yok</span>']
     ]) +
     '<div class="u-mt-8">' +
       (oran == null
@@ -748,8 +1163,16 @@ document.addEventListener('gv:ready', function(){
       ['Projedeki açık hata', acikHatalar.length
         ? '<b class="u-num u-danger">' + acikHatalar.length + '</b>'
         : '<span class="badge is-ok no-dot">Yok</span>'],
-      ['Bağ alanı', '<span class="badge is-danger no-dot">Yok</span>' +
-        '<span class="cell-sub">sayı bağ değil, adaydır</span>']
+      /* Bağ artık İKİ eksende yazılı: hata kaydındaki `test` alanı (koşum düzeyi)
+         ve sonuç kaydındaki `hata` alanı (senaryo düzeyi, [9.1.4]). */
+      ['Bağ alanı', '<span class="badge is-ok no-dot">Yazılı</span>' +
+        '<span class="cell-sub">hata → koşum ve sonuç → hata</span>'],
+      ['Hatası açılmamış başarısız sonuç', hatasiz.length
+        ? '<b class="u-num u-danger">' + F.num(hatasiz.length) + '</b>' +
+          '<span class="cell-sub">Koşumlar sekmesinden hata açılabilir</span>'
+        : (tumSonuclar.length
+            ? '<span class="badge is-ok no-dot">Yok</span>'
+            : '<span class="u-faint">Sonuç satırı tutulmuyor</span>')]
     ]) + '</div>' +
     sayac('<a class="btn btn-line btn-sm" href="app-proje-hata.html' + (t.proje ? '?q=' + esc(t.proje) : '') + '">' +
       ico('i-bug','ic-sm') + ' Projenin hataları</a>') +
@@ -799,6 +1222,10 @@ document.addEventListener('gv:ready', function(){
      ================================================================= */
   mount.onclick = function(e){
     if(e.target.closest('#btnTamamla')) return tamamlaModal();
+    var a = e.target.closest('[data-adim]');
+    if(a) return adimPaneli(a.getAttribute('data-adim'));
+    var h = e.target.closest('[data-hata]');
+    if(h) return hataOlusturModal(h.getAttribute('data-hata'));
   };
 });
 </script>
