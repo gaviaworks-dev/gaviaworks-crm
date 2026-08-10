@@ -908,20 +908,134 @@ DB.bugs = [
 DB.tests = [
   { kod:'TST-2026-018', proje:'PRJ-2026-001', ad:'Mobil regresyon — Sprint 18', tur:'Regresyon', senaryo:62,
     basarili:59, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-07-31', durum:'Tamamlandı',
-    moduller:['MOD-001','MOD-002','MOD-003'], sprint:'SPR-2026-018', aktif:true },
+    moduller:['MOD-001','MOD-002','MOD-003'], sprint:'SPR-2026-018', senaryoDetayi:false, aktif:true },
   { kod:'TST-2026-019', proje:'PRJ-2026-003', ad:'İş emri modülü fonksiyonel test', tur:'Fonksiyonel', senaryo:44,
     basarili:42, basarisiz:2, sorumlu:'EMP-009', tarih:'2026-07-28', durum:'Tamamlandı',
-    moduller:['MOD-010'], sprint:'SPR-2026-020', aktif:true },
+    moduller:['MOD-010'], sprint:'SPR-2026-020', senaryoDetayi:false, aktif:true },
   { kod:'TST-2026-020', proje:'PRJ-2026-002', ad:'Skorlama API yük testi', tur:'Performans', senaryo:12,
     basarili:12, basarisiz:0, sorumlu:'EMP-010', tarih:'2026-07-26', durum:'Tamamlandı',
-    moduller:['MOD-006'], sprint:null, aktif:true },
+    moduller:['MOD-006'], sprint:null, senaryoDetayi:false, aktif:true },
   { kod:'TST-2026-021', proje:'PRJ-2026-005', ad:'Rezervasyon akışı duman testi', tur:'Duman', senaryo:18,
     basarili:15, basarisiz:3, sorumlu:'EMP-009', tarih:'2026-08-01', durum:'Devam ediyor',
-    moduller:['MOD-013'], sprint:'SPR-2026-022', aktif:true },
+    moduller:['MOD-013'], sprint:'SPR-2026-022', senaryoDetayi:false, aktif:true },
   { kod:'TST-2026-022', proje:'PRJ-2026-003', ad:'Faz 1 kabul testi', tur:'Kabul', senaryo:0,
     basarili:0, basarisiz:0, sorumlu:'EMP-009', tarih:'2026-08-20', durum:'Planlandı',
-    moduller:['MOD-009','MOD-010','MOD-011'], sprint:null, aktif:true }
+    moduller:['MOD-009','MOD-010','MOD-011'], sprint:null, senaryoDetayi:false, aktif:true }
 ];
+
+/* =====================================================================
+   TEST VARLIK MODELİ — şartname [9.1.1] · paket P3-03
+   ---------------------------------------------------------------------
+   ÖLÇÜLEN DURUM: test tarafı tümüyle SAYAÇTI. `DB.tests` senaryoyu üç sayı
+   olarak tutuyordu (`senaryo`/`basarili`/`basarisiz`) ve ekran bunu itiraf
+   ediyordu: "başarısız senaryoların hangileri olduğu bu ekrandan okunamaz."
+   Sayı bir raporun sonucudur, kaydın kendisi değil.
+
+   ⚠️ ESKİ BEŞ KOŞUM İÇİN SENARYO ÜRETİLMEDİ (ders L-13).
+   TST-2026-018 "62 senaryo, 3 başarısız" diyor ama HANGİ üçü olduğu veride
+   YOK. 62 senaryo adı uydurmak, olmayan bir bilgiyi varmış gibi göstermek
+   olurdu. Bu yüzden o beş kayıt `senaryoDetayi:false` ile işaretlendi:
+   sayaçları KORUNUR ve ekranda "bu koşumun senaryo dökümü yok" denir.
+   Yeni model yalnız `senaryoDetayi:true` olan koşumlarda sayaç TÜRETİR.
+
+   Yani bu paket modeli kurar ve İLERİYE dönük doğru çalıştırır; geçmişi
+   yeniden yazmaz. Kısmi tamamlanma açıkça kısmi yazılır ([22.0.11]).
+   ===================================================================== */
+
+/* [9.2.4] · [16.2.10] — Build/Release ve Ortam: hata ve test koşumu "hangi
+   sürümde, nerede" sorusuna cevap veremiyordu; ikisi de kavram olarak YOKTU. */
+DB.environments = [
+  { kod:'ENV-DEV',   ad:'Geliştirme',   tur:'Geliştirme', url:'dev.vitalis-app.com',  aktif:true },
+  { kod:'ENV-TEST',  ad:'Test',         tur:'Test',       url:'test.vitalis-app.com', aktif:true },
+  { kod:'ENV-STAGE', ad:'Ön Yayın',     tur:'Ön Yayın',   url:'stage.anka-fin.com',   aktif:true },
+  { kod:'ENV-PROD',  ad:'Canlı',        tur:'Canlı',      url:'app.vitalis.com.tr',   aktif:true }
+];
+
+DB.builds = [
+  { kod:'BLD-2026-041', proje:'PRJ-2026-001', surum:'1.8.0-rc2', ortam:'ENV-TEST',
+    tarih:'2026-07-31', commit:'a3f9c21', sorumlu:'EMP-005', durum:'Test edildi', aktif:true },
+  { kod:'BLD-2026-042', proje:'PRJ-2026-001', surum:'1.8.0-rc3', ortam:'ENV-TEST',
+    tarih:'2026-08-02', commit:'b71d004', sorumlu:'EMP-005', durum:'Test ediliyor', aktif:true },
+  { kod:'BLD-2026-043', proje:'PRJ-2026-002', surum:'0.9.4',     ortam:'ENV-STAGE',
+    tarih:'2026-08-01', commit:'c02e5aa', sorumlu:'EMP-010', durum:'Test edildi', aktif:true }
+];
+
+/* [9.1.1] — Test Planı. Koşumlar bir plana bağlanır; plan kapsamı ve çıkış
+   ölçütünü taşır. Plansız koşum da olabilir (`plan:null`) — mevcut beş kayıt
+   öyle doğdu ve bu geriye dönük zorlanmadı. */
+DB.testPlans = [
+  { kod:'TPL-2026-004', proje:'PRJ-2026-001', ad:'Sprint 18 regresyon planı',
+    kapsam:['MOD-001','MOD-002','MOD-003'], sorumlu:'EMP-009',
+    baslangic:'2026-07-29', bitis:'2026-08-05',
+    cikisOlcutu:'Kritik ve yüksek şiddetli hata kalmayacak', durum:'Aktif', aktif:true }
+];
+
+/* Test Senaryosu — koşumdan BAĞIMSIZ tanımdır: aynı senaryo birden çok
+   koşumda çalıştırılır. Sonuç senaryoda değil KOŞUMDA (`testResults`) tutulur;
+   yoksa "geçen sefer geçmişti" bilgisi kaybolurdu. */
+DB.testCases = [
+  { kod:'TC-001', plan:'TPL-2026-004', proje:'PRJ-2026-001', modul:'MOD-001',
+    ad:'Randevu oluşturma — uygun slot', oncelik:'Yüksek', tur:'Fonksiyonel',
+    onKosul:'Hasta girişi yapılmış, hekimin boş slotu var', aktif:true },
+  { kod:'TC-002', plan:'TPL-2026-004', proje:'PRJ-2026-001', modul:'MOD-001',
+    ad:'Randevu oluşturma — dolu slot reddi', oncelik:'Yüksek', tur:'Fonksiyonel',
+    onKosul:'Seçilen slot başka hastaya ayrılmış', aktif:true },
+  { kod:'TC-003', plan:'TPL-2026-004', proje:'PRJ-2026-001', modul:'MOD-002',
+    ad:'Randevu iptali — 24 saat kuralı', oncelik:'Orta', tur:'Fonksiyonel',
+    onKosul:'Randevuya 24 saatten az kalmış', aktif:true },
+  { kod:'TC-004', plan:'TPL-2026-004', proje:'PRJ-2026-001', modul:'MOD-003',
+    ad:'Bildirim — randevu hatırlatması', oncelik:'Orta', tur:'Entegrasyon',
+    onKosul:'Firebase Push yapılandırılmış', aktif:true },
+  { kod:'TC-005', plan:'TPL-2026-004', proje:'PRJ-2026-001', modul:'MOD-002',
+    ad:'Çevrimdışı kuyruk — bağlantı geri gelince gönderim', oncelik:'Yüksek', tur:'Dayanıklılık',
+    onKosul:'Uygulama çevrimdışı moda alınmış', aktif:true }
+];
+
+/* Test Adımı — senaryonun içi. Beklenen sonuç ADIMDA yazılır: "beklenen"i
+   koşum anında yazmak, sonucu gördükten sonra beklentiyi uydurmak olurdu. */
+DB.testSteps = [
+  { kod:'TS-001', senaryo:'TC-001', sira:1, adim:'Hekim ve tarih seç', beklenen:'Boş slotlar listelenir' },
+  { kod:'TS-002', senaryo:'TC-001', sira:2, adim:'Uygun slotu seç ve onayla', beklenen:'Randevu oluşur, özet ekranı açılır' },
+  { kod:'TS-003', senaryo:'TC-002', sira:1, adim:'Dolu bir slotu seçmeyi dene', beklenen:'Slot seçilemez, uyarı görünür' },
+  { kod:'TS-004', senaryo:'TC-003', sira:1, adim:'24 saatten yakın randevuda iptali dene', beklenen:'İptal reddedilir, gerekçe yazılır' },
+  { kod:'TS-005', senaryo:'TC-004', sira:1, adim:'Randevudan 24 saat önceyi simüle et', beklenen:'Push bildirimi düşer' },
+  { kod:'TS-006', senaryo:'TC-005', sira:1, adim:'Çevrimdışı modda randevu oluştur', beklenen:'Kuyruğa alınır, kullanıcıya bildirilir' },
+  { kod:'TS-007', senaryo:'TC-005', sira:2, adim:'Bağlantıyı geri aç', beklenen:'Kuyruk gönderilir, çakışma varsa uyarı' }
+];
+
+/* Test Koşumu — "hangi senaryo kümesi, hangi build, hangi ortamda". */
+DB.testRuns = [
+  { kod:'TR-2026-011', test:'TST-2026-018', plan:'TPL-2026-004', proje:'PRJ-2026-001',
+    build:'BLD-2026-042', ortam:'ENV-TEST', sorumlu:'EMP-009',
+    baslangic:'2026-08-02', bitis:'2026-08-02', durum:'Tamamlandı', aktif:true }
+];
+
+/* Sonuç — TEK kanonik yer. `DB.testResults` sözlüğü (Başarılı · Başarısız ·
+   Engellendi · Koşulmadı) şartnameye bu turdan önce hizalanmıştı ama HİÇBİR
+   ekranda kullanılmıyordu; artık bu koleksiyon onu kullanıyor.
+   [9.1.4] — Başarısız sonuç hatayla bağlanır; bağ SONUÇTA tutulur. */
+DB.testCaseResults = [
+  { kod:'TCR-001', kosum:'TR-2026-011', senaryo:'TC-001', sonuc:'Başarılı',
+    kosan:'EMP-009', tarih:'2026-08-02T10:15', not:null, hata:null, kanit:null },
+  { kod:'TCR-002', kosum:'TR-2026-011', senaryo:'TC-002', sonuc:'Başarılı',
+    kosan:'EMP-009', tarih:'2026-08-02T10:22', not:null, hata:null, kanit:null },
+  { kod:'TCR-003', kosum:'TR-2026-011', senaryo:'TC-003', sonuc:'Başarısız',
+    kosan:'EMP-009', tarih:'2026-08-02T10:40',
+    not:'24 saat kuralı uygulanmıyor; iptal kabul edildi', hata:'HTA-2026-071', kanit:'KNT-001' },
+  { kod:'TCR-004', kosum:'TR-2026-011', senaryo:'TC-004', sonuc:'Engellendi',
+    kosan:'EMP-009', tarih:'2026-08-02T10:52',
+    not:'Test ortamında Firebase anahtarı yok', hata:null, kanit:null },
+  { kod:'TCR-005', kosum:'TR-2026-011', senaryo:'TC-005', sonuc:'Koşulmadı',
+    kosan:null, tarih:null, not:'Süre yetmedi, sonraki koşuma bırakıldı', hata:null, kanit:null }
+];
+
+/* Kanıt — ekran görüntüsü / log. Dosya YÜKLENMİYOR (prototipte dosya
+   depolama yok); kayıt dosyanın ADINI ve türünü tutar, bu açıkça yazılıdır. */
+DB.testEvidence = [
+  { kod:'KNT-001', sonuc:'TCR-003', tur:'Ekran görüntüsü',
+    ad:'iptal-24saat-hata.png', not:'İptal onay ekranı — uyarı çıkmadı', tarih:'2026-08-02T10:41' }
+];
+
 
 /* ---- Teslimler --------------------------------------------------------- */
 /* `milestone` = teslimin karşılık geldiği ödeme planı taksiti (tekil bağ, lessons L-13).
