@@ -506,8 +506,120 @@ DB.capacity = [
    `adimlar` süreç kontrol listesidir — her adım `{ad, tamam, sorumlu}`; ilerleme
    YAZILMAZ, tamamlanan adım oranından türetilir (L-08).
    Kayıtlar personelin kendi `girisTarihi` alanıyla tutarlıdır: giriş süreci
-   o tarihte başlar. Ayrılış kaydı yalnız `aktif:false` personelde olabilir. */
+   o tarihte başlar.
+
+   ⚠️ ESKİ KURAL DÜZELTİLDİ (P3-06). Burada "ayrılış kaydı yalnız `aktif:false`
+   personelde olabilir" yazıyordu ve bu kural, kendi koyduğu şartla birlikte
+   koleksiyonu ÇIKIŞ KAYDI OLMADAN bıraktı: veride `aktif:false` tek bir
+   personel yoktu, dolayısıyla `tur:'Çıkış'` sayısı sıfırdı ve `İşe Giriş ve
+   Çıkış` ekranının Çıkışlar sekmesi hep boş bir liste basıyordu.
+   Kuralın yanlışı şuydu: ayrılış bir AN değil bir SÜREÇtir. Süreç yürürken
+   kişi hâlâ çalışır (`aktif:true`, `durum:'Offboarding'`); `aktif:false`
+   ancak süreç TAMAMLANINCA (`durum:'Ayrıldı'`) doğar. Doğru bağ artık
+   personelin yaşam döngüsü alanıyla kurulur:
+     · `durum:'Offboarding'` ↔ `tur:'Çıkış'` · `durum:'Devam ediyor'`
+     · `durum:'Ayrıldı'`     ↔ `tur:'Çıkış'` · `durum:'Tamamlandı'` (+ aktif:false) */
+/* ---- Süreç şablonları (şartname [4.2.1]/[4.2.3]) --------------------------
+   Ölçülen kusur: `DB.onboarding` içindeki üç sürecin adım listesi ELLE
+   yazılmıştı. Yeni bir personel açıldığında hangi adımların doğması
+   gerektiğini söyleyen hiçbir kayıt yoktu; liste her seferinde yeniden
+   hatırlanmak zorundaydı ve "zorunlu evrak" diye bir kavram veride yoktu —
+   [4.2.3]'ün `personelEvrak` kapısı ölçecek bir şey bulamazdı.
+
+   ŞABLON MEVCUT KAYITLARDAN TÜRETİLDİ, ONLARA DAYATILMADI. `tip:'temel'`
+   şablonların adım adları ve sorumluları, var olan üç sürecin adımlarıyla
+   BİREBİR aynıdır — yani şablon o kayıtları yeniden üretebilir, bozmaz.
+
+   BİLEŞİM KURALI: bir personel için önce `tip:'temel'` şablonlardan
+   `calismaTipi` eşleşeni seçilir, sonra kapsamı tutan `tip:'ek'` şablonların
+   adımları SONUNA eklenir. Kapsam alanları null ise "hepsi" demektir.
+   ⚠️ Ek şablonlar var olan üç kayda GERİYE DÖNÜK UYGULANMADI: kapanmış bir
+   sürecin adım listesini sonradan uzatmak, o süreçte hiç yapılmamış işi
+   yapılmış (ya da eksik) göstermek olurdu (L-13).
+
+   `sorumluRol` bir ROL anahtarıdır (`DB.roles[].key`); tek istisnası
+   `yonetici`dir ve "bu personelin kendi bağlı yöneticisi" demektir —
+   `DB.employees[].yonetici` alanından çözülür. Aynı ilişki anahtarı
+   `DB.approvalFlows` (AKS-IZN-1) içinde de bu anlamda kullanılıyor.
+   `gun` süreç ÇAPASINA göre gün farkıdır: Giriş şablonunda çapa `girisTarihi`
+   ve değerler ileriye (0, +1, +7); Çıkış şablonunda çapa `cikisTarihi` ve
+   değerler çoğunlukla geriye (-30, -14) — son ödeme çıkıştan SONRA gelir. */
+DB.onboardingStepTypes = ['Görev','Belge','Hesap','Eğitim','Ekipman'];
+
+DB.onboardingTemplates = [
+  { kod:'SBL-GIRIS-KADROLU', ad:'İşe giriş — kadrolu', tur:'Giriş', tip:'temel',
+    calismaTipi:'Kadrolu', ustDepartman:null, rol:null, aktif:true,
+    adimlar:[
+      { ad:'Sözleşme imzası',           tur:'Belge',   sorumluRol:'ik',       gun:0, zorunlu:true },
+      { ad:'Özlük dosyası açıldı',      tur:'Belge',   sorumluRol:'ik',       gun:0, zorunlu:true },
+      { ad:'Hesap ve e-posta tanımı',   tur:'Hesap',   sorumluRol:'devops',   gun:0, zorunlu:true },
+      { ad:'Ekipman zimmeti',           tur:'Ekipman', sorumluRol:'ik',       gun:1, zorunlu:true },
+      { ad:'Oryantasyon eğitimi',       tur:'Eğitim',  sorumluRol:'yonetici', gun:3, zorunlu:true },
+      { ad:'İlk hafta değerlendirmesi', tur:'Görev',   sorumluRol:'yonetici', gun:7, zorunlu:false }
+    ] },
+  /* Dış kaynak girişinde ekipman ve ilk hafta değerlendirmesi YOKTUR: kişi
+     kendi cihazıyla çalışır ve performans ekseni sözleşmeye bağlıdır.
+     IGC-2025-002 bu dört adımla açılmıştı; şablon onu doğruluyor. */
+  { kod:'SBL-GIRIS-DISKAYNAK', ad:'İşe giriş — dış kaynak / freelancer', tur:'Giriş', tip:'temel',
+    calismaTipi:'Freelancer', ustDepartman:null, rol:null, aktif:true,
+    adimlar:[
+      { ad:'Sözleşme imzası',         tur:'Belge',  sorumluRol:'ik',       gun:0, zorunlu:true },
+      { ad:'Özlük dosyası açıldı',    tur:'Belge',  sorumluRol:'ik',       gun:0, zorunlu:true },
+      { ad:'Hesap ve e-posta tanımı', tur:'Hesap',  sorumluRol:'devops',   gun:0, zorunlu:true },
+      { ad:'Oryantasyon eğitimi',     tur:'Eğitim', sorumluRol:'yonetici', gun:2, zorunlu:true }
+    ] },
+  { kod:'SBL-GIRIS-YAZILIM', ad:'Ek adımlar — yazılım ekipleri', tur:'Giriş', tip:'ek',
+    calismaTipi:null, ustDepartman:'Yazılım', rol:null, aktif:true,
+    adimlar:[
+      { ad:'Kod deposu ve CI erişimi',     tur:'Hesap',  sorumluRol:'devops',     gun:0, zorunlu:true },
+      { ad:'Geliştirme ortamı kurulumu',   tur:'Görev',  sorumluRol:'takimlideri',gun:1, zorunlu:true },
+      { ad:'Kod standartları eğitimi',     tur:'Eğitim', sorumluRol:'takimlideri',gun:5, zorunlu:false }
+    ] },
+  { kod:'SBL-GIRIS-SATIS', ad:'Ek adımlar — satış ve müşteri', tur:'Giriş', tip:'ek',
+    calismaTipi:null, ustDepartman:'Satış & Müşteri', rol:null, aktif:true,
+    adimlar:[
+      { ad:'CRM ve teklif şablonu erişimi',    tur:'Hesap',  sorumluRol:'satismudur', gun:0, zorunlu:true },
+      { ad:'Hizmet kataloğu ve fiyat eğitimi', tur:'Eğitim', sorumluRol:'satismudur', gun:4, zorunlu:true },
+      { ad:'Müşteri portföyü devri',           tur:'Görev',  sorumluRol:'satismudur', gun:7, zorunlu:false }
+    ] },
+  { kod:'SBL-GIRIS-STAJYER', ad:'Ek adımlar — stajyer', tur:'Giriş', tip:'ek',
+    calismaTipi:null, ustDepartman:null, rol:'stajyer', aktif:true,
+    adimlar:[
+      { ad:'Staj sözleşmesi ve okul belgesi', tur:'Belge', sorumluRol:'ik',       gun:0, zorunlu:true },
+      { ad:'Mentör ataması',                  tur:'Görev', sorumluRol:'yonetici', gun:0, zorunlu:true }
+    ] },
+  /* Çıkış şablonu — `DB.transitions.employee` içindeki `personelZimmet`
+     kapısının veri karşılığı "Zimmet iadesi" adımıdır. Kapı yordamı
+     `DB.assets` üzerinden ölçer; adım ise sürecin görünür yüzüdür. */
+  { kod:'SBL-CIKIS-STD', ad:'İşten çıkış — standart', tur:'Çıkış', tip:'temel',
+    calismaTipi:null, ustDepartman:null, rol:null, aktif:true,
+    adimlar:[
+      { ad:'Çıkış bildirimi ve onayı', tur:'Belge',   sorumluRol:'ik',       gun:-30, zorunlu:true },
+      { ad:'Görev ve dosya devri',     tur:'Görev',   sorumluRol:'yonetici', gun:-14, zorunlu:true },
+      { ad:'Zimmet iadesi',            tur:'Ekipman', sorumluRol:'ik',       gun:-7,  zorunlu:true },
+      { ad:'Hesap ve erişim kapatma',  tur:'Hesap',   sorumluRol:'devops',   gun:0,   zorunlu:true },
+      { ad:'Çıkış görüşmesi',          tur:'Görev',   sorumluRol:'ik',       gun:-1,  zorunlu:false },
+      { ad:'Son ödeme ve ibraname',    tur:'Belge',   sorumluRol:'muhasebe', gun:5,   zorunlu:true }
+    ] }
+];
+
 DB.onboarding = [
+  /* İLK ÇIKIŞ KAYDI (P3-06). `tur:'Çıkış'` sayısı bu kayda kadar SIFIRDI ve
+     ekranın Çıkışlar sekmesi boş bir liste basıyordu. Kayıt SBL-CIKIS-STD
+     şablonundan üretildi; sorumlular EMP-015'in kendi bağlarından çözüldü
+     (yonetici EMP-004 · ik EMP-011 · devops EMP-010 · muhasebe EMP-012).
+     `tarih` çıkış tarihidir ve personel kartındaki `cikisTarihi` ile aynıdır.
+     Zimmet adımı TAMAM: ZMT-2025-005 zaten 2026-05-14'te iade edilmişti. */
+  { kod:'IGC-2026-004', personel:'EMP-015', tur:'Çıkış', tarih:'2026-08-31', durum:'Devam ediyor',
+    sorumlu:'EMP-011', not:'Hizmet sözleşmesi süresi doluyor, yenilenmeyecek. İhbar süresi sürüyor.',
+    adimlar:[
+      { ad:'Çıkış bildirimi ve onayı', tamam:true,  sorumlu:'EMP-011' },
+      { ad:'Görev ve dosya devri', tamam:false, sorumlu:'EMP-004' },
+      { ad:'Zimmet iadesi', tamam:true,  sorumlu:'EMP-011' },
+      { ad:'Hesap ve erişim kapatma', tamam:false, sorumlu:'EMP-010' },
+      { ad:'Çıkış görüşmesi', tamam:false, sorumlu:'EMP-011' },
+      { ad:'Son ödeme ve ibraname', tamam:false, sorumlu:'EMP-012' }
+    ], aktif:true },
   { kod:'IGC-2026-001', personel:'EMP-016', tur:'Giriş', tarih:'2026-06-15', durum:'Devam ediyor',
     sorumlu:'EMP-011', not:'Staj sözleşmesi imzalandı, ekipman bekleniyor.',
     adimlar:[

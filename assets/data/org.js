@@ -203,103 +203,124 @@ DB.permMatrix = {
    `GV.hr.disKaynak` artık bu eksenden okur; ekranlar kendi kuralını yazmaz. */
 DB.workTypes = ['Kadrolu','Freelancer','Ajans','Danışman','Dış Kaynak'];
 
+/* ---- Yaşam döngüsü alanı (`durum`) -----------------------------------
+   Şartname [4.1.4] altı durum istiyor; veride tek `aktif` boolean'ı vardı.
+   `durum` o eksenin yerini alır, `aktif` ise KORUNUR — ekranlar hâlâ onu
+   okuyor ve iki eksen bir süre paralel yaşar (geriye uyumluluk). Taşıma
+   haritası `DB.statusMigration.employee`; 16 kaydın 15'i `aktif:true` →
+   `Aktif` kuralıyla dolduruldu.
+
+   ⚠️ TEK SAPMA — EMP-015 (`Offboarding`). Sebebi ölçülebilir: `tur:'Çıkış'`
+   kaydı veride SIFIRDI ve bu kapatılması istenen boşluktu; bir çıkış kaydı
+   ise sahibi olmadan yazılamaz. Süreci YÜRÜYEN bir çıkış seçildi
+   (IGC-2026-004), çünkü tamamlanmış bir ayrılış `aktif:false` ister ve o an
+   personelin projeleri, zaman kayıtları ve kapasitesi de yeniden yazılırdı —
+   ölçülmemiş bir zincir. Yürüyen çıkışta `aktif` HÂLÂ true'dur (ihbar süresi
+   sürüyor, kişi çalışıyor), yani hiçbir mevcut ekranın davranışı değişmez;
+   değişen tek şey yaşam döngüsünün artık okunabilir olmasıdır.
+   Seçim keyfî değil: EMP-015 veride tek `Hizmet sözleşmesi` / `Proje bazlı`
+   kaydıdır, yani süresi biten bir sözleşme (`SOZLESME_BITIS`) onda doğaldır;
+   ayrıca üzerindeki tek zimmet (ZMT-2025-005) 2026-05-14'te iade edilmiştir,
+   yani `personelZimmet` kapısı bu kayıtta gerçekten açıktır. */
+
 DB.employees = [
   { kod:'EMP-001', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Kerem Aydın', ini:'KA', rol:'sahip', roller:['sahip','genelmudur'], dep:'DEP-01', depAd:'Yönetim',
     pozisyon:'Kurucu Ortak / Genel Müdür', yonetici:null, calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2021-03-15', tel:'+90 532 000 00 01', eposta:'kerem@gaviaworks.com', dogum:'1986-04-12',
     acilKisi:'Nuray Aydın · +90 532 000 10 01', egitim:'Bilgisayar Mühendisliği — ODTÜ',
     yetkinlik:['Strateji','Ürün Yönetimi','Satış'], teknoloji:['Node.js','PostgreSQL'], sertifika:['PMP'],
-    maas:185000, izinBakiye:14, doluluk:64, aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh+' },
+    maas:185000, izinBakiye:14, doluluk:64, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh+' },
   { kod:'EMP-002', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Selin Dağdeviren', ini:'SD', rol:'satismudur', roller:['satismudur'], dep:'DEP-02', depAd:'Satış ve İş Geliştirme',
     pozisyon:'Satış ve İş Geliştirme Yöneticisi', yonetici:'EMP-001', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2021-09-01', tel:'+90 532 000 00 02', eposta:'selin@gaviaworks.com', dogum:'1990-11-02',
     acilKisi:'Murat Dağdeviren · +90 532 000 10 02', egitim:'İşletme — Bilkent',
     yetkinlik:['Satış','Teklif Yönetimi','Müzakere'], teknoloji:['HubSpot'], sertifika:['SPIN Selling'],
-    maas:112000, izinBakiye:9, doluluk:78, aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' },
+    maas:112000, izinBakiye:9, doluluk:78, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' },
   { kod:'EMP-003', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Barış Yalçın', ini:'BY', rol:'pm', roller:['pm','analist','operasyon'], dep:'DEP-05', depAd:'Proje Yönetimi',
     pozisyon:'Proje Yöneticisi / İş Analisti', yonetici:'EMP-001', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2021-06-14', tel:'+90 532 000 00 03', eposta:'baris@gaviaworks.com', dogum:'1988-07-21',
     acilKisi:'Elif Yalçın · +90 532 000 10 03', egitim:'Endüstri Mühendisliği — Hacettepe',
     yetkinlik:['Scrum','İş Analizi','Risk Yönetimi'], teknoloji:['Jira','Figma'], sertifika:['PSM I','PMI-ACP'],
-    maas:124000, izinBakiye:6, doluluk:92, aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh+' },
+    maas:124000, izinBakiye:6, doluluk:92, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh+' },
   { kod:'EMP-004', uzmanlik:'UI/UX Tasarım', calismaTipi:'Kadrolu', ad:'Ece Turan', ini:'ET', rol:'tasarimci', roller:['tasarimci','takimlideri'], dep:'DEP-06', depAd:'UI/UX Tasarım',
     pozisyon:'Kıdemli UI/UX Tasarımcı', yonetici:'EMP-003', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2022-02-07', tel:'+90 532 000 00 04', eposta:'ece@gaviaworks.com', dogum:'1993-01-30',
     acilKisi:'Sinem Turan · +90 532 000 10 04', egitim:'Görsel İletişim Tasarımı — Bilkent',
     yetkinlik:['UI','UX Araştırma','Design System','Erişilebilirlik'], teknoloji:['Figma','Framer'], sertifika:['NN/g UX'],
-    maas:96000, izinBakiye:11, doluluk:86, aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh-' },
+    maas:96000, izinBakiye:11, doluluk:86, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh-' },
   { kod:'EMP-005', uzmanlik:'Backend', calismaTipi:'Kadrolu', ad:'Mert Özkan', ini:'MÖ', rol:'backend', roller:['backend','takimlideri'], dep:'DEP-08', depAd:'Back-end Geliştirme',
     pozisyon:'Kıdemli Back-end Geliştirici', yonetici:'EMP-003', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2021-11-22', tel:'+90 532 000 00 05', eposta:'mert@gaviaworks.com', dogum:'1991-05-18',
     acilKisi:'Hakan Özkan · +90 532 000 10 05', egitim:'Bilgisayar Mühendisliği — Gazi',
     yetkinlik:['API Tasarımı','Mimari','Performans'], teknoloji:['Node.js','NestJS','PostgreSQL','Redis'], sertifika:['AWS SAA'],
-    maas:118000, izinBakiye:4, doluluk:97, aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh-' },
+    maas:118000, izinBakiye:4, doluluk:97, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh-' },
   { kod:'EMP-006', uzmanlik:'Frontend', calismaTipi:'Kadrolu', ad:'Deniz Korkmaz', ini:'DK', rol:'frontend', roller:['frontend'], dep:'DEP-07', depAd:'Front-end Geliştirme',
     pozisyon:'Front-end Geliştirici', yonetici:'EMP-003', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2022-08-15', tel:'+90 532 000 00 06', eposta:'deniz@gaviaworks.com', dogum:'1995-09-09',
     acilKisi:'Aylin Korkmaz · +90 532 000 10 06', egitim:'Yazılım Mühendisliği — Atılım',
     yetkinlik:['Erişilebilirlik','Performans'], teknoloji:['React','TypeScript','Vite'], sertifika:[],
-    maas:88000, izinBakiye:13, doluluk:81, aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh+' },
+    maas:88000, izinBakiye:13, doluluk:81, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh+' },
   { kod:'EMP-007', uzmanlik:'AI Development', calismaTipi:'Kadrolu', ad:'Zeynep Aksoy', ini:'ZA', rol:'ai', roller:['ai'], dep:'DEP-10', depAd:'Yapay Zekâ ve Veri',
     pozisyon:'Yapay Zekâ Geliştiricisi', yonetici:'EMP-003', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2023-01-09', tel:'+90 532 000 00 07', eposta:'zeynep@gaviaworks.com', dogum:'1994-03-25',
     acilKisi:'Ceren Aksoy · +90 532 000 10 07', egitim:'Yapay Zekâ Yüksek Lisans — ODTÜ',
     yetkinlik:['LLM Entegrasyonu','RAG','Veri İşleme'], teknoloji:['Python','LangChain','pgvector'], sertifika:['TensorFlow Dev'],
-    maas:108000, izinBakiye:8, doluluk:74, aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh-' },
+    maas:108000, izinBakiye:8, doluluk:74, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh-' },
   { kod:'EMP-008', uzmanlik:'Mobile', calismaTipi:'Kadrolu', ad:'Onur Şahin', ini:'OŞ', rol:'mobil', roller:['mobil'], dep:'DEP-09', depAd:'Mobil Uygulama Geliştirme',
     pozisyon:'Mobil Uygulama Geliştirici', yonetici:'EMP-003', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2022-11-01', tel:'+90 532 000 00 08', eposta:'onur@gaviaworks.com', dogum:'1992-12-14',
     acilKisi:'Merve Şahin · +90 532 000 10 08', egitim:'Bilgisayar Mühendisliği — Başkent',
     yetkinlik:['Mobil Mimari','Store Süreçleri'], teknoloji:['React Native','Swift','Kotlin'], sertifika:[],
-    maas:94000, izinBakiye:10, doluluk:88, aktif:true, lokasyon:'Ankara', kanGrubu:'AB Rh+' },
+    maas:94000, izinBakiye:10, doluluk:88, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'AB Rh+' },
   { kod:'EMP-009', uzmanlik:'QA', calismaTipi:'Kadrolu', ad:'Gamze Erdem', ini:'GE', rol:'qa', roller:['qa'], dep:'DEP-11', depAd:'Test ve Kalite',
     pozisyon:'Test ve Kalite Uzmanı', yonetici:'EMP-003', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2023-04-17', tel:'+90 532 000 00 09', eposta:'gamze@gaviaworks.com', dogum:'1996-06-05',
     acilKisi:'Tarık Erdem · +90 532 000 10 09', egitim:'Yazılım Mühendisliği — TOBB',
     yetkinlik:['Test Otomasyonu','Regresyon'], teknoloji:['Playwright','Postman'], sertifika:['ISTQB Foundation'],
-    maas:82000, izinBakiye:12, doluluk:69, aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' },
+    maas:82000, izinBakiye:12, doluluk:69, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' },
   { kod:'EMP-010', uzmanlik:'DevOps', calismaTipi:'Kadrolu', ad:'Tolga Bayrak', ini:'TB', rol:'devops', roller:['devops'], dep:'DEP-12', depAd:'DevOps ve Sistem Yönetimi',
     pozisyon:'DevOps Mühendisi', yonetici:'EMP-005', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2023-07-03', tel:'+90 532 000 00 10', eposta:'tolga@gaviaworks.com', dogum:'1990-02-28',
     acilKisi:'Serap Bayrak · +90 532 000 10 10', egitim:'Elektrik-Elektronik Mühendisliği — Yıldız',
     yetkinlik:['CI/CD','İzleme','Güvenlik','AWS','Altyapı'], teknoloji:['Docker','Kubernetes','Terraform','GitHub Actions'], sertifika:['CKA'],
-    maas:106000, izinBakiye:7, doluluk:71, aktif:true, lokasyon:'Uzaktan · İstanbul', kanGrubu:'A Rh+' },
+    maas:106000, izinBakiye:7, doluluk:71, durum:'Aktif', aktif:true, lokasyon:'Uzaktan · İstanbul', kanGrubu:'A Rh+' },
   { kod:'EMP-011', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Pınar Uçar', ini:'PU', rol:'ik', roller:['ik','idari'], dep:'DEP-14', depAd:'İnsan Kaynakları',
     pozisyon:'İK ve İdari İşler Sorumlusu', yonetici:'EMP-001', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2022-05-16', tel:'+90 532 000 00 11', eposta:'pinar@gaviaworks.com', dogum:'1989-08-11',
     acilKisi:'Kaan Uçar · +90 532 000 10 11', egitim:'İnsan Kaynakları Yönetimi — Ankara Üni.',
     yetkinlik:['Bordro','İşe Alım','Özlük'], teknoloji:['Logo İK'], sertifika:['İSG Uzmanı C'],
-    maas:86000, izinBakiye:15, doluluk:58, aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh+' },
+    maas:86000, izinBakiye:15, doluluk:58, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh+' },
   { kod:'EMP-012', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Serkan Yılmaz', ini:'SY', rol:'muhasebe', roller:['muhasebe','satinalma'], dep:'DEP-15', depAd:'Muhasebe ve Finans',
     pozisyon:'Mali İşler ve Satın Alma Sorumlusu', yonetici:'EMP-001', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2021-10-11', tel:'+90 532 000 00 12', eposta:'serkan@gaviaworks.com', dogum:'1985-10-19',
     acilKisi:'Fatma Yılmaz · +90 532 000 10 12', egitim:'İşletme — Anadolu',
     yetkinlik:['Ön Muhasebe','Tahsilat','Tedarik'], teknoloji:['Logo Tiger','Paraşüt'], sertifika:['SMMM Stajyer'],
-    maas:92000, izinBakiye:5, doluluk:66, aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' },
+    maas:92000, izinBakiye:5, doluluk:66, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' },
   { kod:'EMP-013', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Ayşe Kaplan', ini:'AK', rol:'destek', roller:['destek','musteritems'], dep:'DEP-13', depAd:'Teknik Destek',
     pozisyon:'Müşteri İlişkileri ve Destek Uzmanı', yonetici:'EMP-002', calismaTuru:'Tam zamanlı', sozlesme:'Belirsiz süreli',
     girisTarihi:'2023-09-25', tel:'+90 532 000 00 13', eposta:'ayse@gaviaworks.com', dogum:'1997-04-08',
     acilKisi:'Hüseyin Kaplan · +90 532 000 10 13', egitim:'Yönetim Bilişim Sistemleri — Gazi',
     yetkinlik:['Destek Süreçleri','SLA','Müşteri İletişimi'], teknoloji:['Zendesk'], sertifika:[],
-    maas:74000, izinBakiye:16, doluluk:83, aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh+' },
+    maas:74000, izinBakiye:16, doluluk:83, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'A Rh+' },
   { kod:'EMP-014', uzmanlik:null, calismaTipi:'Kadrolu', ad:'Emre Bulut', ini:'EB', rol:'satistemsilci', roller:['satistemsilci'], dep:'DEP-02', depAd:'Satış ve İş Geliştirme',
     pozisyon:'Satış Temsilcisi', yonetici:'EMP-002', calismaTuru:'Tam zamanlı', sozlesme:'Belirli süreli',
     girisTarihi:'2025-02-03', tel:'+90 532 000 00 14', eposta:'emre@gaviaworks.com', dogum:'1998-11-27',
     acilKisi:'Derya Bulut · +90 532 000 10 14', egitim:'Pazarlama — Hacettepe',
     yetkinlik:['Lead Takibi','Demo Sunumu'], teknoloji:[], sertifika:[],
-    maas:64000, izinBakiye:8, doluluk:72, aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh+' },
+    maas:64000, izinBakiye:8, doluluk:72, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'B Rh+' },
   { kod:'EMP-015', uzmanlik:'Grafik Tasarım', calismaTipi:'Freelancer', ad:'Nihan Arslan', ini:'NA', rol:'freelancer', roller:['freelancer'], dep:'DEP-06', depAd:'UI/UX Tasarım',
     pozisyon:'Freelance Grafik Tasarımcı', yonetici:'EMP-004', calismaTuru:'Proje bazlı', sozlesme:'Hizmet sözleşmesi',
     girisTarihi:'2025-06-01', tel:'+90 532 000 00 15', eposta:'nihan@dis.gaviaworks.com', dogum:'1994-07-16',
     acilKisi:'—', egitim:'Grafik Tasarım — Marmara',
     yetkinlik:['Marka Kimliği','İllüstrasyon'], teknoloji:['Illustrator','After Effects'], sertifika:[],
-    maas:0, saatlikUcret:1450, izinBakiye:0, doluluk:35, aktif:true, lokasyon:'Uzaktan · İzmir', kanGrubu:'—' },
+    maas:0, saatlikUcret:1450, izinBakiye:0, doluluk:35, durum:'Offboarding', aktif:true,
+    cikisTarihi:'2026-08-31', cikisNedenKodu:'SOZLESME_BITIS', lokasyon:'Uzaktan · İzmir', kanGrubu:'—' },
   { kod:'EMP-016', uzmanlik:'Frontend', calismaTipi:'Kadrolu', ad:'Can Özdemir', ini:'CÖ', rol:'stajyer', roller:['stajyer'], dep:'DEP-07', depAd:'Front-end Geliştirme',
     pozisyon:'Front-end Stajyeri', yonetici:'EMP-006', calismaTuru:'Yarı zamanlı', sozlesme:'Staj sözleşmesi',
     girisTarihi:'2026-06-15', tel:'+90 532 000 00 16', eposta:'can@gaviaworks.com', dogum:'2003-02-19',
     acilKisi:'Neslihan Özdemir · +90 532 000 10 16', egitim:'Bilgisayar Mühendisliği (3. sınıf) — Hacettepe',
     yetkinlik:['HTML/CSS'], teknoloji:['JavaScript'], sertifika:[],
-    maas:22000, izinBakiye:0, doluluk:44, aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' }
+    maas:22000, izinBakiye:0, doluluk:44, durum:'Aktif', aktif:true, lokasyon:'Ankara', kanGrubu:'0 Rh+' }
 ];
 
 /* ---- Hızlı erişim yardımcıları -------------------------------------- */
@@ -358,7 +379,8 @@ DB.flowEntities = {
   delivery: { koleksiyon:'deliveries',     alan:'durum',      ad:'Teslim' },
   change:   { koleksiyon:'changeRequests', alan:'durum',      ad:'Değişiklik talebi' },
   request:  { koleksiyon:'deptRequests',   alan:'durum',      ad:'Departman talebi' },
-  order:    { koleksiyon:'orders',         alan:'durum',      ad:'Satın alma siparişi' }
+  order:    { koleksiyon:'orders',         alan:'durum',      ad:'Satın alma siparişi' },
+  employee: { koleksiyon:'employees',      alan:'durum',      ad:'Personel' }
 };
 
 /* Eski → yeni durum adı. Ekranlar ve raporlar geçmiş değeri buradan okur. */
@@ -375,7 +397,15 @@ DB.statusMigration = {
   request:  { 'Bekliyor':'Gönderildi', 'Devam ediyor':'Göreve Dönüştürüldü', 'Tamamlandı':'Kabul' },
   /* Sipariş, satın alma zincirinin devamıdır ve aynı sözlüğü paylaşır —
      ayrı kelime kümesi tutmak zincirin iki ucunda iki dil üretirdi. */
-  order:    { 'Sipariş verildi':'Sipariş', 'Teslim alındı':'Tam Teslim' }
+  order:    { 'Sipariş verildi':'Sipariş', 'Teslim alındı':'Tam Teslim' },
+  /* Personelde taşınan şey bir durum ADI değil, bir EKSEN: yaşam döngüsü tek
+     `aktif` boolean'ıydı ve şartname [4.1.4]'ün altı durumundan yalnız ikisini
+     ifade edebiliyordu. Anahtar bu yüzden eski durum adı değil eski alanın
+     DEĞERİDİR — haritanın biçimi (eski → yeni) korunur, okunuşu değişir.
+     ⚠️ `aktif` alanı SİLİNMEDİ: ekranlar hâlâ onu okuyor, iki eksen bir süre
+     paralel yaşar. Yön tek yönlüdür — doğru olan `durum`, `aktif` ondan
+     türetilebilir (`Ayrıldı`/`Pasif` → false), tersi değil. */
+  employee: { 'aktif:true':'Aktif', 'aktif:false':'Pasif' }
 };
 
 /* ---- Şartnameye hizalanmış durum sözlükleri --------------------------- */
@@ -403,6 +433,12 @@ DB.requestStatuses  = ['Taslak','Gönderildi','İnceleme','Ek Bilgi/Revizyon','K
   'Reddedildi','İptal','Göreve Dönüştürüldü'];
 DB.leaveStatuses    = ['Taslak','Onay bekliyor','Onaylandı','Reddedildi','İptal edildi'];
 DB.orderStatuses    = ['Taslak','Sipariş','Kısmi Teslim','Tam Teslim','Kapandı','İade','İptal Edildi'];
+/* Personel yaşam döngüsü — şartname [4.1.4]. `İzinli` ve `Pasif` AYNI KADEMEDE
+   iki farklı sebeptir ve birleştirilmedi: `İzinli` süresi belli ve dönüşü
+   planlı bir yokluktur (izin kaydından doğar), `Pasif` süresi belirsiz bir
+   askıya almadır (ücretsiz izin, askerlik, uzun rapor). İkisini tek "çalışmıyor"
+   durumuna sıkıştırmak kapasite planlamasında dönüş tarihini yok ederdi. */
+DB.employeeStatuses = ['Taslak','Onboarding','Aktif','İzinli','Pasif','Offboarding','Ayrıldı'];
 
 /* Neden kodu sözlüğü — şartname [2.0.6] gerekçeyi neden KODU + açıklama
    olarak istiyor. Serbest metin tek başına yeterli değil; kod raporlanabilir. */
@@ -416,7 +452,17 @@ DB.reasonCodes = [
   { kod:'MUKERRER',      ad:'Mükerrer kayıt',              tur:['ret','iptal'] },
   { kod:'SURE',          ad:'Süre yetersiz',               tur:['ret','revizyon'] },
   { kod:'YONETICI_IST',  ad:'Yönetici istisnası',          tur:['istisna'] },
-  { kod:'DIGER',         ad:'Diğer (açıklama zorunlu)',    tur:['ret','iade','revizyon','iptal','geri','istisna'] }
+  /* ÇIKIŞ NEDENLERİ — şartname [4.1.4]. Ayrı bir sözlük AÇILMADI: neden kodu
+     sözlüğü burasıdır ve `tur` ekseni zaten ayırıcıdır. Paralel bir
+     `DB.exitReasons` kurmak, aynı işi iki yerde tutmak olurdu.
+     `tur:'cikis'` yalnız personel Offboarding geçişinde daralır. */
+  { kod:'ISTIFA',        ad:'İstifa',                      tur:['cikis'] },
+  { kod:'SOZLESME_BITIS',ad:'Sözleşme süresi doldu',       tur:['cikis'] },
+  { kod:'KARSILIKLI',    ad:'Karşılıklı fesih',            tur:['cikis'] },
+  { kod:'ISVEREN_FESIH', ad:'İşveren feshi',               tur:['cikis'] },
+  { kod:'EMEKLILIK',     ad:'Emeklilik',                   tur:['cikis'] },
+  { kod:'STAJ_BITIS',    ad:'Staj süresi tamamlandı',      tur:['cikis'] },
+  { kod:'DIGER',         ad:'Diğer (açıklama zorunlu)',    tur:['ret','iade','revizyon','iptal','geri','istisna','cikis'] }
 ];
 
 /* ---- Geçiş tabloları ------------------------------------------------
@@ -591,6 +637,42 @@ DB.transitions = {
     'Göreve Dönüştürüldü':  { next:[], terminal:true, turetilmis:true },
     'Reddedildi':           { next:['Gönderildi'],                            yetki:['veren'],                    zorunlu:[], gerekce:true, girisGerekce:true, etiket:'Revize Et', tone:'btn-line' },
     'İptal':                { next:[], terminal:true, girisGerekce:true }
+  },
+
+  /* PERSONEL YAŞAM DÖNGÜSÜ — şartname [4.1.4] · evrak kapısı [4.2.3]
+     -------------------------------------------------------------------
+     Ölçülen kusur: personelin tüm yaşam döngüsü TEK `aktif` boolean'ıydı.
+     Altı durumdan yalnız ikisi ifade edilebiliyordu; işe alım süreci, izinli
+     olma, askıya alınma ve çıkış süreci aynı `false` değerinin içinde
+     kayboluyordu. `DB.onboarding` bir SÜREÇ defteri tutuyordu ama personelin
+     durumuna hiç dokunmuyordu — iki kayıt yan yana yaşıyor, biri diğerini
+     doğrulamıyordu.
+
+     ⚠️ İKİ KAPI HENÜZ YAZILMADI. `personelEvrak` ve `personelZimmet` adları
+     burada SÖZLEŞME olarak duruyor; yordamları `GV.gates` içinde (domain.js)
+     tanımlanana kadar motor `if(kural.kapi && Gates[kural.kapi])` koşuluyla
+     onları SESSİZCE ATLAR. Yani kural yazılıdır ama henüz uygulanmıyor;
+     bunu bilerek ve yazılı bırakmak, uygulanmadığını gizlemekten iyidir.
+
+     ⚠️ GERİ DÖNÜŞ YOLU YOK — bilerek. `kapi` ve `zorunlu` KAYNAK durumda
+     tanımlıdır, hedefe göre daralmaz: `Offboarding` üzerine konan zimmet
+     kapısı, oradan çıkan HER hedefe uygulanırdı. Bir istifayı geri almak için
+     personele zimmetli cihazı iade ettirmek saçma olurdu; bu yüzden
+     `Offboarding` tek hedeflidir. Aynı sebeple `Onboarding` de tek hedeflidir.
+     `İzinli` girişinde gerekçe İSTENMEZ: sebebi izin kaydında (`DB.leaves`)
+     zaten yazılıdır, ikinci kez sorulması aynı bilgiyi iki yere yazardı. */
+  employee:{
+    'Taslak':      { next:['Onboarding'],                       yetki:['ik','sahip','genelmudur'], zorunlu:['girisTarihi','dep','pozisyon'], etiket:'İşe Alım Sürecini Başlat', tone:'btn-acc' },
+    'Onboarding':  { next:['Aktif'],                            yetki:['ik','sahip','genelmudur'], zorunlu:[], kapi:'personelEvrak', etiket:'Göreve Başlat', tone:'btn-ok' },
+    'Aktif':       { next:['İzinli','Pasif','Offboarding'],     yetki:['ik','sahip','genelmudur'], zorunlu:[], anaHedef:'İzinli', etiket:'İzne Ayır', tone:'btn-line' },
+    'İzinli':      { next:['Aktif','Pasif','Offboarding'],      yetki:['ik','sahip','genelmudur'], zorunlu:[], anaHedef:'Aktif', etiket:'İşe Dönüşünü İşle', tone:'btn-ok' },
+    'Pasif':       { next:['Aktif','Offboarding'],              yetki:['ik','sahip','genelmudur'], zorunlu:[], girisGerekce:true, anaHedef:'Aktif', etiket:'Yeniden Aktive Et', tone:'btn-ok' },
+    /* Çıkış tarihi ve neden kodu personel kartında KALICI alandır (rapor
+       edilebilir olsun diye), gerekçe metni ise geçiş kaydında durur.
+       `girisGerekce` bu duruma GİRERKEN neden kodu + açıklama ister;
+       `zorunlu` ise ayrılışı TAMAMLAMADAN önce iki alanın dolu olmasını. */
+    'Offboarding': { next:['Ayrıldı'],                          yetki:['ik','sahip','genelmudur'], zorunlu:['cikisTarihi','cikisNedenKodu'], girisGerekce:true, kapi:'personelZimmet', etiket:'Ayrılışı Tamamla', tone:'btn-ok' },
+    'Ayrıldı':     { next:[], terminal:true }
   }
 };
 
